@@ -1,0 +1,15 @@
+# Self-contained stack: API + SQLite on a named volume (same idea as admin-bot supportbot_db).
+services:
+  api:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8095:8090"
+    environment:
+      - OPEN_EMS_DB_PATH=/app/data/open_ems.db
+    volumes:
+      # Persists across rebuilds. Avoid `docker compose down -v` or DB file is removed.
+      - open_ems_db:/app/data
+
+volumes:
+  open_ems_db:

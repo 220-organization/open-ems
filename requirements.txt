@@ -1,0 +1,5 @@
+fastapi[standard]
+sqlalchemy>=2.0
+aiosqlite
+greenlet
+uvicorn[standard]
