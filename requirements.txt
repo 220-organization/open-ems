@@ -1,5 +1,5 @@
 fastapi[standard]
 sqlalchemy>=2.0
-aiosqlite
+asyncpg
 greenlet
 uvicorn[standard]

@@ -11,5 +11,6 @@ venv/
 .mypy_cache/
 .DS_Store
 
-# Local SQLite (Docker uses named volume)
+# Local dev SQLite artifact (legacy / optional)
 /data/
+

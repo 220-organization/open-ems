@@ -1,15 +1,42 @@
-# Self-contained stack: API + SQLite on a named volume (same idea as admin-bot supportbot_db).
+# PostgreSQL + Flyway (same migration style as Java backend: db/migration/postgres/common, V__*.sql) + API.
 services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: openems
+      POSTGRES_PASSWORD: openems
+      POSTGRES_DB: openems
+    volumes:
+      - open_ems_pgdata:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openems -d openems"]
+      interval: 3s
+      timeout: 5s
+      retries: 15
+
+  # Flyway 9.x line (Java backend uses flyway-core 9.14.1 in build.gradle)
+  migrate:
+    image: flyway/flyway:9.22.3
+    command: -url=jdbc:postgresql://db:5432/openems -user=openems -password=openems -connectRetries=60 migrate
+    volumes:
+      - ./db/migration/postgres/common:/flyway/sql
+    depends_on:
+      db:
+        condition: service_healthy
+
   api:
     build: .
     restart: unless-stopped
     ports:
       - "8095:8090"
     environment:
-      - OPEN_EMS_DB_PATH=/app/data/open_ems.db
-    volumes:
-      # Persists across rebuilds. Avoid `docker compose down -v` or DB file is removed.
-      - open_ems_db:/app/data
+      DATABASE_URL: postgresql+asyncpg://openems:openems@db:5432/openems
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
-  open_ems_db:
+  open_ems_pgdata:

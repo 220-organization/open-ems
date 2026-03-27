@@ -1,22 +1,13 @@
-from contextlib import asynccontextmanager
-
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import get_db, init_db
+from app.db import get_db
 from app.models import Note
 from app.schemas import NoteCreate, NoteRead
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    await init_db()
-    yield
-
-
-app = FastAPI(title="Open EMS", lifespan=lifespan)
+app = FastAPI(title="Open EMS")
 
 app.add_middleware(
     CORSMiddleware,
