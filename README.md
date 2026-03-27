@@ -48,3 +48,7 @@ uvicorn app.main:app --reload --port 8096
 ```
 
 See `.env.example` for the default URL shape.
+
+## License
+
+Licensed under the **GNU General Public License v3.0** — see [`LICENSE`](LICENSE).
