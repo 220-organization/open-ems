@@ -34,6 +34,7 @@ services:
       - "8095:8090"
     environment:
       DATABASE_URL: postgresql+asyncpg://openems:openems@db:5432/openems
+      B2B_API_BASE_URL: https://220-km.com:8080
     depends_on:
       migrate:
         condition: service_completed_successfully

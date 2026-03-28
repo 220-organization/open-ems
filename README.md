@@ -14,6 +14,13 @@ Startup order: **PostgreSQL** → **Flyway migrate** (one-shot) → **API**.
 - PostgreSQL (host): `localhost:5433` (user/password/db: `openems` / `openems` / `openems`)
 - Docs: http://localhost:8095/docs
 
+## Power flow (B2B-style graph)
+
+Interactive flow diagram similar to [220-km.com/b2b?graphView=1](https://220-km.com/b2b?graphView=1): live data from **`GET /b2b/public/realtime-power`** and **`GET /b2b/public/miner-power`** on 220-km.com, proxied server-side as **`/api/b2b/realtime-power`** and **`/api/b2b/miner-power`** (no browser CORS issues).
+
+- UI: http://localhost:8095/power-flow (optional query `?station=655` to filter by station)
+- Override upstream base URL: `B2B_API_BASE_URL` (default `https://220-km.com:8080`, same host/port as the main Java API behind the React app)
+
 ## Migrations
 
 Add new SQL files under `db/migration/postgres/common/`, e.g. `V2__add_example.sql` (same naming as the Java backend: `V{version}__description.sql`).
