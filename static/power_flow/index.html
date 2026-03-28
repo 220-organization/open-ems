@@ -26,6 +26,8 @@
       </header>
       <div class="pf-graph-wrap">
         <div id="pf-graph" class="pf-graph" aria-label="Схема потоків потужності">
+          <!-- In-flow 1:1 box: all overlays are position:absolute, so this reserves height in every browser -->
+          <div class="pf-graph-sizer" aria-hidden="true"></div>
           <svg
             id="pf-svg"
             class="pf-flow-svg"

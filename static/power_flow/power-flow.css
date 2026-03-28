@@ -75,19 +75,44 @@
 }
 
 .pf-graph {
+  --pf-side: min(calc((100vw - 8px) * 0.9), calc(100vmin * 0.9), 920px);
   position: relative;
-  width: min(calc((100vw - 8px) * 0.9), calc(100vmin * 0.9));
+  width: var(--pf-side);
   max-width: 920px;
-  aspect-ratio: 1;
   margin: 0 auto;
+  flex-shrink: 0;
+}
+
+/* Padding-bottom % is relative to width — stable square height with only absolute children */
+.pf-graph-sizer {
+  display: block;
+  width: 100%;
+  padding-bottom: 100%;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .pf-flow-svg {
   position: absolute;
   inset: 0;
+  z-index: 1;
   width: 100%;
   height: 100%;
   overflow: visible;
+  pointer-events: none;
+}
+
+#pf-nodes {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+#pf-nodes > * {
+  pointer-events: auto;
 }
 
 .pf-line {

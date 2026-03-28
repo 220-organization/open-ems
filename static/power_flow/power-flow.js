@@ -166,7 +166,7 @@ function computeSimulatedSources(consumptionMw, liveMinerW) {
       const spread = 5;
       solarW = Math.min(
         MAX_SOLAR_POWER_W,
-        Math.max(0, solarPeak * Math.exp(-((h - noon) / spread) ** 2)),
+        Math.max(0, solarPeak * Math.exp(-(((h - noon) / spread) ** 2))),
       );
       minerW = solarW * MIN_SOLAR_TO_MINER_PCT;
     }
@@ -245,6 +245,7 @@ let stationFilter = '';
 
 function buildNodes() {
   const host = document.getElementById('pf-nodes');
+  if (!host) return;
   host.innerHTML = `
     <div class="pf-node" data-pos="left-top" id="pf-node-solar" data-active="false">
       <span class="pf-node-icon" aria-hidden>☀️</span>
@@ -291,6 +292,7 @@ function buildNodes() {
 function buildSvgLines(svgNS) {
   const lines = document.getElementById('pf-lines');
   const dots = document.getElementById('pf-dots');
+  if (!lines || !dots) return;
   lines.innerHTML = '';
   dots.innerHTML = '';
 
@@ -544,12 +546,17 @@ async function refreshMiner() {
 }
 
 function init() {
+  if (!document.getElementById('pf-nodes') || !document.getElementById('pf-lines')) {
+    console.error('power-flow: required DOM missing');
+    return;
+  }
   const svgNS = 'http://www.w3.org/2000/svg';
   buildNodes();
   buildSvgLines(svgNS);
 
   const params = new URLSearchParams(window.location.search);
   const stationInput = document.getElementById('pf-station');
+  if (!stationInput) return;
   stationInput.value = params.get('station') || '';
   stationFilter = stationInput.value.trim();
 
@@ -563,6 +570,9 @@ function init() {
   });
 
   window.addEventListener('resize', () => render());
+  window.addEventListener('load', () => render());
+
+  requestAnimationFrame(() => render());
 
   refreshRealtime();
   refreshMiner();
