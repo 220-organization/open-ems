@@ -118,4 +118,4 @@ ssh -i ~/.ssh/open-ems-deploy/open_ems_deploy_ed25519 -o IdentitiesOnly=yes root
 Optional: set `RUN_FLYWAY_ON_START=true` and `DATABASE_URL` in the API service environment if you run the app image against an external database (Flyway runs at container start via `scripts/render_flyway_migrate.py`). The default Compose stack uses the bundled `db` service and does not need those variables for migrations (Flyway runs as the `migrate` service).
 
 - Health check: `GET /health`
-- Published API port on the host: `8095` → container `8090` (see `docker-compose.yml`).
+- Published API port on the host: `9220` → container `8090` (see `docker-compose.yml`).
