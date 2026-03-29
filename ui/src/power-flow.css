@@ -202,6 +202,12 @@ a.pf-node {
   cursor: pointer;
 }
 
+.pf-node-ev-disabled {
+  opacity: 0.5;
+  filter: grayscale(0.25);
+  cursor: not-allowed;
+}
+
 .pf-node button {
   background: none;
   border: none;
@@ -304,12 +310,45 @@ a.pf-node {
   outline: 2px solid var(--pf-pink-soft);
 }
 
+/* ~60 bpm: one cardiac cycle per second; short S1–S2 double bump then diastole */
+@keyframes pf-hub-heartbeat {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 10px rgba(252, 1, 155, 0.32));
+  }
+  6% {
+    transform: scale(1.08);
+    filter: drop-shadow(0 0 18px rgba(252, 1, 155, 0.52));
+  }
+  12% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 10px rgba(252, 1, 155, 0.32));
+  }
+  20% {
+    transform: scale(1.13);
+    filter: drop-shadow(0 0 24px rgba(252, 1, 155, 0.68));
+  }
+  32% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 10px rgba(252, 1, 155, 0.32));
+  }
+}
+
 .pf-hub-logo {
   display: block;
   width: 40px;
   height: 40px;
   object-fit: contain;
+  transform-origin: center center;
   filter: drop-shadow(0 0 10px rgba(252, 1, 155, 0.32));
+  animation: pf-hub-heartbeat 1s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pf-hub-logo {
+    animation: none;
+  }
 }
 
 .pf-hub-label {

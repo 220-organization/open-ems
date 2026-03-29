@@ -21,6 +21,7 @@ Local production-style bundle: `cd ui && npm run build` (optional sanity check).
 | What | URL |
 |------|-----|
 | Power flow UI (React dev) | [http://localhost:9220/](http://localhost:9220/) (`./run-local.sh`) |
+| DAM chart (React dev) | [http://localhost:9220/dam-chart](http://localhost:9220/dam-chart) |
 | REST API (local dev) | [http://localhost:9221/](http://localhost:9221/) (JSON index; Swagger at `/docs`) |
 | OpenAPI (Swagger UI) | [http://localhost:9221/docs](http://localhost:9221/docs) |
 | Health | `GET http://localhost:9221/health` |
@@ -31,7 +32,18 @@ Local production-style bundle: `cd ui && npm run build` (optional sanity check).
 
 Default DB connection is `postgresql+asyncpg://openems:openems@127.0.0.1:5433/openems` (override with `DATABASE_URL`).
 
-The API loads **`open-ems/.env`** automatically (`python-dotenv`), so `DEYE_*`, `B2B_API_BASE_URL`, etc. apply without `export` in the shell. Do not commit real secrets; keep `.env` local (gitignored).
+The API loads **`open-ems/.env`** automatically (`python-dotenv`), so `DEYE_*`, `B2B_API_BASE_URL`, `OREE_*`, etc. apply without `export` in the shell. Do not commit real secrets; keep `.env` local (gitignored).
+
+### DAM chart (OREE + 220-km public kWh)
+
+The **`/dam-chart`** page loads **hourly EV kWh** from the upstream **`GET /b2b/public/day-kwh`** field **`hourlyKwh220`** only (same host as `B2B_API_BASE_URL`). **DAM (day-ahead)** hourly prices are read from the local table **`oree_dam_price`** (Flyway **`V2__oree_dam_price.sql`**). Populate with **`POST /api/dam/sync`** (OREE pull + upsert) or rely on on-demand sync when the selected day is **tomorrow** in **Europe/Kiev** and the key is set.
+
+| Variable | Description |
+|----------|-------------|
+| `OREE_API_KEY` | OREE API key header **`X-API-KEY`** (required for sync and for a non-empty DAM line when DB has no rows) |
+| `OREE_API_BASE_URL` | Optional. Default `https://api.oree.com.ua/index.php/api` |
+| `OREE_API_DAM_PRICES_PATH` | Optional. Default `/damprices` |
+| `OREE_COMPARE_ZONE_EIC` | Optional. Default `10Y1001C--000182` (UA IPS integration zone) |
 
 ### Deye inverter list (Power flow)
 
@@ -79,8 +91,12 @@ Deployment path on the server: `/220/open-ems`. The workflow connects as **`root
 | `DEYE_EMAIL` | Deye account email |
 | `DEYE_PASSWORD` | Plain login password (app hashes SHA-256 for token) |
 | `DEYE_COMPANY_ID` | Optional; defaults to `0` if secret missing |
+| `OREE_API_KEY` | OREE DAM API key for `POST /api/dam/sync` and DAM line on `/dam-chart` (optional) |
+| `OREE_API_BASE_URL` | Optional OREE base URL (workflow default matches `docker-compose`) |
+| `OREE_API_DAM_PRICES_PATH` | Optional path (default `/damprices`) |
+| `OREE_COMPARE_ZONE_EIC` | Optional bidding zone EIC (default UA IPS integration) |
 
-Without the `DEYE_*` secrets, the inverter dropdown stays empty on the server even if it works locally.
+Without the `DEYE_*` secrets, the inverter dropdown stays empty on the server even if it works locally. Without **`OREE_API_KEY`**, DAM prices are not synced and the chart DAM line stays empty unless rows were loaded elsewhere.
 
 ### 1. Generate SSH key pair (on your laptop or admin machine)
 

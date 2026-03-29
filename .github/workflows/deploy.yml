@@ -113,6 +113,10 @@ jobs:
           DEYE_EMAIL: ${{ secrets.DEYE_EMAIL }}
           DEYE_PASSWORD: ${{ secrets.DEYE_PASSWORD }}
           DEYE_COMPANY_ID: ${{ secrets.DEYE_COMPANY_ID }}
+          OREE_API_BASE_URL: ${{ secrets.OREE_API_BASE_URL }}
+          OREE_API_DAM_PRICES_PATH: ${{ secrets.OREE_API_DAM_PRICES_PATH }}
+          OREE_API_KEY: ${{ secrets.OREE_API_KEY }}
+          OREE_COMPARE_ZONE_EIC: ${{ secrets.OREE_COMPARE_ZONE_EIC }}
         run: |
           set -e
           umask 077
@@ -125,6 +129,10 @@ jobs:
             printf '%s\n' "DEYE_EMAIL=${DEYE_EMAIL}"
             printf '%s\n' "DEYE_PASSWORD=${DEYE_PASSWORD}"
             printf '%s\n' "DEYE_COMPANY_ID=${DEYE_COMPANY_ID:-0}"
+            printf '%s\n' "OREE_API_BASE_URL=${OREE_API_BASE_URL:-https://api.oree.com.ua/index.php/api}"
+            printf '%s\n' "OREE_API_DAM_PRICES_PATH=${OREE_API_DAM_PRICES_PATH:-/damprices}"
+            printf '%s\n' "OREE_API_KEY=${OREE_API_KEY:-}"
+            printf '%s\n' "OREE_COMPARE_ZONE_EIC=${OREE_COMPARE_ZONE_EIC:-10Y1001C--000182}"
           } > /tmp/open-ems-deploy.env
           test -s /tmp/open-ems-deploy.env
       # appleboy/scp-action often creates a *directory* named like the target and nests the file

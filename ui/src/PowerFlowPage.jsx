@@ -355,6 +355,8 @@ export default function PowerFlowPage({
   const sim = computeSimulatedSources(consumptionMw, liveMinerW);
 
   const { solarW, gridW, essW, minerW, consumptionW } = sim;
+  /** Aggregate EV charging (B2B) is misleading next to a single Deye site — hide when an inverter is selected. */
+  const showEvAggregate = !selInverterSn;
   const useLiveEss =
     Boolean(selInverterSn) &&
     deyeLive?.batteryPowerW != null &&
@@ -370,7 +372,7 @@ export default function PowerFlowPage({
   const loadFlowActive = displayLoadW != null && displayLoadW > 0;
   const gridSelling = gridW < 0;
   const hasFlow =
-    consumptionW > 0 ||
+    (showEvAggregate && consumptionW > 0) ||
     minerW > 0 ||
     displayEssW !== 0 ||
     gridW !== 0 ||
@@ -414,7 +416,8 @@ export default function PowerFlowPage({
     minerLabel += ` (${minerSnap.workersActive}/${minerSnap.workersTotal})`;
   }
 
-  const evBusy = realtimePower == null && loadError === '';
+  const evBusy = showEvAggregate && realtimePower == null && loadError === '';
+  const evFlowActive = showEvAggregate && consumptionW > 0;
   const qrBase = process.env.PUBLIC_URL || '';
 
   const essSocHasKey =
@@ -484,6 +487,9 @@ export default function PowerFlowPage({
               onChange={onStationChange}
             />
           </label>
+          <a className="pf-nav-link" href="/dam-chart">
+            {t('damNavLink')}
+          </a>
           <select
             id="pf-lang"
             className="pf-lang-select"
@@ -576,7 +582,7 @@ export default function PowerFlowPage({
                 <line
                   id="pf-line-cons"
                   className="pf-line"
-                  data-active={hasFlow && consumptionW > 0 ? 'true' : 'false'}
+                  data-active={evFlowActive ? 'true' : 'false'}
                   x1={geom.consumptionLine.start.x}
                   y1={geom.consumptionLine.start.y}
                   x2={geom.consumptionLine.end.x}
@@ -631,7 +637,7 @@ export default function PowerFlowPage({
                 </g>
                 <g
                   id="pf-dot-cons"
-                  style={{ display: hasFlow && consumptionW > 0 ? undefined : 'none' }}
+                  style={{ display: evFlowActive ? undefined : 'none' }}
                 >
                   <MotionDot
                     pathD={flowMotionPath(
@@ -779,23 +785,41 @@ export default function PowerFlowPage({
                     : ''}
                 </div>
               </a>
-              <a
-                className="pf-node"
-                data-pos="right-bottom"
-                id="pf-node-ev"
-                href={EV_LIST_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                data-active={hasFlow && consumptionW > 0 ? 'true' : 'false'}
-              >
-                <span className="pf-node-icon" aria-hidden>
-                  🚗
-                </span>
-                <span className="pf-node-label">{t('nodeEv')}</span>
-                <span className="pf-node-value" id="pf-val-ev">
-                  {evBusy ? '…' : formatPower(consumptionW, t, bcp47)}
-                </span>
-              </a>
+              {showEvAggregate ? (
+                <a
+                  className="pf-node"
+                  data-pos="right-bottom"
+                  id="pf-node-ev"
+                  href={EV_LIST_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-active={evFlowActive ? 'true' : 'false'}
+                >
+                  <span className="pf-node-icon" aria-hidden>
+                    🚗
+                  </span>
+                  <span className="pf-node-label">{t('nodeEv')}</span>
+                  <span className="pf-node-value" id="pf-val-ev">
+                    {evBusy ? '…' : formatPower(consumptionW, t, bcp47)}
+                  </span>
+                </a>
+              ) : (
+                <div
+                  className="pf-node pf-node-ev-disabled"
+                  data-pos="right-bottom"
+                  id="pf-node-ev"
+                  data-active="false"
+                  title={t('evHiddenByInverter')}
+                >
+                  <span className="pf-node-icon" aria-hidden>
+                    🚗
+                  </span>
+                  <span className="pf-node-label">{t('nodeEv')}</span>
+                  <span className="pf-node-value" id="pf-val-ev">
+                    {formatPower(null, t, bcp47)}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
           <div id="pf-error" className="pf-error" hidden={!loadError}>

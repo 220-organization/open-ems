@@ -11,10 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.models import Note
-from app.routers import b2b_proxy, deye_proxy
+from app.routers import b2b_proxy, dam, deye_proxy
 from app.schemas import NoteCreate, NoteRead
 from app import settings
 from app.deye_api import deye_configured, deye_missing_env_names
+from app.oree_dam_service import oree_dam_configured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 UI_BUILD = BASE_DIR / "ui" / "build"
@@ -35,12 +36,16 @@ async def lifespan(app: FastAPI):
             "Deye API: not configured — set env: %s",
             ", ".join(missing) if missing else "DEYE_APP_ID, DEYE_APP_SECRET, DEYE_EMAIL, DEYE_PASSWORD",
         )
+    if oree_dam_configured():
+        logger.info("OREE DAM: OREE_API_KEY set (base: %s)", settings.OREE_API_BASE_URL)
+    else:
+        logger.warning("OREE DAM: not configured — set OREE_API_KEY for DAM sync and chart line")
     yield
     logger.info("Open EMS shutting down")
 
 
 _spa_desc = (
-    "Power flow UI (React): [/](/) and [/power-flow](/power-flow). API docs: [/docs](/docs)."
+    "Power flow UI (React): [/](/), [/power-flow](/power-flow), [/dam-chart](/dam-chart). API docs: [/docs](/docs)."
     if settings.OPEN_EMS_SERVE_SPA
     else "REST API only — run the CRA dev server for the Power flow UI. API docs: [/docs](/docs)."
 )
@@ -60,6 +65,7 @@ app.add_middleware(
 
 app.include_router(b2b_proxy.router)
 app.include_router(deye_proxy.router)
+app.include_router(dam.router)
 
 # Production / `npm run build`: serve CRA output only (no legacy static HTML).
 # Local dev: OPEN_EMS_SERVE_SPA=0 — API only; UI from `npm start`.
@@ -83,6 +89,10 @@ if settings.OPEN_EMS_SERVE_SPA:
 
     @app.get("/power-flow", include_in_schema=False)
     async def power_flow_page() -> FileResponse:
+        return _react_spa_index()
+
+    @app.get("/dam-chart", include_in_schema=False)
+    async def dam_chart_page() -> FileResponse:
         return _react_spa_index()
 else:
 

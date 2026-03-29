@@ -1,0 +1,130 @@
+/* DAM chart page — same neon palette as power-flow */
+
+.dam-page .dam-root {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.dam-header {
+  align-items: center;
+}
+
+.dam-header-left {
+  flex: 1;
+  min-width: 140px;
+}
+
+.pf-nav-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--pf-border);
+  background: var(--pf-surface);
+  color: var(--pf-value);
+  text-decoration: none;
+  font-size: 14px;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.pf-nav-link:hover {
+  border-color: rgba(252, 1, 155, 0.5);
+  color: var(--pf-label);
+}
+
+.dam-date-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dam-date-btn {
+  appearance: none;
+  background: var(--pf-surface);
+  border: 1px solid var(--pf-border);
+  border-radius: 10px;
+  color: var(--pf-label);
+  width: 40px;
+  height: 40px;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.dam-date-btn:hover {
+  border-color: rgba(252, 1, 155, 0.45);
+}
+
+.dam-date-input {
+  background: var(--pf-surface);
+  border: 1px solid var(--pf-border);
+  border-radius: 10px;
+  color: var(--pf-label);
+  padding: 8px 12px;
+  font-size: 14px;
+  color-scheme: dark;
+}
+
+.dam-banner {
+  margin: 0 4px 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.dam-banner-warn {
+  background: rgba(234, 179, 8, 0.12);
+  border: 1px solid rgba(234, 179, 8, 0.35);
+  color: #fde68a;
+}
+
+.dam-banner-info {
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  color: #86efac;
+}
+
+.dam-chart-card {
+  flex: 1;
+  margin: 0 4px;
+  padding: 16px 12px 24px;
+  background: var(--pf-surface);
+  border: 1px solid var(--pf-border);
+  border-radius: 16px;
+}
+
+.dam-title {
+  margin: 0 0 6px;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--pf-label);
+}
+
+.dam-subtitle {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: rgba(255, 248, 252, 0.62);
+  line-height: 1.45;
+}
+
+.dam-error {
+  color: #fca5a5;
+  font-size: 14px;
+  margin: 0 0 12px;
+}
+
+.dam-loading {
+  color: rgba(255, 248, 252, 0.65);
+  font-size: 14px;
+}
+
+.dam-recharts-wrap {
+  width: 100%;
+  min-height: 420px;
+}
+
+.dam-recharts-wrap .recharts-default-legend {
+  font-size: 12px;
+}
