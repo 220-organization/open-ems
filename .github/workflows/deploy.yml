@@ -12,6 +12,31 @@ jobs:
       - name: pack sources
         run: |
           tar --exclude='./.git' --exclude='./.venv' -czf /tmp/open-ems.tgz .
+      - name: ensure Docker on server
+        uses: fifsky/ssh-action@master
+        with:
+          command: |
+            set -e
+            if ! command -v docker >/dev/null 2>&1; then
+              echo "Docker CLI not found; installing docker.io ..."
+              apt-get update -qq
+              DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io
+              systemctl enable --now docker 2>/dev/null || true
+            fi
+            if ! docker compose version >/dev/null 2>&1; then
+              echo "docker compose (v2) not found; installing docker-compose-v2 ..."
+              apt-get update -qq
+              DEBIAN_FRONTEND=noninteractive apt-get install -y docker-compose-v2 || true
+            fi
+            if ! docker compose version >/dev/null 2>&1; then
+              echo "ERROR: docker compose v2 is required. Install docker-compose-v2 or Docker Compose plugin on the server." >&2
+              exit 1
+            fi
+            docker --version
+            docker compose version
+          host: 65.108.212.26
+          user: root
+          key: ${{ secrets.PRIVATE_KEY }}
       - name: clean remote tree
         uses: fifsky/ssh-action@master
         with:
