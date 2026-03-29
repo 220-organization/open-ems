@@ -5,39 +5,36 @@ cd "$(dirname "$0")"
 
 # Local API against Docker PostgreSQL + Flyway migrations (see README / docker-compose.yml).
 # WSL/Ubuntu/macOS: requires Docker Compose v2.
+#
+# Fixed dev layout: CRA (Power flow UI) on 9220, FastAPI on 9221. Re-run kills listeners first.
+# Override: UI_PORT=9330 API_PORT=9331 ./run-local.sh
 
 export DATABASE_URL="${DATABASE_URL:-postgresql+asyncpg://openems:openems@127.0.0.1:5433/openems}"
 
-# Default 9220 avoids clashes with other tools on 8090 (e.g. admin-portal). Override: PORT=8090 ./run-local.sh
-_port_busy() {
+UI_PORT="${UI_PORT:-9220}"
+API_PORT="${API_PORT:-9221}"
+export PORT="${API_PORT}"
+
+# API process does not serve legacy / built HTML; UI is only from the CRA dev server.
+export OPEN_EMS_SERVE_SPA=0
+
+_kill_listeners_on_tcp_port() {
   local p="$1"
-  if command -v lsof >/dev/null 2>&1; then
-    lsof -i ":${p}" -sTCP:LISTEN >/dev/null 2>&1
-  else
-    # No lsof: try a quick bash /dev/tcp check (connect fails if nothing listens)
-    if command -v timeout >/dev/null 2>&1; then
-      timeout 0.1 bash -c "echo > /dev/tcp/127.0.0.1/${p}" 2>/dev/null
-    else
-      (echo > /dev/tcp/127.0.0.1/${p}) 2>/dev/null
-    fi
+  if ! command -v lsof >/dev/null 2>&1; then
+    return 0
   fi
+  lsof -ti "tcp:${p}" | xargs kill -9 2>/dev/null || true
 }
 
-_resolve_port() {
-  local want="${PORT:-9220}"
-  local p
-  for p in $(seq "${want}" $((want + 30))); do
-    if ! _port_busy "${p}"; then
-      echo "${p}"
-      return 0
-    fi
-  done
-  echo "No free TCP port found from ${want} upward (30 tries)." >&2
-  return 1
-}
+echo "Stopping existing processes on Open EMS dev ports (UI ${UI_PORT}, API ${API_PORT}, legacy 3090)…" >&2
+_kill_listeners_on_tcp_port "${UI_PORT}"
+_kill_listeners_on_tcp_port "${API_PORT}"
+_kill_listeners_on_tcp_port "3090"
+sleep 1
 
-PORT="$(_resolve_port)"
-export PORT
+if ! command -v lsof >/dev/null 2>&1; then
+  echo "Note: lsof not found — install it to auto-free ports when re-running this script." >&2
+fi
 
 docker compose up -d db
 
@@ -63,7 +60,7 @@ source .venv/bin/activate
 pip install -q -r requirements.txt
 
 _open_swagger_ui() {
-  local url="http://127.0.0.1:${PORT}/docs"
+  local url="http://127.0.0.1:${API_PORT}/docs"
   if [[ -n "${BROWSER:-}" ]]; then
     "$BROWSER" "$url" 2>/dev/null && return
   fi
@@ -89,7 +86,7 @@ _open_swagger_ui() {
 }
 
 _wait_for_openapi() {
-  local url="http://127.0.0.1:${PORT}/openapi.json"
+  local url="http://127.0.0.1:${API_PORT}/openapi.json"
   local i
   for i in $(seq 1 150); do
     if command -v curl >/dev/null 2>&1 && curl -sf --connect-timeout 1 --max-time 2 "$url" >/dev/null; then
@@ -105,26 +102,45 @@ _wait_for_openapi() {
   return 1
 }
 
-# Dev autoreload: uvicorn --reload watches app/ only (fast, ignores .venv and static noise).
-# Disable: UVICORN_RELOAD=0 ./run-local.sh
 UVICORN_RELOAD="${UVICORN_RELOAD:-1}"
 RELOAD_ARGS=()
 if [[ "${UVICORN_RELOAD}" != "0" ]]; then
   RELOAD_ARGS=(--reload --reload-dir "${PWD}/app")
-  echo "Dev autoreload: on (Python under app/). Disable with UVICORN_RELOAD=0" >&2
+  echo "FastAPI: autoreload on (uvicorn --reload, dir app/). Disable with UVICORN_RELOAD=0" >&2
 else
-  echo "Dev autoreload: off (UVICORN_RELOAD=0)" >&2
+  echo "FastAPI: autoreload off (UVICORN_RELOAD=0)" >&2
 fi
 
-echo "Starting API at http://127.0.0.1:${PORT} (Swagger at /docs)"
-echo "React Power flow UI: ./run-open-ems-ui.sh — use REACT_APP_API_BASE_URL=http://127.0.0.1:${PORT}" >&2
-uvicorn app.main:app "${RELOAD_ARGS[@]}" --host 0.0.0.0 --port "${PORT}" &
+_cleanup_local_procs() {
+  [[ -n "${UVICORN_PID:-}" ]] && kill -TERM "${UVICORN_PID}" 2>/dev/null || true
+  [[ -n "${UI_PID:-}" ]] && kill -TERM "${UI_PID}" 2>/dev/null || true
+}
+trap '_cleanup_local_procs' INT TERM EXIT
+
+echo "Starting API at http://127.0.0.1:${API_PORT} (Swagger at /docs)" >&2
+echo "Starting React dev (Fast Refresh) at http://127.0.0.1:${UI_PORT} → API http://127.0.0.1:${API_PORT}" >&2
+uvicorn app.main:app "${RELOAD_ARGS[@]}" --host 0.0.0.0 --port "${API_PORT}" &
 UVICORN_PID=$!
-trap 'kill -TERM "${UVICORN_PID}" 2>/dev/null || true' INT TERM
+
+if [[ ! -d ui/node_modules ]]; then
+  echo "Installing UI dependencies (ui/)…" >&2
+  (cd ui && npm install)
+fi
+(
+  cd ui
+  export REACT_APP_API_BASE_URL="${REACT_APP_API_BASE_URL:-http://127.0.0.1:${API_PORT}}"
+  export PORT="${UI_PORT}"
+  export FAST_REFRESH=true
+  if grep -qi microsoft /proc/version 2>/dev/null; then
+    export CHOKIDAR_USEPOLLING=true
+    export WATCHPACK_POLLING=true
+  fi
+  exec npm start
+) &
+UI_PID=$!
 
 _wait_for_openapi || true
 echo "Opening Swagger UI in the default browser…"
 _open_swagger_ui || true
 
 wait "${UVICORN_PID}"
-trap - INT TERM

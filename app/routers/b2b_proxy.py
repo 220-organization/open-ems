@@ -5,12 +5,16 @@ from typing import Any, Optional
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import JSONResponse
 
 from app.settings import B2B_API_BASE_URL
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/b2b", tags=["b2b-proxy"])
+
+# Avoid stale dashboards: browsers may cache GET; power-flow polls these every few seconds.
+_NO_STORE_CACHE = {"Cache-Control": "no-store, max-age=0, must-revalidate"}
 
 
 async def _proxy_get(path: str, params: Optional[dict[str, str]] = None) -> Any:
@@ -45,10 +49,12 @@ async def realtime_power(
     params = {}
     if station is not None and station != "":
         params["station"] = station
-    return await _proxy_get("/b2b/public/realtime-power", params if params else None)
+    data = await _proxy_get("/b2b/public/realtime-power", params if params else None)
+    return JSONResponse(content=data, headers=_NO_STORE_CACHE)
 
 
 @router.get("/miner-power")
 async def miner_power() -> Any:
     """Proxies GET /b2b/public/miner-power — Binance Pool miner snapshot when configured."""
-    return await _proxy_get("/b2b/public/miner-power")
+    data = await _proxy_get("/b2b/public/miner-power")
+    return JSONResponse(content=data, headers=_NO_STORE_CACHE)

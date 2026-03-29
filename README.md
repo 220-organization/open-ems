@@ -8,22 +8,20 @@ From this directory:
 ./run-local.sh
 ```
 
-The script starts PostgreSQL (Docker), runs Flyway migrations, then **uvicorn** on a free TCP port beginning at **9220** (change the base port with `PORT=8090 ./run-local.sh` if needed).
+The script frees the default dev ports (listeners are killed, including legacy **3090**), starts PostgreSQL (Docker), runs Flyway migrations, then **uvicorn** with **`--reload`** on **9221** and the **React dev server** (Create React App, Fast Refresh) on **9220**. The API does not serve the old HTML/SPA in this mode (`OPEN_EMS_SERVE_SPA=0`). Override ports with `API_PORT=…` and `UI_PORT=…`.
 
-### Power flow frontend (React — same pattern as `admin-portal/ui`)
+Re-run `./run-local.sh` anytime: old listeners on those ports are killed first, then both dev processes start again.
 
-1. Start the API: `./run-local.sh` (note the printed port if it is not 9220).
-2. In another terminal: `./run-open-ems-ui.sh` — **Create React App** dev server on **3090** by default (override with `UI_PORT=...`).
-3. Copy `ui/.env.example` → `ui/.env` and set `REACT_APP_API_BASE_URL` to match the API (e.g. `http://127.0.0.1:9220`).
+Optional: copy `ui/.env.example` → `ui/.env` only if you need overrides; otherwise `run-local.sh` sets `REACT_APP_API_BASE_URL=http://127.0.0.1:9221`.
 
-Production build (optional): `cd ui && npm run build`. If `ui/build/` exists, FastAPI serves the React app at `/` and `/power-flow` and mounts `ui/build/static` at `/static`. Until you build, the legacy static page under `static/power_flow/` is used when no `ui/build` is present.
+Production build (optional): `cd ui && npm run build`. In **Docker** (unset `OPEN_EMS_SERVE_SPA` or set it true), FastAPI serves the React app at `/` and `/power-flow` and mounts `ui/build/static` at `/static`. Until you build, the legacy static page under `static/power_flow/` is used when no `ui/build` is present.
 
 | What | URL |
 |------|-----|
-| Power flow UI (React dev) | [http://localhost:3090/](http://localhost:3090/) (`./run-open-ems-ui.sh`) |
-| API only (legacy HTML or SPA after `npm run build`) | [http://localhost:9220/](http://localhost:9220/) |
-| OpenAPI (Swagger UI) | [http://localhost:9220/docs](http://localhost:9220/docs) |
-| Health | `GET http://localhost:9220/health` |
+| Power flow UI (React dev) | [http://localhost:9220/](http://localhost:9220/) (`./run-local.sh`) |
+| REST API (local dev) | [http://localhost:9221/](http://localhost:9221/) (JSON index; Swagger at `/docs`) |
+| OpenAPI (Swagger UI) | [http://localhost:9221/docs](http://localhost:9221/docs) |
+| Health | `GET http://localhost:9221/health` |
 
 **Public Power flow:** [https://220-km.com:9220/](https://220-km.com:9220/)
 

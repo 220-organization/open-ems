@@ -517,13 +517,13 @@ function render() {
 
 async function fetchRealtime() {
   const q = stationFilter ? `?station=${encodeURIComponent(stationFilter)}` : '';
-  const r = await fetch(`/api/b2b/realtime-power${q}`);
+  const r = await fetch(`/api/b2b/realtime-power${q}`, { cache: 'no-store' });
   if (!r.ok) throw new Error((await r.text()) || r.statusText);
   realtimePower = await r.json();
 }
 
 async function fetchMiner() {
-  const r = await fetch('/api/b2b/miner-power');
+  const r = await fetch('/api/b2b/miner-power', { cache: 'no-store' });
   if (!r.ok) throw new Error((await r.text()) || r.statusText);
   minerSnap = await r.json();
 }
@@ -561,7 +561,7 @@ async function setupInverterSelect() {
   if (!sel) return;
 
   try {
-    const r = await fetch('/api/deye/inverters');
+    const r = await fetch('/api/deye/inverters', { cache: 'no-store' });
     let data = {};
     try {
       data = await r.json();

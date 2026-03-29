@@ -90,13 +90,13 @@ export default function PowerFlowPage({
 
   const fetchRealtime = useCallback(async () => {
     const q = stationFilter.trim() ? `?station=${encodeURIComponent(stationFilter.trim())}` : '';
-    const r = await fetch(apiUrl(`/api/b2b/realtime-power${q}`));
+    const r = await fetch(apiUrl(`/api/b2b/realtime-power${q}`), { cache: 'no-store' });
     if (!r.ok) throw new Error((await r.text()) || r.statusText);
     return r.json();
   }, [stationFilter]);
 
   const fetchMiner = useCallback(async () => {
-    const r = await fetch(apiUrl('/api/b2b/miner-power'));
+    const r = await fetch(apiUrl('/api/b2b/miner-power'), { cache: 'no-store' });
     if (!r.ok) throw new Error((await r.text()) || r.statusText);
     return r.json();
   }, []);
@@ -155,9 +155,9 @@ export default function PowerFlowPage({
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    const loadInverters = async () => {
       try {
-        const r = await fetch(apiUrl('/api/deye/inverters'));
+        const r = await fetch(apiUrl('/api/deye/inverters'), { cache: 'no-store' });
         const data = await r.json().catch(() => ({}));
         if (cancelled) return;
         if (!r.ok) {
@@ -175,9 +175,12 @@ export default function PowerFlowPage({
           setInverterRows({ loading: false, configured: false, items: [], error: true });
         }
       }
-    })();
+    };
+    loadInverters();
+    const id = setInterval(loadInverters, 60_000);
     return () => {
       cancelled = true;
+      clearInterval(id);
     };
   }, []);
 

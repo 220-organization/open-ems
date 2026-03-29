@@ -41,9 +41,14 @@ async def lifespan(app: FastAPI):
     logger.info("Open EMS shutting down")
 
 
+_spa_desc = (
+    "Power flow UI: [/](/) and [/power-flow](/power-flow). API docs: [/docs](/docs)."
+    if settings.OPEN_EMS_SERVE_SPA
+    else "REST API only — run the CRA dev server for the Power flow UI. API docs: [/docs](/docs)."
+)
 app = FastAPI(
     title="Open EMS",
-    description="Power flow UI: [/](/) and [/power-flow](/power-flow). API docs: [/docs](/docs).",
+    description=_spa_desc,
     lifespan=lifespan,
 )
 
@@ -58,44 +63,54 @@ app.add_middleware(
 app.include_router(b2b_proxy.router)
 app.include_router(deye_proxy.router)
 
-# Production / `npm run build`: CRA emits assets under build/static/ (includes power-flow images from public/).
-if UI_STATIC.is_dir():
-    app.mount("/static", StaticFiles(directory=str(UI_STATIC)), name="ui_static")
-elif STATIC_POWER_FLOW.is_dir():
-    app.mount(
-        "/static/power-flow",
-        StaticFiles(directory=str(STATIC_POWER_FLOW)),
-        name="power_flow_static",
-    )
+# Production / `npm run build`: serve built assets and SPA from this process (Docker).
+# Local dev with OPEN_EMS_SERVE_SPA=0: API only; UI runs on the CRA dev server (e.g. port 9220).
+if settings.OPEN_EMS_SERVE_SPA:
+    if UI_STATIC.is_dir():
+        app.mount("/static", StaticFiles(directory=str(UI_STATIC)), name="ui_static")
+    elif STATIC_POWER_FLOW.is_dir():
+        app.mount(
+            "/static/power-flow",
+            StaticFiles(directory=str(STATIC_POWER_FLOW)),
+            name="power_flow_static",
+        )
 
+    _SPA_INDEX_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate"}
 
-def _react_spa_index() -> Optional[FileResponse]:
-    if REACT_INDEX.is_file():
-        return FileResponse(REACT_INDEX)
-    return None
+    def _react_spa_index() -> Optional[FileResponse]:
+        if REACT_INDEX.is_file():
+            return FileResponse(REACT_INDEX, headers=_SPA_INDEX_CACHE)
+        return None
 
+    def _power_flow_file_response() -> FileResponse:
+        index = STATIC_POWER_FLOW / "index.html"
+        if not index.is_file():
+            raise HTTPException(status_code=404, detail="Power flow UI not found")
+        return FileResponse(index, headers=_SPA_INDEX_CACHE)
 
-def _power_flow_file_response() -> FileResponse:
-    index = STATIC_POWER_FLOW / "index.html"
-    if not index.is_file():
-        raise HTTPException(status_code=404, detail="Power flow UI not found")
-    return FileResponse(index)
+    @app.get("/", include_in_schema=False)
+    async def root() -> FileResponse:
+        spa = _react_spa_index()
+        if spa is not None:
+            return spa
+        return _power_flow_file_response()
 
+    @app.get("/power-flow", include_in_schema=False)
+    async def power_flow_page() -> FileResponse:
+        spa = _react_spa_index()
+        if spa is not None:
+            return spa
+        return _power_flow_file_response()
+else:
 
-@app.get("/", include_in_schema=False)
-async def root() -> FileResponse:
-    spa = _react_spa_index()
-    if spa is not None:
-        return spa
-    return _power_flow_file_response()
-
-
-@app.get("/power-flow", include_in_schema=False)
-async def power_flow_page() -> FileResponse:
-    spa = _react_spa_index()
-    if spa is not None:
-        return spa
-    return _power_flow_file_response()
+    @app.get("/", include_in_schema=False)
+    async def root() -> dict[str, str]:
+        return {
+            "service": "Open EMS API",
+            "docs": "/docs",
+            "openapi": "/openapi.json",
+            "health": "/health",
+        }
 
 
 @app.get("/health")

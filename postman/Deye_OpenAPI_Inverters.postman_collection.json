@@ -16,7 +16,7 @@
     { "key": "access_token", "value": "", "type": "string" },
     { "key": "list_page", "value": "1", "type": "string" },
     { "key": "list_size", "value": "50", "type": "string" },
-    { "key": "open_ems_base", "value": "http://127.0.0.1:9220", "type": "string" }
+    { "key": "open_ems_base", "value": "http://127.0.0.1:9221", "type": "string" }
   ],
   "item": [
     {
