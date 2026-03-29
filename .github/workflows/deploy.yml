@@ -12,9 +12,26 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - uses: actions/checkout@v6
+      # Same check as Dockerfile.ui (npm ci). Fails early if package.json and package-lock.json drift.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: Validate UI lockfile (npm ci — must match Docker web build)
+        run: |
+          set -euo pipefail
+          cd ui
+          rm -rf node_modules
+          npm ci
       - name: pack sources
         run: |
-          tar --exclude='./.git' --exclude='./.venv' -czf /tmp/open-ems.tgz .
+          tar \
+            --exclude='./.git' \
+            --exclude='./.venv' \
+            --exclude='./ui/node_modules' \
+            --exclude='./ui/build' \
+            -czf /tmp/open-ems.tgz .
       - name: ensure Docker on server
         uses: fifsky/ssh-action@master
         with:
