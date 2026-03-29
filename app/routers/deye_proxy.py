@@ -10,6 +10,7 @@ from app.deye_api import (
     deye_configured,
     deye_missing_env_names,
     fetch_device_soc_percent,
+    get_live_metrics_cached,
     get_soc_map_cached,
     list_inverter_devices,
 )
@@ -89,6 +90,46 @@ async def get_inverter_soc(
         )
     except Exception as exc:
         logger.exception("GET /api/deye/soc — failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/ess-power")
+async def get_ess_power(
+    deviceSn: str = Query(
+        ...,
+        min_length=6,
+        max_length=32,
+        pattern=r"^[0-9]+$",
+        description="Deye inverter serial (selected in Power flow UI)",
+    ),
+):
+    """
+    Live metrics from POST /device/latest (same response): batteryPowerW signed (positive = discharge),
+    loadPowerW non-negative (home/AC load). Cached ~25s. Either field may be null if not in dataList.
+    """
+    if not deye_configured():
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": False,
+                "batteryPowerW": None,
+                "loadPowerW": None,
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    try:
+        bat, load_w = await get_live_metrics_cached(deviceSn)
+        return JSONResponse(
+            content={
+                "ok": True,
+                "configured": True,
+                "batteryPowerW": bat,
+                "loadPowerW": load_w,
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    except Exception as exc:
+        logger.exception("GET /api/deye/ess-power — failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 

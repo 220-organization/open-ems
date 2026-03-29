@@ -19,10 +19,12 @@ _token: Optional[str] = None
 _token_expires_at: float = 0.0
 _lock = asyncio.Lock()
 
-# Inverter SoC % from POST /device/latest — TTL cache (seconds).
+# Inverter SoC %; live metrics: battery (W signed) + load (W, magnitude) from POST /device/latest.
 _soc_cache: dict[str, tuple[Optional[float], float]] = {}
+_live_cache: dict[str, tuple[Optional[float], Optional[float], float]] = {}
 _soc_lock = asyncio.Lock()
 SOC_CACHE_TTL_SEC = 300.0
+ESS_POWER_CACHE_TTL_SEC = 25.0
 
 
 def deye_missing_env_names() -> list[str]:
@@ -317,17 +319,163 @@ def _soc_percent_from_device_data_entry(dev_entry: Any) -> Optional[float]:
     return None
 
 
-async def _post_latest_soc_map(
+def _row_value_to_watts(row: dict) -> Optional[float]:
+    """Numeric register value as watts (handles kW unit when present)."""
+    try:
+        v = float(row.get("value"))
+    except (TypeError, ValueError):
+        return None
+    unit = str(row.get("unit") or "").upper().replace(" ", "")
+    if "KWH" in unit:
+        return None
+    if "KW" in unit:
+        return v * 1000.0
+    return v
+
+
+def _battery_signed_watts_from_data_list(dl: Any) -> Optional[float]:
+    """
+    Signed battery power in watts: positive = discharging (from battery), negative = charging.
+    Parsed from Deye device/latest dataList keys (firmware-dependent).
+    """
+    if not isinstance(dl, list):
+        return None
+    by_key: dict[str, float] = {}
+    for row in dl:
+        if not isinstance(row, dict):
+            continue
+        k = str(row.get("key") or "").strip().upper().replace(" ", "_")
+        w = _row_value_to_watts(row)
+        if w is None:
+            continue
+        by_key[k] = w
+
+    if "BATTERY_POWER" in by_key:
+        return by_key["BATTERY_POWER"]
+    if "BAT_POWER" in by_key:
+        return by_key["BAT_POWER"]
+    if "ESS_POWER" in by_key:
+        return by_key["ESS_POWER"]
+    if "BATTERY_OUTPUT_POWER" in by_key:
+        return abs(by_key["BATTERY_OUTPUT_POWER"])
+    if "BATTERY_INPUT_POWER" in by_key:
+        return -abs(by_key["BATTERY_INPUT_POWER"])
+
+    charge_keys = (
+        "BATTERY_CHARGE_POWER",
+        "BAT_CHARGE_POWER",
+        "CHARGE_POWER",
+        "BATTERY_CHARGING_POWER",
+        "GRID_TO_BATTERY_POWER",
+        "GRID_CHARGE_POWER",
+    )
+    discharge_keys = (
+        "BATTERY_DISCHARGE_POWER",
+        "BAT_DISCHARGE_POWER",
+        "DISCHARGE_POWER",
+        "BATTERY_DISCHARGING_POWER",
+        "BATTERY_TO_GRID_POWER",
+    )
+    ch = next((by_key[k] for k in charge_keys if k in by_key), None)
+    dch = next((by_key[k] for k in discharge_keys if k in by_key), None)
+    if ch is not None or dch is not None:
+        return (dch or 0.0) - (ch or 0.0)
+
+    for k, w in by_key.items():
+        if "SOC" in k or "VOLTAGE" in k:
+            continue
+        if "POWER" not in k or "BATTERY" not in k:
+            continue
+        return w
+    return None
+
+
+def _load_power_watts_from_data_list(dl: Any) -> Optional[float]:
+    """
+    Home / AC load power in watts (non-negative magnitude), from Deye dataList.
+    """
+    if not isinstance(dl, list):
+        return None
+    by_key: dict[str, float] = {}
+    for row in dl:
+        if not isinstance(row, dict):
+            continue
+        k = str(row.get("key") or "").strip().upper().replace(" ", "_")
+        w = _row_value_to_watts(row)
+        if w is None:
+            continue
+        by_key[k] = w
+
+    for ek in (
+        "LOAD_POWER",
+        "TOTAL_LOAD_POWER",
+        "HOME_LOAD_POWER",
+        "HOUSE_LOAD_POWER",
+        "CONSUMPTION_POWER",
+        "TOTAL_CONSUMPTION_POWER",
+        "SMART_LOAD_POWER",
+        "INVERTER_LOAD_POWER",
+        "LOCAL_LOAD_POWER",
+        "LOAD_ACTIVE_POWER",
+        "AC_LOAD_POWER",
+        "EPS_LOAD_POWER",
+        "OUTPUT_LOAD_POWER",
+        "FAMILY_LOAD_POWER",
+    ):
+        if ek in by_key:
+            return abs(by_key[ek])
+
+    for k, w in by_key.items():
+        if "REACTIVE" in k or "APPARENT" in k:
+            continue
+        if "BATTERY" in k or "PV" in k or "SOLAR" in k:
+            continue
+        if ("LOAD" in k or "CONSUMPTION" in k or "HOUSE" in k or "HOME" in k) and "POWER" in k:
+            return abs(w)
+    return None
+
+
+def _parse_metrics_from_entry(dev_entry: Any) -> tuple[Optional[float], Optional[float], Optional[float]]:
+    """(soc_percent, battery_power_w_signed, load_power_w magnitude)."""
+    soc = _soc_percent_from_device_data_entry(dev_entry)
+    if not isinstance(dev_entry, dict):
+        return soc, None, None
+    dl = dev_entry.get("dataList")
+    pwr = _battery_signed_watts_from_data_list(dl)
+    load_w = _load_power_watts_from_data_list(dl)
+    return soc, pwr, load_w
+
+
+def _resolve_batch_target_sn(entry: Any, sns: list[str], index: int) -> Optional[str]:
+    sn_hint: Optional[str] = None
+    if isinstance(entry, dict):
+        for k in ("deviceSn", "deviceSN", "serialNumber"):
+            raw = entry.get(k)
+            if raw is not None:
+                c = str(raw).strip()
+                if c.isdigit():
+                    sn_hint = c
+                    break
+    if sn_hint is not None and sn_hint in sns:
+        return sn_hint
+    if index < len(sns):
+        return sns[index]
+    return None
+
+
+async def _post_latest_metrics_map(
     client: httpx.AsyncClient,
     headers: dict[str, str],
     base: str,
     sns: list[str],
-) -> dict[str, Optional[float]]:
-    """POST /device/latest for up to 10 serials (Open API limit). Returns sn -> % or None."""
+) -> dict[str, tuple[Optional[float], Optional[float], Optional[float]]]:
+    """POST /device/latest for up to 10 serials. Returns sn -> (soc %, battery W signed, load W)."""
     if not sns:
         return {}
     url = f"{base.rstrip('/')}/device/latest"
-    out: dict[str, Optional[float]] = {sn: None for sn in sns}
+    out: dict[str, tuple[Optional[float], Optional[float], Optional[float]]] = {
+        sn: (None, None, None) for sn in sns
+    }
     r = await client.post(url, headers=headers, json={"deviceList": sns})
     if r.status_code >= 400:
         logger.warning(
@@ -352,21 +500,18 @@ async def _post_latest_soc_map(
         return out
 
     for i, entry in enumerate(ddl):
-        soc = _soc_percent_from_device_data_entry(entry)
-        if soc is None:
+        soc, pwr, load_w = _parse_metrics_from_entry(entry)
+        target = _resolve_batch_target_sn(entry, sns, i)
+        if target is None or target not in out:
             continue
-        sn_hint: Optional[str] = None
-        if isinstance(entry, dict):
-            for k in ("deviceSn", "deviceSN", "serialNumber"):
-                raw = entry.get(k)
-                if raw is not None:
-                    c = str(raw).strip()
-                    if c.isdigit() and c in out:
-                        sn_hint = c
-                        break
-        target = sn_hint if sn_hint is not None else (sns[i] if i < len(sns) else None)
-        if target is not None and target in out:
-            out[target] = soc
+        prev_soc, prev_pwr, prev_load = out[target]
+        if soc is not None:
+            prev_soc = soc
+        if pwr is not None:
+            prev_pwr = pwr
+        if load_w is not None:
+            prev_load = load_w
+        out[target] = (prev_soc, prev_pwr, prev_load)
     return out
 
 
@@ -404,7 +549,7 @@ async def get_soc_map_cached(device_sns: list[str]) -> dict[str, Optional[float]
                     continue
             to_fetch.append(sn)
 
-    merged_fetch: dict[str, Optional[float]] = {}
+    merged_fetch: dict[str, tuple[Optional[float], Optional[float], Optional[float]]] = {}
     if to_fetch:
         base = settings.DEYE_API_BASE_URL.rstrip("/")
         async with httpx.AsyncClient(timeout=45.0) as client:
@@ -415,20 +560,75 @@ async def get_soc_map_cached(device_sns: list[str]) -> dict[str, Optional[float]
             }
             for off in range(0, len(to_fetch), 10):
                 chunk = to_fetch[off : off + 10]
-                part = await _post_latest_soc_map(client, hdrs, base, chunk)
+                part = await _post_latest_metrics_map(client, hdrs, base, chunk)
                 merged_fetch.update(part)
 
         fetch_time = time.monotonic()
         async with _soc_lock:
-            for sn, soc in merged_fetch.items():
+            for sn, (soc, pwr, load_w) in merged_fetch.items():
                 _soc_cache[sn] = (soc, fetch_time)
+                obat: Optional[float] = None
+                oload: Optional[float] = None
+                prev_live = _live_cache.get(sn)
+                if prev_live is not None:
+                    obat, oload, _ = prev_live
+                nbat = pwr if pwr is not None else obat
+                nload = load_w if load_w is not None else oload
+                _live_cache[sn] = (nbat, nload, fetch_time)
 
     for sn in unique:
         if sn in result:
             continue
-        result[sn] = merged_fetch.get(sn)
+        result[sn] = merged_fetch[sn][0] if sn in merged_fetch else None
 
     return result
+
+
+async def get_live_metrics_cached(device_sn: str) -> tuple[Optional[float], Optional[float]]:
+    """
+    Latest (battery_power_w signed, load_power_w magnitude) for one inverter.
+    TTL ESS_POWER_CACHE_TTL_SEC. Same Deye call fills both.
+    """
+    sn = (device_sn or "").strip()
+    if not sn or not deye_configured():
+        return None, None
+
+    async with _soc_lock:
+        now = time.monotonic()
+        hit = _live_cache.get(sn)
+        if hit is not None:
+            bat, load_w, ts = hit
+            if now - ts < ESS_POWER_CACHE_TTL_SEC:
+                return bat, load_w
+
+    base = settings.DEYE_API_BASE_URL.rstrip("/")
+    async with httpx.AsyncClient(timeout=45.0) as client:
+        token = await _ensure_token(client)
+        hdrs = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+        }
+        merged = await _post_latest_metrics_map(client, hdrs, base, [sn])
+
+    fetch_time = time.monotonic()
+    soc, pwr, load_w = merged.get(sn, (None, None, None))
+    async with _soc_lock:
+        _soc_cache[sn] = (soc, fetch_time)
+        obat: Optional[float] = None
+        oload: Optional[float] = None
+        prev_live = _live_cache.get(sn)
+        if prev_live is not None:
+            obat, oload, _ = prev_live
+        nbat = pwr if pwr is not None else obat
+        nload = load_w if load_w is not None else oload
+        _live_cache[sn] = (nbat, nload, fetch_time)
+    return nbat, nload
+
+
+async def get_battery_power_w_cached(device_sn: str) -> Optional[float]:
+    """Battery W only; same cache as get_live_metrics_cached."""
+    b, _ = await get_live_metrics_cached(device_sn)
+    return b
 
 
 async def fetch_device_soc_percent(device_sn: str) -> Optional[float]:

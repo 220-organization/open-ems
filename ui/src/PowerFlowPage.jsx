@@ -4,7 +4,6 @@ import {
   EV_LIST_URL,
   SITE_220KM_HOME,
   FLOW_DOT_MOTION_DUR,
-  WIND_DOC_URL,
   computeSimulatedSources,
   computeWideGeometry,
   edgeInsetPx,
@@ -225,8 +224,13 @@ export default function PowerFlowPage({
     window.history.replaceState({}, '', u);
   }, []);
 
+  const selInverterSn = inverterValue.trim();
+
   const [socBySn, setSocBySn] = useState({});
   const [socListLoading, setSocListLoading] = useState(false);
+  /** Deye live metrics when an inverter is selected: battery (signed W), load (W, magnitude). */
+  const [deyeLive, setDeyeLive] = useState(null);
+  const [deyeLiveLoading, setDeyeLiveLoading] = useState(false);
 
   const inverterSnsKey = useMemo(
     () =>
@@ -287,6 +291,46 @@ export default function PowerFlowPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- inverterSnsKey tracks deviceSn set; avoids interval reset on new [] ref
   }, [inverterRows.configured, inverterSnsKey]);
 
+  useEffect(() => {
+    if (!selInverterSn || !inverterRows.configured || inverterRows.error) {
+      setDeyeLive(null);
+      setDeyeLiveLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    const loadLive = async () => {
+      setDeyeLiveLoading(true);
+      try {
+        const q = new URLSearchParams({ deviceSn: selInverterSn });
+        const r = await fetch(`${apiUrl('/api/deye/ess-power')}?${q}`, { cache: 'no-store' });
+        const data = await r.json().catch(() => ({}));
+        if (cancelled) return;
+        if (r.ok && data.ok && data.configured) {
+          const bat = data.batteryPowerW;
+          const loadW = data.loadPowerW;
+          setDeyeLive({
+            batteryPowerW:
+              bat != null && Number.isFinite(Number(bat)) ? Number(bat) : null,
+            loadPowerW:
+              loadW != null && Number.isFinite(Number(loadW)) ? Number(loadW) : null,
+          });
+        } else {
+          setDeyeLive(null);
+        }
+      } catch {
+        if (!cancelled) setDeyeLive(null);
+      } finally {
+        if (!cancelled) setDeyeLiveLoading(false);
+      }
+    };
+    loadLive();
+    const id = setInterval(loadLive, 20_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [selInverterSn, inverterRows.configured, inverterRows.error]);
+
   const onStationChange = useCallback(
     (e) => {
       const v = e.target.value;
@@ -310,9 +354,27 @@ export default function PowerFlowPage({
   void simTick;
   const sim = computeSimulatedSources(consumptionMw, liveMinerW);
 
-  const { solarW, windW, gridW, essW, minerW, essCharging, essDischarging, consumptionW } = sim;
+  const { solarW, gridW, essW, minerW, consumptionW } = sim;
+  const useLiveEss =
+    Boolean(selInverterSn) &&
+    deyeLive?.batteryPowerW != null &&
+    Number.isFinite(deyeLive.batteryPowerW);
+  const displayEssW = useLiveEss ? deyeLive.batteryPowerW : essW;
+  const displayEssCharging = displayEssW < 0;
+  const displayLoadW =
+    Boolean(selInverterSn) &&
+    deyeLive?.loadPowerW != null &&
+    Number.isFinite(deyeLive.loadPowerW)
+      ? Math.max(0, deyeLive.loadPowerW)
+      : null;
+  const loadFlowActive = displayLoadW != null && displayLoadW > 0;
   const gridSelling = gridW < 0;
-  const hasFlow = consumptionW > 0 || minerW > 0 || essW !== 0 || gridW !== 0;
+  const hasFlow =
+    consumptionW > 0 ||
+    minerW > 0 ||
+    displayEssW !== 0 ||
+    gridW !== 0 ||
+    loadFlowActive;
   const geom = useMemo(() => computeWideGeometry(graphWidth), [graphWidth]);
   const graphAnchorPct = useMemo(
     () => (edgeInsetPx(graphWidth) / Math.max(graphWidth, 1)) * 100,
@@ -330,9 +392,9 @@ export default function PowerFlowPage({
     ? flowMotionPath(gSell.start.x, gSell.start.y, gSell.end.x, gSell.end.y)
     : flowMotionPath(gBuy.start.x, gBuy.start.y, gBuy.end.x, gBuy.end.y);
 
-  const essActive = hasFlow && Math.abs(essW) > 0;
-  const essCoords = essCharging ? geom.essLineCharging : geom.essLine;
-  const essPath = essCharging
+  const essActive = hasFlow && Math.abs(displayEssW) > 0;
+  const essCoords = displayEssCharging ? geom.essLineCharging : geom.essLine;
+  const essPath = displayEssCharging
     ? flowMotionPath(
         geom.essLineCharging.start.x,
         geom.essLineCharging.start.y,
@@ -355,7 +417,6 @@ export default function PowerFlowPage({
   const evBusy = realtimePower == null && loadError === '';
   const qrBase = process.env.PUBLIC_URL || '';
 
-  const selInverterSn = inverterValue.trim();
   const essSocHasKey =
     Boolean(selInverterSn) && Object.prototype.hasOwnProperty.call(socBySn, selInverterSn);
   const essSocPercent = essSocHasKey ? socBySn[selInverterSn] : undefined;
@@ -486,13 +547,13 @@ export default function PowerFlowPage({
                   y2={gridLineCoords.end.y}
                 />
                 <line
-                  id="pf-line-wind"
+                  id="pf-line-load"
                   className="pf-line"
-                  data-active={hasFlow && windW > 0 ? 'true' : 'false'}
-                  x1={geom.windLine.start.x}
-                  y1={geom.windLine.start.y}
-                  x2={geom.windLine.end.x}
-                  y2={geom.windLine.end.y}
+                  data-active={loadFlowActive ? 'true' : 'false'}
+                  x1={geom.loadLine.start.x}
+                  y1={geom.loadLine.start.y}
+                  x2={geom.loadLine.end.x}
+                  y2={geom.loadLine.end.y}
                 />
                 <line
                   id="pf-line-ess"
@@ -540,15 +601,15 @@ export default function PowerFlowPage({
                   <MotionDot pathD={gridDotPath} />
                 </g>
                 <g
-                  id="pf-dot-wind"
-                  style={{ display: hasFlow && windW > 0 ? undefined : 'none' }}
+                  id="pf-dot-load"
+                  style={{ display: loadFlowActive ? undefined : 'none' }}
                 >
                   <MotionDot
                     pathD={flowMotionPath(
-                      geom.windLine.start.x,
-                      geom.windLine.start.y,
-                      geom.windLine.end.x,
-                      geom.windLine.end.y,
+                      geom.loadLine.start.x,
+                      geom.loadLine.start.y,
+                      geom.loadLine.end.x,
+                      geom.loadLine.end.y,
                     )}
                   />
                 </g>
@@ -617,23 +678,26 @@ export default function PowerFlowPage({
                   {t('gridSelling')}
                 </span>
               </button>
-              <a
+              <div
                 className="pf-node"
                 data-pos="left-bottom"
-                id="pf-node-wind"
-                href={WIND_DOC_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                data-active={hasFlow && windW > 0 ? 'true' : 'false'}
+                id="pf-node-load"
+                data-active={loadFlowActive ? 'true' : 'false'}
               >
                 <span className="pf-node-icon" aria-hidden>
-                  💨
+                  🏠
                 </span>
-                <span className="pf-node-label">{t('nodeWind')}</span>
-                <span className="pf-node-value" id="pf-val-wind">
-                  {formatPower(windW, t, bcp47)}
+                <span className="pf-node-label">{t('nodeLoad')}</span>
+                <span className="pf-node-value" id="pf-val-load">
+                  {!selInverterSn
+                    ? formatPower(null, t, bcp47)
+                    : deyeLiveLoading
+                      ? '…'
+                      : displayLoadW != null
+                        ? formatPower(displayLoadW, t, bcp47)
+                        : formatPower(null, t, bcp47)}
                 </span>
-              </a>
+              </div>
               <div className="pf-hub" id="pf-hub">
                 <a
                   className="pf-hub-brand"
@@ -662,11 +726,11 @@ export default function PowerFlowPage({
                 data-active={essActive ? 'true' : 'false'}
               >
                 <span className="pf-node-icon" id="pf-ess-icon" aria-hidden>
-                  {essCharging ? '🔌' : '🔋'}
+                  {displayEssCharging ? '🔌' : '🔋'}
                 </span>
                 <span className="pf-node-label">{t('nodeEss')}</span>
                 <span className="pf-node-value" id="pf-val-ess">
-                  {formatPower(Math.abs(essW), t, bcp47)}
+                  {formatPower(Math.abs(displayEssW), t, bcp47)}
                 </span>
                 {selInverterSn &&
                 essSocPercent != null &&
@@ -682,12 +746,6 @@ export default function PowerFlowPage({
                     {t('essSocLoading')}
                   </span>
                 ) : null}
-                <span className="pf-ess-status" id="pf-ess-ch" hidden={!essCharging}>
-                  {t('essCharge')}
-                </span>
-                <span className="pf-ess-status" id="pf-ess-disch" hidden={!essDischarging}>
-                  {t('essDischarge')}
-                </span>
               </button>
               <a
                 className="pf-node"

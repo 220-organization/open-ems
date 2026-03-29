@@ -5,8 +5,6 @@ export const LINE_EDGE_INSET = 44;
 
 export const BINANCE_MINER_URL =
   'https://pool.binance.com/en/statistics?urlParams=k0L2WD9yFZlqcgCbBtRfiu040xT4UPvxRgFKVq0hr4k08962';
-export const WIND_DOC_URL =
-  'https://drive.google.com/file/d/102AcXuk6Cz4Zn7EMfHhPO2HnkMo7_2nc/view?usp=sharing';
 export const SITE_220KM_HOME = 'https://220-km.com/';
 export const EV_LIST_URL = 'https://220-km.com/list';
 
@@ -107,7 +105,7 @@ export function computeWideGeometry(containerW) {
 
   const solar = { x: nwWide, y: nwWide };
   const grid = { x: nwWide, y: cy };
-  const wind = { x: nwWide, y: 400 - nwWide };
+  const load = { x: nwWide, y: 400 - nwWide };
   const ess = { x: 400 - nwWide, y: nwWide };
   const miner = { x: 400 - nwWide, y: cy };
   const consumption = { x: 400 - nwWide, y: 400 - nwWide };
@@ -123,7 +121,7 @@ export function computeWideGeometry(containerW) {
     start: { x: gridLineSellingRaw.start.x, y: cy },
     end: { x: gridLineSellingRaw.end.x, y: cy },
   };
-  const windLine = lineCenteredBetween(wind.x, wind.y, cx, cy);
+  const loadLine = lineCenteredBetween(cx, cy, load.x, load.y);
   const essLine = lineCenteredBetween(ess.x, ess.y, cx, cy);
   const essLineCharging = lineCenteredBetween(cx, cy, ess.x, ess.y);
   const minerLine = lineCenteredBetween(cx, cy, miner.x, miner.y);
@@ -133,7 +131,7 @@ export function computeWideGeometry(containerW) {
     solarLine,
     gridLine,
     gridLineSelling,
-    windLine,
+    loadLine,
     essLine,
     essLineCharging,
     minerLine,
@@ -153,7 +151,6 @@ export function computeSimulatedSources(consumptionMw, liveMinerW) {
   const essDischarging = hour >= 18 && hour <= 21;
 
   let solarW = 0;
-  let windW = 0;
   let essW = 0;
   let gridW = 0;
   let minerW = 0;
@@ -224,7 +221,6 @@ export function computeSimulatedSources(consumptionMw, liveMinerW) {
 
   return {
     solarW,
-    windW,
     gridW,
     essW,
     minerW,
