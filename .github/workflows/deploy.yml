@@ -41,11 +41,11 @@ jobs:
         uses: fifsky/ssh-action@master
         with:
           command: |
-            rm -rf /220/open-ems
+            rm -rf /220/open-ems /tmp/open-ems.tgz
           host: 65.108.212.26
           user: root
           key: ${{ secrets.PRIVATE_KEY }}
-      # Single-file copy: target must be the remote file path, not only a directory (see appleboy/scp-action).
+      # appleboy/scp-action may create a directory named like the target and place the file inside it.
       - name: copy archive to server
         uses: appleboy/scp-action@master
         with:
@@ -62,10 +62,25 @@ jobs:
         uses: fifsky/ssh-action@master
         with:
           command: |
-            test -f /tmp/open-ems.tgz || { echo "ERROR: /tmp/open-ems.tgz missing after scp" >&2; ls -la /tmp; exit 1; }
+            set -e
+            ARCHIVE=""
+            if [ -f /tmp/open-ems.tgz ]; then
+              ARCHIVE=/tmp/open-ems.tgz
+            elif [ -f /tmp/open-ems.tgz/open-ems.tgz ]; then
+              ARCHIVE=/tmp/open-ems.tgz/open-ems.tgz
+            elif [ -d /tmp/open-ems.tgz ]; then
+              ARCHIVE=$(find /tmp/open-ems.tgz -type f \( -name 'open-ems.tgz' -o -name '*.tgz' \) 2>/dev/null | head -1 || true)
+            fi
+            if [ -z "$ARCHIVE" ] || [ ! -f "$ARCHIVE" ]; then
+              echo "ERROR: deploy archive not found after scp (expected file or /tmp/open-ems.tgz/open-ems.tgz)" >&2
+              ls -la /tmp
+              find /tmp/open-ems.tgz -type f 2>/dev/null || true
+              exit 1
+            fi
+            echo "Using archive: $ARCHIVE"
             mkdir -p /220/open-ems
-            tar -xzf /tmp/open-ems.tgz -C /220/open-ems
-            rm -f /tmp/open-ems.tgz
+            tar -xzf "$ARCHIVE" -C /220/open-ems
+            rm -rf /tmp/open-ems.tgz
             cd /220/open-ems &&
             docker compose down --remove-orphans &&
             docker compose up -d --build

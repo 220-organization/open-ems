@@ -1,74 +1,103 @@
 # Open EMS
 
-FastAPI service with **PostgreSQL** and **Flyway** for schema migrations, following the same conventions as the Java backend (`db/migration/postgres/common`, versioned scripts `V{version}__description.sql`).
-
-## Run with Docker
-
-```bash
-docker compose up --build
-```
-
-Startup order: **PostgreSQL** → **Flyway migrate** (one-shot) → **API**.
-
-- API: http://localhost:8095
-- PostgreSQL (host): `localhost:5433` (user/password/db: `openems` / `openems` / `openems`)
-- Docs: http://localhost:8095/docs
-
-## Power flow (B2B-style graph)
-
-Interactive flow diagram similar to [220-km.com/b2b?graphView=1](https://220-km.com/b2b?graphView=1): live data from **`GET /b2b/public/realtime-power`** and **`GET /b2b/public/miner-power`** on 220-km.com, proxied server-side as **`/api/b2b/realtime-power`** and **`/api/b2b/miner-power`** (no browser CORS issues).
-
-- UI: http://localhost:8095/power-flow (optional query `?station=655` to filter by station)
-- Override upstream base URL: `B2B_API_BASE_URL` (default `https://220-km.com:8080`, same host/port as the main Java API behind the React app)
-
-## Migrations
-
-Add new SQL files under `db/migration/postgres/common/`, e.g. `V2__add_example.sql` (same naming as the Java backend: `V{version}__description.sql`).
-
-Apply migrations using the Compose Flyway image (starts `db` if needed):
-
-```bash
-docker compose up -d db
-docker compose run --rm migrate
-```
-
-## Local API (without rebuilding the API image)
-
-### `./run-local.sh`
-
-Brings up `db`, runs Flyway, then **uvicorn --reload**. After the API responds, your **default browser opens Swagger UI** (`/docs`). Default HTTP port is **9220** (avoids conflicts with services often bound to **8090**). Next free port is used if that one is busy. Override:
-
-```bash
-PORT=8090 ./run-local.sh
-```
-
-### Manual
-
-Requires PostgreSQL reachable at `DATABASE_URL` and migrations already applied.
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-export DATABASE_URL=postgresql+asyncpg://openems:openems@localhost:5433/openems
-uvicorn app.main:app --reload --port 9220
-```
-
-See `.env.example` for the default URL shape.
-
 ## Deploy (GitHub Actions + SSH)
 
 Workflow `.github/workflows/deploy.yml` in **this repository** runs on push to `main`, `master`, or `preprod`: packs the tree (excluding `.git` / `.venv`), copies it over SSH, then runs `docker compose` on the server.
 
-- **Host**: `65.108.212.26`, deployment path: `/220/open-ems`
-- **Secret**: GitHub Actions secret `PRIVATE_KEY` (SSH private key for `root` on that host)
-- On the server: `docker compose down --remove-orphans` then `docker compose up -d --build` (PostgreSQL + Flyway migrate + API as in `docker-compose.yml`).
+**Target OS (tested):** **Ubuntu 24.04.4 LTS** (Noble Numbat), x86_64 — same line as `docker.io` / `docker-compose-v2` from Ubuntu archives. On the server, print the exact image:
+
+```bash
+lsb_release -a
+```
+
+```bash
+cat /etc/os-release
+```
+
+Example lines you should see on that host include `VERSION="24.04.4 LTS (Noble Numbat)"` and `VERSION_ID="24.04"`.
+
+Deployment path on the server: `/220/open-ems`. The workflow connects as **`root`** over SSH (adjust user/host in `.github/workflows/deploy.yml` if you change that).
+
+### 1. Generate SSH key pair (on your laptop or admin machine)
+
+Use **Ed25519**, empty passphrase (typical for CI), and a dedicated key file:
+
+```bash
+mkdir -p ~/.ssh/open-ems-deploy
+ssh-keygen -t ed25519 \
+  -f ~/.ssh/open-ems-deploy/open_ems_deploy_ed25519 \
+  -N "" \
+  -C "open-ems-github-actions-deploy"
+```
+
+This creates:
+
+- **Private key:** `~/.ssh/open-ems-deploy/open_ems_deploy_ed25519` — for GitHub only (never commit).
+- **Public key:** `~/.ssh/open-ems-deploy/open_ems_deploy_ed25519.pub` — for the Ubuntu server.
+
+Show the public key (one line) to copy:
+
+```bash
+cat ~/.ssh/open-ems-deploy/open_ems_deploy_ed25519.pub
+```
+
+### 2. Add the private key to GitHub (repository secret)
+
+The workflow reads **`secrets.PRIVATE_KEY`**. Store the **entire** private key file as a **repository Actions secret** (not a variable):
+
+1. GitHub → your repo → **Settings** → **Secrets and variables** → **Actions**.
+2. **Secrets** tab → **New repository secret**.
+3. **Name:** `PRIVATE_KEY`
+4. **Secret:** paste the full contents of the private key file, including the header/footer lines:
+
+   ```bash
+   cat ~/.ssh/open-ems-deploy/open_ems_deploy_ed25519
+   ```
+
+   You must include:
+
+   - `-----BEGIN OPENSSH PRIVATE KEY-----`
+   - all lines in between
+   - `-----END OPENSSH PRIVATE KEY-----`
+
+5. Save (**Add secret**).
+
+*(Optional: if you use **Environments** with protection rules, you can instead create an environment secret named `PRIVATE_KEY` and add `environment: …` to the job in `deploy.yml` — the default workflow expects a **repository** secret.)*
+
+### 3. Add the public key to Ubuntu (`authorized_keys`)
+
+SSH into the server as the same user GitHub Actions uses (here **`root`**), then:
+
+```bash
+mkdir -p ~/.ssh
+chmod 700 ~/.ssh
+```
+
+Append the **public** key line (replace the placeholder with your real `.pub` line):
+
+```bash
+echo 'ssh-ed25519 AAAA...your-public-key... open-ems-github-actions-deploy' >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+```
+
+Or from your admin machine (if password SSH is still enabled once):
+
+```bash
+ssh-copy-id -i ~/.ssh/open-ems-deploy/open_ems_deploy_ed25519.pub root@YOUR_SERVER_IP
+```
+
+Test login with the **private** key only (no password):
+
+```bash
+ssh -i ~/.ssh/open-ems-deploy/open_ems_deploy_ed25519 -o IdentitiesOnly=yes root@YOUR_SERVER_IP 'echo ok'
+```
+
+### 4. What the workflow does on the server
+
+- Ensures **Docker** and **`docker compose` v2** (installs `docker.io` / `docker-compose-v2` on Ubuntu if missing).
+- Syncs the repo tarball and runs `docker compose down --remove-orphans` then `docker compose up -d --build` under `/220/open-ems`.
 
 Optional: set `RUN_FLYWAY_ON_START=true` and `DATABASE_URL` in the API service environment if you run the app image against an external database (Flyway runs at container start via `scripts/render_flyway_migrate.py`). The default Compose stack uses the bundled `db` service and does not need those variables for migrations (Flyway runs as the `migrate` service).
 
 - Health check: `GET /health`
 - Published API port on the host: `8095` → container `8090` (see `docker-compose.yml`).
-
-## License
-
-Licensed under the **GNU General Public License v3.0** — see [`LICENSE`](LICENSE).
