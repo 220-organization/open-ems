@@ -7,6 +7,7 @@ export const BINANCE_MINER_URL =
   'https://pool.binance.com/en/statistics?urlParams=k0L2WD9yFZlqcgCbBtRfiu040xT4UPvxRgFKVq0hr4k08962';
 export const WIND_DOC_URL =
   'https://drive.google.com/file/d/102AcXuk6Cz4Zn7EMfHhPO2HnkMo7_2nc/view?usp=sharing';
+export const SITE_220KM_HOME = 'https://220-km.com/';
 export const EV_LIST_URL = 'https://220-km.com/list';
 
 const KYIV_PV_START_HOUR = [8, 7.5, 7, 6, 5.5, 5, 5, 5.5, 6, 6.5, 7.5, 8];
@@ -85,12 +86,24 @@ export function flowMotionPath(x1, y1, x2, y2) {
   return `M ${x1} ${y1} L ${x} ${y}`;
 }
 
+/**
+ * Distance from graph edge to outer node center (px). Wider on narrow containers so
+ * tiles stay inside the square; must match CSS --pf-graph-anchor-pct on .pf-graph.
+ */
+export function edgeInsetPx(containerW) {
+  const w = Math.max(containerW, 1);
+  if (w >= 560) return 34;
+  const t = Math.max(0, Math.min(1, (560 - w) / 220));
+  return 34 + t * 44;
+}
+
 export function computeWideGeometry(containerW) {
   const w = Math.max(containerW, 1);
+  const insetPx = edgeInsetPx(w);
   const toVB = (px) => (400 * px) / w;
   const cx = 200;
   const cy = 200;
-  const nwWide = toVB(34);
+  const nwWide = toVB(insetPx);
 
   const solar = { x: nwWide, y: nwWide };
   const grid = { x: nwWide, y: cy };

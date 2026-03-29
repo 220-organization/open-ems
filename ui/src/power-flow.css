@@ -9,7 +9,6 @@
   --pf-label: rgba(255, 248, 252, 0.98);
   --pf-value: #f9a8ef;
   --pf-icon: #ff4db8;
-  --flow-wide-anchor-pct: 8.5%;
 }
 
 * {
@@ -19,6 +18,9 @@
 .pf-body {
   margin: 0;
   min-height: 100vh;
+  min-height: 100dvh;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(252, 1, 155, 0.15);
   background: radial-gradient(ellipse 120% 80% at 50% 20%, #2a0a32 0%, #0f0208 55%, #060104 100%);
   color: var(--pf-label);
   font-family:
@@ -35,7 +37,11 @@
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  padding: 8px 12px 16px;
+  min-height: 100dvh;
+  padding-top: max(8px, env(safe-area-inset-top, 0px));
+  padding-right: max(12px, env(safe-area-inset-right, 0px));
+  padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  padding-left: max(12px, env(safe-area-inset-left, 0px));
 }
 
 .pf-header {
@@ -109,6 +115,8 @@
 }
 
 .pf-graph {
+  /* Sync with powerFlowEngine.edgeInsetPx via inline style from PowerFlowPage */
+  --pf-graph-anchor-pct: 8.5%;
   --pf-side: min(calc((100vw - 8px) * 0.9), calc(100vmin * 0.9), 920px);
   position: relative;
   width: var(--pf-side);
@@ -221,6 +229,10 @@ a.pf-node {
   letter-spacing: 0.05em;
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
   margin-bottom: 2px;
+  line-height: 1.15;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  hyphens: auto;
 }
 
 .pf-node-value {
@@ -235,6 +247,17 @@ a.pf-node {
   font-size: 11px;
   margin-top: 4px;
   opacity: 0.9;
+}
+
+.pf-ess-soc {
+  font-weight: 700;
+  color: var(--pf-pink-soft);
+  opacity: 0.95;
+}
+
+.pf-ess-soc-loading {
+  font-weight: 500;
+  opacity: 0.65;
 }
 
 .pf-node-meta {
@@ -254,72 +277,88 @@ a.pf-node {
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: 118px;
-  padding: 12px 10px;
-  background: var(--pf-surface);
-  border: 1px solid var(--pf-border);
-  border-radius: 18px;
+  width: auto;
+  max-width: min(118px, 30vw);
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
   text-align: center;
+  pointer-events: none;
 }
 
-.pf-hub[data-active='true'] {
-  border-color: rgba(251, 113, 232, 0.55);
+.pf-hub-brand {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  text-decoration: none;
+  line-height: 0;
+  border-radius: 12px;
+  outline-offset: 2px;
+  pointer-events: auto;
 }
 
-.pf-hub-wordmark {
+.pf-hub-brand:focus-visible {
+  outline: 2px solid var(--pf-pink-soft);
+}
+
+.pf-hub-logo {
   display: block;
-  font-size: 13px;
-  font-weight: 800;
-  color: var(--pf-pink);
-  letter-spacing: 0.02em;
-  text-shadow: 0 0 12px rgba(252, 1, 155, 0.45);
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 10px rgba(252, 1, 155, 0.32));
 }
 
 .pf-hub-label {
+  display: block;
   margin-top: 6px;
   font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  opacity: 0.92;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--pf-label);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  opacity: 0.95;
 }
 
 /* Wide positions — match FlowGraph.jsx wideView + CSS module */
 .pf-graph .pf-node[data-pos='left-top'] {
   top: 0;
-  left: var(--flow-wide-anchor-pct);
+  left: var(--pf-graph-anchor-pct);
   transform: translateX(-50%);
 }
 
 .pf-graph .pf-node[data-pos='left-center'] {
   top: 50%;
-  left: var(--flow-wide-anchor-pct);
+  left: var(--pf-graph-anchor-pct);
   transform: translate(-50%, -50%);
 }
 
 .pf-graph .pf-node[data-pos='left-bottom'] {
   bottom: 0;
-  left: var(--flow-wide-anchor-pct);
+  left: var(--pf-graph-anchor-pct);
   transform: translateX(-50%);
 }
 
 .pf-graph .pf-node[data-pos='right-top'] {
   top: 0;
-  left: calc(100% - var(--flow-wide-anchor-pct));
+  left: calc(100% - var(--pf-graph-anchor-pct));
   right: auto;
   transform: translateX(-50%);
 }
 
 .pf-graph .pf-node[data-pos='right-center'] {
   top: 50%;
-  left: calc(100% - var(--flow-wide-anchor-pct));
+  left: calc(100% - var(--pf-graph-anchor-pct));
   right: auto;
   transform: translate(-50%, -50%);
 }
 
 .pf-graph .pf-node[data-pos='right-bottom'] {
   bottom: 0;
-  left: calc(100% - var(--flow-wide-anchor-pct));
+  left: calc(100% - var(--pf-graph-anchor-pct));
   right: auto;
   transform: translateX(-50%);
 }
@@ -331,14 +370,12 @@ a.pf-node {
   text-align: center;
 }
 
-/* Bottom-center QR — same glass + neon pink treatment as .pf-hub / nodes (220-km style) */
+/* QR below graph — scrolls with page (not viewport-fixed) */
 .pf-ukraine-qr {
-  position: fixed;
-  left: 50%;
-  right: auto;
-  transform: translateX(-50%);
-  bottom: max(14px, env(safe-area-inset-bottom));
-  z-index: 20;
+  position: relative;
+  align-self: center;
+  margin: 20px auto max(20px, env(safe-area-inset-bottom));
+  z-index: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -352,7 +389,7 @@ a.pf-node {
     inset 0 1px 0 rgba(255, 255, 255, 0.05),
     0 0 22px rgba(252, 1, 155, 0.18),
     0 8px 28px rgba(0, 0, 0, 0.35);
-  pointer-events: none;
+  flex-shrink: 0;
 }
 
 .pf-ukraine-qr-link {
@@ -392,4 +429,124 @@ a.pf-node {
   line-height: 1.25;
   color: var(--pf-pink);
   text-shadow: 0 0 12px rgba(252, 1, 155, 0.45);
+}
+
+/* —— Mobile / narrow viewports —— */
+@media (max-width: 720px) {
+  .pf-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding-bottom: 12px;
+  }
+
+  .pf-station-field {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  .pf-station-field > span {
+    font-size: 13px;
+  }
+
+  .pf-station-input,
+  .pf-inverter-select,
+  .pf-lang-select {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .pf-graph {
+    --pf-side: min(calc(100vw - 20px), calc(100vh - 240px), 920px);
+  }
+
+  @supports (height: 100dvh) {
+    .pf-graph {
+      --pf-side: min(calc(100vw - 20px), calc(100dvh - 240px), 920px);
+    }
+  }
+
+  .pf-node {
+    min-width: 88px;
+    max-width: 118px;
+    padding: 8px 5px;
+  }
+
+  .pf-node-icon {
+    font-size: 22px;
+    margin-bottom: 2px;
+  }
+
+  .pf-node-label {
+    font-size: 9px;
+    letter-spacing: 0.04em;
+  }
+
+  .pf-node-value {
+    font-size: 13px;
+  }
+
+  .pf-node-sub,
+  .pf-ess-status {
+    font-size: 9px;
+  }
+
+  .pf-node-meta {
+    font-size: 8px;
+  }
+
+  .pf-hub {
+    max-width: min(104px, 32vw);
+  }
+
+  .pf-hub-logo {
+    width: 34px;
+    height: 34px;
+  }
+
+  .pf-hub-label {
+    font-size: 9px;
+    margin-top: 4px;
+  }
+
+  .pf-ukraine-qr {
+    max-width: min(200px, 72vw);
+    margin-top: 14px;
+  }
+}
+
+@media (max-width: 380px) {
+  .pf-graph {
+    --pf-side: min(calc(100vw - 16px), calc(100vh - 200px), 920px);
+  }
+
+  @supports (height: 100dvh) {
+    .pf-graph {
+      --pf-side: min(calc(100vw - 16px), calc(100dvh - 200px), 920px);
+    }
+  }
+
+  .pf-node {
+    min-width: 80px;
+    max-width: 108px;
+    padding: 6px 4px;
+  }
+
+  .pf-node-value {
+    font-size: 12px;
+  }
+
+  .pf-hub {
+    max-width: min(96px, 34vw);
+  }
+
+  .pf-hub-logo {
+    width: 30px;
+    height: 30px;
+  }
 }

@@ -46,7 +46,7 @@ The header **Inverter ID** dropdown loads inverters from the **Deye Cloud Open A
 | `DEYE_COMPANY_ID` | Usually `0` for a personal account; for a business member account, use the company id from Deye (e.g. `/account/info` in the Open API docs) |
 | `DEYE_API_BASE_URL` | Optional. Default `https://eu1-developer.deyecloud.com/v1.0` (EU). Use the US base URL if your developer account is on the US data center. |
 
-UI calls `GET /api/deye/inverters` (JSON: `configured`, `items[]` with `deviceSn` and `label`). Do not commit real credentials.
+UI calls `GET /api/deye/inverters` (JSON: `configured`, `items[]` with `deviceSn` and `label`), `POST /api/deye/inverter-socs` with body `{"deviceSns":["…"]}` for SoC in the dropdown (batched Deye `POST /device/latest`, **5-minute in-memory TTL cache** on the server), and optionally `GET /api/deye/soc?deviceSn=<serial>` (same SoC source, uses the same cache). Parser matches the Java `DynamicPriceService` idea (`SOC` / `BMS_SOC` / `BATTERY_SOC`). Do not commit real credentials.
 
 **Postman:** import `postman/Deye_OpenAPI_Inverters.postman_collection.json` (optional: `postman/Deye_OpenAPI_Inverters.postman_environment.json`). Run request **1** then **2**; request **3** hits the local Open EMS proxy. Set `app_id`, `app_secret`, `deye_email`, `deye_password_plain` (plain password — the pre-request script computes SHA-256).
 

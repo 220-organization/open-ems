@@ -19,6 +19,11 @@ _token: Optional[str] = None
 _token_expires_at: float = 0.0
 _lock = asyncio.Lock()
 
+# Inverter SoC % from POST /device/latest — TTL cache (seconds).
+_soc_cache: dict[str, tuple[Optional[float], float]] = {}
+_soc_lock = asyncio.Lock()
+SOC_CACHE_TTL_SEC = 300.0
+
 
 def deye_missing_env_names() -> list[str]:
     """Env var names that are unset (for startup / request logs only; no secrets)."""
@@ -288,3 +293,148 @@ async def list_inverter_devices() -> list[dict[str, str]]:
             elapsed,
         )
         return items
+
+
+_SOC_KEYS = frozenset({"SOC", "BMS_SOC", "BATTERY_SOC"})
+
+
+def _soc_percent_from_device_data_entry(dev_entry: Any) -> Optional[float]:
+    if not isinstance(dev_entry, dict):
+        return None
+    dl = dev_entry.get("dataList")
+    if not isinstance(dl, list):
+        return None
+    for row in dl:
+        if not isinstance(row, dict):
+            continue
+        raw_key = str(row.get("key") or "").strip().upper()
+        if raw_key not in _SOC_KEYS:
+            continue
+        try:
+            return float(row.get("value"))
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+async def _post_latest_soc_map(
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    base: str,
+    sns: list[str],
+) -> dict[str, Optional[float]]:
+    """POST /device/latest for up to 10 serials (Open API limit). Returns sn -> % or None."""
+    if not sns:
+        return {}
+    url = f"{base.rstrip('/')}/device/latest"
+    out: dict[str, Optional[float]] = {sn: None for sn in sns}
+    r = await client.post(url, headers=headers, json={"deviceList": sns})
+    if r.status_code >= 400:
+        logger.warning(
+            "Deye: device/latest HTTP %s batch_size=%s — %s",
+            r.status_code,
+            len(sns),
+            (r.text or "")[:400],
+        )
+    r.raise_for_status()
+    data = r.json()
+    if not isinstance(data, dict):
+        return out
+    if data.get("success") is False:
+        logger.warning(
+            "Deye: device/latest success=false batch_size=%s msg=%s",
+            len(sns),
+            str(data.get("msg"))[:200],
+        )
+        return out
+    ddl = data.get("deviceDataList")
+    if not isinstance(ddl, list):
+        return out
+
+    for i, entry in enumerate(ddl):
+        soc = _soc_percent_from_device_data_entry(entry)
+        if soc is None:
+            continue
+        sn_hint: Optional[str] = None
+        if isinstance(entry, dict):
+            for k in ("deviceSn", "deviceSN", "serialNumber"):
+                raw = entry.get(k)
+                if raw is not None:
+                    c = str(raw).strip()
+                    if c.isdigit() and c in out:
+                        sn_hint = c
+                        break
+        target = sn_hint if sn_hint is not None else (sns[i] if i < len(sns) else None)
+        if target is not None and target in out:
+            out[target] = soc
+    return out
+
+
+async def get_soc_map_cached(device_sns: list[str]) -> dict[str, Optional[float]]:
+    """
+    Map device serial -> SoC % using in-memory TTL cache (SOC_CACHE_TTL_SEC).
+    Batches POST /device/latest in chunks of up to 10.
+    """
+    if not deye_configured():
+        return {}
+
+    unique: list[str] = []
+    seen: set[str] = set()
+    for s in device_sns:
+        sn = str(s or "").strip()
+        if not sn.isdigit() or sn in seen:
+            continue
+        seen.add(sn)
+        unique.append(sn)
+    if not unique:
+        return {}
+
+    now = time.monotonic()
+    result: dict[str, Optional[float]] = {}
+    to_fetch: list[str] = []
+
+    async with _soc_lock:
+        now = time.monotonic()
+        for sn in unique:
+            hit = _soc_cache.get(sn)
+            if hit is not None:
+                val, ts = hit
+                if now - ts < SOC_CACHE_TTL_SEC:
+                    result[sn] = val
+                    continue
+            to_fetch.append(sn)
+
+    merged_fetch: dict[str, Optional[float]] = {}
+    if to_fetch:
+        base = settings.DEYE_API_BASE_URL.rstrip("/")
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            token = await _ensure_token(client)
+            hdrs = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {token}",
+            }
+            for off in range(0, len(to_fetch), 10):
+                chunk = to_fetch[off : off + 10]
+                part = await _post_latest_soc_map(client, hdrs, base, chunk)
+                merged_fetch.update(part)
+
+        fetch_time = time.monotonic()
+        async with _soc_lock:
+            for sn, soc in merged_fetch.items():
+                _soc_cache[sn] = (soc, fetch_time)
+
+    for sn in unique:
+        if sn in result:
+            continue
+        result[sn] = merged_fetch.get(sn)
+
+    return result
+
+
+async def fetch_device_soc_percent(device_sn: str) -> Optional[float]:
+    """Single-serial SoC; uses the same TTL cache as get_soc_map_cached."""
+    sn = (device_sn or "").strip()
+    if not sn:
+        return None
+    m = await get_soc_map_cached([sn])
+    return m.get(sn)

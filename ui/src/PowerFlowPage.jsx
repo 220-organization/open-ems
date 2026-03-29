@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BINANCE_MINER_URL,
   EV_LIST_URL,
+  SITE_220KM_HOME,
   FLOW_DOT_MOTION_DUR,
   WIND_DOC_URL,
   computeSimulatedSources,
   computeWideGeometry,
+  edgeInsetPx,
   flowMotionPath,
   formatPower,
   formatUsdt,
@@ -71,6 +73,14 @@ export default function PowerFlowPage({
   const [simTick, setSimTick] = useState(0);
 
   const bcp47 = getBcp47Locale();
+  const inverterSocFmt = useMemo(
+    () =>
+      new Intl.NumberFormat(bcp47, {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 1,
+      }),
+    [bcp47],
+  );
 
   useEffect(() => {
     document.title = t('pageTitle');
@@ -215,6 +225,68 @@ export default function PowerFlowPage({
     window.history.replaceState({}, '', u);
   }, []);
 
+  const [socBySn, setSocBySn] = useState({});
+  const [socListLoading, setSocListLoading] = useState(false);
+
+  const inverterSnsKey = useMemo(
+    () =>
+      inverterRows.items
+        .map((r) => r.deviceSn)
+        .filter(Boolean)
+        .sort()
+        .join(','),
+    [inverterRows.items],
+  );
+
+  useEffect(() => {
+    if (!inverterRows.configured || inverterRows.items.length === 0) {
+      setSocBySn({});
+      setSocListLoading(false);
+      return undefined;
+    }
+    const sns = inverterRows.items.map((r) => r.deviceSn).filter(Boolean);
+    if (sns.length === 0) {
+      setSocBySn({});
+      return undefined;
+    }
+    let cancelled = false;
+    const loadSocs = async () => {
+      setSocListLoading(true);
+      try {
+        const r = await fetch(apiUrl('/api/deye/inverter-socs'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ deviceSns: sns }),
+          cache: 'no-store',
+        });
+        const data = await r.json().catch(() => ({}));
+        if (cancelled) return;
+        const next = {};
+        if (r.ok && data.ok && Array.isArray(data.items)) {
+          for (const it of data.items) {
+            const sn = it.deviceSn != null ? String(it.deviceSn) : '';
+            if (!sn) continue;
+            const p = it.socPercent;
+            next[sn] =
+              p != null && Number.isFinite(Number(p)) ? Number(p) : null;
+          }
+        }
+        setSocBySn(next);
+      } catch {
+        if (!cancelled) setSocBySn({});
+      } finally {
+        if (!cancelled) setSocListLoading(false);
+      }
+    };
+    loadSocs();
+    const id = setInterval(loadSocs, 300_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- inverterSnsKey tracks deviceSn set; avoids interval reset on new [] ref
+  }, [inverterRows.configured, inverterSnsKey]);
+
   const onStationChange = useCallback(
     (e) => {
       const v = e.target.value;
@@ -242,6 +314,10 @@ export default function PowerFlowPage({
   const gridSelling = gridW < 0;
   const hasFlow = consumptionW > 0 || minerW > 0 || essW !== 0 || gridW !== 0;
   const geom = useMemo(() => computeWideGeometry(graphWidth), [graphWidth]);
+  const graphAnchorPct = useMemo(
+    () => (edgeInsetPx(graphWidth) / Math.max(graphWidth, 1)) * 100,
+    [graphWidth],
+  );
 
   const gBuy = geom.gridLine;
   const gSell = geom.gridLineSelling;
@@ -279,6 +355,12 @@ export default function PowerFlowPage({
   const evBusy = realtimePower == null && loadError === '';
   const qrBase = process.env.PUBLIC_URL || '';
 
+  const selInverterSn = inverterValue.trim();
+  const essSocHasKey =
+    Boolean(selInverterSn) && Object.prototype.hasOwnProperty.call(socBySn, selInverterSn);
+  const essSocPercent = essSocHasKey ? socBySn[selInverterSn] : undefined;
+  const essSocPending = Boolean(selInverterSn && !essSocHasKey && socListLoading);
+
   useEffect(() => {
     const id = setInterval(() => setSimTick((n) => n + 1), 60_000);
     return () => clearInterval(id);
@@ -288,19 +370,6 @@ export default function PowerFlowPage({
     <div className="pf-body">
       <div className="pf-root">
         <header className="pf-header">
-          <label className="pf-station-field">
-            <span id="pf-station-label">{t('stationLabel')}</span>
-            <input
-              id="pf-station"
-              className="pf-station-input"
-              type="text"
-              inputMode="numeric"
-              placeholder={t('stationPlaceholder')}
-              autoComplete="off"
-              value={stationFilter}
-              onChange={onStationChange}
-            />
-          </label>
           <label className="pf-station-field pf-inverter-field">
             <span id="pf-inverter-label">{t('inverterLabel')}</span>
             <select
@@ -325,14 +394,34 @@ export default function PowerFlowPage({
               ) : (
                 <>
                   <option value="">{t('inverterOptionNone')}</option>
-                  {inverterRows.items.map((row) => (
-                    <option key={row.deviceSn} value={row.deviceSn}>
-                      {row.label || row.deviceSn}
-                    </option>
-                  ))}
+                  {inverterRows.items.map((row) => {
+                    const p = socBySn[row.deviceSn];
+                    const socSuffix =
+                      p != null && Number.isFinite(p)
+                        ? ` · ${inverterSocFmt.format(p)}%`
+                        : '';
+                    return (
+                      <option key={row.deviceSn} value={row.deviceSn}>
+                        {(row.label || row.deviceSn) + socSuffix}
+                      </option>
+                    );
+                  })}
                 </>
               )}
             </select>
+          </label>
+          <label className="pf-station-field">
+            <span id="pf-station-label">{t('stationLabel')}</span>
+            <input
+              id="pf-station"
+              className="pf-station-input"
+              type="text"
+              inputMode="numeric"
+              placeholder={t('stationPlaceholder')}
+              autoComplete="off"
+              value={stationFilter}
+              onChange={onStationChange}
+            />
           </label>
           <select
             id="pf-lang"
@@ -354,6 +443,7 @@ export default function PowerFlowPage({
             id="pf-graph"
             ref={graphRef}
             className="pf-graph"
+            style={{ '--pf-graph-anchor-pct': `${graphAnchorPct}%` }}
             aria-label={t('graphAriaLabel')}
           >
             <div className="pf-graph-sizer" aria-hidden="true" />
@@ -544,8 +634,24 @@ export default function PowerFlowPage({
                   {formatPower(windW, t, bcp47)}
                 </span>
               </a>
-              <div className="pf-hub" id="pf-hub" data-active={hasFlow ? 'true' : 'false'}>
-                <span className="pf-hub-wordmark">220-km.com</span>
+              <div className="pf-hub" id="pf-hub">
+                <a
+                  className="pf-hub-brand"
+                  href={SITE_220KM_HOME}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={t('hubBrandLinkAria')}
+                >
+                  <img
+                    className="pf-hub-logo"
+                    src={`${qrBase}/static/220-km-logo.svg`}
+                    alt=""
+                    width="40"
+                    height="40"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                </a>
                 <span className="pf-hub-label">{t('hubLabel')}</span>
               </div>
               <button
@@ -562,6 +668,20 @@ export default function PowerFlowPage({
                 <span className="pf-node-value" id="pf-val-ess">
                   {formatPower(Math.abs(essW), t, bcp47)}
                 </span>
+                {selInverterSn &&
+                essSocPercent != null &&
+                Number.isFinite(essSocPercent) ? (
+                  <span className="pf-node-sub pf-ess-soc" id="pf-ess-soc">
+                    {t('essSoc', {
+                      value: inverterSocFmt.format(essSocPercent),
+                    })}
+                  </span>
+                ) : null}
+                {essSocPending ? (
+                  <span className="pf-node-sub pf-ess-soc pf-ess-soc-loading" id="pf-ess-soc-loading">
+                    {t('essSocLoading')}
+                  </span>
+                ) : null}
                 <span className="pf-ess-status" id="pf-ess-ch" hidden={!essCharging}>
                   {t('essCharge')}
                 </span>
