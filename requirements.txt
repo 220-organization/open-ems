@@ -3,3 +3,4 @@ sqlalchemy>=2.0
 asyncpg
 greenlet
 uvicorn[standard]
+python-dotenv>=1.0.0

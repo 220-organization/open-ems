@@ -1,4 +1,11 @@
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Load open-ems/.env into the process environment (local dev; Docker/k8s can still inject vars).
+_APP_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(_APP_ROOT / ".env")
 
 # Upstream public B2B API (same paths as Spring B2BPublicController).
 # Production React uses REACT_APP_HOST + REACT_APP_PORT → https://220-km.com:8080

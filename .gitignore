@@ -17,3 +17,7 @@ venv/
 # Local dev SQLite artifact (legacy / optional)
 /data/
 
+# React UI (open-ems/ui)
+ui/node_modules/
+ui/build/
+

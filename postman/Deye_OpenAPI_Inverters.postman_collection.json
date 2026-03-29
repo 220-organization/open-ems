@@ -1,0 +1,152 @@
+{
+  "info": {
+    "_postman_id": "a1b2c3d4-open-ems-deye-inverters",
+    "name": "Deye Open API — Inverter list",
+    "description": "Test Deye Cloud Open API v1 flow used by Open EMS for the inverter dropdown:\n1. POST /account/token?appId=… (password must be SHA-256 hex of plain UTF-8 password)\n2. POST /station/listWithDevice (size max 50)\n3. Optional: GET local Open EMS /api/deye/inverters\n\nSet collection variables (or duplicate into an Environment). Do not commit real secrets.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "https://eu1-developer.deyecloud.com/v1.0", "type": "string" },
+    { "key": "app_id", "value": "", "type": "string" },
+    { "key": "app_secret", "value": "", "type": "string" },
+    { "key": "deye_email", "value": "", "type": "string" },
+    { "key": "company_id", "value": "0", "type": "string" },
+    { "key": "deye_password_plain", "value": "", "type": "string" },
+    { "key": "deye_password_sha256", "value": "", "type": "string" },
+    { "key": "access_token", "value": "", "type": "string" },
+    { "key": "list_page", "value": "1", "type": "string" },
+    { "key": "list_size", "value": "50", "type": "string" },
+    { "key": "open_ems_base", "value": "http://127.0.0.1:9220", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "1. Obtain access token",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const plain = pm.environment.get('deye_password_plain') || pm.collectionVariables.get('deye_password_plain');",
+              "if (!plain) {",
+              "  console.warn('Set deye_password_plain in Environment or Collection (plain deyecloud.com password)');",
+              "}",
+              "const hash = CryptoJS.SHA256(plain || '').toString(CryptoJS.enc.Hex);",
+              "pm.collectionVariables.set('deye_password_sha256', hash);"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+              "const json = pm.response.json();",
+              "pm.test('success true', function () { pm.expect(json.success).to.be.true; });",
+              "pm.test('has accessToken', function () { pm.expect(json.accessToken).to.be.a('string').that.is.not.empty; });",
+              "if (json.accessToken) {",
+              "  pm.collectionVariables.set('access_token', json.accessToken);",
+              "  try { pm.environment.set('access_token', json.accessToken); } catch (e) {}",
+              "  console.log('Saved access_token');",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"appSecret\": \"{{app_secret}}\",\n  \"email\": \"{{deye_email}}\",\n  \"companyId\": \"{{company_id}}\",\n  \"password\": \"{{deye_password_sha256}}\"\n}\n"
+        },
+        "url": {
+          "raw": "{{base_url}}/account/token?appId={{app_id}}",
+          "host": ["{{base_url}}"],
+          "path": ["account", "token"],
+          "query": [{ "key": "appId", "value": "{{app_id}}" }]
+        },
+        "description": "Same as Open EMS `DeyeAuth` / official `obtain_token.py`. Register app at https://developer.deyecloud.com/app"
+      },
+      "response": []
+    },
+    {
+      "name": "2. Station listWithDevice (INVERTER)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+              "const json = pm.response.json();",
+              "pm.test('success true', function () { pm.expect(json.success).to.be.true; });",
+              "const data = json.data || json;",
+              "const list = data.stationList || json.stationList || [];",
+              "console.log('stationList length:', Array.isArray(list) ? list.length : 'n/a');",
+              "if (Array.isArray(list) && list[0]) {",
+              "  const devs = list[0].deviceList || list[0].devices || [];",
+              "  console.log('station[0] deviceList length:', Array.isArray(devs) ? devs.length : 'n/a');",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{access_token}}", "type": "string" }]
+        },
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"page\": {{list_page}},\n  \"size\": {{list_size}},\n  \"deviceType\": \"INVERTER\"\n}\n"
+        },
+        "url": {
+          "raw": "{{base_url}}/station/listWithDevice",
+          "host": ["{{base_url}}"],
+          "path": ["station", "listWithDevice"]
+        },
+        "description": "Deye allows size <= 50. Run **1. Obtain access token** first so `access_token` is set."
+      },
+      "response": []
+    },
+    {
+      "name": "3. Open EMS — GET /api/deye/inverters",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+              "const json = pm.response.json();",
+              "pm.test('has configured + items', function () {",
+              "  pm.expect(json).to.have.property('configured');",
+              "  pm.expect(json).to.have.property('items');",
+              "});",
+              "console.log('configured:', json.configured, 'items:', (json.items || []).length);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{open_ems_base}}/api/deye/inverters",
+          "host": ["{{open_ems_base}}"],
+          "path": ["api", "deye", "inverters"]
+        },
+        "description": "Local FastAPI proxy (requires `./run-local.sh` and DEYE_* in `open-ems/.env`)."
+      },
+      "response": []
+    }
+  ]
+}

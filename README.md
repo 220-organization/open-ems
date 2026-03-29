@@ -10,15 +10,26 @@ From this directory:
 
 The script starts PostgreSQL (Docker), runs Flyway migrations, then **uvicorn** on a free TCP port beginning at **9220** (change the base port with `PORT=8090 ./run-local.sh` if needed).
 
+### Power flow frontend (React — same pattern as `admin-portal/ui`)
+
+1. Start the API: `./run-local.sh` (note the printed port if it is not 9220).
+2. In another terminal: `./run-open-ems-ui.sh` — **Create React App** dev server on **3090** by default (override with `UI_PORT=...`).
+3. Copy `ui/.env.example` → `ui/.env` and set `REACT_APP_API_BASE_URL` to match the API (e.g. `http://127.0.0.1:9220`).
+
+Production build (optional): `cd ui && npm run build`. If `ui/build/` exists, FastAPI serves the React app at `/` and `/power-flow` and mounts `ui/build/static` at `/static`. Until you build, the legacy static page under `static/power_flow/` is used when no `ui/build` is present.
+
 | What | URL |
 |------|-----|
-| Power flow UI | [http://localhost:9220/](http://localhost:9220/) (same page at `/power-flow`) |
+| Power flow UI (React dev) | [http://localhost:3090/](http://localhost:3090/) (`./run-open-ems-ui.sh`) |
+| API only (legacy HTML or SPA after `npm run build`) | [http://localhost:9220/](http://localhost:9220/) |
 | OpenAPI (Swagger UI) | [http://localhost:9220/docs](http://localhost:9220/docs) |
 | Health | `GET http://localhost:9220/health` |
 
 **Public Power flow:** [https://220-km.com:9220/](https://220-km.com:9220/)
 
 Default DB connection is `postgresql+asyncpg://openems:openems@127.0.0.1:5433/openems` (override with `DATABASE_URL`).
+
+The API loads **`open-ems/.env`** automatically (`python-dotenv`), so `DEYE_*`, `B2B_API_BASE_URL`, etc. apply without `export` in the shell. Do not commit real secrets; keep `.env` local (gitignored).
 
 ### Deye inverter list (Power flow)
 
@@ -34,6 +45,8 @@ The header **Inverter ID** dropdown loads inverters from the **Deye Cloud Open A
 | `DEYE_API_BASE_URL` | Optional. Default `https://eu1-developer.deyecloud.com/v1.0` (EU). Use the US base URL if your developer account is on the US data center. |
 
 UI calls `GET /api/deye/inverters` (JSON: `configured`, `items[]` with `deviceSn` and `label`). Do not commit real credentials.
+
+**Postman:** import `postman/Deye_OpenAPI_Inverters.postman_collection.json` (optional: `postman/Deye_OpenAPI_Inverters.postman_environment.json`). Run request **1** then **2**; request **3** hits the local Open EMS proxy. Set `app_id`, `app_secret`, `deye_email`, `deye_password_plain` (plain password — the pre-request script computes SHA-256).
 
 ## Deploy (GitHub Actions + SSH)
 

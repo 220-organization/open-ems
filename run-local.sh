@@ -117,6 +117,7 @@ else
 fi
 
 echo "Starting API at http://127.0.0.1:${PORT} (Swagger at /docs)"
+echo "React Power flow UI: ./run-open-ems-ui.sh — use REACT_APP_API_BASE_URL=http://127.0.0.1:${PORT}" >&2
 uvicorn app.main:app "${RELOAD_ARGS[@]}" --host 0.0.0.0 --port "${PORT}" &
 UVICORN_PID=$!
 trap 'kill -TERM "${UVICORN_PID}" 2>/dev/null || true' INT TERM
