@@ -56,6 +56,20 @@ uvicorn app.main:app --reload --port 8096
 
 See `.env.example` for the default URL shape.
 
+## Deploy on Render
+
+Use a [Render Blueprint](https://render.com/docs/infrastructure-as-code) (`render.yaml` in the repo root).
+
+1. Push this repository to GitHub (e.g. [220-organization/open-ems](https://github.com/220-organization/open-ems)).
+2. In the [Render Dashboard](https://dashboard.render.com/), choose **New** → **Blueprint**, connect the repo, and apply `render.yaml`.
+3. Render provisions **Render Postgres** (`open-ems-db`) and a **Docker** web service (`open-ems`) with `DATABASE_URL` wired from the database.
+
+The web image runs **Flyway** on container start when `RUN_FLYWAY_ON_START=true` (set in the blueprint). This works on the free web tier; [pre-deploy commands](https://render.com/docs/deploys#pre-deploy-command) are paid-only on Render, so migrations are not configured via `preDeployCommand`.
+
+- Health check: `GET /health`
+- HTTP port: Render sets `PORT`; the entrypoint binds Uvicorn to that port.
+- Optional: set `B2B_API_BASE_URL` in the service **Environment** tab if the upstream API base changes.
+
 ## License
 
 Licensed under the **GNU General Public License v3.0** — see [`LICENSE`](LICENSE).
