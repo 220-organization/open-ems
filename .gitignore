@@ -6,6 +6,7 @@ venv/
 .env
 .env.*
 !.env.example
+!.env.deploy.example
 *.egg-info/
 .pytest_cache/
 .mypy_cache/

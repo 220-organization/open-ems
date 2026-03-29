@@ -2,7 +2,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +17,7 @@ STATIC_POWER_FLOW = BASE_DIR / "static" / "power_flow"
 
 app = FastAPI(
     title="Open EMS",
-    description="Power flow (default): [/](/) → [/power-flow](/power-flow). API docs: [/docs](/docs).",
+    description="API docs: [/docs](/docs). Power flow (220-km.com data): [/power-flow](/power-flow).",
 )
 
 app.add_middleware(
@@ -36,11 +36,6 @@ if STATIC_POWER_FLOW.is_dir():
         StaticFiles(directory=str(STATIC_POWER_FLOW)),
         name="power_flow_static",
     )
-
-
-@app.get("/", include_in_schema=False)
-async def root() -> RedirectResponse:
-    return RedirectResponse(url="/power-flow", status_code=302)
 
 
 @app.get("/power-flow", include_in_schema=False)
