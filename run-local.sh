@@ -105,8 +105,19 @@ _wait_for_openapi() {
   return 1
 }
 
+# Dev autoreload: uvicorn --reload watches app/ only (fast, ignores .venv and static noise).
+# Disable: UVICORN_RELOAD=0 ./run-local.sh
+UVICORN_RELOAD="${UVICORN_RELOAD:-1}"
+RELOAD_ARGS=()
+if [[ "${UVICORN_RELOAD}" != "0" ]]; then
+  RELOAD_ARGS=(--reload --reload-dir "${PWD}/app")
+  echo "Dev autoreload: on (Python under app/). Disable with UVICORN_RELOAD=0" >&2
+else
+  echo "Dev autoreload: off (UVICORN_RELOAD=0)" >&2
+fi
+
 echo "Starting API at http://127.0.0.1:${PORT} (Swagger at /docs)"
-uvicorn app.main:app --reload --host 0.0.0.0 --port "${PORT}" &
+uvicorn app.main:app "${RELOAD_ARGS[@]}" --host 0.0.0.0 --port "${PORT}" &
 UVICORN_PID=$!
 trap 'kill -TERM "${UVICORN_PID}" 2>/dev/null || true' INT TERM
 

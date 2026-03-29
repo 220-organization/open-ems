@@ -48,12 +48,11 @@
   font-size: 14px;
 }
 
-.pf-header a {
-  color: var(--pf-pink-soft);
-  text-decoration: none;
-}
-.pf-header a:hover {
-  text-decoration: underline;
+.pf-station-field {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 .pf-station-input {
@@ -63,6 +62,41 @@
   color: var(--pf-label);
   padding: 8px 12px;
   min-width: 140px;
+}
+
+.pf-lang-select {
+  appearance: auto;
+  background: var(--pf-surface);
+  border: 1px solid var(--pf-border);
+  border-radius: 10px;
+  color: var(--pf-label);
+  padding: 8px 12px;
+  font-size: 14px;
+  min-width: 160px;
+  cursor: pointer;
+}
+
+.pf-lang-select:focus-visible {
+  outline: 2px solid var(--pf-pink-soft);
+  outline-offset: 2px;
+}
+
+.pf-inverter-select {
+  appearance: auto;
+  background: var(--pf-surface);
+  border: 1px solid var(--pf-border);
+  border-radius: 10px;
+  color: var(--pf-label);
+  padding: 8px 12px;
+  font-size: 14px;
+  min-width: 200px;
+  max-width: min(420px, 92vw);
+  cursor: pointer;
+}
+
+.pf-inverter-select:focus-visible {
+  outline: 2px solid var(--pf-pink-soft);
+  outline-offset: 2px;
 }
 
 .pf-graph-wrap {

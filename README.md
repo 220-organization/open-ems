@@ -16,7 +16,24 @@ The script starts PostgreSQL (Docker), runs Flyway migrations, then **uvicorn** 
 | OpenAPI (Swagger UI) | [http://localhost:9220/docs](http://localhost:9220/docs) |
 | Health | `GET http://localhost:9220/health` |
 
+**Public Power flow:** [https://220-km.com:9220/](https://220-km.com:9220/)
+
 Default DB connection is `postgresql+asyncpg://openems:openems@127.0.0.1:5433/openems` (override with `DATABASE_URL`).
+
+### Deye inverter list (Power flow)
+
+The header **Inverter ID** dropdown loads inverters from the **Deye Cloud Open API** (`POST /v1.0/station/listWithDevice`), i.e. plants/devices tied to the same account as the web [plant list](https://www.deyecloud.com/business/maintain/plant). Configure via environment variables (see `.env.example`):
+
+| Variable | Description |
+|----------|-------------|
+| `DEYE_APP_ID` | App ID from [developer.deyecloud.com/app](https://developer.deyecloud.com/app) |
+| `DEYE_APP_SECRET` | App secret from the same portal |
+| `DEYE_EMAIL` | Deye Cloud account email (login) |
+| `DEYE_PASSWORD` | Deye Cloud account password (plain in env; the server sends **SHA-256** to `POST /account/token`, same pattern as the Java `DeyeAuth` client) |
+| `DEYE_COMPANY_ID` | Usually `0` for a personal account; for a business member account, use the company id from Deye (e.g. `/account/info` in the Open API docs) |
+| `DEYE_API_BASE_URL` | Optional. Default `https://eu1-developer.deyecloud.com/v1.0` (EU). Use the US base URL if your developer account is on the US data center. |
+
+UI calls `GET /api/deye/inverters` (JSON: `configured`, `items[]` with `deviceSn` and `label`). Do not commit real credentials.
 
 ## Deploy (GitHub Actions + SSH)
 

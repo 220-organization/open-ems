@@ -3,6 +3,8 @@
  * Fetches via same-origin proxy: /api/b2b/* → https://220-km.com/b2b/public/*
  */
 
+import { initI18n, t, getBcp47Locale } from './i18n.js';
+
 const FLOW_DOT_MOTION_DUR = '2.2s';
 const LINE_EDGE_INSET = 44;
 
@@ -46,14 +48,14 @@ function isKyivPvHours(month, hourFloat) {
 
 function formatPower(watts) {
   if (watts == null || !Number.isFinite(watts)) return '—';
-  const nf = new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  if (watts >= 1_000_000) return `${nf.format(watts / 1_000_000)}\u00a0МВт`;
-  return `${nf.format(watts / 1000)}\u00a0кВт`;
+  const nf = new Intl.NumberFormat(getBcp47Locale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (watts >= 1_000_000) return `${nf.format(watts / 1_000_000)}\u00a0${t('unitMW')}`;
+  return `${nf.format(watts / 1000)}\u00a0${t('unitKW')}`;
 }
 
 function formatUsdt(value) {
   if (value == null || !Number.isFinite(value)) return null;
-  const nf = new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const nf = new Intl.NumberFormat(getBcp47Locale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return `+${nf.format(Math.max(0, value))}`;
 }
 
@@ -249,41 +251,41 @@ function buildNodes() {
   host.innerHTML = `
     <div class="pf-node" data-pos="left-top" id="pf-node-solar" data-active="false">
       <span class="pf-node-icon" aria-hidden>☀️</span>
-      <span class="pf-node-label">Сонце</span>
+      <span class="pf-node-label">${t('nodeSolar')}</span>
       <span class="pf-node-value" id="pf-val-solar">—</span>
     </div>
     <button type="button" class="pf-node" data-pos="left-center" id="pf-node-grid" data-active="false">
       <span class="pf-node-icon" aria-hidden>⚡</span>
-      <span class="pf-node-label">Мережа</span>
+      <span class="pf-node-label">${t('nodeGrid')}</span>
       <span class="pf-node-value" id="pf-val-grid">—</span>
-      <span class="pf-ess-status" id="pf-grid-selling" hidden>Продаж у мережу</span>
+      <span class="pf-ess-status" id="pf-grid-selling" hidden>${t('gridSelling')}</span>
     </button>
     <a class="pf-node" data-pos="left-bottom" id="pf-node-wind" href="${WIND_DOC_URL}" target="_blank" rel="noopener noreferrer" data-active="false">
       <span class="pf-node-icon" aria-hidden>💨</span>
-      <span class="pf-node-label">Вітер</span>
+      <span class="pf-node-label">${t('nodeWind')}</span>
       <span class="pf-node-value" id="pf-val-wind">—</span>
     </a>
     <div class="pf-hub" id="pf-hub" data-active="false">
       <span class="pf-hub-wordmark">220-km.com</span>
-      <span class="pf-hub-label">EMS / VPP</span>
+      <span class="pf-hub-label">${t('hubLabel')}</span>
     </div>
     <button type="button" class="pf-node" data-pos="right-top" id="pf-node-ess" data-active="false">
       <span class="pf-node-icon" id="pf-ess-icon" aria-hidden>🔋</span>
-      <span class="pf-node-label">Акумулятор</span>
+      <span class="pf-node-label">${t('nodeEss')}</span>
       <span class="pf-node-value" id="pf-val-ess">—</span>
-      <span class="pf-ess-status" id="pf-ess-ch" hidden>Заряд</span>
-      <span class="pf-ess-status" id="pf-ess-disch" hidden>Розряд</span>
+      <span class="pf-ess-status" id="pf-ess-ch" hidden>${t('essCharge')}</span>
+      <span class="pf-ess-status" id="pf-ess-disch" hidden>${t('essDischarge')}</span>
     </button>
     <a class="pf-node" data-pos="right-center" id="pf-node-miner" href="${BINANCE_MINER_URL}" target="_blank" rel="noopener noreferrer" data-active="false">
       <span class="pf-node-icon" aria-hidden>💠</span>
-      <span class="pf-node-label" id="pf-miner-label">ISIC Майнер</span>
+      <span class="pf-node-label" id="pf-miner-label">${t('nodeMiner')}</span>
       <span class="pf-node-value" id="pf-val-miner">—</span>
       <div class="pf-node-sub" id="pf-miner-usdt"></div>
       <div class="pf-node-meta" id="pf-miner-tariff"></div>
     </a>
     <a class="pf-node" data-pos="right-bottom" id="pf-node-ev" href="${EV_LIST_URL}" target="_blank" rel="noopener noreferrer" data-active="false">
       <span class="pf-node-icon" aria-hidden>🚗</span>
-      <span class="pf-node-label">Зарядка EV</span>
+      <span class="pf-node-label">${t('nodeEv')}</span>
       <span class="pf-node-value" id="pf-val-ev">—</span>
     </a>
   `;
@@ -489,17 +491,17 @@ function render() {
   document.getElementById('pf-val-miner').textContent = formatPower(minerW);
   const usdt = formatUsdt(minerSnap?.minedUsdtToday);
   const usdtEl = document.getElementById('pf-miner-usdt');
-  usdtEl.textContent = usdt ? `${usdt} USDT` : '';
+  usdtEl.textContent = usdt ? `${usdt} ${t('usdtSuffix')}` : '';
   const tf = minerSnap?.tariffUahPerKwh;
   const tfEl = document.getElementById('pf-miner-tariff');
   if (tf != null && Number.isFinite(tf)) {
-    const nf = new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    tfEl.textContent = `${nf.format(Math.max(0, tf))} ₴/кВт·год`;
+    const nf = new Intl.NumberFormat(getBcp47Locale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    tfEl.textContent = t('tariffKwh', { value: nf.format(Math.max(0, tf)) });
   } else {
     tfEl.textContent = '';
   }
 
-  let minerLabel = 'ISIC Майнер';
+  let minerLabel = t('nodeMiner');
   if (
     minerSnap?.configured &&
     minerSnap.workersActive != null &&
@@ -545,6 +547,100 @@ async function refreshMiner() {
   render();
 }
 
+const INVERTER_STORAGE = 'pf-deye-inverter';
+
+function refreshInverterOptionNone() {
+  const sel = document.getElementById('pf-inverter');
+  if (!sel || !sel.options.length) return;
+  const first = sel.options[0];
+  if (first && first.value === '') first.textContent = t('inverterOptionNone');
+}
+
+async function setupInverterSelect() {
+  const sel = document.getElementById('pf-inverter');
+  if (!sel) return;
+
+  try {
+    const r = await fetch('/api/deye/inverters');
+    let data = {};
+    try {
+      data = await r.json();
+    } catch {
+      data = {};
+    }
+
+    sel.innerHTML = '';
+    const none = document.createElement('option');
+    none.value = '';
+    none.textContent = t('inverterOptionNone');
+    sel.appendChild(none);
+
+    if (!r.ok) {
+      const err = document.createElement('option');
+      err.value = '';
+      err.disabled = true;
+      err.textContent = t('inverterLoadError');
+      sel.appendChild(err);
+      return;
+    }
+
+    if (!data.configured) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.disabled = true;
+      opt.textContent = t('inverterNotConfigured');
+      sel.appendChild(opt);
+    } else {
+      for (const row of data.items || []) {
+        const o = document.createElement('option');
+        o.value = row.deviceSn;
+        o.textContent = row.label || row.deviceSn;
+        sel.appendChild(o);
+      }
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    let want = params.get('inverter') || '';
+    if (!want) {
+      try {
+        want = localStorage.getItem(INVERTER_STORAGE) || '';
+      } catch {
+        /* ignore */
+      }
+    }
+    if (want && [...sel.options].some((o) => o.value === want)) {
+      sel.value = want;
+    } else {
+      sel.value = '';
+    }
+
+    sel.addEventListener('change', () => {
+      const v = sel.value.trim();
+      try {
+        if (v) localStorage.setItem(INVERTER_STORAGE, v);
+        else localStorage.removeItem(INVERTER_STORAGE);
+      } catch {
+        /* ignore */
+      }
+      const u = new URL(window.location.href);
+      if (v) u.searchParams.set('inverter', v);
+      else u.searchParams.delete('inverter');
+      window.history.replaceState({}, '', u);
+    });
+  } catch {
+    sel.innerHTML = '';
+    const none = document.createElement('option');
+    none.value = '';
+    none.textContent = t('inverterOptionNone');
+    sel.appendChild(none);
+    const err = document.createElement('option');
+    err.value = '';
+    err.disabled = true;
+    err.textContent = t('inverterLoadError');
+    sel.appendChild(err);
+  }
+}
+
 function init() {
   if (!document.getElementById('pf-nodes') || !document.getElementById('pf-lines')) {
     console.error('power-flow: required DOM missing');
@@ -581,4 +677,18 @@ function init() {
   setInterval(() => render(), 60_000);
 }
 
-init();
+async function boot() {
+  await initI18n({
+    onLocaleChange: () => {
+      buildNodes();
+      render();
+      refreshInverterOptionNone();
+    },
+  });
+  init();
+  await setupInverterSelect();
+}
+
+boot().catch((err) => {
+  console.error('power-flow: boot failed', err);
+});

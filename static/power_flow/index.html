@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="uk">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -9,23 +9,25 @@
   <body class="pf-body">
     <div class="pf-root">
       <header class="pf-header">
-        <label>
-          Станція (опційно):
+        <label class="pf-station-field">
+          <span id="pf-station-label">EV Port # (optional):</span>
           <input
             id="pf-station"
             class="pf-station-input"
             type="text"
             inputmode="numeric"
-            placeholder="усі мережі"
+            placeholder="all ports"
             autocomplete="off"
           />
         </label>
-        <a href="https://220-km.com/b2b?graphView=1" target="_blank" rel="noopener noreferrer"
-          >220-km.com B2B (оригінал)</a
-        >
+        <label class="pf-station-field pf-inverter-field">
+          <span id="pf-inverter-label">Inverter ID (optional):</span>
+          <select id="pf-inverter" class="pf-inverter-select"></select>
+        </label>
+        <select id="pf-lang" class="pf-lang-select"></select>
       </header>
       <div class="pf-graph-wrap">
-        <div id="pf-graph" class="pf-graph" aria-label="Схема потоків потужності">
+        <div id="pf-graph" class="pf-graph" aria-label="Power flow diagram">
           <!-- In-flow 1:1 box: all overlays are position:absolute, so this reserves height in every browser -->
           <div class="pf-graph-sizer" aria-hidden="true"></div>
           <svg

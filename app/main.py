@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.models import Note
-from app.routers import b2b_proxy
+from app.routers import b2b_proxy, deye_proxy
 from app.schemas import NoteCreate, NoteRead
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -29,6 +29,7 @@ app.add_middleware(
 )
 
 app.include_router(b2b_proxy.router)
+app.include_router(deye_proxy.router)
 
 if STATIC_POWER_FLOW.is_dir():
     app.mount(
