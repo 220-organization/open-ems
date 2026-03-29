@@ -19,7 +19,7 @@ def _env_bool(name: str, default: bool) -> bool:
     return default
 
 
-# When False, FastAPI does not serve React build or legacy power_flow HTML (split dev: CRA on its own port).
+# When False, FastAPI does not serve the React production build (split dev: CRA on its own port).
 # Docker/production: unset or true. Local ./run-local.sh sets OPEN_EMS_SERVE_SPA=0.
 OPEN_EMS_SERVE_SPA: bool = _env_bool("OPEN_EMS_SERVE_SPA", True)
 

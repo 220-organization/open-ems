@@ -14,7 +14,7 @@ Re-run `./run-local.sh` anytime: old listeners on those ports are killed first, 
 
 Optional: copy `ui/.env.example` → `ui/.env` only if you need overrides; otherwise `run-local.sh` sets `REACT_APP_API_BASE_URL=http://127.0.0.1:9221`.
 
-Production build (optional): `cd ui && npm run build`. In **Docker** (unset `OPEN_EMS_SERVE_SPA` or set it true), FastAPI serves the React app at `/` and `/power-flow` and mounts `ui/build/static` at `/static`. Until you build, the legacy static page under `static/power_flow/` is used when no `ui/build` is present.
+Production build: `cd ui && npm run build`. In **Docker** (unset `OPEN_EMS_SERVE_SPA` or set it true), FastAPI serves the React app at `/` and `/power-flow` and mounts `ui/build/static` at `/static`. Without `ui/build/`, `/` returns **503** until you build.
 
 | What | URL |
 |------|-----|

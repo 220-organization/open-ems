@@ -1,7 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,7 +17,6 @@ from app import settings
 from app.deye_api import deye_configured, deye_missing_env_names
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-STATIC_POWER_FLOW = BASE_DIR / "static" / "power_flow"
 UI_BUILD = BASE_DIR / "ui" / "build"
 UI_STATIC = UI_BUILD / "static"
 REACT_INDEX = UI_BUILD / "index.html"
@@ -42,7 +40,7 @@ async def lifespan(app: FastAPI):
 
 
 _spa_desc = (
-    "Power flow UI: [/](/) and [/power-flow](/power-flow). API docs: [/docs](/docs)."
+    "Power flow UI (React): [/](/) and [/power-flow](/power-flow). API docs: [/docs](/docs)."
     if settings.OPEN_EMS_SERVE_SPA
     else "REST API only — run the CRA dev server for the Power flow UI. API docs: [/docs](/docs)."
 )
@@ -63,44 +61,29 @@ app.add_middleware(
 app.include_router(b2b_proxy.router)
 app.include_router(deye_proxy.router)
 
-# Production / `npm run build`: serve built assets and SPA from this process (Docker).
-# Local dev with OPEN_EMS_SERVE_SPA=0: API only; UI runs on the CRA dev server (e.g. port 9220).
+# Production / `npm run build`: serve CRA output only (no legacy static HTML).
+# Local dev: OPEN_EMS_SERVE_SPA=0 — API only; UI from `npm start`.
 if settings.OPEN_EMS_SERVE_SPA:
-    if UI_STATIC.is_dir():
-        app.mount("/static", StaticFiles(directory=str(UI_STATIC)), name="ui_static")
-    elif STATIC_POWER_FLOW.is_dir():
-        app.mount(
-            "/static/power-flow",
-            StaticFiles(directory=str(STATIC_POWER_FLOW)),
-            name="power_flow_static",
-        )
-
     _SPA_INDEX_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate"}
 
-    def _react_spa_index() -> Optional[FileResponse]:
-        if REACT_INDEX.is_file():
-            return FileResponse(REACT_INDEX, headers=_SPA_INDEX_CACHE)
-        return None
+    if UI_STATIC.is_dir():
+        app.mount("/static", StaticFiles(directory=str(UI_STATIC)), name="ui_static")
 
-    def _power_flow_file_response() -> FileResponse:
-        index = STATIC_POWER_FLOW / "index.html"
-        if not index.is_file():
-            raise HTTPException(status_code=404, detail="Power flow UI not found")
-        return FileResponse(index, headers=_SPA_INDEX_CACHE)
+    def _react_spa_index() -> FileResponse:
+        if not REACT_INDEX.is_file():
+            raise HTTPException(
+                status_code=503,
+                detail="React UI not built. Run: cd ui && npm run build",
+            )
+        return FileResponse(REACT_INDEX, headers=_SPA_INDEX_CACHE)
 
     @app.get("/", include_in_schema=False)
     async def root() -> FileResponse:
-        spa = _react_spa_index()
-        if spa is not None:
-            return spa
-        return _power_flow_file_response()
+        return _react_spa_index()
 
     @app.get("/power-flow", include_in_schema=False)
     async def power_flow_page() -> FileResponse:
-        spa = _react_spa_index()
-        if spa is not None:
-            return spa
-        return _power_flow_file_response()
+        return _react_spa_index()
 else:
 
     @app.get("/", include_in_schema=False)
