@@ -34,7 +34,7 @@ cat /etc/os-release
 
 Example lines you should see on that host include `VERSION="24.04.4 LTS (Noble Numbat)"` and `VERSION_ID="24.04"`.
 
-Deployment path on the server: `/220/open-ems`. The workflow connects as **`root`** over SSH (adjust user/host in `.github/workflows/deploy.yml` if you change that).
+Deployment path on the server: `/220/open-ems`. The workflow connects as **`root`** on port **22**; the SSH target host is read from the repository secret **`DEPLOY_HOST`** (same pattern as **`PRIVATE_KEY`**).
 
 ### 1. Generate SSH key pair (on your laptop or admin machine)
 
@@ -59,28 +59,29 @@ Show the public key (one line) to copy:
 cat ~/.ssh/open-ems-deploy/open_ems_deploy_ed25519.pub
 ```
 
-### 2. Add the private key to GitHub (repository secret)
+### 2. Add deploy secrets to GitHub (repository Actions secrets)
 
-The workflow reads **`secrets.PRIVATE_KEY`**. Store the **entire** private key file as a **repository Actions secret** (not a variable):
+The workflow reads **`secrets.PRIVATE_KEY`** and **`secrets.DEPLOY_HOST`**. Add both under **Settings** → **Secrets and variables** → **Actions** → **Secrets** → **New repository secret** (not Variables, unless you change the workflow to use them).
 
-1. GitHub → your repo → **Settings** → **Secrets and variables** → **Actions**.
-2. **Secrets** tab → **New repository secret**.
-3. **Name:** `PRIVATE_KEY`
-4. **Secret:** paste the full contents of the private key file, including the header/footer lines:
+#### `PRIVATE_KEY`
 
-   ```bash
-   cat ~/.ssh/open-ems-deploy/open_ems_deploy_ed25519
-   ```
+The **entire** private key file, including header/footer:
 
-   You must include:
+```bash
+cat ~/.ssh/open-ems-deploy/open_ems_deploy_ed25519
+```
 
-   - `-----BEGIN OPENSSH PRIVATE KEY-----`
-   - all lines in between
-   - `-----END OPENSSH PRIVATE KEY-----`
+You must include:
 
-5. Save (**Add secret**).
+- `-----BEGIN OPENSSH PRIVATE KEY-----`
+- all lines in between
+- `-----END OPENSSH PRIVATE KEY-----`
 
-*(Optional: if you use **Environments** with protection rules, you can instead create an environment secret named `PRIVATE_KEY` and add `environment: …` to the job in `deploy.yml` — the default workflow expects a **repository** secret.)*
+#### `DEPLOY_HOST`
+
+SSH hostname or IP of the deploy target only (no `root@`, no port). Example: `65.108.212.26`.
+
+*(Optional: if you use **Environments** with protection rules, you can instead define **`PRIVATE_KEY`** and **`DEPLOY_HOST`** as environment secrets and add `environment: …` to the job in `deploy.yml` — the default workflow expects **repository** secrets.)*
 
 ### 3. Add the public key to Ubuntu (`authorized_keys`)
 

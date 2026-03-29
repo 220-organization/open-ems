@@ -34,7 +34,7 @@ jobs:
             fi
             docker --version
             docker compose version
-          host: 65.108.212.26
+          host: ${{ secrets.DEPLOY_HOST }}
           user: root
           key: ${{ secrets.PRIVATE_KEY }}
       - name: clean remote tree
@@ -42,14 +42,14 @@ jobs:
         with:
           command: |
             rm -rf /220/open-ems /tmp/open-ems.tgz
-          host: 65.108.212.26
+          host: ${{ secrets.DEPLOY_HOST }}
           user: root
           key: ${{ secrets.PRIVATE_KEY }}
       # appleboy/scp-action may create a directory named like the target and place the file inside it.
       - name: copy archive to server
         uses: appleboy/scp-action@master
         with:
-          host: 65.108.212.26
+          host: ${{ secrets.DEPLOY_HOST }}
           username: root
           port: 22
           key: ${{ secrets.PRIVATE_KEY }}
@@ -84,6 +84,6 @@ jobs:
             cd /220/open-ems &&
             docker compose down --remove-orphans &&
             docker compose up -d --build
-          host: 65.108.212.26
+          host: ${{ secrets.DEPLOY_HOST }}
           user: root
           key: ${{ secrets.PRIVATE_KEY }}
