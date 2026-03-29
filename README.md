@@ -36,7 +36,7 @@ docker compose run --rm migrate
 
 ### `./run-local.sh`
 
-Brings up `db`, runs Flyway, then **uvicorn --reload**. After the API responds, your **default browser opens Swagger UI** (`/docs`). Default HTTP port is **8096** (avoids conflicts with services often bound to **8090**). Next free port is used if that one is busy. Override:
+Brings up `db`, runs Flyway, then **uvicorn --reload**. After the API responds, your **default browser opens Swagger UI** (`/docs`). Default HTTP port is **9220** (avoids conflicts with services often bound to **8090**). Next free port is used if that one is busy. Override:
 
 ```bash
 PORT=8090 ./run-local.sh
@@ -51,24 +51,23 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 export DATABASE_URL=postgresql+asyncpg://openems:openems@localhost:5433/openems
-uvicorn app.main:app --reload --port 8096
+uvicorn app.main:app --reload --port 9220
 ```
 
 See `.env.example` for the default URL shape.
 
-## Deploy on Render
+## Deploy (GitHub Actions + SSH)
 
-Use a [Render Blueprint](https://render.com/docs/infrastructure-as-code) (`render.yaml` in the repo root).
+Workflow `.github/workflows/deploy.yml` in **this repository** runs on push to `main`, `master`, or `preprod`: packs the tree (excluding `.git` / `.venv`), copies it over SSH, then runs `docker compose` on the server.
 
-1. Push this repository to GitHub (e.g. [220-organization/open-ems](https://github.com/220-organization/open-ems)).
-2. In the [Render Dashboard](https://dashboard.render.com/), choose **New** → **Blueprint**, connect the repo, and apply `render.yaml`.
-3. Render provisions **Render Postgres** (`open-ems-db`) and a **Docker** web service (`open-ems`) with `DATABASE_URL` wired from the database.
+- **Host**: `65.108.212.26`, deployment path: `/220/open-ems`
+- **Secret**: GitHub Actions secret `PRIVATE_KEY` (SSH private key for `root` on that host)
+- On the server: `docker compose down --remove-orphans` then `docker compose up -d --build` (PostgreSQL + Flyway migrate + API as in `docker-compose.yml`).
 
-The web image runs **Flyway** on container start when `RUN_FLYWAY_ON_START=true` (set in the blueprint). This works on the free web tier; [pre-deploy commands](https://render.com/docs/deploys#pre-deploy-command) are paid-only on Render, so migrations are not configured via `preDeployCommand`.
+Optional: set `RUN_FLYWAY_ON_START=true` and `DATABASE_URL` in the API service environment if you run the app image against an external database (Flyway runs at container start via `scripts/render_flyway_migrate.py`). The default Compose stack uses the bundled `db` service and does not need those variables for migrations (Flyway runs as the `migrate` service).
 
 - Health check: `GET /health`
-- HTTP port: Render sets `PORT`; the entrypoint binds Uvicorn to that port.
-- Optional: set `B2B_API_BASE_URL` in the service **Environment** tab if the upstream API base changes.
+- Published API port on the host: `8095` → container `8090` (see `docker-compose.yml`).
 
 ## License
 

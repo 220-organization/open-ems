@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 
 def _normalize_async_database_url(url: str) -> str:
-    """Render and others use postgresql://; SQLAlchemy async needs postgresql+asyncpg://."""
+    """Hosts may use postgresql://; SQLAlchemy async needs postgresql+asyncpg://."""
     if "+asyncpg" in url.split("://", 1)[0]:
         return url
     if url.startswith("postgresql://"):

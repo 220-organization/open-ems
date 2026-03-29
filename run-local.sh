@@ -8,7 +8,7 @@ cd "$(dirname "$0")"
 
 export DATABASE_URL="${DATABASE_URL:-postgresql+asyncpg://openems:openems@127.0.0.1:5433/openems}"
 
-# Default 8096 avoids clashes with other tools on 8090 (e.g. admin-portal). Override: PORT=8090 ./run-local.sh
+# Default 9220 avoids clashes with other tools on 8090 (e.g. admin-portal). Override: PORT=8090 ./run-local.sh
 _port_busy() {
   local p="$1"
   if command -v lsof >/dev/null 2>&1; then
@@ -24,7 +24,7 @@ _port_busy() {
 }
 
 _resolve_port() {
-  local want="${PORT:-8096}"
+  local want="${PORT:-9220}"
   local p
   for p in $(seq "${want}" $((want + 30))); do
     if ! _port_busy "${p}"; then

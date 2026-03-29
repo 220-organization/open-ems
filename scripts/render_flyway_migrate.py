@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Run Flyway migrate using DATABASE_URL (postgresql://...).
-Used on Render and anywhere Flyway CLI is installed alongside the app image.
+Used when Flyway CLI is installed in the image (e.g. RUN_FLYWAY_ON_START=true).
 """
 from __future__ import annotations
 
