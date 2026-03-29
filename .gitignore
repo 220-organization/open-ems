@@ -11,6 +11,9 @@ venv/
 .mypy_cache/
 .DS_Store
 
+# SSH keys for deployment (never commit)
+.deployment-keys/
+
 # Local dev SQLite artifact (legacy / optional)
 /data/
 
