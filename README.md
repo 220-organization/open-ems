@@ -34,16 +34,19 @@ Default DB connection is `postgresql+asyncpg://openems:openems@127.0.0.1:5433/op
 
 The API loads **`open-ems/.env`** automatically (`python-dotenv`), so `DEYE_*`, `B2B_API_BASE_URL`, `OREE_*`, etc. apply without `export` in the shell. Do not commit real secrets; keep `.env` local (gitignored).
 
-### DAM chart (OREE + 220-km public kWh)
+### DAM chart (OREE → DB)
 
-The **`/dam-chart`** page loads **hourly EV kWh** from the upstream **`GET /b2b/public/day-kwh`** field **`hourlyKwh220`** only (same host as `B2B_API_BASE_URL`). **DAM (day-ahead)** hourly prices are read from the local table **`oree_dam_price`** (Flyway **`V2__oree_dam_price.sql`**). Populate with **`POST /api/dam/sync`** (OREE pull + upsert) or rely on on-demand sync when the selected day is **tomorrow** in **Europe/Kiev** and the key is set.
+The **`/dam-chart`** page and **`GET /api/dam/chart-day`** use only the **`oree_dam_price`** table (Flyway **`V2__oree_dam_price.sql`**). The UI defaults to **today (Europe/Kiev)** and keeps the trade day in the query string as **`?date=YYYY-MM-DD`**. With no **`date`** query, the API defaults to **today (Kyiv)** as well. Prices come from OREE via **`POST /api/dam/sync`**, a **daily background job at 13:00 Europe/Kiev** (configurable), and a **one-time OREE pull** when the user selects **tomorrow’s date (Kyiv)** and the DB has no DAM rows for that day.
 
 | Variable | Description |
 |----------|-------------|
-| `OREE_API_KEY` | OREE API key header **`X-API-KEY`** (required for sync and for a non-empty DAM line when DB has no rows) |
+| `OREE_API_KEY` | OREE API key header **`X-API-KEY`** (required for sync and on-demand fetch) |
 | `OREE_API_BASE_URL` | Optional. Default `https://api.oree.com.ua/index.php/api` |
 | `OREE_API_DAM_PRICES_PATH` | Optional. Default `/damprices` |
 | `OREE_COMPARE_ZONE_EIC` | Optional. Default `10Y1001C--000182` (UA IPS integration zone) |
+| `OREE_DAM_DAILY_SYNC_ENABLED` | Optional. Default `true` — set `0` / `false` to disable the daily scheduler |
+| `OREE_DAM_DAILY_SYNC_HOUR_KYIV` | Optional. Default `13` (0–23, Europe/Kiev wall time) |
+| `OREE_DAM_DAILY_SYNC_MINUTE_KYIV` | Optional. Default `0` (0–59) |
 
 ### Deye inverter list (Power flow)
 

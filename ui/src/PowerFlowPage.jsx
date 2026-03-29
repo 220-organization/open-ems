@@ -11,9 +11,23 @@ import {
   formatPower,
   formatUsdt,
 } from './powerFlowEngine';
+import DamChartPanel from './DamChartPanel';
 import './power-flow.css';
+import './dam-chart.css';
 
 const INVERTER_STORAGE = 'pf-deye-inverter';
+
+/** Short language codes in header (saves horizontal space). */
+const LANG_HEADER_CODE = {
+  en: 'EN',
+  uk: 'UK',
+  pl: 'PL',
+  cs: 'CS',
+  nl: 'NL',
+  bg: 'BG',
+  fr: 'FR',
+  es: 'ES',
+};
 
 function apiUrl(path) {
   const base = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
@@ -69,6 +83,11 @@ export default function PowerFlowPage({
     items: [],
     error: false,
   });
+  const [chargingPorts, setChargingPorts] = useState({
+    loading: true,
+    ok: true,
+    items: [],
+  });
   const [simTick, setSimTick] = useState(0);
 
   const bcp47 = getBcp47Locale();
@@ -80,6 +99,64 @@ export default function PowerFlowPage({
       }),
     [bcp47],
   );
+
+  const geoForPortsRef = useRef(null);
+  const geoRequestedRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const readGeoOnce = () =>
+      new Promise((resolve) => {
+        if (typeof navigator === 'undefined' || !navigator.geolocation) {
+          resolve(null);
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(
+          (p) => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }),
+          () => resolve(null),
+          { maximumAge: 300_000, timeout: 8_000 },
+        );
+      });
+
+    const load = async () => {
+      setChargingPorts((s) => ({ ...s, loading: true }));
+      try {
+        if (!geoRequestedRef.current) {
+          geoRequestedRef.current = true;
+          geoForPortsRef.current = await readGeoOnce();
+        }
+        const geo = geoForPortsRef.current;
+        const params = new URLSearchParams();
+        if (geo) {
+          params.set('lat', String(geo.lat));
+          params.set('lon', String(geo.lon));
+        }
+        const qs = params.toString();
+        const r = await fetch(apiUrl(`/api/b2b/charging-ports${qs ? `?${qs}` : ''}`), {
+          cache: 'no-store',
+        });
+        const data = await r.json();
+        if (cancelled) return;
+        const items = Array.isArray(data?.items) ? data.items : [];
+        setChargingPorts({
+          loading: false,
+          ok: data?.ok !== false,
+          items,
+        });
+      } catch {
+        if (!cancelled) {
+          setChargingPorts({ loading: false, ok: false, items: [] });
+        }
+      }
+    };
+
+    load();
+    const id = setInterval(load, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
 
   useEffect(() => {
     document.title = t('pageTitle');
@@ -344,6 +421,15 @@ export default function PowerFlowPage({
     [],
   );
 
+  const portSelectOptions = useMemo(() => {
+    const base = chargingPorts.items;
+    const s = stationFilter.trim();
+    if (!s || base.some((x) => String(x.number) === s)) {
+      return base;
+    }
+    return [...base, { number: s, label: s, distanceMeters: null, powerWt: null }];
+  }, [chargingPorts.items, stationFilter]);
+
   const consumptionMw = realtimePower?.powerMw ?? 0;
   const liveMinerW =
     minerSnap?.configured && minerSnap.powerW != null && Number.isFinite(minerSnap.powerW)
@@ -357,6 +443,9 @@ export default function PowerFlowPage({
   const { solarW, gridW, essW, minerW, consumptionW } = sim;
   /** Aggregate EV charging (B2B) is misleading next to a single Deye site — hide when an inverter is selected. */
   const showEvAggregate = !selInverterSn;
+  /** Aggregate grid (B2B simulation) is not the site grid — hide when an inverter is selected. */
+  const showGridAggregate = !selInverterSn;
+  const effectiveGridW = showGridAggregate ? gridW : 0;
   const useLiveEss =
     Boolean(selInverterSn) &&
     deyeLive?.batteryPowerW != null &&
@@ -370,12 +459,12 @@ export default function PowerFlowPage({
       ? Math.max(0, deyeLive.loadPowerW)
       : null;
   const loadFlowActive = displayLoadW != null && displayLoadW > 0;
-  const gridSelling = gridW < 0;
+  const gridSelling = effectiveGridW < 0;
   const hasFlow =
     (showEvAggregate && consumptionW > 0) ||
     minerW > 0 ||
     displayEssW !== 0 ||
-    gridW !== 0 ||
+    effectiveGridW !== 0 ||
     loadFlowActive;
   const geom = useMemo(() => computeWideGeometry(graphWidth), [graphWidth]);
   const graphAnchorPct = useMemo(
@@ -387,14 +476,19 @@ export default function PowerFlowPage({
   const gSell = geom.gridLineSelling;
 
   const gridLineCoords = gridSelling
-    ? { ...gSell, active: hasFlow && Math.abs(gridW) > 0 }
-    : { ...gBuy, active: hasFlow && Math.abs(gridW) > 0 };
+    ? { ...gSell, active: hasFlow && Math.abs(effectiveGridW) > 0 }
+    : { ...gBuy, active: hasFlow && Math.abs(effectiveGridW) > 0 };
 
   const gridDotPath = gridSelling
     ? flowMotionPath(gSell.start.x, gSell.start.y, gSell.end.x, gSell.end.y)
     : flowMotionPath(gBuy.start.x, gBuy.start.y, gBuy.end.x, gBuy.end.y);
 
   const essActive = hasFlow && Math.abs(displayEssW) > 0;
+  /** Motion dots that travel *into* the hub (line ends at EMS): solar, grid import, ESS discharge. */
+  const hubLogoInboundFlow =
+    (hasFlow && solarW > 0) ||
+    (!gridSelling && gridLineCoords.active) ||
+    (essActive && !displayEssCharging);
   const essCoords = displayEssCharging ? geom.essLineCharging : geom.essLine;
   const essPath = displayEssCharging
     ? flowMotionPath(
@@ -434,12 +528,12 @@ export default function PowerFlowPage({
     <div className="pf-body">
       <div className="pf-root">
         <header className="pf-header">
-          <label className="pf-station-field pf-inverter-field">
-            <span id="pf-inverter-label">{t('inverterLabel')}</span>
+          <div className="pf-station-field pf-inverter-field">
             <select
               id="pf-inverter"
-              className="pf-inverter-select"
+              className="pf-inverter-select pf-header-select--inverter"
               aria-label={t('inverterSelectAria')}
+              title={t('inverterSelectAria')}
               value={inverterRows.loading ? '' : inverterValue}
               onChange={onInverterChange}
             >
@@ -473,33 +567,40 @@ export default function PowerFlowPage({
                 </>
               )}
             </select>
-          </label>
-          <label className="pf-station-field">
-            <span id="pf-station-label">{t('stationLabel')}</span>
-            <input
+          </div>
+          <div className="pf-station-field">
+            <select
               id="pf-station"
-              className="pf-station-input"
-              type="text"
-              inputMode="numeric"
-              placeholder={t('stationPlaceholder')}
-              autoComplete="off"
+              className="pf-inverter-select pf-header-select--port"
+              aria-label={t('stationLabel')}
+              title={t('stationPlaceholder')}
               value={stationFilter}
               onChange={onStationChange}
-            />
-          </label>
-          <a className="pf-nav-link" href="/dam-chart">
-            {t('damNavLink')}
-          </a>
+            >
+              <option value="">
+                {chargingPorts.loading ? '…' : t('stationPlaceholder')}
+              </option>
+              {portSelectOptions.map((row) => {
+                const num = String(row.number);
+                return (
+                  <option key={num} value={num}>
+                    {num}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
           <select
             id="pf-lang"
-            className="pf-lang-select"
+            className="pf-lang-select pf-header-select--lang"
             aria-label={t('langSelectAria')}
+            title={t('langSelectAria')}
             value={locale}
             onChange={onLangSelectChange}
           >
             {SUPPORTED.map((code) => (
-              <option key={code} value={code}>
-                {LOCALE_NAMES[code] || code}
+              <option key={code} value={code} title={LOCALE_NAMES[code] || code}>
+                {LANG_HEADER_CODE[code] || String(code).toUpperCase().slice(0, 2)}
               </option>
             ))}
           </select>
@@ -666,24 +767,47 @@ export default function PowerFlowPage({
                   {formatPower(solarW, t, bcp47)}
                 </span>
               </div>
-              <button
-                type="button"
-                className="pf-node"
-                data-pos="left-center"
-                id="pf-node-grid"
-                data-active={hasFlow && Math.abs(gridW) > 0 ? 'true' : 'false'}
-              >
-                <span className="pf-node-icon" aria-hidden>
-                  ⚡
-                </span>
-                <span className="pf-node-label">{t('nodeGrid')}</span>
-                <span className="pf-node-value" id="pf-val-grid">
-                  {gridSelling ? `↓ ${formatPower(Math.abs(gridW), t, bcp47)}` : formatPower(gridW, t, bcp47)}
-                </span>
-                <span className="pf-ess-status" id="pf-grid-selling" hidden={!gridSelling}>
-                  {t('gridSelling')}
-                </span>
-              </button>
+              {showGridAggregate ? (
+                <button
+                  type="button"
+                  className="pf-node"
+                  data-pos="left-center"
+                  id="pf-node-grid"
+                  data-active={hasFlow && Math.abs(effectiveGridW) > 0 ? 'true' : 'false'}
+                >
+                  <span className="pf-node-icon" aria-hidden>
+                    ⚡
+                  </span>
+                  <span className="pf-node-label">{t('nodeGrid')}</span>
+                  <span className="pf-node-value" id="pf-val-grid">
+                    {gridSelling
+                      ? `↓ ${formatPower(Math.abs(effectiveGridW), t, bcp47)}`
+                      : formatPower(effectiveGridW, t, bcp47)}
+                  </span>
+                  <span className="pf-ess-status" id="pf-grid-selling" hidden={!gridSelling}>
+                    {t('gridSelling')}
+                  </span>
+                </button>
+              ) : (
+                <div
+                  className="pf-node pf-node-grid-disabled"
+                  data-pos="left-center"
+                  id="pf-node-grid"
+                  data-active="false"
+                  title={t('gridHiddenByInverter')}
+                >
+                  <span className="pf-node-icon" aria-hidden>
+                    ⚡
+                  </span>
+                  <span className="pf-node-label">{t('nodeGrid')}</span>
+                  <span className="pf-node-value" id="pf-val-grid">
+                    {formatPower(null, t, bcp47)}
+                  </span>
+                  <span className="pf-ess-status" id="pf-grid-selling" hidden>
+                    {t('gridSelling')}
+                  </span>
+                </div>
+              )}
               <div
                 className="pf-node"
                 data-pos="left-bottom"
@@ -706,7 +830,9 @@ export default function PowerFlowPage({
               </div>
               <div className="pf-hub" id="pf-hub">
                 <a
-                  className="pf-hub-brand"
+                  className={
+                    hubLogoInboundFlow ? 'pf-hub-brand pf-hub-brand--flow-ends-here' : 'pf-hub-brand'
+                  }
                   href={SITE_220KM_HOME}
                   target="_blank"
                   rel="noopener noreferrer"
@@ -845,6 +971,10 @@ export default function PowerFlowPage({
             <span className="pf-ukraine-qr-caption">{t('qrCaption')}</span>
           </a>
         </aside>
+
+        <section className="pf-dam-section" aria-label={t('damChartHeading')}>
+          <DamChartPanel variant="embedded" t={t} getBcp47Locale={getBcp47Locale} chartHeight={320} />
+        </section>
       </div>
     </div>
   );

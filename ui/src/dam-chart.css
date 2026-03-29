@@ -1,4 +1,31 @@
-/* DAM chart page — same neon palette as power-flow */
+/* DAM chart — same neon palette as power-flow */
+
+.pf-dam-section {
+  width: 100%;
+  max-width: 1100px;
+  margin: 16px auto 0;
+  padding: 0 4px max(12px, env(safe-area-inset-bottom));
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.dam-embedded-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.dam-title-embedded {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.dam-chart-card-embedded {
+  margin-top: 0;
+}
 
 .dam-page .dam-root {
   max-width: 1100px;
@@ -96,17 +123,10 @@
 }
 
 .dam-title {
-  margin: 0 0 6px;
+  margin: 0 0 16px;
   font-size: 1.25rem;
   font-weight: 600;
   color: var(--pf-label);
-}
-
-.dam-subtitle {
-  margin: 0 0 16px;
-  font-size: 13px;
-  color: rgba(255, 248, 252, 0.62);
-  line-height: 1.45;
 }
 
 .dam-error {

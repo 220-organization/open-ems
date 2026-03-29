@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -15,6 +16,7 @@ from app.routers import b2b_proxy, dam, deye_proxy
 from app.schemas import NoteCreate, NoteRead
 from app import settings
 from app.deye_api import deye_configured, deye_missing_env_names
+from app.oree_dam_scheduler import dam_daily_sync_loop
 from app.oree_dam_service import oree_dam_configured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -40,7 +42,27 @@ async def lifespan(app: FastAPI):
         logger.info("OREE DAM: OREE_API_KEY set (base: %s)", settings.OREE_API_BASE_URL)
     else:
         logger.warning("OREE DAM: not configured — set OREE_API_KEY for DAM sync and chart line")
+
+    stop_dam_sched: asyncio.Event | None = None
+    dam_sched_task: asyncio.Task[None] | None = None
+    if settings.OREE_DAM_DAILY_SYNC_ENABLED:
+        stop_dam_sched = asyncio.Event()
+        dam_sched_task = asyncio.create_task(dam_daily_sync_loop(stop_dam_sched))
+        logger.info(
+            "OREE DAM: daily DB sync at %02d:%02d Europe/Kiev (OREE_DAM_DAILY_SYNC_* / disable with OREE_DAM_DAILY_SYNC_ENABLED=0)",
+            settings.OREE_DAM_DAILY_SYNC_HOUR_KYIV,
+            settings.OREE_DAM_DAILY_SYNC_MINUTE_KYIV,
+        )
+
     yield
+
+    if dam_sched_task is not None and stop_dam_sched is not None:
+        stop_dam_sched.set()
+        dam_sched_task.cancel()
+        try:
+            await dam_sched_task
+        except asyncio.CancelledError:
+            pass
     logger.info("Open EMS shutting down")
 
 

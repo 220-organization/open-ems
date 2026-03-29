@@ -153,14 +153,20 @@ async def get_hourly_dam_with_optional_sync(
     zone_eic: str,
 ) -> tuple[list[Optional[float]], bool]:
     """
-    Read DAM from DB; if empty and trade_day is tomorrow (Kyiv), run sync once (Java parity).
+    Read DAM from DB only. If there is no price data for this day and trade_day equals
+    tomorrow's calendar date in Kyiv, pull once from OREE (e.g. user opened the chart for D+1).
     Returns (hourly_uah_mwh, sync_triggered).
     """
     hourly = await get_hourly_dam_uah_mwh(session, trade_day, zone_eic)
     if _has_any_hourly(hourly):
         return hourly, False
-    if trade_day == kyiv_tomorrow() and oree_dam_configured():
-        logger.info("DAM cache miss for tomorrow (%s), on-demand OREE sync", trade_day)
+    tomorrow_kyiv = kyiv_tomorrow()
+    if trade_day == tomorrow_kyiv and oree_dam_configured():
+        logger.info(
+            "DAM DB empty for %s (Kyiv tomorrow=%s), on-demand OREE sync",
+            trade_day,
+            tomorrow_kyiv,
+        )
         await sync_dam_prices_to_db(session)
         hourly = await get_hourly_dam_uah_mwh(session, trade_day, zone_eic)
         return hourly, True

@@ -49,3 +49,21 @@ OREE_API_KEY: str = (os.environ.get("OREE_API_KEY") or os.environ.get("OREE_API_
 OREE_COMPARE_ZONE_EIC: str = (
     os.environ.get("OREE_COMPARE_ZONE_EIC") or "10Y1001C--000182"
 ).strip()
+
+# Daily OREE → DB sync (Europe/Kiev wall clock).
+OREE_DAM_DAILY_SYNC_ENABLED: bool = _env_bool("OREE_DAM_DAILY_SYNC_ENABLED", True)
+
+
+def _env_int(name: str, default: int, min_v: int, max_v: int) -> int:
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        v = int(raw)
+    except ValueError:
+        return default
+    return max(min_v, min(max_v, v))
+
+
+OREE_DAM_DAILY_SYNC_HOUR_KYIV: int = _env_int("OREE_DAM_DAILY_SYNC_HOUR_KYIV", 13, 0, 23)
+OREE_DAM_DAILY_SYNC_MINUTE_KYIV: int = _env_int("OREE_DAM_DAILY_SYNC_MINUTE_KYIV", 0, 0, 59)

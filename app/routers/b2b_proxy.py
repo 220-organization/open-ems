@@ -11,6 +11,9 @@ from app.settings import B2B_API_BASE_URL
 
 logger = logging.getLogger(__name__)
 
+# Public device API (same host as B2B in production): nearest stations + job payload.
+_DEVICE_NEAREST_PATH = "/api/device/v2/station/nearest"
+
 router = APIRouter(prefix="/api/b2b", tags=["b2b-proxy"])
 
 # Avoid stale dashboards: browsers may cache GET; power-flow polls these every few seconds.
@@ -58,3 +61,96 @@ async def miner_power() -> Any:
     """Proxies GET /b2b/public/miner-power — Binance Pool miner snapshot when configured."""
     data = await _proxy_get("/b2b/public/miner-power")
     return JSONResponse(content=data, headers=_NO_STORE_CACHE)
+
+
+def _job_is_in_progress(job: Any) -> bool:
+    if not isinstance(job, dict):
+        return False
+    state = job.get("state")
+    if state is None:
+        return False
+    return str(state).strip().upper().replace("-", "_") == "IN_PROGRESS"
+
+
+@router.get("/charging-ports")
+async def charging_ports(
+    lat: float = Query(default=50.4501, description="Origin latitude (e.g. user or Kyiv default)"),
+    lon: float = Query(default=30.5234, description="Origin longitude"),
+    distance_m: int = Query(default=2_000_000, ge=1, le=20_000_000, description="Search radius, meters"),
+    top: int = Query(default=500, ge=1, le=2000, description="Max stations from upstream nearest API"),
+) -> JSONResponse:
+    """
+    Stations with an active charging job (job present, state IN_PROGRESS) for Power flow port filter.
+    Upstream: GET /api/device/v2/station/nearest (same base URL as B2B).
+    """
+    url = f"{B2B_API_BASE_URL}{_DEVICE_NEAREST_PATH}"
+    params = {
+        "lat": str(lat),
+        "lon": str(lon),
+        "distance_m": str(distance_m),
+        "top": str(top),
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, params=params)
+    except httpx.RequestError as exc:
+        logger.warning("Device nearest GET — transport error: %s", exc)
+        return JSONResponse(
+            content={"ok": False, "items": [], "detail": str(exc)},
+            headers=_NO_STORE_CACHE,
+        )
+    if response.status_code >= 400:
+        logger.warning(
+            "Device nearest GET — HTTP %s %s",
+            response.status_code,
+            (response.text or "")[:300],
+        )
+        return JSONResponse(
+            content={
+                "ok": False,
+                "items": [],
+                "detail": response.text[:500] if response.text else "Upstream error",
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    raw = response.json()
+    if not isinstance(raw, list):
+        return JSONResponse(content={"ok": True, "items": []}, headers=_NO_STORE_CACHE)
+
+    items_out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in raw:
+        if not isinstance(row, dict):
+            continue
+        job = row.get("job")
+        if job is None or not _job_is_in_progress(job):
+            continue
+        num = row.get("number")
+        if num is None:
+            continue
+        key = str(num).strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        name = row.get("name")
+        items_out.append(
+            {
+                "number": key,
+                "label": (str(name).strip() if name is not None else "") or key,
+                "distanceMeters": row.get("distanceMeters"),
+                "powerWt": job.get("powerWt") if isinstance(job, dict) else None,
+            }
+        )
+
+    def _dist_key(it: dict[str, Any]) -> tuple[bool, float]:
+        d = it.get("distanceMeters")
+        if d is None:
+            return (True, 0.0)
+        try:
+            return (False, float(d))
+        except (TypeError, ValueError):
+            return (True, 0.0)
+
+    items_out.sort(key=_dist_key)
+
+    return JSONResponse(content={"ok": True, "items": items_out}, headers=_NO_STORE_CACHE)

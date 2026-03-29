@@ -46,12 +46,55 @@
 
 .pf-header {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 4px 16px;
-  font-size: 14px;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 8px 4px 12px;
+  font-size: 13px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.pf-header > * {
+  flex-shrink: 0;
+}
+
+/* Compact header controls — one row on typical phone/tablet widths */
+.pf-header .pf-header-select--inverter {
+  min-width: 6.5rem;
+  max-width: 9.5rem;
+  flex-shrink: 1;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.pf-header .pf-header-select--port {
+  min-width: 4rem;
+  max-width: 5.5rem;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.pf-header .pf-header-select--lang {
+  min-width: 2.6rem;
+  max-width: 3.25rem;
+  padding: 6px 6px;
+  font-size: 13px;
+}
+
+.pf-header .pf-nav-link {
+  padding: 6px 10px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+@media (max-width: 320px) {
+  .pf-header {
+    flex-wrap: wrap;
+  }
 }
 
 .pf-station-field {
@@ -202,7 +245,8 @@ a.pf-node {
   cursor: pointer;
 }
 
-.pf-node-ev-disabled {
+.pf-node-ev-disabled,
+.pf-node-grid-disabled {
   opacity: 0.5;
   filter: grayscale(0.25);
   cursor: not-allowed;
@@ -310,28 +354,18 @@ a.pf-node {
   outline: 2px solid var(--pf-pink-soft);
 }
 
-/* ~60 bpm: one cardiac cycle per second; short S1–S2 double bump then diastole */
-@keyframes pf-hub-heartbeat {
+/* Soft slow glow only while a flow line ends at the hub (solar / grid import / ESS discharge). */
+@keyframes pf-hub-logo-soft-pulse {
   0%,
   100% {
     transform: scale(1);
-    filter: drop-shadow(0 0 10px rgba(252, 1, 155, 0.32));
+    filter: drop-shadow(0 0 10px rgba(252, 1, 155, 0.3));
+    opacity: 1;
   }
-  6% {
-    transform: scale(1.08);
-    filter: drop-shadow(0 0 18px rgba(252, 1, 155, 0.52));
-  }
-  12% {
-    transform: scale(1);
-    filter: drop-shadow(0 0 10px rgba(252, 1, 155, 0.32));
-  }
-  20% {
-    transform: scale(1.13);
-    filter: drop-shadow(0 0 24px rgba(252, 1, 155, 0.68));
-  }
-  32% {
-    transform: scale(1);
-    filter: drop-shadow(0 0 10px rgba(252, 1, 155, 0.32));
+  50% {
+    transform: scale(1.045);
+    filter: drop-shadow(0 0 20px rgba(252, 1, 155, 0.48));
+    opacity: 0.94;
   }
 }
 
@@ -342,11 +376,14 @@ a.pf-node {
   object-fit: contain;
   transform-origin: center center;
   filter: drop-shadow(0 0 10px rgba(252, 1, 155, 0.32));
-  animation: pf-hub-heartbeat 1s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+.pf-hub-brand--flow-ends-here .pf-hub-logo {
+  animation: pf-hub-logo-soft-pulse 4.2s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pf-hub-logo {
+  .pf-hub-brand--flow-ends-here .pf-hub-logo {
     animation: none;
   }
 }
@@ -473,16 +510,14 @@ a.pf-node {
 /* —— Mobile / narrow viewports —— */
 @media (max-width: 720px) {
   .pf-header {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
-    padding-bottom: 12px;
+    gap: 6px;
+    padding-bottom: 10px;
   }
 
   .pf-station-field {
-    width: 100%;
-    flex-direction: column;
-    align-items: stretch;
+    width: auto;
+    flex-direction: row;
+    align-items: center;
     gap: 6px;
   }
 
@@ -490,14 +525,19 @@ a.pf-node {
     font-size: 13px;
   }
 
-  .pf-station-input,
-  .pf-inverter-select,
-  .pf-lang-select {
+  .pf-station-input {
     width: 100%;
     max-width: none;
     min-width: 0;
     min-height: 44px;
     font-size: 16px;
+  }
+
+  /* Header bar: stay one scrollable row; larger touch targets without full-width stacking */
+  .pf-header .pf-inverter-select,
+  .pf-header .pf-lang-select {
+    min-height: 40px;
+    font-size: 14px;
   }
 
   .pf-graph {
