@@ -125,18 +125,15 @@ jobs:
         with:
           command: |
             set -e
-            ENV_SRC=""
-            if [ -f /tmp/open-ems-deploy.env ]; then
-              ENV_SRC=/tmp/open-ems-deploy.env
-            elif [ -d /tmp/open-ems-deploy.env ]; then
-              ENV_SRC=$(find /tmp/open-ems-deploy.env -type f -name 'open-ems-deploy.env' 2>/dev/null | head -1)
-            fi
+            # appleboy/scp-action often nests uploads (e.g. /tmp/tmp/open-ems-deploy.env when target is /tmp).
+            ENV_SRC=$(find /tmp -maxdepth 12 -type f -name 'open-ems-deploy.env' 2>/dev/null | head -1 || true)
             if [ -z "$ENV_SRC" ] || [ ! -f "$ENV_SRC" ]; then
               echo "ERROR: open-ems-deploy.env not found after scp" >&2
               ls -la /tmp || true
-              find /tmp -maxdepth 6 -type f -name 'open-ems-deploy.env' 2>/dev/null || true
+              find /tmp -maxdepth 12 -type f -name 'open-ems-deploy.env' 2>/dev/null || true
               exit 1
             fi
+            echo "Using deploy env file: $ENV_SRC"
             mv -f "$ENV_SRC" /220/open-ems/.env
             rm -rf /tmp/open-ems-deploy.env 2>/dev/null || true
             cd /220/open-ems
