@@ -1,5 +1,23 @@
 # Open EMS
 
+## Local development
+
+From this directory:
+
+```bash
+./run-local.sh
+```
+
+The script starts PostgreSQL (Docker), runs Flyway migrations, then **uvicorn** on a free TCP port beginning at **9220** (change the base port with `PORT=8090 ./run-local.sh` if needed).
+
+| What | URL |
+|------|-----|
+| Power flow UI | [http://localhost:9220/](http://localhost:9220/) (same page at `/power-flow`) |
+| OpenAPI (Swagger UI) | [http://localhost:9220/docs](http://localhost:9220/docs) |
+| Health | `GET http://localhost:9220/health` |
+
+Default DB connection is `postgresql+asyncpg://openems:openems@127.0.0.1:5433/openems` (override with `DATABASE_URL`).
+
 ## Deploy (GitHub Actions + SSH)
 
 Workflow `.github/workflows/deploy.yml` in **this repository** runs on push to `main`, `master`, or `preprod`: packs the tree (excluding `.git` / `.venv`), copies it over SSH, then runs `docker compose` on the server.

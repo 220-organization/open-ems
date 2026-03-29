@@ -2,7 +2,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +17,7 @@ STATIC_POWER_FLOW = BASE_DIR / "static" / "power_flow"
 
 app = FastAPI(
     title="Open EMS",
-    description="Power flow (default): [/](/) → [/power-flow](/power-flow). API docs: [/docs](/docs).",
+    description="Power flow UI: [/](/) and [/power-flow](/power-flow). API docs: [/docs](/docs).",
 )
 
 app.add_middleware(
@@ -38,17 +38,21 @@ if STATIC_POWER_FLOW.is_dir():
     )
 
 
-@app.get("/", include_in_schema=False)
-async def root() -> RedirectResponse:
-    return RedirectResponse(url="/power-flow", status_code=302)
-
-
-@app.get("/power-flow", include_in_schema=False)
-async def power_flow_page() -> FileResponse:
+def _power_flow_file_response() -> FileResponse:
     index = STATIC_POWER_FLOW / "index.html"
     if not index.is_file():
         raise HTTPException(status_code=404, detail="Power flow UI not found")
     return FileResponse(index)
+
+
+@app.get("/", include_in_schema=False)
+async def root() -> FileResponse:
+    return _power_flow_file_response()
+
+
+@app.get("/power-flow", include_in_schema=False)
+async def power_flow_page() -> FileResponse:
+    return _power_flow_file_response()
 
 
 @app.get("/health")
