@@ -34,7 +34,14 @@ services:
       - "9220:8090"
     environment:
       DATABASE_URL: postgresql+asyncpg://openems:openems@db:5432/openems
-      B2B_API_BASE_URL: https://220-km.com:8080
+      # Set via project `.env` (local) or CI-written `/220/open-ems/.env` on deploy.
+      B2B_API_BASE_URL: ${B2B_API_BASE_URL:-https://220-km.com:8080}
+      DEYE_API_BASE_URL: ${DEYE_API_BASE_URL:-https://eu1-developer.deyecloud.com/v1.0}
+      DEYE_APP_ID: ${DEYE_APP_ID:-}
+      DEYE_APP_SECRET: ${DEYE_APP_SECRET:-}
+      DEYE_EMAIL: ${DEYE_EMAIL:-}
+      DEYE_PASSWORD: ${DEYE_PASSWORD:-}
+      DEYE_COMPANY_ID: ${DEYE_COMPANY_ID:-0}
     depends_on:
       migrate:
         condition: service_completed_successfully

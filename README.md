@@ -66,6 +66,20 @@ Example lines you should see on that host include `VERSION="24.04.4 LTS (Noble N
 
 Deployment path on the server: `/220/open-ems`. The workflow connects as **`root`** on port **22**; the SSH target host is read from the repository secret **`DEPLOY_HOST`** (same pattern as **`PRIVATE_KEY`**).
 
+**Repository secrets for the API container** (written to `/220/open-ems/.env` on each deploy — same names as local `.env`):
+
+| Secret | Purpose |
+|--------|---------|
+| `B2B_API_BASE_URL` | Upstream B2B proxy (optional; default in compose if unset) |
+| `DEYE_API_BASE_URL` | Deye Open API base (optional; EU default if unset) |
+| `DEYE_APP_ID` | Developer portal app id |
+| `DEYE_APP_SECRET` | App secret |
+| `DEYE_EMAIL` | Deye account email |
+| `DEYE_PASSWORD` | Plain login password (app hashes SHA-256 for token) |
+| `DEYE_COMPANY_ID` | Optional; defaults to `0` if secret missing |
+
+Without the `DEYE_*` secrets, the inverter dropdown stays empty on the server even if it works locally.
+
 ### 1. Generate SSH key pair (on your laptop or admin machine)
 
 Use **Ed25519**, empty passphrase (typical for CI), and a dedicated key file:
