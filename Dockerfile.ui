@@ -1,0 +1,19 @@
+# Production React build served by nginx (host maps 9220:80).
+# REACT_APP_API_BASE_URL empty → browser uses /api/* on same host:port; nginx proxies to api:8090.
+FROM node:20-alpine AS ui-build
+WORKDIR /ui
+
+COPY ui/package.json ui/package-lock.json ./
+RUN npm ci
+
+COPY ui/ ./
+
+ARG REACT_APP_API_BASE_URL=
+ENV REACT_APP_API_BASE_URL=${REACT_APP_API_BASE_URL}
+
+RUN npm run build
+
+FROM nginx:1.27-alpine
+COPY --from=ui-build /ui/build /usr/share/nginx/html
+COPY docker/nginx-ui.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80

@@ -1,4 +1,5 @@
-# PostgreSQL + Flyway (same migration style as Java backend: db/migration/postgres/common, V__*.sql) + API.
+# PostgreSQL + Flyway + FastAPI (9221) + production React/nginx (9220).
+# UI build proxies /api → api:8090; set REACT_APP_API_BASE_URL at image build only if you skip the proxy.
 services:
   db:
     image: postgres:16-alpine
@@ -17,7 +18,6 @@ services:
       timeout: 5s
       retries: 15
 
-  # Flyway 9.x line (Java backend uses flyway-core 9.14.1 in build.gradle)
   migrate:
     image: flyway/flyway:9.22.3
     command: -url=jdbc:postgresql://db:5432/openems -user=openems -password=openems -connectRetries=60 migrate
@@ -31,10 +31,10 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - "9220:8090"
+      - "9221:8090"
     environment:
+      OPEN_EMS_SERVE_SPA: "0"
       DATABASE_URL: postgresql+asyncpg://openems:openems@db:5432/openems
-      # Set via project `.env` (local) or CI-written `/220/open-ems/.env` on deploy.
       B2B_API_BASE_URL: ${B2B_API_BASE_URL:-https://220-km.com:8080}
       DEYE_API_BASE_URL: ${DEYE_API_BASE_URL:-https://eu1-developer.deyecloud.com/v1.0}
       DEYE_APP_ID: ${DEYE_APP_ID:-}
@@ -45,6 +45,18 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.ui
+      args:
+        REACT_APP_API_BASE_URL: ${REACT_APP_API_BASE_URL:-}
+    restart: unless-stopped
+    ports:
+      - "9220:80"
+    depends_on:
+      - api
 
 volumes:
   open_ems_pgdata:

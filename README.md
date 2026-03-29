@@ -14,7 +14,9 @@ Re-run `./run-local.sh` anytime: old listeners on those ports are killed first, 
 
 Optional: copy `ui/.env.example` → `ui/.env` only if you need overrides; otherwise `run-local.sh` sets `REACT_APP_API_BASE_URL=http://127.0.0.1:9221`.
 
-Production build: `cd ui && npm run build`. In **Docker** (unset `OPEN_EMS_SERVE_SPA` or set it true), FastAPI serves the React app at `/` and `/power-flow` and mounts `ui/build/static` at `/static`. Without `ui/build/`, `/` returns **503** until you build.
+Local production-style bundle: `cd ui && npm run build` (optional sanity check).
+
+**Docker Compose (server):** builds **`web`** from `Dockerfile.ui` (CRA production build + **nginx** on container port 80 → host **9220**) and **`api`** from `Dockerfile` (FastAPI on host **9221**, `OPEN_EMS_SERVE_SPA=0`). Nginx proxies **`/api/*`** to `api:8090`, so the UI image is built with an empty **`REACT_APP_API_BASE_URL`** by default (same-origin `/api` on port 9220). Override at build time via Compose env **`REACT_APP_API_BASE_URL`** if you need a direct API URL instead.
 
 | What | URL |
 |------|-----|
@@ -22,8 +24,10 @@ Production build: `cd ui && npm run build`. In **Docker** (unset `OPEN_EMS_SERVE
 | REST API (local dev) | [http://localhost:9221/](http://localhost:9221/) (JSON index; Swagger at `/docs`) |
 | OpenAPI (Swagger UI) | [http://localhost:9221/docs](http://localhost:9221/docs) |
 | Health | `GET http://localhost:9221/health` |
+| Docker: Power flow UI (prod) | host **9220** → `web` (nginx + static React) |
+| Docker: REST API (prod) | host **9221** → `api` (Swagger `/docs`, `/health`) |
 
-**Public Power flow:** [https://220-km.com:9220/](https://220-km.com:9220/)
+**Public Power flow (UI):** [https://220-km.com:9220/](https://220-km.com:9220/) — **API / docs:** port **9221** on the same host.
 
 Default DB connection is `postgresql+asyncpg://openems:openems@127.0.0.1:5433/openems` (override with `DATABASE_URL`).
 
@@ -160,5 +164,5 @@ ssh -i ~/.ssh/open-ems-deploy/open_ems_deploy_ed25519 -o IdentitiesOnly=yes root
 
 Optional: set `RUN_FLYWAY_ON_START=true` and `DATABASE_URL` in the API service environment if you run the app image against an external database (Flyway runs at container start via `scripts/render_flyway_migrate.py`). The default Compose stack uses the bundled `db` service and does not need those variables for migrations (Flyway runs as the `migrate` service).
 
-- Health check: `GET /health`
-- Published API port on the host: `9220` → container `8090` (see `docker-compose.yml`).
+- Health check: `GET http://<host>:9221/health` (API service)
+- Published ports on the host: **`9220`** → `web` (nginx + React), **`9221`** → `api` (FastAPI) — see `docker-compose.yml`.
