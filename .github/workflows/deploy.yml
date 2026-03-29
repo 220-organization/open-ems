@@ -45,6 +45,7 @@ jobs:
           host: 65.108.212.26
           user: root
           key: ${{ secrets.PRIVATE_KEY }}
+      # Single-file copy: target must be the remote file path, not only a directory (see appleboy/scp-action).
       - name: copy archive to server
         uses: appleboy/scp-action@master
         with:
@@ -53,7 +54,7 @@ jobs:
           port: 22
           key: ${{ secrets.PRIVATE_KEY }}
           source: /tmp/open-ems.tgz
-          target: /tmp/
+          target: /tmp/open-ems.tgz
           timeout: 60s
           command_timeout: 30m
           proxy_timeout: 30m
@@ -61,6 +62,7 @@ jobs:
         uses: fifsky/ssh-action@master
         with:
           command: |
+            test -f /tmp/open-ems.tgz || { echo "ERROR: /tmp/open-ems.tgz missing after scp" >&2; ls -la /tmp; exit 1; }
             mkdir -p /220/open-ems
             tar -xzf /tmp/open-ems.tgz -C /220/open-ems
             rm -f /tmp/open-ems.tgz
