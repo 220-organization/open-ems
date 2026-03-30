@@ -1,4 +1,5 @@
 import datetime
+from typing import Optional
 
 from sqlalchemy import Date, DateTime, Double, Integer, SmallInteger, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -17,7 +18,7 @@ class Note(Base):
 
 
 class DeyeSocSample(Base):
-    """Deye battery SoC % sampled every ~5 minutes (UTC bucket_start aligned to 5 min)."""
+    """Deye metrics sampled every ~5 minutes (UTC bucket_start aligned to 5 min)."""
 
     __tablename__ = "deye_soc_sample"
 
@@ -25,7 +26,8 @@ class DeyeSocSample(Base):
     bucket_start: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), primary_key=True
     )
-    soc_percent: Mapped[float] = mapped_column(Double, nullable=False)
+    soc_percent: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    grid_power_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
     created_on: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

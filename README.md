@@ -48,7 +48,7 @@ The **`/dam-chart`** page and **`GET /api/dam/chart-day`** use only the **`oree_
 | `OREE_DAM_DAILY_SYNC_HOUR_KYIV` | Optional. Default `13` (0–23, Europe/Kiev wall time) |
 | `OREE_DAM_DAILY_SYNC_MINUTE_KYIV` | Optional. Default `0` (0–59) |
 
-**SoC on the DAM chart:** With an inverter selected on the Power flow page (`?inverter=<serial>`) or on **`/dam-chart?inverter=<serial>`**, the UI requests **`GET /api/deye/soc-history-day`** and draws **mean battery SoC % per Europe/Kyiv clock hour** (24 points, same *hour* axis as DAM) on a **right Y-axis**. Data comes from the **`deye_soc_sample`** table (Flyway **`V3__deye_soc_sample.sql`**): the API process snapshots **all** inverters from **`listWithDevice`** every **`DEYE_SOC_SNAPSHOT_INTERVAL_SEC`** (default **300**), using a **fresh** Deye `device/latest` call (not the UI’s in-memory SoC TTL).
+**SoC and grid on the DAM chart:** With an inverter selected on the Power flow page (`?inverter=<serial>`) or on **`/dam-chart?inverter=<serial>`**, the UI requests **`GET /api/deye/soc-history-day`** and draws **mean battery SoC % per Europe/Kyiv clock hour** (24 points, same *hour* axis as DAM) on a **right Y-axis**, plus **mean grid power per hour** (signed **W** from Deye: **positive = import**, **negative = export**) as a **bar chart under the main X-axis** (kW in the UI). Rows are stored in **`deye_soc_sample`** (Flyway **`V3`** + **`V4__deye_soc_sample_grid.sql`**): the API process snapshots **all** inverters from **`listWithDevice`** every **`DEYE_SOC_SNAPSHOT_INTERVAL_SEC`** (default **300**), using a **fresh** Deye `device/latest` call (not the UI’s in-memory SoC TTL).
 
 ### Deye inverter list (Power flow)
 

@@ -65,6 +65,19 @@
   gap: 6px;
 }
 
+.dam-grid-bars-wrap {
+  margin-top: 10px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(252, 1, 155, 0.15);
+}
+
+.dam-grid-bars-caption {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  color: rgba(255, 248, 252, 0.58);
+  line-height: 1.35;
+}
+
 .dam-date-btn {
   appearance: none;
   background: var(--pf-surface);

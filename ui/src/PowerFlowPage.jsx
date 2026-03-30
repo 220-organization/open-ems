@@ -17,6 +17,9 @@ import './dam-chart.css';
 
 const INVERTER_STORAGE = 'pf-deye-inverter';
 
+/** Aside QR wraps this URL (B12 uncrewed systems unit). */
+const QR_SUPPORT_URL = 'https://b12.army/';
+
 /** Short language codes in header (saves horizontal space). */
 const LANG_HEADER_CODE = {
   en: 'EN',
@@ -958,7 +961,7 @@ export default function PowerFlowPage({
         <aside className="pf-ukraine-qr" aria-label={t('qrAsideAria')}>
           <a
             className="pf-ukraine-qr-link"
-            href="https://u24.gov.ua/"
+            href={QR_SUPPORT_URL}
             target="_blank"
             rel="noopener noreferrer"
           >

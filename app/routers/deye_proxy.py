@@ -17,7 +17,7 @@ from app.deye_api import (
     get_soc_map_cached,
     list_inverter_devices,
 )
-from app.deye_soc_service import hourly_soc_percent_for_kyiv_day
+from app.deye_soc_service import hourly_inverter_history_for_kyiv_day
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -117,7 +117,7 @@ async def get_soc_history_day(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Mean SoC % per Kyiv local hour (24 values) from deye_soc_sample (5-min DB snapshots).
+    Mean SoC % and mean grid power (W signed: + import, − export) per Kyiv local hour from deye_soc_sample.
     """
     if not deye_configured():
         return JSONResponse(
@@ -127,6 +127,7 @@ async def get_soc_history_day(
                 "deviceSn": deviceSn,
                 "date": date,
                 "hourlySocPercent": [None] * 24,
+                "hourlyGridPowerW": [None] * 24,
             },
             headers=_NO_STORE_CACHE,
         )
@@ -135,14 +136,15 @@ async def get_soc_history_day(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD") from exc
     try:
-        hourly = await hourly_soc_percent_for_kyiv_day(db, deviceSn, trade_day)
+        hourly_soc, hourly_grid_w = await hourly_inverter_history_for_kyiv_day(db, deviceSn, trade_day)
         return JSONResponse(
             content={
                 "ok": True,
                 "configured": True,
                 "deviceSn": deviceSn,
                 "date": date,
-                "hourlySocPercent": hourly,
+                "hourlySocPercent": hourly_soc,
+                "hourlyGridPowerW": hourly_grid_w,
             },
             headers=_NO_STORE_CACHE,
         )

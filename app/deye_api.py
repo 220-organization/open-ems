@@ -742,14 +742,7 @@ async def get_soc_map_cached(device_sns: list[str]) -> dict[str, Optional[float]
     return result
 
 
-async def fetch_soc_map_refresh(device_sns: list[str]) -> dict[str, Optional[float]]:
-    """
-    Always calls Deye POST /device/latest (batched); updates _soc_cache and _live_cache.
-    Use for DB snapshots so samples are not stuck behind SOC_CACHE_TTL_SEC.
-    """
-    if not deye_configured():
-        return {}
-
+def _normalize_digit_serials(device_sns: list[str]) -> list[str]:
     unique: list[str] = []
     seen: set[str] = set()
     for s in device_sns:
@@ -758,6 +751,17 @@ async def fetch_soc_map_refresh(device_sns: list[str]) -> dict[str, Optional[flo
             continue
         seen.add(sn)
         unique.append(sn)
+    return unique
+
+
+async def refresh_device_latest_batches(
+    device_sns: list[str],
+) -> dict[str, tuple[Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]]]:
+    """
+    Always POST /device/latest in batches of up to 10; refresh _soc_cache and _live_cache.
+    Returns sn -> (soc %, battery W, load W, pv W, grid W signed).
+    """
+    unique = _normalize_digit_serials(device_sns)
     if not unique:
         return {}
 
@@ -794,7 +798,22 @@ async def fetch_soc_map_refresh(device_sns: list[str]) -> dict[str, Optional[flo
             ngrid = grid_w if grid_w is not None else ogrid
             _live_cache[sn] = (nbat, nload, npv, ngrid, fetch_time)
 
-    return {sn: merged_fetch[sn][0] if sn in merged_fetch else None for sn in unique}
+    empty = (None, None, None, None, None)
+    return {sn: merged_fetch.get(sn, empty) for sn in unique}
+
+
+async def fetch_soc_map_refresh(device_sns: list[str]) -> dict[str, Optional[float]]:
+    """
+    Always calls Deye POST /device/latest (batched); updates _soc_cache and _live_cache.
+    Use for DB snapshots so samples are not stuck behind SOC_CACHE_TTL_SEC.
+    """
+    if not deye_configured():
+        return {}
+    unique = _normalize_digit_serials(device_sns)
+    if not unique:
+        return {}
+    merged = await refresh_device_latest_batches(unique)
+    return {sn: merged[sn][0] for sn in unique}
 
 
 async def get_live_metrics_cached(
