@@ -1023,6 +1023,19 @@ def _body_zero_export_to_ct(device_sn: str, rated_power: int) -> dict[str, Any]:
     }
 
 
+def _body_zero_export_target_soc(device_sn: str, tou_soc: float, rated_power: int) -> dict[str, Any]:
+    """ZERO_EXPORT_TO_CT with a uniform TOU SoC target (used to bias battery toward a higher SoC)."""
+    power = int(rated_power)
+    return {
+        "deviceSn": device_sn,
+        "solarSellAction": "on",
+        "touAction": "on",
+        "touDays": list(_TOU_DAYS),
+        "workMode": "ZERO_EXPORT_TO_CT",
+        "timeUseSettingItems": _tou_setting_items(float(tou_soc), power),
+    }
+
+
 async def _post_strategy_dynamic_control(body: dict[str, Any]) -> None:
     """
     POST /strategy/dynamicControl — overwrites device TOU / work mode per Deye cloud semantics.
@@ -1067,9 +1080,47 @@ _DISCHARGE_SOC_DELTA_MIN = 2.0
 _DISCHARGE_SOC_DELTA_MAX = 40.0
 
 
+async def _discharge_soc_delta_poll_loop_and_restore(
+    sn: str,
+    soc0_f: float,
+    target: float,
+    poll: float,
+    timeout: float,
+    rated: int,
+) -> tuple[bool, float, Optional[str]]:
+    """Poll until SoC at target; then restore ZERO_EXPORT_TO_CT."""
+    hit_target = False
+    last_soc: float = float(soc0_f)
+    restore_error: Optional[str] = None
+    try:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            await asyncio.sleep(poll)
+            refreshed = await fetch_soc_map_refresh([sn])
+            cur = refreshed.get(sn)
+            if cur is not None:
+                last_soc = float(cur)
+                if last_soc <= target + 0.08:
+                    hit_target = True
+                    break
+    except Exception:
+        logger.exception("Deye: discharge sequence failed before restore sn=%s", sn)
+        raise
+    finally:
+        try:
+            await _post_strategy_dynamic_control(_body_zero_export_to_ct(sn, rated))
+        except Exception as exc:
+            restore_error = str(exc)
+            logger.exception("Deye: ZERO_EXPORT_TO_CT restore failed sn=%s", sn)
+
+    return hit_target, last_soc, restore_error
+
+
 async def discharge_soc_delta_then_zero_export_ct(
     device_sn: str,
     soc_delta_pct: float,
+    *,
+    return_after_start: bool = False,
 ) -> dict[str, Any]:
     """
     1) Set workMode SELLING_FIRST via dynamicControl (discharge-friendly TOU template).
@@ -1077,6 +1128,9 @@ async def discharge_soc_delta_then_zero_export_ct(
     3) Set workMode ZERO_EXPORT_TO_CT (sample self-consumption template).
 
     soc_delta_pct: 2..40 (percentage points of SoC to shed).
+
+    When return_after_start is True, step 1 is awaited and the HTTP handler can return
+    immediately; steps 2–3 continue in a background task (for UI loaders).
 
     Warning: replaces the device's TOU schedule with the template (Deye API limitation).
     """
@@ -1106,31 +1160,39 @@ async def discharge_soc_delta_then_zero_export_ct(
     # TOU soc floor = desired SoC after discharge target (Deye samples use low soc to allow discharge)
     tou_soc_discharge = round(target, 2)
 
-    hit_target = False
-    last_soc: Optional[float] = float(soc0)
-    restore_error: Optional[str] = None
+    await _post_strategy_dynamic_control(_body_selling_first(sn, tou_soc_discharge, rated))
 
-    try:
-        await _post_strategy_dynamic_control(_body_selling_first(sn, tou_soc_discharge, rated))
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            await asyncio.sleep(poll)
-            refreshed = await fetch_soc_map_refresh([sn])
-            cur = refreshed.get(sn)
-            if cur is not None:
-                last_soc = float(cur)
-                if last_soc <= target + 0.08:
-                    hit_target = True
-                    break
-    except Exception:
-        logger.exception("Deye: discharge sequence failed before restore sn=%s", sn)
-        raise
-    finally:
-        try:
-            await _post_strategy_dynamic_control(_body_zero_export_to_ct(sn, rated))
-        except Exception as exc:
-            restore_error = str(exc)
-            logger.exception("Deye: ZERO_EXPORT_TO_CT restore failed sn=%s", sn)
+    if return_after_start:
+
+        async def _bg_discharge() -> None:
+            try:
+                _, _, restore_error = await _discharge_soc_delta_poll_loop_and_restore(
+                    sn, soc0_f, target, poll, timeout, rated
+                )
+                if restore_error:
+                    logger.error(
+                        "Deye: background discharge finished with restore error sn=%s err=%s",
+                        sn,
+                        restore_error,
+                    )
+            except Exception:
+                logger.exception("Deye: background discharge task failed sn=%s", sn)
+
+        asyncio.create_task(_bg_discharge())
+        return {
+            "deviceSn": sn,
+            "socDeltaPercent": round(delta, 2),
+            "startSoc": soc0_f,
+            "targetSoc": float(target),
+            "lastSoc": soc0_f,
+            "hitTarget": False,
+            "workModeRestored": None,
+            "respondAfterStart": True,
+        }
+
+    hit_target, last_soc, restore_error = await _discharge_soc_delta_poll_loop_and_restore(
+        sn, soc0_f, target, poll, timeout, rated
+    )
 
     if restore_error:
         raise RuntimeError(f"Failed to restore ZERO_EXPORT_TO_CT: {restore_error}")
@@ -1143,9 +1205,138 @@ async def discharge_soc_delta_then_zero_export_ct(
         "lastSoc": last_soc,
         "hitTarget": hit_target,
         "workModeRestored": "ZERO_EXPORT_TO_CT",
+        "respondAfterStart": False,
     }
 
 
 async def discharge_two_percent_then_zero_export_ct(device_sn: str) -> dict[str, Any]:
     """Backward-compatible name: fixed 2 percentage-point drop."""
     return await discharge_soc_delta_then_zero_export_ct(device_sn, 2.0)
+
+
+_CHARGE_SOC_DELTA_ALLOWED: tuple[int, ...] = (10, 20, 50, 100)
+
+
+async def _charge_soc_delta_poll_loop_and_restore(
+    sn: str,
+    soc0_f: float,
+    target: float,
+    poll: float,
+    timeout: float,
+    rated: int,
+) -> tuple[bool, float, Optional[str]]:
+    """Poll until SoC reaches charge target; then restore default ZERO_EXPORT_TO_CT template."""
+    hit_target = False
+    last_soc: float = float(soc0_f)
+    restore_error: Optional[str] = None
+    try:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            await asyncio.sleep(poll)
+            refreshed = await fetch_soc_map_refresh([sn])
+            cur = refreshed.get(sn)
+            if cur is not None:
+                last_soc = float(cur)
+                if last_soc >= target - 0.08:
+                    hit_target = True
+                    break
+    except Exception:
+        logger.exception("Deye: charge sequence failed before restore sn=%s", sn)
+        raise
+    finally:
+        try:
+            await _post_strategy_dynamic_control(_body_zero_export_to_ct(sn, rated))
+        except Exception as exc:
+            restore_error = str(exc)
+            logger.exception("Deye: ZERO_EXPORT_TO_CT restore failed after charge sn=%s", sn)
+
+    return hit_target, last_soc, restore_error
+
+
+async def charge_soc_delta_then_zero_export_ct(
+    device_sn: str,
+    soc_delta_pct: float,
+    *,
+    return_after_start: bool = False,
+) -> dict[str, Any]:
+    """
+    1) Set ZERO_EXPORT_TO_CT with a high TOU SoC target (current SoC + delta, capped at 100).
+    2) Poll until SoC rises by approximately soc_delta_pct or timeout.
+    3) Restore default ZERO_EXPORT_TO_CT self-consumption template (low SoC slots).
+
+    soc_delta_pct: one of 10, 20, 50, 100 (percentage points to add toward 100% SoC).
+
+    When return_after_start is True, step 1 is awaited and the caller may return immediately;
+    steps 2–3 continue in a background task.
+    """
+    delta_f = float(soc_delta_pct)
+    delta_i = int(round(delta_f))
+    if delta_i not in _CHARGE_SOC_DELTA_ALLOWED:
+        allowed = ", ".join(str(x) for x in _CHARGE_SOC_DELTA_ALLOWED)
+        raise ValueError(f"soc_delta_pct for charge must be one of: {allowed}")
+
+    await assert_inverter_owned(device_sn)
+    sn = device_sn.strip()
+    rated = settings.DEYE_DYNAMIC_CONTROL_RATED_POWER_W
+    soc_map = await fetch_soc_map_refresh([sn])
+    soc0 = soc_map.get(sn)
+    if soc0 is None:
+        raise ValueError("SOC not available from device — cannot run charge sequence")
+    soc0_f = float(soc0)
+    target = min(100.0, soc0_f + float(delta_i))
+    if soc0_f >= target - 0.05:
+        raise ValueError(
+            f"SOC already at or above charge target (~{target:.1f}%) — nothing to add by {delta_i}%"
+        )
+
+    poll = max(5, settings.DEYE_DISCHARGE_SOC_POLL_SEC)
+    timeout = max(60, settings.DEYE_DISCHARGE_SOC_TIMEOUT_SEC)
+    tou_soc_charge = round(target, 2)
+
+    await _post_strategy_dynamic_control(_body_zero_export_target_soc(sn, tou_soc_charge, rated))
+
+    if return_after_start:
+
+        async def _bg_charge() -> None:
+            try:
+                _, _, restore_error = await _charge_soc_delta_poll_loop_and_restore(
+                    sn, soc0_f, target, poll, timeout, rated
+                )
+                if restore_error:
+                    logger.error(
+                        "Deye: background charge finished with restore error sn=%s err=%s",
+                        sn,
+                        restore_error,
+                    )
+            except Exception:
+                logger.exception("Deye: background charge task failed sn=%s", sn)
+
+        asyncio.create_task(_bg_charge())
+        return {
+            "deviceSn": sn,
+            "socDeltaPercent": float(delta_i),
+            "startSoc": soc0_f,
+            "targetSoc": float(target),
+            "lastSoc": soc0_f,
+            "hitTarget": False,
+            "workModeRestored": None,
+            "respondAfterStart": True,
+        }
+
+    hit_target, last_soc, restore_error = await _charge_soc_delta_poll_loop_and_restore(
+        sn, soc0_f, target, poll, timeout, rated
+    )
+
+    if restore_error:
+        raise RuntimeError(f"Failed to restore ZERO_EXPORT_TO_CT: {restore_error}")
+
+    return {
+        "deviceSn": sn,
+        "socDeltaPercent": float(delta_i),
+        "startSoc": soc0_f,
+        "targetSoc": float(target),
+        "lastSoc": last_soc,
+        "hitTarget": hit_target,
+        "workModeRestored": "ZERO_EXPORT_TO_CT",
+        "respondAfterStart": False,
+    }

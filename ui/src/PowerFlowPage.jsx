@@ -49,6 +49,17 @@ function normalizeDischargeSocDeltaPct(p) {
   );
 }
 
+const CHARGE_SOC_DELTA_OPTIONS = Object.freeze([10, 20, 50, 100]);
+
+function normalizeChargeSocDeltaPct(p) {
+  const n = Math.round(Number(p));
+  if (!Number.isFinite(n)) return 10;
+  if (CHARGE_SOC_DELTA_OPTIONS.includes(n)) return n;
+  return CHARGE_SOC_DELTA_OPTIONS.reduce((best, x) =>
+    Math.abs(x - n) < Math.abs(best - n) ? x : best,
+  );
+}
+
 function MotionDot({ pathD }) {
   return (
     <circle r="5.8" fill="url(#pf-flow-dot-grad)" className="pf-flow-dot">
@@ -322,26 +333,34 @@ export default function PowerFlowPage({
   /** Deye live metrics when an inverter is selected: battery, load, PV, grid. */
   const [deyeLive, setDeyeLive] = useState(null);
   const [deyeLiveLoading, setDeyeLiveLoading] = useState(false);
-  const [discharge2Busy, setDischarge2Busy] = useState(false);
   const [discharge2Feedback, setDischarge2Feedback] = useState('');
   const discharge2BusyRef = useRef(false);
+  const charge2BusyRef = useRef(false);
   const [peakDamDischargeEnabled, setPeakDamDischargeEnabled] = useState(false);
   const [dischargeSocDeltaPct, setDischargeSocDeltaPct] = useState(2);
-  const [peakDamPrefLoading, setPeakDamPrefLoading] = useState(false);
+  const [lowDamChargeEnabled, setLowDamChargeEnabled] = useState(false);
+  const [chargeSocDeltaPct, setChargeSocDeltaPct] = useState(10);
+  const [toolbarPrefsLoading, setToolbarPrefsLoading] = useState(false);
   const [dischargeConfirmOpen, setDischargeConfirmOpen] = useState(false);
+  const [chargeConfirmOpen, setChargeConfirmOpen] = useState(false);
+  /** Deye charge/discharge: loading spinner then result in a follow-up modal. */
+  const [deyeCommandModal, setDeyeCommandModal] = useState(null);
   const peakPrefSaveTimerRef = useRef(null);
+  const chargePrefSaveTimerRef = useRef(null);
   const peakDamEnabledRef = useRef(false);
+  const lowDamEnabledRef = useRef(false);
 
   useEffect(() => {
     peakDamEnabledRef.current = peakDamDischargeEnabled;
   }, [peakDamDischargeEnabled]);
 
   useEffect(() => {
-    discharge2BusyRef.current = discharge2Busy;
-  }, [discharge2Busy]);
+    lowDamEnabledRef.current = lowDamChargeEnabled;
+  }, [lowDamChargeEnabled]);
 
   useEffect(() => {
     setDischarge2Feedback('');
+    setDeyeCommandModal(null);
   }, [selInverterSn]);
 
   useEffect(() => {
@@ -349,10 +368,16 @@ export default function PowerFlowPage({
       clearTimeout(peakPrefSaveTimerRef.current);
       peakPrefSaveTimerRef.current = null;
     }
+    if (chargePrefSaveTimerRef.current != null) {
+      clearTimeout(chargePrefSaveTimerRef.current);
+      chargePrefSaveTimerRef.current = null;
+    }
     if (!selInverterSn || inverterRows.error) {
       setPeakDamDischargeEnabled(false);
       setDischargeSocDeltaPct(2);
-      setPeakDamPrefLoading(false);
+      setLowDamChargeEnabled(false);
+      setChargeSocDeltaPct(10);
+      setToolbarPrefsLoading(false);
       return undefined;
     }
     if (inverterRows.loading) {
@@ -361,37 +386,54 @@ export default function PowerFlowPage({
     if (!inverterRows.configured) {
       setPeakDamDischargeEnabled(false);
       setDischargeSocDeltaPct(2);
-      setPeakDamPrefLoading(false);
+      setLowDamChargeEnabled(false);
+      setChargeSocDeltaPct(10);
+      setToolbarPrefsLoading(false);
       return undefined;
     }
     let cancelled = false;
     const load = async () => {
-      setPeakDamPrefLoading(true);
+      setToolbarPrefsLoading(true);
       try {
         const q = new URLSearchParams({ deviceSn: selInverterSn });
-        const r = await fetch(`${apiUrl('/api/deye/peak-auto-discharge')}?${q}`, {
-          cache: 'no-store',
-        });
-        const data = await r.json().catch(() => ({}));
+        const [rPeak, rLow] = await Promise.all([
+          fetch(`${apiUrl('/api/deye/peak-auto-discharge')}?${q}`, { cache: 'no-store' }),
+          fetch(`${apiUrl('/api/deye/low-dam-charge')}?${q}`, { cache: 'no-store' }),
+        ]);
+        const dataPeak = await rPeak.json().catch(() => ({}));
+        const dataLow = await rLow.json().catch(() => ({}));
         if (cancelled) return;
-        if (r.ok && data.ok && data.configured && typeof data.enabled === 'boolean') {
-          setPeakDamDischargeEnabled(data.enabled);
+        if (rPeak.ok && dataPeak.ok && dataPeak.configured && typeof dataPeak.enabled === 'boolean') {
+          setPeakDamDischargeEnabled(dataPeak.enabled);
         } else {
           setPeakDamDischargeEnabled(false);
         }
-        const p = data.dischargeSocDeltaPct;
+        const p = dataPeak.dischargeSocDeltaPct;
         if (p != null && Number.isFinite(Number(p))) {
           setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
         } else {
           setDischargeSocDeltaPct(2);
         }
+        if (rLow.ok && dataLow.ok && dataLow.configured && typeof dataLow.enabled === 'boolean') {
+          setLowDamChargeEnabled(dataLow.enabled);
+        } else {
+          setLowDamChargeEnabled(false);
+        }
+        const pc = dataLow.chargeSocDeltaPct;
+        if (pc != null && Number.isFinite(Number(pc))) {
+          setChargeSocDeltaPct(normalizeChargeSocDeltaPct(pc));
+        } else {
+          setChargeSocDeltaPct(10);
+        }
       } catch {
         if (!cancelled) {
           setPeakDamDischargeEnabled(false);
           setDischargeSocDeltaPct(2);
+          setLowDamChargeEnabled(false);
+          setChargeSocDeltaPct(10);
         }
       } finally {
-        if (!cancelled) setPeakDamPrefLoading(false);
+        if (!cancelled) setToolbarPrefsLoading(false);
       }
     };
     void load();
@@ -451,6 +493,59 @@ export default function PowerFlowPage({
       }, 450);
     },
     [savePeakAutoPref, t],
+  );
+
+  const saveLowDamChargePref = useCallback(async (nextEnabled, nextPct) => {
+    const sn = selInverterSn?.trim();
+    if (!sn) return null;
+    const r = await fetch(apiUrl('/api/deye/low-dam-charge'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        deviceSn: sn,
+        enabled: nextEnabled,
+        chargeSocDeltaPct: nextPct,
+      }),
+      cache: 'no-store',
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || !data.ok) {
+      let msg = data.detail ?? r.statusText;
+      if (Array.isArray(msg)) {
+        msg = msg
+          .map((x) => (x && typeof x === 'object' ? x.msg || JSON.stringify(x) : x))
+          .join('; ');
+      }
+      throw new Error(String(msg || 'Save failed'));
+    }
+    return data;
+  }, [selInverterSn]);
+
+  const scheduleChargePctSave = useCallback(
+    (nextPct) => {
+      if (chargePrefSaveTimerRef.current != null) {
+        clearTimeout(chargePrefSaveTimerRef.current);
+      }
+      chargePrefSaveTimerRef.current = setTimeout(() => {
+        chargePrefSaveTimerRef.current = null;
+        void (async () => {
+          try {
+            const data = await saveLowDamChargePref(lowDamEnabledRef.current, nextPct);
+            if (data && typeof data.enabled === 'boolean') {
+              setLowDamChargeEnabled(data.enabled);
+            }
+            const p = data?.chargeSocDeltaPct;
+            if (p != null && Number.isFinite(Number(p))) {
+              setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
+            }
+          } catch (err) {
+            const m = err instanceof Error ? err.message : String(err);
+            setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
+          }
+        })();
+      }, 450);
+    },
+    [saveLowDamChargePref, t],
   );
 
   const inverterSnsKey = useMemo(
@@ -684,15 +779,18 @@ export default function PowerFlowPage({
 
   const executeDischarge2Pct = useCallback(async () => {
     const deviceSn = selInverterSn?.trim();
-    if (!deviceSn || discharge2BusyRef.current) return false;
+    if (!deviceSn || discharge2BusyRef.current) return null;
     discharge2BusyRef.current = true;
-    setDischarge2Busy(true);
     setDischarge2Feedback('');
     try {
       const r = await fetch(apiUrl('/api/deye/discharge-2pct'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceSn, socDeltaPercent: dischargeSocDeltaPct }),
+        body: JSON.stringify({
+          deviceSn,
+          socDeltaPercent: dischargeSocDeltaPct,
+          respondAfterStart: true,
+        }),
         cache: 'no-store',
       });
       let data = {};
@@ -721,10 +819,20 @@ export default function PowerFlowPage({
         data.lastSoc != null && Number.isFinite(Number(data.lastSoc))
           ? inverterSocFmt.format(Number(data.lastSoc))
           : '—';
-      const body = data.hitTarget
-        ? t('dischargeSoc2Ok', { from, to })
-        : t('dischargeSoc2Partial', { from, to });
-      setDischarge2Feedback(body);
+      const startN = Number(data.startSoc);
+      const lastN = Number(data.lastSoc);
+      const reportedSocFlat =
+        Number.isFinite(startN) &&
+        Number.isFinite(lastN) &&
+        Math.abs(startN - lastN) < 0.2;
+      const detail = data.respondAfterStart
+        ? t('deyeCommandContinuesBackground')
+        : data.hitTarget
+          ? t('dischargeSoc2Ok', { from, to })
+          : reportedSocFlat
+            ? t('dischargeSoc2PartialFlat', { from, to })
+            : t('dischargeSoc2Partial', { from, to });
+      const message = `${t('commandSentStatus')}\n\n${detail}`;
       try {
         const rs = await fetch(
           apiUrl(`/api/deye/soc?${new URLSearchParams({ deviceSn })}`),
@@ -740,20 +848,98 @@ export default function PowerFlowPage({
       } catch {
         /* ignore */
       }
-      return true;
+      return { ok: true, message };
     } catch (e) {
       const err = e instanceof Error ? e.message : String(e);
-      setDischarge2Feedback(`${t('dischargeSoc2Error')}: ${err}`);
-      return false;
+      return { ok: false, message: `${t('dischargeSoc2Error')}: ${err}` };
     } finally {
       discharge2BusyRef.current = false;
-      setDischarge2Busy(false);
     }
   }, [selInverterSn, inverterSocFmt, t, dischargeSocDeltaPct]);
 
+  const executeCharge2Pct = useCallback(async () => {
+    const deviceSn = selInverterSn?.trim();
+    if (!deviceSn || charge2BusyRef.current) return null;
+    charge2BusyRef.current = true;
+    setDischarge2Feedback('');
+    try {
+      const r = await fetch(apiUrl('/api/deye/charge-2pct'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deviceSn,
+          socDeltaPercent: chargeSocDeltaPct,
+          respondAfterStart: true,
+        }),
+        cache: 'no-store',
+      });
+      let data = {};
+      try {
+        data = await r.json();
+      } catch {
+        /* ignore */
+      }
+      if (!r.ok) {
+        let msg = data.detail ?? data.msg ?? r.statusText;
+        if (Array.isArray(msg)) {
+          msg = msg
+            .map((x) => (x && typeof x === 'object' ? x.msg || JSON.stringify(x) : x))
+            .join('; ');
+        }
+        throw new Error(String(msg || 'Request failed'));
+      }
+      if (!data.ok) {
+        throw new Error(String(data.detail || 'Charge not started'));
+      }
+      const from =
+        data.startSoc != null && Number.isFinite(Number(data.startSoc))
+          ? inverterSocFmt.format(Number(data.startSoc))
+          : '—';
+      const to =
+        data.lastSoc != null && Number.isFinite(Number(data.lastSoc))
+          ? inverterSocFmt.format(Number(data.lastSoc))
+          : '—';
+      const startN = Number(data.startSoc);
+      const lastN = Number(data.lastSoc);
+      const reportedSocFlat =
+        Number.isFinite(startN) &&
+        Number.isFinite(lastN) &&
+        Math.abs(startN - lastN) < 0.2;
+      const detail = data.respondAfterStart
+        ? t('deyeChargeStarted')
+        : data.hitTarget
+          ? t('chargeSoc2Ok', { from, to })
+          : reportedSocFlat
+            ? t('chargeSoc2PartialFlat', { from, to })
+            : t('chargeSoc2Partial', { from, to });
+      const message = `${t('commandSentStatus')}\n\n${detail}`;
+      try {
+        const rs = await fetch(
+          apiUrl(`/api/deye/soc?${new URLSearchParams({ deviceSn })}`),
+          { cache: 'no-store' },
+        );
+        const js = await rs.json();
+        if (rs.ok && js.socPercent != null && Number.isFinite(Number(js.socPercent))) {
+          setSocBySn((prev) => ({
+            ...prev,
+            [deviceSn]: Number(js.socPercent),
+          }));
+        }
+      } catch {
+        /* ignore */
+      }
+      return { ok: true, message };
+    } catch (e) {
+      const err = e instanceof Error ? e.message : String(e);
+      return { ok: false, message: `${t('chargeSoc2Error')}: ${err}` };
+    } finally {
+      charge2BusyRef.current = false;
+    }
+  }, [selInverterSn, inverterSocFmt, t, chargeSocDeltaPct]);
+
   const requestDischarge2Pct = useCallback(() => {
     const deviceSn = selInverterSn?.trim();
-    if (!deviceSn || discharge2BusyRef.current || discharge2Busy) return;
+    if (!deviceSn || discharge2BusyRef.current) return;
     if (!essSocHasKey || essSocPercent == null || !Number.isFinite(Number(essSocPercent))) {
       setDischarge2Feedback(t('dischargeConfirmNoSoc'));
       return;
@@ -772,11 +958,33 @@ export default function PowerFlowPage({
     setDischargeConfirmOpen(true);
   }, [
     selInverterSn,
-    discharge2Busy,
     essSocHasKey,
     essSocPercent,
     dischargeSocDeltaPct,
     inverterSocFmt,
+    t,
+  ]);
+
+  const requestCharge2Pct = useCallback(() => {
+    const deviceSn = selInverterSn?.trim();
+    if (!deviceSn || charge2BusyRef.current) return;
+    if (!essSocHasKey || essSocPercent == null || !Number.isFinite(Number(essSocPercent))) {
+      setDischarge2Feedback(t('chargeConfirmNoSoc'));
+      return;
+    }
+    const cur = Number(essSocPercent);
+    const target = Math.min(100, cur + chargeSocDeltaPct);
+    if (cur >= target - 0.06) {
+      setDischarge2Feedback(t('chargeConfirmNoHeadroom'));
+      return;
+    }
+    setDischarge2Feedback('');
+    setChargeConfirmOpen(true);
+  }, [
+    selInverterSn,
+    essSocHasKey,
+    essSocPercent,
+    chargeSocDeltaPct,
     t,
   ]);
 
@@ -786,8 +994,47 @@ export default function PowerFlowPage({
 
   const confirmDischargeFromModal = useCallback(() => {
     setDischargeConfirmOpen(false);
-    void executeDischarge2Pct();
+    setDeyeCommandModal({ phase: 'loading', kind: 'discharge' });
+    void (async () => {
+      const out = await executeDischarge2Pct();
+      if (out == null) {
+        setDeyeCommandModal(null);
+        return;
+      }
+      setDeyeCommandModal({
+        phase: 'result',
+        kind: 'discharge',
+        ok: out.ok,
+        message: out.message,
+      });
+    })();
   }, [executeDischarge2Pct]);
+
+  const cancelChargeConfirm = useCallback(() => {
+    setChargeConfirmOpen(false);
+  }, []);
+
+  const confirmChargeFromModal = useCallback(() => {
+    setChargeConfirmOpen(false);
+    setDeyeCommandModal({ phase: 'loading', kind: 'charge' });
+    void (async () => {
+      const out = await executeCharge2Pct();
+      if (out == null) {
+        setDeyeCommandModal(null);
+        return;
+      }
+      setDeyeCommandModal({
+        phase: 'result',
+        kind: 'charge',
+        ok: out.ok,
+        message: out.message,
+      });
+    })();
+  }, [executeCharge2Pct]);
+
+  const closeDeyeCommandModal = useCallback(() => {
+    setDeyeCommandModal(null);
+  }, []);
 
   useEffect(() => {
     if (!dischargeConfirmOpen) return undefined;
@@ -797,6 +1044,24 @@ export default function PowerFlowPage({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [dischargeConfirmOpen]);
+
+  useEffect(() => {
+    if (!chargeConfirmOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setChargeConfirmOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [chargeConfirmOpen]);
+
+  useEffect(() => {
+    if (!deyeCommandModal || deyeCommandModal.phase === 'loading') return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setDeyeCommandModal(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [deyeCommandModal]);
 
   useEffect(() => {
     const id = setInterval(() => setSimTick((n) => n + 1), 60_000);
@@ -892,25 +1157,27 @@ export default function PowerFlowPage({
           </select>
           </header>
           {inverterRows.configured && !inverterRows.loading && !inverterRows.error ? (
+            <>
             <div className="pf-header-discharge-row">
-              <div className="pf-discharge-toolbar">
-                <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header">
+              <div className="pf-discharge-toolbar pf-discharge-toolbar--combined">
+                <div className="pf-deye-command-stack">
+                  <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header pf-deye-command-line">
                 <div className="pf-discharge-delta-controls">
                   <button
                     type="button"
                     className="pf-discharge-btn pf-discharge-go-btn"
                     onClick={requestDischarge2Pct}
-                    disabled={!selInverterSn || discharge2Busy || peakDamPrefLoading}
+                    disabled={!selInverterSn || toolbarPrefsLoading}
                     title={t('dischargeSoc2Hint')}
                     aria-label={t('dischargeGoAria')}
                   >
-                    {discharge2Busy ? t('dischargeSoc2Busy') : t('dischargeGoButton')}
+                    {t('dischargeGoButton')}
                   </button>
                   <select
                     id="pf-discharge-delta-select"
                     className="pf-discharge-delta-select pf-discharge-delta-select--header"
                     value={dischargeSocDeltaPct}
-                    disabled={!selInverterSn || peakDamPrefLoading}
+                    disabled={!selInverterSn || toolbarPrefsLoading}
                     aria-label={t('dischargeSocDeltaAria')}
                     onChange={(e) => {
                       const n = normalizeDischargeSocDeltaPct(e.target.value);
@@ -929,7 +1196,7 @@ export default function PowerFlowPage({
                   <input
                     type="checkbox"
                     checked={peakDamDischargeEnabled}
-                    disabled={!selInverterSn || peakDamPrefLoading}
+                    disabled={!selInverterSn || toolbarPrefsLoading}
                     onChange={async (e) => {
                       const v = e.target.checked;
                       const sn = selInverterSn?.trim();
@@ -939,6 +1206,10 @@ export default function PowerFlowPage({
                       if (peakPrefSaveTimerRef.current != null) {
                         clearTimeout(peakPrefSaveTimerRef.current);
                         peakPrefSaveTimerRef.current = null;
+                      }
+                      if (chargePrefSaveTimerRef.current != null) {
+                        clearTimeout(chargePrefSaveTimerRef.current);
+                        chargePrefSaveTimerRef.current = null;
                       }
                       setPeakDamDischargeEnabled(v);
                       setDischarge2Feedback('');
@@ -988,9 +1259,110 @@ export default function PowerFlowPage({
                     {t('peakDamDischargeToggle')}
                   </span>
                 </label>
+                  </div>
+                  <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header pf-deye-command-line pf-deye-command-line--charge">
+                  <div className="pf-discharge-delta-controls">
+                    <button
+                      type="button"
+                      className="pf-discharge-btn pf-discharge-go-btn pf-charge-go-btn"
+                      onClick={requestCharge2Pct}
+                      disabled={!selInverterSn || toolbarPrefsLoading}
+                      title={t('chargeSoc2Hint')}
+                      aria-label={t('chargeGoAria')}
+                    >
+                      {t('chargeGoButton')}
+                    </button>
+                    <select
+                      id="pf-charge-delta-select"
+                      className="pf-discharge-delta-select pf-discharge-delta-select--header"
+                      value={chargeSocDeltaPct}
+                      disabled={!selInverterSn || toolbarPrefsLoading}
+                      aria-label={t('chargeSocDeltaAria')}
+                      onChange={(e) => {
+                        const n = normalizeChargeSocDeltaPct(e.target.value);
+                        setChargeSocDeltaPct(n);
+                        scheduleChargePctSave(n);
+                      }}
+                    >
+                      {CHARGE_SOC_DELTA_OPTIONS.map((o) => (
+                        <option key={o} value={o}>
+                          {t('chargeSocDeltaValue', { pct: o })}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
+                    <input
+                      type="checkbox"
+                      checked={lowDamChargeEnabled}
+                      disabled={!selInverterSn || toolbarPrefsLoading}
+                      onChange={async (e) => {
+                        const v = e.target.checked;
+                        const sn = selInverterSn?.trim();
+                        if (!sn) return;
+                        const prev = lowDamChargeEnabled;
+                        const prevPct = chargeSocDeltaPct;
+                        if (peakPrefSaveTimerRef.current != null) {
+                          clearTimeout(peakPrefSaveTimerRef.current);
+                          peakPrefSaveTimerRef.current = null;
+                        }
+                        if (chargePrefSaveTimerRef.current != null) {
+                          clearTimeout(chargePrefSaveTimerRef.current);
+                          chargePrefSaveTimerRef.current = null;
+                        }
+                        setLowDamChargeEnabled(v);
+                        setDischarge2Feedback('');
+                        try {
+                          const r = await fetch(apiUrl('/api/deye/low-dam-charge'), {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              deviceSn: sn,
+                              enabled: v,
+                              chargeSocDeltaPct: chargeSocDeltaPct,
+                            }),
+                            cache: 'no-store',
+                          });
+                          const data = await r.json().catch(() => ({}));
+                          if (!r.ok || !data.ok) {
+                            let msg = data.detail ?? r.statusText;
+                            if (Array.isArray(msg)) {
+                              msg = msg
+                                .map((x) =>
+                                  x && typeof x === 'object' ? x.msg || JSON.stringify(x) : x,
+                                )
+                                .join('; ');
+                            }
+                            throw new Error(String(msg || 'Save failed'));
+                          }
+                          if (typeof data.enabled === 'boolean') {
+                            setLowDamChargeEnabled(data.enabled);
+                          }
+                          const p = data.chargeSocDeltaPct;
+                          if (p != null && Number.isFinite(Number(p))) {
+                            setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
+                          }
+                        } catch (err) {
+                          setLowDamChargeEnabled(prev);
+                          setChargeSocDeltaPct(prevPct);
+                          const m = err instanceof Error ? err.message : String(err);
+                          setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
+                        }
+                      }}
+                      aria-label={t('lowDamChargeToggleAria')}
+                    />
+                    <span
+                      className="pf-peak-dam-toggle-label"
+                      title={t('lowDamChargeToggleHint')}
+                    >
+                      {t('lowDamChargeToggle')}
+                    </span>
+                  </label>
+                  </div>
                 </div>
               </div>
             </div>
+            </>
           ) : null}
         </div>
 
@@ -1395,6 +1767,103 @@ export default function PowerFlowPage({
                   {t('dischargeConfirmOk')}
                 </button>
               </div>
+            </div>
+          </div>
+        ) : null}
+
+        {chargeConfirmOpen &&
+        essSocPercent != null &&
+        Number.isFinite(Number(essSocPercent)) ? (
+          <div
+            className="pf-modal-backdrop"
+            role="presentation"
+            onClick={cancelChargeConfirm}
+          >
+            <div
+              className="pf-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="pf-charge-confirm-title"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p id="pf-charge-confirm-title" className="pf-modal-message">
+                {t('chargeConfirmMessage', {
+                  from: inverterSocFmt.format(Number(essSocPercent)),
+                  to: inverterSocFmt.format(
+                    Math.min(100, Number(essSocPercent) + chargeSocDeltaPct),
+                  ),
+                })}
+              </p>
+              <div className="pf-modal-actions">
+                <button
+                  type="button"
+                  className="pf-modal-btn pf-modal-btn--secondary"
+                  onClick={cancelChargeConfirm}
+                >
+                  {t('chargeConfirmCancel')}
+                </button>
+                <button
+                  type="button"
+                  className="pf-modal-btn pf-modal-btn--primary pf-modal-btn--charge"
+                  onClick={confirmChargeFromModal}
+                >
+                  {t('chargeConfirmOk')}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {deyeCommandModal ? (
+          <div
+            className="pf-modal-backdrop"
+            role="presentation"
+            onClick={
+              deyeCommandModal.phase === 'result' ? closeDeyeCommandModal : undefined
+            }
+          >
+            <div
+              className="pf-modal pf-modal--deye-command"
+              role="dialog"
+              aria-modal="true"
+              aria-busy={deyeCommandModal.phase === 'loading' ? 'true' : 'false'}
+              aria-labelledby={
+                deyeCommandModal.phase === 'loading'
+                  ? 'pf-deye-command-loading-title'
+                  : 'pf-deye-command-result-title'
+              }
+              onClick={(e) => e.stopPropagation()}
+            >
+              {deyeCommandModal.phase === 'loading' ? (
+                <>
+                  <div className="pf-modal-loading" aria-live="polite">
+                    <div className="pf-modal-spinner" aria-hidden="true" />
+                    <p id="pf-deye-command-loading-title" className="pf-modal-message">
+                      {t('deyeCommandWaiting')}
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p
+                    id="pf-deye-command-result-title"
+                    className={`pf-modal-message pf-modal-message--multiline${
+                      deyeCommandModal.ok ? '' : ' pf-modal-message--error'
+                    }`}
+                  >
+                    {deyeCommandModal.message}
+                  </p>
+                  <div className="pf-modal-actions">
+                    <button
+                      type="button"
+                      className="pf-modal-btn pf-modal-btn--primary"
+                      onClick={closeDeyeCommandModal}
+                    >
+                      {t('deyeCommandResultClose')}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         ) : null}

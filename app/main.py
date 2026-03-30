@@ -19,6 +19,7 @@ from app.deye_api import deye_configured, deye_missing_env_names
 from app.oree_dam_scheduler import dam_daily_sync_loop
 from app.oree_dam_service import oree_dam_configured
 from app.deye_soc_scheduler import deye_soc_snapshot_loop
+from app.deye_low_dam_charge_scheduler import deye_low_dam_charge_loop
 from app.deye_peak_auto_scheduler import deye_peak_auto_discharge_loop
 from app.rate_limit_middleware import InMemoryIpRateLimiter, PerIpRateLimitMiddleware
 
@@ -83,6 +84,16 @@ async def lifespan(app: FastAPI):
             settings.DEYE_PEAK_AUTO_DISCHARGE_INTERVAL_SEC,
         )
 
+    stop_low_dam_charge: asyncio.Event | None = None
+    low_dam_charge_task: asyncio.Task[None] | None = None
+    if settings.DEYE_LOW_DAM_CHARGE_SCHEDULER_ENABLED:
+        stop_low_dam_charge = asyncio.Event()
+        low_dam_charge_task = asyncio.create_task(deye_low_dam_charge_loop(stop_low_dam_charge))
+        logger.info(
+            "Deye low DAM auto charge: tick every %ss when DEYE_* is set (DEYE_LOW_DAM_CHARGE_*)",
+            settings.DEYE_LOW_DAM_CHARGE_INTERVAL_SEC,
+        )
+
     yield
 
     if dam_sched_task is not None and stop_dam_sched is not None:
@@ -104,6 +115,13 @@ async def lifespan(app: FastAPI):
         peak_auto_task.cancel()
         try:
             await peak_auto_task
+        except asyncio.CancelledError:
+            pass
+    if low_dam_charge_task is not None and stop_low_dam_charge is not None:
+        stop_low_dam_charge.set()
+        low_dam_charge_task.cancel()
+        try:
+            await low_dam_charge_task
         except asyncio.CancelledError:
             pass
     logger.info("Open EMS shutting down")

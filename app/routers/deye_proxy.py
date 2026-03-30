@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.deye_api import (
+    charge_soc_delta_then_zero_export_ct,
     deye_configured,
     deye_missing_env_names,
     discharge_soc_delta_then_zero_export_ct,
@@ -18,6 +19,11 @@ from app.deye_api import (
     get_live_metrics_cached,
     get_soc_map_cached,
     list_inverter_devices,
+)
+from app.deye_low_dam_charge_service import (
+    get_charge_soc_delta_stored,
+    get_low_dam_charge_pref,
+    set_low_dam_charge_from_ui,
 )
 from app.deye_peak_auto_service import (
     get_discharge_soc_delta_stored,
@@ -36,6 +42,7 @@ _NO_STORE_CACHE = {"Cache-Control": "no-store, max-age=0, must-revalidate"}
 _MAX_INVERTER_SOCS = 200
 
 DischargeSocDeltaPctOption = Literal[2, 10, 20]
+ChargeSocDeltaPctOption = Literal[10, 20, 50, 100]
 
 
 class InverterSocsBody(BaseModel):
@@ -43,16 +50,34 @@ class InverterSocsBody(BaseModel):
 
 
 class Discharge2PctBody(BaseModel):
-    """socDeltaPercent: optional; when omitted, uses stored per-device prefs (2, 10, or 20)."""
+    """socDeltaPercent: optional; when omitted, uses stored per-device prefs (2, 10, or 20).
+
+    respondAfterStart: return immediately after the inverter accepts the command; polling + restore run in background.
+    """
 
     deviceSn: str = Field(..., min_length=6, max_length=64)
     socDeltaPercent: Optional[DischargeSocDeltaPctOption] = None
+    respondAfterStart: bool = False
 
 
 class PeakAutoDischargeBody(BaseModel):
     deviceSn: str = Field(..., min_length=6, max_length=64)
     enabled: bool
     dischargeSocDeltaPct: DischargeSocDeltaPctOption = 2
+
+
+class Charge2PctBody(BaseModel):
+    """socDeltaPercent: optional; when omitted, uses stored per-device prefs (default 10)."""
+
+    deviceSn: str = Field(..., min_length=6, max_length=64)
+    socDeltaPercent: Optional[ChargeSocDeltaPctOption] = None
+    respondAfterStart: bool = False
+
+
+class LowDamChargeBody(BaseModel):
+    deviceSn: str = Field(..., min_length=6, max_length=64)
+    enabled: bool
+    chargeSocDeltaPct: ChargeSocDeltaPctOption = 10
 
 
 @router.get("/inverters")
@@ -375,7 +400,9 @@ async def post_discharge_2pct(
         delta = body.socDeltaPercent
         if delta is None:
             delta = await get_discharge_soc_delta_stored(db, sn)
-        result = await discharge_soc_delta_then_zero_export_ct(sn, float(delta))
+        result = await discharge_soc_delta_then_zero_export_ct(
+            sn, float(delta), return_after_start=body.respondAfterStart
+        )
         return JSONResponse(
             content={"ok": True, "configured": True, **result},
             headers=_NO_STORE_CACHE,
@@ -384,4 +411,119 @@ async def post_discharge_2pct(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("POST /api/deye/discharge-2pct — failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/low-dam-charge")
+async def get_low_dam_charge(
+    deviceSn: str = Query(
+        ...,
+        min_length=6,
+        max_length=32,
+        pattern=r"^[0-9]+$",
+        description="Deye inverter serial",
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Per-device preference: auto charge at Kyiv hour of today's minimum DAM price (DB)."""
+    if not deye_configured():
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": False,
+                "enabled": False,
+                "chargeSocDeltaPct": 10,
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    en, pct = await get_low_dam_charge_pref(db, deviceSn.strip())
+    return JSONResponse(
+        content={
+            "ok": True,
+            "configured": True,
+            "deviceSn": deviceSn.strip(),
+            "enabled": en,
+            "chargeSocDeltaPct": pct,
+        },
+        headers=_NO_STORE_CACHE,
+    )
+
+
+@router.post("/low-dam-charge")
+async def post_low_dam_charge(
+    body: LowDamChargeBody,
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Upsert low-DAM auto charge preference."""
+    if not deye_configured():
+        missing = deye_missing_env_names()
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": False,
+                "enabled": False,
+                "detail": "DEYE_* not set"
+                + (f" (missing: {', '.join(missing)})" if missing else ""),
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    sn = body.deviceSn.strip()
+    try:
+        await set_low_dam_charge_from_ui(db, sn, body.enabled, body.chargeSocDeltaPct)
+        await db.commit()
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        await db.rollback()
+        logger.exception("POST /api/deye/low-dam-charge — failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return JSONResponse(
+        content={
+            "ok": True,
+            "configured": True,
+            "deviceSn": sn,
+            "enabled": body.enabled,
+            "chargeSocDeltaPct": body.chargeSocDeltaPct,
+        },
+        headers=_NO_STORE_CACHE,
+    )
+
+
+@router.post("/charge-2pct")
+async def post_charge_2pct(
+    body: Charge2PctBody,
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """
+    Charge battery toward higher SoC via dynamicControl (same long-running semantics as discharge).
+    socDeltaPercent: 10, 20, 50, or 100 — optional; uses stored per-device prefs when omitted.
+    """
+    if not deye_configured():
+        missing = deye_missing_env_names()
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": False,
+                "detail": "DEYE_* not set"
+                + (f" (missing: {', '.join(missing)})" if missing else ""),
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    try:
+        sn = body.deviceSn.strip()
+        delta = body.socDeltaPercent
+        if delta is None:
+            delta = await get_charge_soc_delta_stored(db, sn)
+        result = await charge_soc_delta_then_zero_export_ct(
+            sn, float(delta), return_after_start=body.respondAfterStart
+        )
+        return JSONResponse(
+            content={"ok": True, "configured": True, **result},
+            headers=_NO_STORE_CACHE,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("POST /api/deye/charge-2pct — failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc

@@ -85,6 +85,10 @@ DEYE_DISCHARGE_SOC_TIMEOUT_SEC: int = _env_int("DEYE_DISCHARGE_SOC_TIMEOUT_SEC",
 DEYE_PEAK_AUTO_DISCHARGE_SCHEDULER_ENABLED: bool = _env_bool("DEYE_PEAK_AUTO_DISCHARGE_SCHEDULER_ENABLED", True)
 DEYE_PEAK_AUTO_DISCHARGE_INTERVAL_SEC: int = _env_int("DEYE_PEAK_AUTO_DISCHARGE_INTERVAL_SEC", 600, 20, 600)
 
+# Backend: charge SoC toward target once per (Kyiv day, inverter, DAM minimum-price hour) when pref enabled.
+DEYE_LOW_DAM_CHARGE_SCHEDULER_ENABLED: bool = _env_bool("DEYE_LOW_DAM_CHARGE_SCHEDULER_ENABLED", True)
+DEYE_LOW_DAM_CHARGE_INTERVAL_SEC: int = _env_int("DEYE_LOW_DAM_CHARGE_INTERVAL_SEC", 600, 20, 600)
+
 # Per-client IP HTTP rate limit (sliding 60s window, in-process memory). Trust X-Forwarded-For only behind a trusted proxy.
 RATE_LIMIT_ENABLED: bool = _env_bool("RATE_LIMIT_ENABLED", True)
 RATE_LIMIT_PER_IP_PER_MINUTE: int = _env_int("RATE_LIMIT_PER_IP_PER_MINUTE", 200, 1, 10_000)

@@ -72,6 +72,32 @@ class DeyePeakAutoDischargeFired(Base):
     )
 
 
+class DeyeLowDamChargePref(Base):
+    """Per-inverter: low-DAM auto charge flag and SoC rise % (10/20/50/100)."""
+
+    __tablename__ = "deye_low_dam_charge_pref"
+
+    device_sn: Mapped[str] = mapped_column(String(64), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    charge_soc_delta_pct: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=10)
+    updated_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class DeyeLowDamChargeFired(Base):
+    """Successful low-hour auto charge (one row per Kyiv day / device / low hour)."""
+
+    __tablename__ = "deye_low_dam_charge_fired"
+
+    trade_day: Mapped[datetime.date] = mapped_column(Date, primary_key=True)
+    device_sn: Mapped[str] = mapped_column(String(64), primary_key=True)
+    low_hour: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    success_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class OreeDamPrice(Base):
     """Hourly DAM price from OREE (UAH/MWh); period 1..24."""
 
