@@ -473,12 +473,25 @@ def _pv_power_watts_from_data_list(dl: Any) -> Optional[float]:
 
     # Common split channels on Deye firmwares.
     pv_parts = [by_key[k] for k in ("PPV1", "PPV2", "PV1_POWER", "PV2_POWER") if k in by_key]
-    if pv_parts:
-        return max(0.0, sum(max(0.0, x) for x in pv_parts))
+    ppv_total = max(0.0, by_key["PPV"]) if "PPV" in by_key else None
+
+    if len(pv_parts) >= 2:
+        # Two channels likely represent the full PV input (MPPT1+MPPT2).
+        parts_sum = max(0.0, sum(max(0.0, x) for x in pv_parts))
+        if ppv_total is not None:
+            return max(parts_sum, ppv_total)
+        return parts_sum
+
+    if len(pv_parts) == 1:
+        # Single-channel payload: prefer PPV total when present to avoid underreporting.
+        single = max(0.0, pv_parts[0])
+        if ppv_total is not None:
+            return max(single, ppv_total)
+        return single
 
     # Often the plant-level PV power in Deye payload.
-    if "PPV" in by_key:
-        return max(0.0, by_key["PPV"])
+    if ppv_total is not None:
+        return ppv_total
 
     candidates: list[float] = []
     for ek in (
