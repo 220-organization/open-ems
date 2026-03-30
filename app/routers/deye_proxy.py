@@ -16,6 +16,7 @@ from app.deye_api import (
 )
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 router = APIRouter(prefix="/api/deye", tags=["deye"])
 
@@ -105,7 +106,8 @@ async def get_ess_power(
 ):
     """
     Live metrics from POST /device/latest (same response): batteryPowerW signed (positive = discharge),
-    loadPowerW non-negative (home/AC load). Cached ~25s. Either field may be null if not in dataList.
+    loadPowerW non-negative (home/AC load), pvPowerW non-negative (PV production),
+    gridPowerW signed (positive import from grid, negative export). Cached ~25s.
     """
     if not deye_configured():
         return JSONResponse(
@@ -114,17 +116,29 @@ async def get_ess_power(
                 "configured": False,
                 "batteryPowerW": None,
                 "loadPowerW": None,
+                "pvPowerW": None,
+                "gridPowerW": None,
             },
             headers=_NO_STORE_CACHE,
         )
     try:
-        bat, load_w = await get_live_metrics_cached(deviceSn)
+        bat, load_w, pv_w, grid_w = await get_live_metrics_cached(deviceSn)
+        logger.info(
+            "GET /api/deye/ess-power — sn=%s batteryW=%s loadW=%s pvW=%s gridW=%s",
+            deviceSn,
+            bat,
+            load_w,
+            pv_w,
+            grid_w,
+        )
         return JSONResponse(
             content={
                 "ok": True,
                 "configured": True,
                 "batteryPowerW": bat,
                 "loadPowerW": load_w,
+                "pvPowerW": pv_w,
+                "gridPowerW": grid_w,
             },
             headers=_NO_STORE_CACHE,
         )

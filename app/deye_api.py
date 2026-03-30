@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 import time
 from typing import Any, Optional
 
@@ -14,14 +15,19 @@ import httpx
 from app import settings
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 _token: Optional[str] = None
 _token_expires_at: float = 0.0
 _lock = asyncio.Lock()
 
-# Inverter SoC %; live metrics: battery (W signed) + load (W, magnitude) from POST /device/latest.
+# Inverter SoC %; live metrics from POST /device/latest:
+# battery (W signed), load (W magnitude), PV (W production), grid (W signed import/export).
 _soc_cache: dict[str, tuple[Optional[float], float]] = {}
-_live_cache: dict[str, tuple[Optional[float], Optional[float], float]] = {}
+_live_cache: dict[
+    str,
+    tuple[Optional[float], Optional[float], Optional[float], Optional[float], float],
+] = {}
 _soc_lock = asyncio.Lock()
 SOC_CACHE_TTL_SEC = 300.0
 ESS_POWER_CACHE_TTL_SEC = 25.0
@@ -333,6 +339,13 @@ def _row_value_to_watts(row: dict) -> Optional[float]:
     return v
 
 
+def _metric_key(raw: Any) -> str:
+    """Normalize metric key to UPPER_SNAKE, preserving letters/digits only."""
+    s = str(raw or "").strip().upper()
+    s = re.sub(r"[^A-Z0-9]+", "_", s)
+    return s.strip("_")
+
+
 def _battery_signed_watts_from_data_list(dl: Any) -> Optional[float]:
     """
     Signed battery power in watts: positive = discharging (from battery), negative = charging.
@@ -344,7 +357,7 @@ def _battery_signed_watts_from_data_list(dl: Any) -> Optional[float]:
     for row in dl:
         if not isinstance(row, dict):
             continue
-        k = str(row.get("key") or "").strip().upper().replace(" ", "_")
+        k = _metric_key(row.get("key"))
         w = _row_value_to_watts(row)
         if w is None:
             continue
@@ -400,30 +413,37 @@ def _load_power_watts_from_data_list(dl: Any) -> Optional[float]:
     for row in dl:
         if not isinstance(row, dict):
             continue
-        k = str(row.get("key") or "").strip().upper().replace(" ", "_")
+        k = _metric_key(row.get("key"))
         w = _row_value_to_watts(row)
         if w is None:
             continue
         by_key[k] = w
 
+    candidates: list[float] = []
+
+    # Prefer aggregated/output load metrics first (closer to Deye flow graph UPS/load value).
     for ek in (
-        "LOAD_POWER",
         "TOTAL_LOAD_POWER",
+        "OUTPUT_LOAD_POWER",
+        "INVERTER_LOAD_POWER",
+        "EPS_LOAD_POWER",
+        "AC_LOAD_POWER",
+        "LOAD_ACTIVE_POWER",
+        "LOAD_POWER",
+        "TOTAL_CONSUMPTION_POWER",
+        "CONSUMPTION_POWER",
         "HOME_LOAD_POWER",
         "HOUSE_LOAD_POWER",
-        "CONSUMPTION_POWER",
-        "TOTAL_CONSUMPTION_POWER",
-        "SMART_LOAD_POWER",
-        "INVERTER_LOAD_POWER",
         "LOCAL_LOAD_POWER",
-        "LOAD_ACTIVE_POWER",
-        "AC_LOAD_POWER",
-        "EPS_LOAD_POWER",
-        "OUTPUT_LOAD_POWER",
         "FAMILY_LOAD_POWER",
+        "SMART_LOAD_POWER",
+        "PLOAD",
     ):
         if ek in by_key:
-            return abs(by_key[ek])
+            candidates.append(abs(by_key[ek]))
+    if candidates:
+        # Some firmwares expose both "partial" and "total" load keys; take the largest.
+        return max(candidates)
 
     for k, w in by_key.items():
         if "REACTIVE" in k or "APPARENT" in k:
@@ -431,19 +451,113 @@ def _load_power_watts_from_data_list(dl: Any) -> Optional[float]:
         if "BATTERY" in k or "PV" in k or "SOLAR" in k:
             continue
         if ("LOAD" in k or "CONSUMPTION" in k or "HOUSE" in k or "HOME" in k) and "POWER" in k:
-            return abs(w)
+            candidates.append(abs(w))
+    if candidates:
+        return max(candidates)
     return None
 
 
-def _parse_metrics_from_entry(dev_entry: Any) -> tuple[Optional[float], Optional[float], Optional[float]]:
-    """(soc_percent, battery_power_w_signed, load_power_w magnitude)."""
+def _pv_power_watts_from_data_list(dl: Any) -> Optional[float]:
+    """PV / solar production in watts (non-negative magnitude)."""
+    if not isinstance(dl, list):
+        return None
+    by_key: dict[str, float] = {}
+    for row in dl:
+        if not isinstance(row, dict):
+            continue
+        k = _metric_key(row.get("key"))
+        w = _row_value_to_watts(row)
+        if w is None:
+            continue
+        by_key[k] = w
+
+    # Common split channels on Deye firmwares.
+    pv_parts = [by_key[k] for k in ("PPV1", "PPV2", "PV1_POWER", "PV2_POWER") if k in by_key]
+    if pv_parts:
+        return max(0.0, sum(max(0.0, x) for x in pv_parts))
+
+    # Often the plant-level PV power in Deye payload.
+    if "PPV" in by_key:
+        return max(0.0, by_key["PPV"])
+
+    candidates: list[float] = []
+    for ek in (
+        "PV_POWER",
+        "TOTAL_PV_POWER",
+        "SOLAR_POWER",
+        "PV_OUTPUT_POWER",
+        "PV_GENERATION_POWER",
+        "PV_PRODUCTION_POWER",
+        "MPPT_TOTAL_POWER",
+    ):
+        if ek in by_key:
+            candidates.append(max(0.0, by_key[ek]))
+    if candidates:
+        # Prefer the largest non-negative PV power metric to avoid using one MPPT
+        # channel when a total value is present under another key.
+        return max(candidates)
+
+    for k, w in by_key.items():
+        if ("PV" in k or "SOLAR" in k or "MPPT" in k) and "POWER" in k:
+            candidates.append(max(0.0, w))
+    if candidates:
+        return max(candidates)
+    return None
+
+
+def _grid_power_signed_watts_from_data_list(dl: Any) -> Optional[float]:
+    """
+    Grid power in watts (signed): positive = import from grid, negative = export to grid.
+    """
+    if not isinstance(dl, list):
+        return None
+    by_key: dict[str, float] = {}
+    for row in dl:
+        if not isinstance(row, dict):
+            continue
+        k = _metric_key(row.get("key"))
+        w = _row_value_to_watts(row)
+        if w is None:
+            continue
+        by_key[k] = w
+
+    for ek in (
+        "GRID_POWER",
+        "GRID_ACTIVE_POWER",
+        "UTILITY_POWER",
+        "MAINS_POWER",
+        "GRID_TOTAL_POWER",
+        "PGRID",
+    ):
+        if ek in by_key:
+            return by_key[ek]
+
+    import_keys = ("GRID_IMPORT_POWER", "GRID_BUY_POWER", "IMPORT_POWER", "GRID_CONSUMPTION_POWER")
+    export_keys = ("GRID_EXPORT_POWER", "GRID_SELL_POWER", "EXPORT_POWER", "FEED_IN_POWER")
+    imp = next((by_key[k] for k in import_keys if k in by_key), None)
+    exp = next((by_key[k] for k in export_keys if k in by_key), None)
+    if imp is not None or exp is not None:
+        return (imp or 0.0) - (exp or 0.0)
+
+    for k, w in by_key.items():
+        if "GRID" in k and "POWER" in k:
+            return w
+    return None
+
+
+def _parse_metrics_from_entry(
+    dev_entry: Any,
+) -> tuple[Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]]:
+    """(soc %, battery W signed, load W, pv W, grid W signed)."""
     soc = _soc_percent_from_device_data_entry(dev_entry)
     if not isinstance(dev_entry, dict):
-        return soc, None, None
+        return soc, None, None, None, None
     dl = dev_entry.get("dataList")
     pwr = _battery_signed_watts_from_data_list(dl)
     load_w = _load_power_watts_from_data_list(dl)
-    return soc, pwr, load_w
+    pv_w = _pv_power_watts_from_data_list(dl)
+    grid_w = _grid_power_signed_watts_from_data_list(dl)
+    return soc, pwr, load_w, pv_w, grid_w
 
 
 def _resolve_batch_target_sn(entry: Any, sns: list[str], index: int) -> Optional[str]:
@@ -468,13 +582,13 @@ async def _post_latest_metrics_map(
     headers: dict[str, str],
     base: str,
     sns: list[str],
-) -> dict[str, tuple[Optional[float], Optional[float], Optional[float]]]:
-    """POST /device/latest for up to 10 serials. Returns sn -> (soc %, battery W signed, load W)."""
+) -> dict[str, tuple[Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]]]:
+    """POST /device/latest for up to 10 serials. Returns sn -> (soc %, bat W, load W, pv W, grid W)."""
     if not sns:
         return {}
     url = f"{base.rstrip('/')}/device/latest"
-    out: dict[str, tuple[Optional[float], Optional[float], Optional[float]]] = {
-        sn: (None, None, None) for sn in sns
+    out: dict[str, tuple[Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]]] = {
+        sn: (None, None, None, None, None) for sn in sns
     }
     r = await client.post(url, headers=headers, json={"deviceList": sns})
     if r.status_code >= 400:
@@ -486,6 +600,12 @@ async def _post_latest_metrics_map(
         )
     r.raise_for_status()
     data = r.json()
+    logger.info(
+        "Deye: device/latest response batch_size=%s success=%s top_keys=%s",
+        len(sns),
+        data.get("success") if isinstance(data, dict) else None,
+        sorted(data.keys()) if isinstance(data, dict) else [],
+    )
     if not isinstance(data, dict):
         return out
     if data.get("success") is False:
@@ -498,20 +618,38 @@ async def _post_latest_metrics_map(
     ddl = data.get("deviceDataList")
     if not isinstance(ddl, list):
         return out
+    logger.info("Deye: device/latest deviceDataList_len=%s", len(ddl))
 
     for i, entry in enumerate(ddl):
-        soc, pwr, load_w = _parse_metrics_from_entry(entry)
+        soc, pwr, load_w, pv_w, grid_w = _parse_metrics_from_entry(entry)
         target = _resolve_batch_target_sn(entry, sns, i)
         if target is None or target not in out:
             continue
-        prev_soc, prev_pwr, prev_load = out[target]
+        prev_soc, prev_pwr, prev_load, prev_pv, prev_grid = out[target]
         if soc is not None:
             prev_soc = soc
         if pwr is not None:
             prev_pwr = pwr
         if load_w is not None:
             prev_load = load_w
-        out[target] = (prev_soc, prev_pwr, prev_load)
+        if pv_w is not None:
+            prev_pv = pv_w
+        if grid_w is not None:
+            prev_grid = grid_w
+        out[target] = (prev_soc, prev_pwr, prev_load, prev_pv, prev_grid)
+    if sns:
+        sample_sn = sns[0]
+        sample = out.get(sample_sn)
+        if sample is not None:
+            _, sbat, sload, spv, sgrid = sample
+            logger.info(
+                "Deye: parsed sample sn=%s batteryW=%s loadW=%s pvW=%s gridW=%s",
+                sample_sn,
+                sbat,
+                sload,
+                spv,
+                sgrid,
+            )
     return out
 
 
@@ -549,7 +687,10 @@ async def get_soc_map_cached(device_sns: list[str]) -> dict[str, Optional[float]
                     continue
             to_fetch.append(sn)
 
-    merged_fetch: dict[str, tuple[Optional[float], Optional[float], Optional[float]]] = {}
+    merged_fetch: dict[
+        str,
+        tuple[Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]],
+    ] = {}
     if to_fetch:
         base = settings.DEYE_API_BASE_URL.rstrip("/")
         async with httpx.AsyncClient(timeout=45.0) as client:
@@ -565,16 +706,20 @@ async def get_soc_map_cached(device_sns: list[str]) -> dict[str, Optional[float]
 
         fetch_time = time.monotonic()
         async with _soc_lock:
-            for sn, (soc, pwr, load_w) in merged_fetch.items():
+            for sn, (soc, pwr, load_w, pv_w, grid_w) in merged_fetch.items():
                 _soc_cache[sn] = (soc, fetch_time)
                 obat: Optional[float] = None
                 oload: Optional[float] = None
+                opv: Optional[float] = None
+                ogrid: Optional[float] = None
                 prev_live = _live_cache.get(sn)
                 if prev_live is not None:
-                    obat, oload, _ = prev_live
+                    obat, oload, opv, ogrid, _ = prev_live
                 nbat = pwr if pwr is not None else obat
                 nload = load_w if load_w is not None else oload
-                _live_cache[sn] = (nbat, nload, fetch_time)
+                npv = pv_w if pv_w is not None else opv
+                ngrid = grid_w if grid_w is not None else ogrid
+                _live_cache[sn] = (nbat, nload, npv, ngrid, fetch_time)
 
     for sn in unique:
         if sn in result:
@@ -584,22 +729,24 @@ async def get_soc_map_cached(device_sns: list[str]) -> dict[str, Optional[float]
     return result
 
 
-async def get_live_metrics_cached(device_sn: str) -> tuple[Optional[float], Optional[float]]:
+async def get_live_metrics_cached(
+    device_sn: str,
+) -> tuple[Optional[float], Optional[float], Optional[float], Optional[float]]:
     """
-    Latest (battery_power_w signed, load_power_w magnitude) for one inverter.
+    Latest (battery W signed, load W, pv W, grid W signed) for one inverter.
     TTL ESS_POWER_CACHE_TTL_SEC. Same Deye call fills both.
     """
     sn = (device_sn or "").strip()
     if not sn or not deye_configured():
-        return None, None
+        return None, None, None, None
 
     async with _soc_lock:
         now = time.monotonic()
         hit = _live_cache.get(sn)
         if hit is not None:
-            bat, load_w, ts = hit
+            bat, load_w, pv_w, grid_w, ts = hit
             if now - ts < ESS_POWER_CACHE_TTL_SEC:
-                return bat, load_w
+                return bat, load_w, pv_w, grid_w
 
     base = settings.DEYE_API_BASE_URL.rstrip("/")
     async with httpx.AsyncClient(timeout=45.0) as client:
@@ -611,23 +758,35 @@ async def get_live_metrics_cached(device_sn: str) -> tuple[Optional[float], Opti
         merged = await _post_latest_metrics_map(client, hdrs, base, [sn])
 
     fetch_time = time.monotonic()
-    soc, pwr, load_w = merged.get(sn, (None, None, None))
+    soc, pwr, load_w, pv_w, grid_w = merged.get(sn, (None, None, None, None, None))
     async with _soc_lock:
         _soc_cache[sn] = (soc, fetch_time)
         obat: Optional[float] = None
         oload: Optional[float] = None
+        opv: Optional[float] = None
+        ogrid: Optional[float] = None
         prev_live = _live_cache.get(sn)
         if prev_live is not None:
-            obat, oload, _ = prev_live
+            obat, oload, opv, ogrid, _ = prev_live
         nbat = pwr if pwr is not None else obat
         nload = load_w if load_w is not None else oload
-        _live_cache[sn] = (nbat, nload, fetch_time)
-    return nbat, nload
+        npv = pv_w if pv_w is not None else opv
+        ngrid = grid_w if grid_w is not None else ogrid
+        _live_cache[sn] = (nbat, nload, npv, ngrid, fetch_time)
+    logger.info(
+        "Deye: live metrics sn=%s batteryW=%s loadW=%s pvW=%s gridW=%s",
+        sn,
+        nbat,
+        nload,
+        npv,
+        ngrid,
+    )
+    return nbat, nload, npv, ngrid
 
 
 async def get_battery_power_w_cached(device_sn: str) -> Optional[float]:
     """Battery W only; same cache as get_live_metrics_cached."""
-    b, _ = await get_live_metrics_cached(device_sn)
+    b, _, _, _ = await get_live_metrics_cached(device_sn)
     return b
 
 

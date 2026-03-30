@@ -305,7 +305,7 @@ export default function PowerFlowPage({
 
   const [socBySn, setSocBySn] = useState({});
   const [socListLoading, setSocListLoading] = useState(false);
-  /** Deye live metrics when an inverter is selected: battery (signed W), load (W, magnitude). */
+  /** Deye live metrics when an inverter is selected: battery, load, PV, grid. */
   const [deyeLive, setDeyeLive] = useState(null);
   const [deyeLiveLoading, setDeyeLiveLoading] = useState(false);
 
@@ -385,11 +385,17 @@ export default function PowerFlowPage({
         if (r.ok && data.ok && data.configured) {
           const bat = data.batteryPowerW;
           const loadW = data.loadPowerW;
+          const pvW = data.pvPowerW;
+          const gridW = data.gridPowerW;
           setDeyeLive({
             batteryPowerW:
               bat != null && Number.isFinite(Number(bat)) ? Number(bat) : null,
             loadPowerW:
               loadW != null && Number.isFinite(Number(loadW)) ? Number(loadW) : null,
+            pvPowerW:
+              pvW != null && Number.isFinite(Number(pvW)) ? Math.max(0, Number(pvW)) : null,
+            gridPowerW:
+              gridW != null && Number.isFinite(Number(gridW)) ? Number(gridW) : null,
           });
         } else {
           setDeyeLive(null);
@@ -441,11 +447,22 @@ export default function PowerFlowPage({
   const sim = computeSimulatedSources(consumptionMw, liveMinerW);
 
   const { solarW, gridW, essW, minerW, consumptionW } = sim;
+  const useLivePv =
+    Boolean(selInverterSn) &&
+    deyeLive?.pvPowerW != null &&
+    Number.isFinite(deyeLive.pvPowerW);
+  const displaySolarW = selInverterSn
+    ? useLivePv
+      ? Math.max(0, deyeLive.pvPowerW)
+      : null
+    : solarW;
   /** Aggregate EV charging (B2B) is misleading next to a single Deye site — hide when an inverter is selected. */
   const showEvAggregate = !selInverterSn;
-  /** Aggregate grid (B2B simulation) is not the site grid — hide when an inverter is selected. */
-  const showGridAggregate = !selInverterSn;
-  const effectiveGridW = showGridAggregate ? gridW : 0;
+  const useLiveGrid =
+    Boolean(selInverterSn) &&
+    deyeLive?.gridPowerW != null &&
+    Number.isFinite(deyeLive.gridPowerW);
+  const effectiveGridW = selInverterSn ? (useLiveGrid ? deyeLive.gridPowerW : null) : gridW;
   const useLiveEss =
     Boolean(selInverterSn) &&
     deyeLive?.batteryPowerW != null &&
@@ -459,12 +476,14 @@ export default function PowerFlowPage({
       ? Math.max(0, deyeLive.loadPowerW)
       : null;
   const loadFlowActive = displayLoadW != null && displayLoadW > 0;
-  const gridSelling = effectiveGridW < 0;
+  const solarFlowActive = displaySolarW != null && displaySolarW > 0;
+  const gridFlowActive = effectiveGridW != null && Math.abs(effectiveGridW) > 0;
+  const gridSelling = effectiveGridW != null && effectiveGridW < 0;
   const hasFlow =
     (showEvAggregate && consumptionW > 0) ||
     minerW > 0 ||
     displayEssW !== 0 ||
-    effectiveGridW !== 0 ||
+    gridFlowActive ||
     loadFlowActive;
   const geom = useMemo(() => computeWideGeometry(graphWidth), [graphWidth]);
   const graphAnchorPct = useMemo(
@@ -476,8 +495,8 @@ export default function PowerFlowPage({
   const gSell = geom.gridLineSelling;
 
   const gridLineCoords = gridSelling
-    ? { ...gSell, active: hasFlow && Math.abs(effectiveGridW) > 0 }
-    : { ...gBuy, active: hasFlow && Math.abs(effectiveGridW) > 0 };
+    ? { ...gSell, active: hasFlow && gridFlowActive }
+    : { ...gBuy, active: hasFlow && gridFlowActive };
 
   const gridDotPath = gridSelling
     ? flowMotionPath(gSell.start.x, gSell.start.y, gSell.end.x, gSell.end.y)
@@ -486,7 +505,7 @@ export default function PowerFlowPage({
   const essActive = hasFlow && Math.abs(displayEssW) > 0;
   /** Motion dots that travel *into* the hub (line ends at EMS): solar, grid import, ESS discharge. */
   const hubLogoInboundFlow =
-    (hasFlow && solarW > 0) ||
+    solarFlowActive ||
     (!gridSelling && gridLineCoords.active) ||
     (essActive && !displayEssCharging);
   const essCoords = displayEssCharging ? geom.essLineCharging : geom.essLine;
@@ -558,9 +577,13 @@ export default function PowerFlowPage({
                       p != null && Number.isFinite(p)
                         ? ` · ${inverterSocFmt.format(p)}%`
                         : '';
+                    const rawLabel = String(row.label || '').trim();
+                    const shortLabel = rawLabel
+                      ? rawLabel.split(' — ')[0].trim() || rawLabel
+                      : String(row.deviceSn || '').trim();
                     return (
                       <option key={row.deviceSn} value={row.deviceSn}>
-                        {(row.label || row.deviceSn) + socSuffix}
+                        {shortLabel + socSuffix}
                       </option>
                     );
                   })}
@@ -638,7 +661,7 @@ export default function PowerFlowPage({
                 <line
                   id="pf-line-solar"
                   className="pf-line"
-                  data-active={hasFlow && solarW > 0 ? 'true' : 'false'}
+                  data-active={solarFlowActive ? 'true' : 'false'}
                   x1={geom.solarLine.start.x}
                   y1={geom.solarLine.start.y}
                   x2={geom.solarLine.end.x}
@@ -693,7 +716,7 @@ export default function PowerFlowPage({
               <g id="pf-dots">
                 <g
                   id="pf-dot-solar"
-                  style={{ display: hasFlow && solarW > 0 ? undefined : 'none' }}
+                  style={{ display: solarFlowActive ? undefined : 'none' }}
                 >
                   <MotionDot
                     pathD={flowMotionPath(
@@ -757,57 +780,36 @@ export default function PowerFlowPage({
                 className="pf-node"
                 data-pos="left-top"
                 id="pf-node-solar"
-                data-active={hasFlow && solarW > 0 ? 'true' : 'false'}
+                data-active={solarFlowActive ? 'true' : 'false'}
               >
                 <span className="pf-node-icon" aria-hidden>
                   ☀️
                 </span>
                 <span className="pf-node-label">{t('nodeSolar')}</span>
                 <span className="pf-node-value" id="pf-val-solar">
-                  {formatPower(solarW, t, bcp47)}
+                  {formatPower(displaySolarW, t, bcp47)}
                 </span>
               </div>
-              {showGridAggregate ? (
-                <button
-                  type="button"
-                  className="pf-node"
-                  data-pos="left-center"
-                  id="pf-node-grid"
-                  data-active={hasFlow && Math.abs(effectiveGridW) > 0 ? 'true' : 'false'}
-                >
-                  <span className="pf-node-icon" aria-hidden>
-                    ⚡
-                  </span>
-                  <span className="pf-node-label">{t('nodeGrid')}</span>
-                  <span className="pf-node-value" id="pf-val-grid">
-                    {gridSelling
-                      ? `↓ ${formatPower(Math.abs(effectiveGridW), t, bcp47)}`
-                      : formatPower(effectiveGridW, t, bcp47)}
-                  </span>
-                  <span className="pf-ess-status" id="pf-grid-selling" hidden={!gridSelling}>
-                    {t('gridSelling')}
-                  </span>
-                </button>
-              ) : (
-                <div
-                  className="pf-node pf-node-grid-disabled"
-                  data-pos="left-center"
-                  id="pf-node-grid"
-                  data-active="false"
-                  title={t('gridHiddenByInverter')}
-                >
-                  <span className="pf-node-icon" aria-hidden>
-                    ⚡
-                  </span>
-                  <span className="pf-node-label">{t('nodeGrid')}</span>
-                  <span className="pf-node-value" id="pf-val-grid">
-                    {formatPower(null, t, bcp47)}
-                  </span>
-                  <span className="pf-ess-status" id="pf-grid-selling" hidden>
-                    {t('gridSelling')}
-                  </span>
-                </div>
-              )}
+              <button
+                type="button"
+                className="pf-node"
+                data-pos="left-center"
+                id="pf-node-grid"
+                data-active={hasFlow && gridFlowActive ? 'true' : 'false'}
+              >
+                <span className="pf-node-icon" aria-hidden>
+                  ⚡
+                </span>
+                <span className="pf-node-label">{t('nodeGrid')}</span>
+                <span className="pf-node-value" id="pf-val-grid">
+                  {gridSelling
+                    ? `↓ ${formatPower(Math.abs(effectiveGridW), t, bcp47)}`
+                    : formatPower(effectiveGridW, t, bcp47)}
+                </span>
+                <span className="pf-ess-status" id="pf-grid-selling" hidden={!gridSelling}>
+                  {t('gridSelling')}
+                </span>
+              </button>
               <div
                 className="pf-node"
                 data-pos="left-bottom"
