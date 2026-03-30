@@ -20,8 +20,8 @@ The React app can load **Microsoft Clarity** and **Google Analytics (gtag)** usi
 
 | Variable | Purpose |
 |----------|---------|
-| `REACT_APP_CLARITY_PROJECT_ID` | Clarity project ID (220-km **prod**: `opcn7h9p5n`, **stage**: `opco080tcx`) |
-| `REACT_APP_GA_MEASUREMENT_ID` | GA4 `G-…` or legacy Universal `UA-…` (220-km uses e.g. `UA-246535650-1` / `UA-246535650-2`) |
+| `REACT_APP_CLARITY_PROJECT_ID` | Microsoft Clarity project ID |
+| `REACT_APP_GA_MEASUREMENT_ID` | GA4 `G-…` or legacy Universal `UA-…` |
 
 Leave empty to disable. For **Docker**, pass the same variables as `web` build args (see `docker-compose.yml`) or add them to your CI env.
 

@@ -1,6 +1,6 @@
 /**
- * Google Analytics (gtag) + Microsoft Clarity — same project IDs as 220-km.com when env is set.
- * Set REACT_APP_GA_MEASUREMENT_ID (GA4 G-… or legacy UA-…) and REACT_APP_CLARITY_PROJECT_ID at build time.
+ * Google Analytics (gtag) + Microsoft Clarity when env vars are set at build time.
+ * Set REACT_APP_GA_MEASUREMENT_ID (GA4 G-… or legacy UA-…) and REACT_APP_CLARITY_PROJECT_ID.
  */
 import { clarity } from 'react-microsoft-clarity';
 
