@@ -2,6 +2,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.models import Note
-from app.routers import b2b_proxy, dam, deye_proxy
+from app.routers import b2b_proxy, dam, deye_proxy, server_metrics
 from app.schemas import NoteCreate, NoteRead
 from app import settings
 from app.deye_api import deye_configured, deye_missing_env_names
@@ -53,8 +54,8 @@ async def lifespan(app: FastAPI):
             settings.RATE_LIMIT_PER_IP_PER_MINUTE,
         )
 
-    stop_dam_sched: asyncio.Event | None = None
-    dam_sched_task: asyncio.Task[None] | None = None
+    stop_dam_sched: Optional[asyncio.Event] = None
+    dam_sched_task: Optional[asyncio.Task[None]] = None
     if settings.OREE_DAM_DAILY_SYNC_ENABLED:
         stop_dam_sched = asyncio.Event()
         dam_sched_task = asyncio.create_task(dam_daily_sync_loop(stop_dam_sched))
@@ -64,8 +65,8 @@ async def lifespan(app: FastAPI):
             settings.OREE_DAM_DAILY_SYNC_MINUTE_KYIV,
         )
 
-    stop_deye_soc: asyncio.Event | None = None
-    deye_soc_task: asyncio.Task[None] | None = None
+    stop_deye_soc: Optional[asyncio.Event] = None
+    deye_soc_task: Optional[asyncio.Task[None]] = None
     if settings.DEYE_SOC_SNAPSHOT_ENABLED:
         stop_deye_soc = asyncio.Event()
         deye_soc_task = asyncio.create_task(deye_soc_snapshot_loop(stop_deye_soc))
@@ -74,8 +75,8 @@ async def lifespan(app: FastAPI):
             settings.DEYE_SOC_SNAPSHOT_INTERVAL_SEC,
         )
 
-    stop_peak_auto: asyncio.Event | None = None
-    peak_auto_task: asyncio.Task[None] | None = None
+    stop_peak_auto: Optional[asyncio.Event] = None
+    peak_auto_task: Optional[asyncio.Task[None]] = None
     if settings.DEYE_PEAK_AUTO_DISCHARGE_SCHEDULER_ENABLED:
         stop_peak_auto = asyncio.Event()
         peak_auto_task = asyncio.create_task(deye_peak_auto_discharge_loop(stop_peak_auto))
@@ -84,8 +85,8 @@ async def lifespan(app: FastAPI):
             settings.DEYE_PEAK_AUTO_DISCHARGE_INTERVAL_SEC,
         )
 
-    stop_low_dam_charge: asyncio.Event | None = None
-    low_dam_charge_task: asyncio.Task[None] | None = None
+    stop_low_dam_charge: Optional[asyncio.Event] = None
+    low_dam_charge_task: Optional[asyncio.Task[None]] = None
     if settings.DEYE_LOW_DAM_CHARGE_SCHEDULER_ENABLED:
         stop_low_dam_charge = asyncio.Event()
         low_dam_charge_task = asyncio.create_task(deye_low_dam_charge_loop(stop_low_dam_charge))
@@ -159,6 +160,7 @@ app.add_middleware(
 app.include_router(b2b_proxy.router)
 app.include_router(deye_proxy.router)
 app.include_router(dam.router)
+app.include_router(server_metrics.router)
 
 # Production / `npm run build`: serve CRA output only (no legacy static HTML).
 # Local dev: OPEN_EMS_SERVE_SPA=0 — API only; UI from `npm start`.

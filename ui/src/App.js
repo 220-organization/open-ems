@@ -1,5 +1,6 @@
 import DamChartPage from './DamChartPage';
 import PowerFlowPage from './PowerFlowPage';
+import ServerMetricsBar from './ServerMetricsBar';
 import { useI18n } from './useI18n';
 
 function currentSpaPage() {
@@ -14,5 +15,14 @@ function currentSpaPage() {
 
 export default function App() {
   const i18n = useI18n();
-  return currentSpaPage() === 'dam' ? <DamChartPage {...i18n} /> : <PowerFlowPage {...i18n} />;
+  return (
+    <div className="app-root-layout">
+      <div className="app-root-layout__main">
+        {currentSpaPage() === 'dam' ? <DamChartPage {...i18n} /> : <PowerFlowPage {...i18n} />}
+      </div>
+      <footer className="app-shell-footer">
+        <ServerMetricsBar />
+      </footer>
+    </div>
+  );
 }

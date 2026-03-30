@@ -6,3 +6,4 @@ uvicorn[standard]
 python-dotenv>=1.0.0
 # IANA time zones for zoneinfo on minimal images (e.g. python:slim) without full system tzdata
 tzdata>=2024.1
+psutil>=6.0,<8

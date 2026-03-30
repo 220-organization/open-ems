@@ -119,7 +119,9 @@ trap '_cleanup_local_procs' INT TERM EXIT
 
 echo "Starting API at http://127.0.0.1:${API_PORT} (Swagger at /docs)" >&2
 echo "Starting React dev (Fast Refresh) at http://127.0.0.1:${UI_PORT} → API http://127.0.0.1:${API_PORT}" >&2
-uvicorn app.main:app "${RELOAD_ARGS[@]}" --host 0.0.0.0 --port "${API_PORT}" &
+# Line-buffered Python stdout/stderr so API logs appear immediately in this terminal (Python 3.9-safe).
+export PYTHONUNBUFFERED=1
+uvicorn app.main:app "${RELOAD_ARGS[@]}" --host 0.0.0.0 --port "${API_PORT}" --log-level info &
 UVICORN_PID=$!
 
 if [[ ! -d ui/node_modules ]]; then

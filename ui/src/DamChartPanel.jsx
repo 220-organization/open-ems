@@ -4,7 +4,6 @@ import {
   CartesianGrid,
   Cell,
   ComposedChart,
-  Legend,
   Line,
   LineChart,
   ReferenceLine,
@@ -101,6 +100,11 @@ const DAM_RIGHT_Y_AXIS_WIDTH = 48;
 
 /** Right grid-frequency (Hz) axis — extra width for 2-decimal locale + unit (e.g. 49,99 Гц). */
 const DAM_HZ_Y_AXIS_WIDTH = 72;
+
+/** Hour index on X-axis (data uses 1–24): show even ticks only. */
+const DAM_HOUR_X_TICKS = Object.freeze(
+  [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24],
+);
 
 function fiveSymmetricTicks(lo, hi) {
   if (!Number.isFinite(lo) || !Number.isFinite(hi) || lo >= hi) return [0];
@@ -396,6 +400,27 @@ export default function DamChartPanel({
     return 52;
   }, [effectiveInverterSn, showGridFrequencyLine]);
 
+  /** Same horizontal gutters + matched right-axis bands so LineChart and ComposedChart X domains align. */
+  const damLineChartMargin = useMemo(
+    () => ({
+      top: 8,
+      right: lineChartRightMargin,
+      left: 8,
+      bottom: 10,
+    }),
+    [lineChartRightMargin],
+  );
+
+  const damComposedChartMargin = useMemo(
+    () => ({
+      top: 6,
+      right: lineChartRightMargin,
+      left: 8,
+      bottom: 28,
+    }),
+    [lineChartRightMargin],
+  );
+
   const onDateInput = (e) => {
     const v = e.target.value;
     if (/^\d{4}-\d{2}-\d{2}$/.test(v)) setTradeDay(clampTradeDayIso(v));
@@ -524,21 +549,20 @@ export default function DamChartPanel({
         ) : null}
 
         {!loading && hasChart ? (
-          <div className="dam-recharts-wrap" style={{ minHeight: h }}>
+          <div
+            className="dam-recharts-wrap dam-recharts-wrap--line-stack"
+            style={{ minHeight: `calc(${h}px + 42px)` }}
+          >
             <ResponsiveContainer width="100%" height={h}>
-              <LineChart
-                data={rows}
-                syncId="dam-day"
-                margin={{
-                  top: 8,
-                  right: lineChartRightMargin,
-                  left: 8,
-                  bottom: 6,
-                }}
-              >
+              <LineChart data={rows} syncId="dam-day" margin={damLineChartMargin}>
                 <CartesianGrid stroke="rgba(252, 1, 155, 0.12)" strokeDasharray="3 3" />
                 <XAxis
                   dataKey="hour"
+                  type="number"
+                  domain={[1, 24]}
+                  ticks={DAM_HOUR_X_TICKS}
+                  allowDecimals={false}
+                  padding={{ left: 0, right: 0 }}
                   tick={{ fill: 'rgba(255,248,252,0.75)', fontSize: 11 }}
                   tickLine={false}
                 />
@@ -619,10 +643,6 @@ export default function DamChartPanel({
                   }}
                   labelFormatter={(hour) => `${t('damHourTooltip')} ${hour}`}
                 />
-                <Legend
-                  wrapperStyle={{ paddingTop: 16 }}
-                  formatter={(value) => <span style={{ color: 'rgba(255,248,252,0.88)' }}>{value}</span>}
-                />
                 <Line
                   yAxisId="dam"
                   type="monotone"
@@ -659,6 +679,24 @@ export default function DamChartPanel({
                 ) : null}
               </LineChart>
             </ResponsiveContainer>
+            <ul className="dam-line-legend" aria-label={t('damChartHeading')}>
+              <li className="dam-line-legend-item">
+                <i className="dam-line-legend-swatch" style={{ background: '#22c55e' }} aria-hidden />
+                {t('damSeriesDam')}
+              </li>
+              {effectiveInverterSn ? (
+                <li className="dam-line-legend-item">
+                  <i className="dam-line-legend-swatch" style={{ background: '#60a5fa' }} aria-hidden />
+                  {t('damSeriesSoc')}
+                </li>
+              ) : null}
+              {effectiveInverterSn && showGridFrequencyLine ? (
+                <li className="dam-line-legend-item">
+                  <i className="dam-line-legend-swatch" style={{ background: '#facc15' }} aria-hidden />
+                  {t('damSeriesGridFreq')}
+                </li>
+              ) : null}
+            </ul>
           </div>
         ) : null}
 
@@ -666,16 +704,7 @@ export default function DamChartPanel({
           <div className="dam-grid-bars-wrap">
             <p className="dam-grid-bars-caption">{t('damGridBarsCaption')}</p>
             <ResponsiveContainer width="100%" height={gridBarH}>
-              <ComposedChart
-                data={rows}
-                syncId="dam-day"
-                margin={{
-                  top: 6,
-                  right: showGridFrequencyLine ? lineChartRightMargin : 52,
-                  left: 8,
-                  bottom: 28,
-                }}
-              >
+              <ComposedChart data={rows} syncId="dam-day" margin={damComposedChartMargin}>
                 <CartesianGrid
                   stroke="rgba(252, 1, 155, 0.08)"
                   strokeDasharray="3 3"
@@ -683,6 +712,11 @@ export default function DamChartPanel({
                 />
                 <XAxis
                   dataKey="hour"
+                  type="number"
+                  domain={[1, 24]}
+                  ticks={DAM_HOUR_X_TICKS}
+                  allowDecimals={false}
+                  padding={{ left: 0, right: 0 }}
                   tick={{ fill: 'rgba(255,248,252,0.75)', fontSize: 11 }}
                   tickLine={false}
                   label={{
@@ -708,7 +742,7 @@ export default function DamChartPanel({
                     style: { fill: 'rgba(255,248,252,0.55)', fontSize: 10, textAnchor: 'end' },
                   }}
                 />
-                {/* Reserves the same width as the SoC axis on the line chart so X domains align. */}
+                {/* Match LineChart right Y-axis band widths so Cartesian X width is identical. */}
                 <YAxis
                   yAxisId="sync-right-margin"
                   orientation="right"
@@ -718,6 +752,17 @@ export default function DamChartPanel({
                   tickLine={false}
                   axisLine={false}
                 />
+                {showGridFrequencyLine ? (
+                  <YAxis
+                    yAxisId="sync-hz-margin"
+                    orientation="right"
+                    domain={[0, 1]}
+                    width={DAM_HZ_Y_AXIS_WIDTH}
+                    tick={false}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                ) : null}
                 <ReferenceLine y={0} stroke="rgba(255,248,252,0.35)" strokeDasharray="4 4" />
                 <Tooltip
                   separator=": "
