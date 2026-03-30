@@ -44,6 +44,16 @@ function addCalendarDays(iso, deltaDays) {
   return `${yy}-${mm}-${dd}`;
 }
 
+/** Last selectable DAM trade day: tomorrow in Europe/Kyiv (aligned with lazy OREE rules). */
+function maxTradeDayKyivIso() {
+  return addCalendarDays(kyivCalendarIso(), 1);
+}
+
+function clampTradeDayIso(iso) {
+  const cap = maxTradeDayKyivIso();
+  return iso > cap ? cap : iso;
+}
+
 function initialTradeDayFullPage() {
   try {
     const q = new URLSearchParams(window.location.search).get('date');
@@ -130,7 +140,7 @@ export default function DamChartPanel({
   inverterSn: inverterSnProp,
 }) {
   const [tradeDay, setTradeDay] = useState(() =>
-    variant === 'fullpage' ? initialTradeDayFullPage() : kyivCalendarIso(),
+    clampTradeDayIso(variant === 'fullpage' ? initialTradeDayFullPage() : kyivCalendarIso()),
   );
   const [payload, setPayload] = useState(null);
   const [loadError, setLoadError] = useState('');
@@ -169,6 +179,12 @@ export default function DamChartPanel({
       }),
     [bcp47],
   );
+
+  const maxTradeDay = maxTradeDayKyivIso();
+
+  useEffect(() => {
+    if (tradeDay > maxTradeDay) setTradeDay(maxTradeDay);
+  }, [tradeDay, maxTradeDay]);
 
   useEffect(() => {
     if (variant !== 'fullpage') return;
@@ -341,13 +357,22 @@ export default function DamChartPanel({
 
   const onDateInput = (e) => {
     const v = e.target.value;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) setTradeDay(v);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) setTradeDay(clampTradeDayIso(v));
   };
 
   const goPrev = () => setTradeDay((d) => addCalendarDays(d, -1));
-  const goNext = () => setTradeDay((d) => addCalendarDays(d, 1));
+  const goNext = () =>
+    setTradeDay((d) => {
+      const next = addCalendarDays(d, 1);
+      const cap = maxTradeDayKyivIso();
+      return next > cap ? cap : next;
+    });
 
   const hasChart = Boolean(payload) && rows.length === 24;
+  const hasAnyDamPrice = useMemo(
+    () => rows.some((r) => r.damUahKwh != null && Number.isFinite(Number(r.damUahKwh))),
+    [rows],
+  );
 
   const dateBar = (
     <div className="dam-date-bar" role="group" aria-label={t('damDateLabel')}>
@@ -358,10 +383,17 @@ export default function DamChartPanel({
         className="dam-date-input"
         type="date"
         value={tradeDay}
+        max={maxTradeDay}
         onChange={onDateInput}
         aria-label={t('damDateLabel')}
       />
-      <button type="button" className="dam-date-btn" onClick={goNext} aria-label={t('damNextDay')}>
+      <button
+        type="button"
+        className="dam-date-btn"
+        onClick={goNext}
+        disabled={tradeDay >= maxTradeDay}
+        aria-label={t('damNextDay')}
+      >
         ›
       </button>
     </div>
@@ -407,6 +439,12 @@ export default function DamChartPanel({
       {payload?.syncTriggered ? (
         <div className="dam-banner dam-banner-info" role="status">
           {t('damSyncNote')}
+        </div>
+      ) : null}
+
+      {payload?.lazyOree?.exhausted && !hasAnyDamPrice ? (
+        <div className="dam-banner dam-banner-warn" role="status">
+          {t('damLazyOreeExhausted')}
         </div>
       ) : null}
 

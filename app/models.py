@@ -33,6 +33,18 @@ class DeyeSocSample(Base):
     )
 
 
+class OreeDamLazyFetch(Base):
+    """OREE API pull attempts for a trade_day when using chart-day lazy sync (Kyiv tomorrow only)."""
+
+    __tablename__ = "oree_dam_lazy_fetch"
+
+    trade_day: Mapped[datetime.date] = mapped_column(Date, primary_key=True)
+    attempts: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
+    updated_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
 class OreeDamPrice(Base):
     """Hourly DAM price from OREE (UAH/MWh); period 1..24."""
 

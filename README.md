@@ -34,9 +34,13 @@ Default DB connection is `postgresql+asyncpg://openems:openems@127.0.0.1:5433/op
 
 The API loads **`open-ems/.env`** automatically (`python-dotenv`), so `DEYE_*`, `B2B_API_BASE_URL`, `OREE_*`, etc. apply without `export` in the shell. Do not commit real secrets; keep `.env` local (gitignored).
 
+### HTTP rate limit (per client IP)
+
+Sliding **60-second** window, default **100 requests** per IP (`RATE_LIMIT_PER_IP_PER_MINUTE`, `RATE_LIMIT_ENABLED`). Excluded paths: **`/health`** and URLs under **`/static/`** (CRA assets). Other routes (`/api/*`, SPA HTML paths, `/docs`, etc.) count. Client identity uses **`X-Forwarded-For`** (first hop) when present, otherwise the peer address — use a **trusted reverse proxy** so clients cannot spoof arbitrary IPs. Horizontal scaling duplicates counters per instance (Redis-based limiters are not included).
+
 ### DAM chart (OREE → DB)
 
-The **`/dam-chart`** page and **`GET /api/dam/chart-day`** use only the **`oree_dam_price`** table (Flyway **`V2__oree_dam_price.sql`**). The UI defaults to **today (Europe/Kiev)** and keeps the trade day in the query string as **`?date=YYYY-MM-DD`**. With no **`date`** query, the API defaults to **today (Kyiv)** as well. Prices come from OREE via **`POST /api/dam/sync`**, a **daily background job at 13:00 Europe/Kiev** (configurable), and a **one-time OREE pull** when the user selects **tomorrow’s date (Kyiv)** and the DB has no DAM rows for that day.
+The **`/dam-chart`** page and **`GET /api/dam/chart-day`** read **only from** **`oree_dam_price`** (Flyway **`V2__oree_dam_price.sql`**). The UI defaults to **today (Europe/Kiev)** and uses **`?date=YYYY-MM-DD`**. With no **`date`** query, the API defaults to **today (Kyiv)**. Rows are filled by **`POST /api/dam/sync`**, the **daily background job** at 13:00 Europe/Kiev (configurable), and a **limited on-demand OREE pull** when the user opens **tomorrow (Kyiv)** while the DB has no DAM rows for that day: at most **`OREE_DAM_LAZY_FETCH_MAX`** such pulls per trade day (default **3**), tracked in **`oree_dam_lazy_fetch`** (**`V5__oree_dam_lazy_fetch.sql`**). **Any other calendar day** never triggers OREE from **`chart-day`**—only DB data is returned.
 
 | Variable | Description |
 |----------|-------------|
@@ -47,6 +51,7 @@ The **`/dam-chart`** page and **`GET /api/dam/chart-day`** use only the **`oree_
 | `OREE_DAM_DAILY_SYNC_ENABLED` | Optional. Default `true` — set `0` / `false` to disable the daily scheduler |
 | `OREE_DAM_DAILY_SYNC_HOUR_KYIV` | Optional. Default `13` (0–23, Europe/Kiev wall time) |
 | `OREE_DAM_DAILY_SYNC_MINUTE_KYIV` | Optional. Default `0` (0–59) |
+| `OREE_DAM_LAZY_FETCH_MAX` | Optional. Default `3` (0 = disable on-demand OREE from `chart-day`; cap per Kyiv-tomorrow trade day) |
 
 **SoC and grid on the DAM chart:** With an inverter selected on the Power flow page (`?inverter=<serial>`) or on **`/dam-chart?inverter=<serial>`**, the UI requests **`GET /api/deye/soc-history-day`** and draws **mean battery SoC % per Europe/Kyiv clock hour** (24 points, same *hour* axis as DAM) on a **right Y-axis**, plus **mean grid power per hour** (signed **W** from Deye: **positive = import**, **negative = export**) as a **bar chart under the main X-axis** (kW in the UI). Rows are stored in **`deye_soc_sample`** (Flyway **`V3`** + **`V4__deye_soc_sample_grid.sql`**): the API process snapshots **all** inverters from **`listWithDevice`** every **`DEYE_SOC_SNAPSHOT_INTERVAL_SEC`** (default **300**), using a **fresh** Deye `device/latest` call (not the UI’s in-memory SoC TTL).
 

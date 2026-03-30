@@ -19,6 +19,7 @@ from app.deye_api import deye_configured, deye_missing_env_names
 from app.oree_dam_scheduler import dam_daily_sync_loop
 from app.oree_dam_service import oree_dam_configured
 from app.deye_soc_scheduler import deye_soc_snapshot_loop
+from app.rate_limit_middleware import InMemoryIpRateLimiter, PerIpRateLimitMiddleware
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 UI_BUILD = BASE_DIR / "ui" / "build"
@@ -43,6 +44,12 @@ async def lifespan(app: FastAPI):
         logger.info("OREE DAM: OREE_API_KEY set (base: %s)", settings.OREE_API_BASE_URL)
     else:
         logger.warning("OREE DAM: not configured — set OREE_API_KEY for DAM sync and chart line")
+
+    if settings.RATE_LIMIT_ENABLED:
+        logger.info(
+            "HTTP rate limit: %s requests / 60s per IP (RATE_LIMIT_*; /health and /static/ excluded)",
+            settings.RATE_LIMIT_PER_IP_PER_MINUTE,
+        )
 
     stop_dam_sched: asyncio.Event | None = None
     dam_sched_task: asyncio.Task[None] | None = None
@@ -95,12 +102,22 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+_ip_rate_limiter = InMemoryIpRateLimiter(
+    max_hits=settings.RATE_LIMIT_PER_IP_PER_MINUTE,
+    window_sec=60.0,
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+app.add_middleware(
+    PerIpRateLimitMiddleware,
+    limiter=_ip_rate_limiter,
+    enabled=settings.RATE_LIMIT_ENABLED,
 )
 
 app.include_router(b2b_proxy.router)

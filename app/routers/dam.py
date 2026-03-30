@@ -15,6 +15,7 @@ from app import settings
 from app.oree_dam_service import (
     KYIV,
     get_hourly_dam_with_optional_sync,
+    get_lazy_oree_chart_meta,
     oree_dam_configured,
     sync_dam_prices_to_db,
 )
@@ -55,14 +56,16 @@ async def dam_chart_day(
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """
-    DAM chart data: hourly prices from open-ems DB (OREE upsert).
-    If the DB has no rows for the requested day and that day is tomorrow in Kyiv, triggers one OREE sync.
-    UAH/kWh = DAM MWh price / 1000.
+    DAM chart hourly prices: always read from DB first (UAH/kWh = MWh/1000).
+
+    If the DB has no data for the requested day and that day is tomorrow in Kyiv, may trigger an
+    OREE pull subject to OREE_DAM_LAZY_FETCH_MAX (chart-day lazy sync only). Other days never pull OREE here.
     """
     day = date_param or _kyiv_today()
     zone = settings.OREE_COMPARE_ZONE_EIC
 
     hourly_mwh, sync_triggered = await get_hourly_dam_with_optional_sync(db, day, zone)
+    lazy_oree = await get_lazy_oree_chart_meta(db, day)
     hourly_dam_uah_per_kwh: list[Optional[float]] = []
     for m in hourly_mwh:
         if m is None:
@@ -79,6 +82,7 @@ async def dam_chart_day(
             "hourlyPriceDamUahPerKwh": hourly_dam_uah_per_kwh,
             "oreeConfigured": oree_dam_configured(),
             "syncTriggered": sync_triggered,
+            "lazyOree": lazy_oree,
         },
         headers=_NO_STORE,
     )

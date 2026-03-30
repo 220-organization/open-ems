@@ -13,7 +13,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import settings
-from app.models import OreeDamPrice
+from app.models import OreeDamLazyFetch, OreeDamPrice
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +128,55 @@ async def sync_dam_prices_to_db(session: AsyncSession) -> int:
     return saved
 
 
+async def _reserve_lazy_oree_slot(session: AsyncSession, trade_day: date) -> tuple[bool, int]:
+    """
+    Increment lazy attempt counter for trade_day if below OREE_DAM_LAZY_FETCH_MAX.
+    Caller should commit before hitting OREE so failed HTTP still counts against the cap.
+    Returns (allowed_to_call_oree_now, attempts_after_increment_or_current_if_denied).
+    """
+    max_a = settings.OREE_DAM_LAZY_FETCH_MAX
+    if max_a <= 0:
+        return False, 0
+    stmt = (
+        select(OreeDamLazyFetch)
+        .where(OreeDamLazyFetch.trade_day == trade_day)
+        .with_for_update()
+    )
+    res = await session.execute(stmt)
+    row = res.scalar_one_or_none()
+    if row is None:
+        session.add(OreeDamLazyFetch(trade_day=trade_day, attempts=1))
+        await session.flush()
+        return True, 1
+    cur = int(row.attempts)
+    if cur >= max_a:
+        return False, cur
+    row.attempts = cur + 1
+    await session.flush()
+    return True, cur + 1
+
+
+async def get_lazy_oree_chart_meta(session: AsyncSession, trade_day: date) -> Optional[dict[str, Any]]:
+    """Exposed on /api/dam/chart-day when viewing Kyiv tomorrow (for UI limits)."""
+    if trade_day != kyiv_tomorrow():
+        return None
+    if not oree_dam_configured():
+        return None
+    max_a = settings.OREE_DAM_LAZY_FETCH_MAX
+    if max_a <= 0:
+        return None
+    res = await session.execute(
+        select(OreeDamLazyFetch.attempts).where(OreeDamLazyFetch.trade_day == trade_day)
+    )
+    raw = res.scalar_one_or_none()
+    attempts = int(raw) if raw is not None else 0
+    return {
+        "attempts": attempts,
+        "max": max_a,
+        "exhausted": attempts >= max_a,
+    }
+
+
 async def get_hourly_dam_uah_mwh(
     session: AsyncSession,
     trade_day: date,
@@ -153,21 +202,44 @@ async def get_hourly_dam_with_optional_sync(
     zone_eic: str,
 ) -> tuple[list[Optional[float]], bool]:
     """
-    Read DAM from DB only. If there is no price data for this day and trade_day equals
-    tomorrow's calendar date in Kyiv, pull once from OREE (e.g. user opened the chart for D+1).
+    Return DAM hourly UAH/MWh from DB only for all calendar days.
+
+    OREE HTTP is used only when:
+    - DB has no hourly prices for this trade_day, and
+    - trade_day is tomorrow in Europe/Kyiv, and
+    - OREE is configured and OREE_DAM_LAZY_FETCH_MAX > 0, and
+    - on-demand attempts for that trade_day are still below the cap.
+
+    The attempt counter is committed before calling OREE so retries do not bypass the cap.
+
     Returns (hourly_uah_mwh, sync_triggered).
     """
     hourly = await get_hourly_dam_uah_mwh(session, trade_day, zone_eic)
     if _has_any_hourly(hourly):
         return hourly, False
     tomorrow_kyiv = kyiv_tomorrow()
-    if trade_day == tomorrow_kyiv and oree_dam_configured():
+    if trade_day != tomorrow_kyiv or not oree_dam_configured():
+        return hourly, False
+    if settings.OREE_DAM_LAZY_FETCH_MAX <= 0:
+        logger.debug("DAM lazy OREE disabled (OREE_DAM_LAZY_FETCH_MAX=%s)", settings.OREE_DAM_LAZY_FETCH_MAX)
+        return hourly, False
+    allowed, used = await _reserve_lazy_oree_slot(session, trade_day)
+    if not allowed:
         logger.info(
-            "DAM DB empty for %s (Kyiv tomorrow=%s), on-demand OREE sync",
+            "DAM lazy OREE cap reached for %s (attempts=%s, max=%s)",
             trade_day,
-            tomorrow_kyiv,
+            used,
+            settings.OREE_DAM_LAZY_FETCH_MAX,
         )
-        await sync_dam_prices_to_db(session)
-        hourly = await get_hourly_dam_uah_mwh(session, trade_day, zone_eic)
-        return hourly, True
-    return hourly, False
+        return hourly, False
+    await session.commit()
+    logger.info(
+        "DAM DB empty for %s (Kyiv tomorrow=%s), on-demand OREE sync (attempt %s/%s)",
+        trade_day,
+        tomorrow_kyiv,
+        used,
+        settings.OREE_DAM_LAZY_FETCH_MAX,
+    )
+    await sync_dam_prices_to_db(session)
+    hourly = await get_hourly_dam_uah_mwh(session, trade_day, zone_eic)
+    return hourly, True

@@ -68,6 +68,13 @@ def _env_int(name: str, default: int, min_v: int, max_v: int) -> int:
 OREE_DAM_DAILY_SYNC_HOUR_KYIV: int = _env_int("OREE_DAM_DAILY_SYNC_HOUR_KYIV", 13, 0, 23)
 OREE_DAM_DAILY_SYNC_MINUTE_KYIV: int = _env_int("OREE_DAM_DAILY_SYNC_MINUTE_KYIV", 0, 0, 59)
 
+# Max on-demand OREE /damprices pulls via GET /api/dam/chart-day when DB has no rows for Kyiv tomorrow.
+OREE_DAM_LAZY_FETCH_MAX: int = _env_int("OREE_DAM_LAZY_FETCH_MAX", 3, 0, 50)
+
 # Persist Deye SoC to DB on a fixed interval (all inverters from listWithDevice; UTC 5-min buckets).
 DEYE_SOC_SNAPSHOT_ENABLED: bool = _env_bool("DEYE_SOC_SNAPSHOT_ENABLED", True)
 DEYE_SOC_SNAPSHOT_INTERVAL_SEC: int = _env_int("DEYE_SOC_SNAPSHOT_INTERVAL_SEC", 300, 60, 3600)
+
+# Per-client IP HTTP rate limit (sliding 60s window, in-process memory). Trust X-Forwarded-For only behind a trusted proxy.
+RATE_LIMIT_ENABLED: bool = _env_bool("RATE_LIMIT_ENABLED", True)
+RATE_LIMIT_PER_IP_PER_MINUTE: int = _env_int("RATE_LIMIT_PER_IP_PER_MINUTE", 100, 1, 10_000)
