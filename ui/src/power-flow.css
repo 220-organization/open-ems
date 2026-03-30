@@ -1,4 +1,21 @@
 /* Power flow kiosk layout — aligned with B2B graphView=1 (neon pink #FC019B) */
+
+/* Remove default UA margin + white canvas so the dark UI fills the viewport (no outer “white frame”). */
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: #060104;
+}
+
+#root {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
 :root {
   --pf-pink: #fc019b;
   --pf-pink-soft: rgba(252, 1, 155, 0.92);
