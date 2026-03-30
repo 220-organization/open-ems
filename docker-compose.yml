@@ -60,6 +60,8 @@ services:
       dockerfile: Dockerfile.ui
       args:
         REACT_APP_API_BASE_URL: ${REACT_APP_API_BASE_URL:-}
+        REACT_APP_CLARITY_PROJECT_ID: ${REACT_APP_CLARITY_PROJECT_ID:-}
+        REACT_APP_GA_MEASUREMENT_ID: ${REACT_APP_GA_MEASUREMENT_ID:-}
     restart: unless-stopped
     ports:
       - "9220:80"

@@ -14,6 +14,19 @@ Re-run `./run-local.sh` anytime: old listeners on those ports are killed first, 
 
 Optional: copy `ui/.env.example` → `ui/.env` only if you need overrides; otherwise `run-local.sh` sets `REACT_APP_API_BASE_URL=http://127.0.0.1:9221`.
 
+### UI analytics & social previews
+
+The React app can load **Microsoft Clarity** and **Google Analytics (gtag)** using the same pattern as [220-km.com](https://220-km.com/) (`src-js/react`): set at **build** time (CRA inlines `REACT_APP_*`):
+
+| Variable | Purpose |
+|----------|---------|
+| `REACT_APP_CLARITY_PROJECT_ID` | Clarity project ID (220-km **prod**: `opcn7h9p5n`, **stage**: `opco080tcx`) |
+| `REACT_APP_GA_MEASUREMENT_ID` | GA4 `G-…` or legacy Universal `UA-…` (220-km uses e.g. `UA-246535650-1` / `UA-246535650-2`) |
+
+Leave empty to disable. For **Docker**, pass the same variables as `web` build args (see `docker-compose.yml`) or add them to your CI env.
+
+`ui/public/index.html` includes **Open Graph** and **Twitter** meta tags in English for link previews; adjust `og:url` / `og:image` if your public host is not `https://220-km.com:9220/`.
+
 Local production-style bundle: `cd ui && npm run build` (optional sanity check).
 
 **Docker Compose (server):** builds **`web`** from `Dockerfile.ui` (CRA production build + **nginx** on container port 80 → host **9220**) and **`api`** from `Dockerfile` (FastAPI on host **9221**, `OPEN_EMS_SERVE_SPA=0`). Nginx proxies **`/api/*`** to `api:8090`, so the UI image is built with an empty **`REACT_APP_API_BASE_URL`** by default (same-origin `/api` on port 9220). Override at build time via Compose env **`REACT_APP_API_BASE_URL`** if you need a direct API URL instead.
