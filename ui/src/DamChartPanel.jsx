@@ -99,6 +99,9 @@ const DAM_LEFT_Y_AXIS_WIDTH = 56;
 /** Right SoC / placeholder axis width — bottom chart uses a hidden right axis with the same width so plot areas match. */
 const DAM_RIGHT_Y_AXIS_WIDTH = 48;
 
+/** Right grid-frequency (Hz) axis — extra width for 2-decimal locale + unit (e.g. 49,99 Гц). */
+const DAM_HZ_Y_AXIS_WIDTH = 72;
+
 function fiveSymmetricTicks(lo, hi) {
   if (!Number.isFinite(lo) || !Number.isFinite(hi) || lo >= hi) return [0];
   const step = (hi - lo) / 4;
@@ -389,7 +392,7 @@ export default function DamChartPanel({
 
   const lineChartRightMargin = useMemo(() => {
     if (!effectiveInverterSn) return 16;
-    if (showGridFrequencyLine) return 100;
+    if (showGridFrequencyLine) return DAM_RIGHT_Y_AXIS_WIDTH + DAM_HZ_Y_AXIS_WIDTH + 28;
     return 52;
   }, [effectiveInverterSn, showGridFrequencyLine]);
 
@@ -578,8 +581,12 @@ export default function DamChartPanel({
                     yAxisId="hz"
                     orientation="right"
                     domain={hzDomain}
-                    width={44}
-                    tick={{ fill: 'rgba(250, 204, 21, 0.92)', fontSize: 10 }}
+                    width={DAM_HZ_Y_AXIS_WIDTH}
+                    tick={{
+                      fill: 'rgba(250, 204, 21, 0.92)',
+                      fontSize: 11,
+                      dx: 6,
+                    }}
                     tickLine={false}
                     tickFormatter={(v) => fmtHz.format(v)}
                     axisLine={{ stroke: 'rgba(250, 204, 21, 0.35)' }}
@@ -587,8 +594,8 @@ export default function DamChartPanel({
                       value: t('damGridFreqAxis'),
                       angle: 90,
                       position: 'insideRight',
-                      offset: 4,
-                      style: { fill: 'rgba(250, 204, 21, 0.75)', fontSize: 10, textAnchor: 'end' },
+                      offset: 14,
+                      style: { fill: 'rgba(250, 204, 21, 0.75)', fontSize: 11, textAnchor: 'end' },
                     }}
                   />
                 ) : null}
@@ -662,7 +669,12 @@ export default function DamChartPanel({
               <ComposedChart
                 data={rows}
                 syncId="dam-day"
-                margin={{ top: 6, right: 52, left: 8, bottom: 28 }}
+                margin={{
+                  top: 6,
+                  right: showGridFrequencyLine ? lineChartRightMargin : 52,
+                  left: 8,
+                  bottom: 28,
+                }}
               >
                 <CartesianGrid
                   stroke="rgba(252, 1, 155, 0.08)"
