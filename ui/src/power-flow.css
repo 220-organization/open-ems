@@ -44,22 +44,69 @@
   padding-left: max(12px, env(safe-area-inset-left, 0px));
 }
 
+.pf-top-bar {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 100%;
+}
+
+.pf-header-discharge-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  padding: 0 4px 10px;
+  box-sizing: border-box;
+}
+
+.pf-discharge-toolbar {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 6px 8px;
+  box-sizing: border-box;
+  gap: 0;
+  background: rgba(24, 6, 32, 0.72);
+  border: 1px solid rgba(252, 1, 155, 0.32);
+  border-radius: 12px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 0 0 1px rgba(0, 0, 0, 0.2);
+}
+
+.pf-discharge-toolbar .pf-grid-discharge-actions--header {
+  gap: 8px 10px;
+}
+
 .pf-header {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: space-between;
   gap: 8px;
+  width: 100%;
   padding: 8px 4px 12px;
   font-size: 13px;
+  overflow-x: hidden;
+  overflow-y: hidden;
+}
+
+.pf-header-primary {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
 }
 
-.pf-header > * {
-  flex-shrink: 0;
+.pf-header > .pf-lang-select {
+  flex: 0 0 auto;
 }
 
 /* Compact header controls — one row on typical phone/tablet widths */
@@ -93,7 +140,7 @@
 
 @media (max-width: 320px) {
   .pf-header {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
   }
 }
 
@@ -146,6 +193,68 @@
 .pf-inverter-select:focus-visible {
   outline: 2px solid var(--pf-pink-soft);
   outline-offset: 2px;
+}
+
+.pf-discharge-btn {
+  appearance: none;
+  background: var(--pf-surface);
+  border: 1px solid var(--pf-border);
+  border-radius: 10px;
+  color: var(--pf-label);
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.2;
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: min(42vw, 10.5rem);
+}
+
+.pf-discharge-btn:hover:not(:disabled) {
+  border-color: rgba(252, 1, 155, 0.45);
+}
+
+.pf-discharge-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pf-peak-dam-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  max-width: min(52vw, 13rem);
+}
+
+.pf-peak-dam-toggle input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--pf-pink);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.pf-peak-dam-toggle input:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pf-peak-dam-toggle-label {
+  font-size: 11px;
+  line-height: 1.25;
+  color: rgba(255, 248, 252, 0.82);
+}
+
+.pf-discharge-feedback {
+  margin: 0 4px 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: rgba(255, 248, 252, 0.88);
+  background: rgba(36, 10, 48, 0.72);
+  border: 1px solid rgba(252, 1, 155, 0.22);
+  border-radius: 10px;
 }
 
 .pf-graph-wrap {
@@ -412,6 +521,150 @@ a.pf-node {
   transform: translate(-50%, -50%);
 }
 
+/* Grid tile + discharge / peak-DAM controls (replaces standalone left-center node). */
+.pf-graph .pf-node-stack[data-pos='left-center'] {
+  position: absolute;
+  top: 50%;
+  left: var(--pf-graph-anchor-pct);
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: min(200px, 46vw);
+  z-index: 3;
+}
+
+.pf-graph .pf-node-stack > .pf-node {
+  position: relative;
+  top: auto;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  transform: none;
+}
+
+.pf-grid-discharge-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  width: 100%;
+}
+
+.pf-grid-discharge-actions--header {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px 14px;
+  width: 100%;
+}
+
+.pf-grid-discharge-actions--header .pf-discharge-delta-controls {
+  width: auto;
+  flex: 0 1 auto;
+  max-width: 100%;
+  justify-content: flex-start;
+}
+
+.pf-discharge-delta-select--header {
+  padding: 6px 10px;
+  font-size: 13px;
+  line-height: 1.25;
+  min-height: 34px;
+  box-sizing: border-box;
+  max-width: 12rem;
+}
+
+.pf-peak-dam-toggle--header {
+  max-width: none;
+  flex-shrink: 0;
+}
+
+.pf-discharge-delta-controls {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.pf-discharge-delta-select {
+  appearance: auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 10rem;
+  width: 100%;
+  background: var(--pf-surface);
+  border: 1px solid var(--pf-border);
+  border-radius: 10px;
+  color: var(--pf-label);
+  padding: 8px 12px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.pf-discharge-go-btn {
+  flex: 0 0 auto;
+  max-width: none;
+  padding: 6px 12px;
+  min-height: 34px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pf-grid-discharge-actions--header .pf-discharge-go-btn {
+  border-color: rgba(252, 1, 155, 0.38);
+  background: linear-gradient(
+    180deg,
+    rgba(252, 1, 155, 0.12) 0%,
+    rgba(36, 10, 48, 0.92) 100%
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.pf-grid-discharge-actions--header .pf-discharge-go-btn:hover:not(:disabled) {
+  border-color: rgba(252, 1, 155, 0.55);
+  background: linear-gradient(
+    180deg,
+    rgba(252, 1, 155, 0.18) 0%,
+    rgba(36, 10, 48, 0.95) 100%
+  );
+}
+
+.pf-grid-discharge-actions--header .pf-discharge-go-btn:focus-visible {
+  outline: 2px solid var(--pf-pink-soft);
+  outline-offset: 2px;
+}
+
+.pf-discharge-delta-select:focus-visible {
+  outline: 2px solid var(--pf-pink-soft);
+  outline-offset: 2px;
+}
+
+.pf-discharge-delta-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.pf-peak-dam-toggle--graph {
+  max-width: none;
+  width: 100%;
+  justify-content: center;
+}
+
+.pf-peak-dam-toggle--graph .pf-peak-dam-toggle-label {
+  text-align: center;
+}
+
 .pf-graph .pf-node[data-pos='left-bottom'] {
   bottom: 0;
   left: var(--pf-graph-anchor-pct);
@@ -540,6 +793,14 @@ a.pf-node {
     font-size: 14px;
   }
 
+  .pf-discharge-delta-select--header,
+  .pf-grid-discharge-actions--header .pf-discharge-go-btn {
+    min-height: 40px;
+    font-size: 14px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+
   .pf-graph {
     --pf-side: min(calc(100vw - 20px), calc(100vh - 240px), 920px);
   }
@@ -628,4 +889,90 @@ a.pf-node {
     width: 30px;
     height: 30px;
   }
+}
+
+/* Discharge confirmation dialog */
+.pf-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(20px, env(safe-area-inset-top, 0px) + 12px)
+    max(16px, env(safe-area-inset-right, 0px))
+    max(20px, env(safe-area-inset-bottom, 0px))
+    max(16px, env(safe-area-inset-left, 0px));
+  box-sizing: border-box;
+  background: rgba(6, 1, 10, 0.78);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+.pf-modal {
+  width: 100%;
+  max-width: 20rem;
+  padding: 18px 18px 16px;
+  background: var(--pf-surface);
+  border: 1px solid var(--pf-border);
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 1px rgba(252, 1, 155, 0.12),
+    0 16px 48px rgba(0, 0, 0, 0.55);
+}
+
+.pf-modal-message {
+  margin: 0 0 16px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--pf-label);
+  font-variant-numeric: tabular-nums;
+}
+
+.pf-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.pf-modal-btn {
+  appearance: none;
+  margin: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  border-radius: 10px;
+  padding: 8px 14px;
+  border: 1px solid var(--pf-border);
+  color: var(--pf-label);
+  white-space: nowrap;
+}
+
+.pf-modal-btn--secondary {
+  background: rgba(36, 10, 48, 0.65);
+}
+
+.pf-modal-btn--secondary:hover {
+  border-color: rgba(252, 1, 155, 0.4);
+}
+
+.pf-modal-btn--primary {
+  background: linear-gradient(
+    180deg,
+    rgba(252, 1, 155, 0.22) 0%,
+    rgba(36, 10, 48, 0.95) 100%
+  );
+  border-color: rgba(252, 1, 155, 0.45);
+}
+
+.pf-modal-btn--primary:hover {
+  border-color: rgba(252, 1, 155, 0.62);
+}
+
+.pf-modal-btn:focus-visible {
+  outline: 2px solid var(--pf-pink-soft);
+  outline-offset: 2px;
 }

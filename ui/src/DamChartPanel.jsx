@@ -151,6 +151,8 @@ export default function DamChartPanel({
   /** Live grid power (W, Deye signed); used when hourly DB aggregates are missing. */
   const [liveGridPowerW, setLiveGridPowerW] = useState(null);
   const [liveLoadPowerW, setLiveLoadPowerW] = useState(null);
+  /** Grid frequency (Hz) line on DAM chart — off by default. */
+  const [showGridFrequencyLine, setShowGridFrequencyLine] = useState(false);
   const [urlInverterOnce] = useState(readInverterFromSearchOnce);
 
   const effectiveInverterSn = (
@@ -175,6 +177,15 @@ export default function DamChartPanel({
     () =>
       new Intl.NumberFormat(bcp47, {
         minimumFractionDigits: 0,
+        maximumFractionDigits: 2,
+      }),
+    [bcp47],
+  );
+
+  const fmtHz = useMemo(
+    () =>
+      new Intl.NumberFormat(bcp47, {
+        minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
     [bcp47],
@@ -300,6 +311,12 @@ export default function DamChartPanel({
       Array.isArray(socPayload.hourlyGridPowerW)
         ? socPayload.hourlyGridPowerW
         : null;
+    const freqArr =
+      socPayload?.ok &&
+      socPayload?.configured &&
+      Array.isArray(socPayload.hourlyGridFrequencyHz)
+        ? socPayload.hourlyGridFrequencyHz
+        : null;
     const out = Array.from({ length: 24 }, (_, i) => {
       let socPercent = null;
       if (socArr && socArr[i] != null && Number.isFinite(Number(socArr[i]))) {
@@ -309,11 +326,16 @@ export default function DamChartPanel({
       if (gridArr && gridArr[i] != null && Number.isFinite(Number(gridArr[i]))) {
         gridKw = Number(gridArr[i]) / 1000;
       }
+      let gridFreqHz = null;
+      if (freqArr && freqArr[i] != null && Number.isFinite(Number(freqArr[i]))) {
+        gridFreqHz = Number(freqArr[i]);
+      }
       return {
         hour: i + 1,
         damUahKwh: dam[i] != null && Number.isFinite(Number(dam[i])) ? Number(dam[i]) : null,
         socPercent,
         gridKw,
+        gridFreqHz,
         gridKwLive: false,
         gridKwFromLoad: false,
       };
@@ -354,6 +376,22 @@ export default function DamChartPanel({
   }, [rows]);
 
   const gridYTicks = useMemo(() => fiveSymmetricTicks(gridDomain[0], gridDomain[1]), [gridDomain]);
+
+  const hzDomain = useMemo(() => {
+    const vals = rows.map((r) => r.gridFreqHz).filter((v) => v != null && Number.isFinite(v));
+    if (!vals.length) return [49.5, 50.5];
+    const lo = Math.min(...vals);
+    const hi = Math.max(...vals);
+    const span = hi - lo;
+    const pad = span < 0.02 ? 0.08 : Math.max(0.04, span * 0.25);
+    return [lo - pad, hi + pad];
+  }, [rows]);
+
+  const lineChartRightMargin = useMemo(() => {
+    if (!effectiveInverterSn) return 16;
+    if (showGridFrequencyLine) return 100;
+    return 52;
+  }, [effectiveInverterSn, showGridFrequencyLine]);
 
   const onDateInput = (e) => {
     const v = e.target.value;
@@ -471,6 +509,17 @@ export default function DamChartPanel({
           <p className="dam-loading dam-soc-loading">{t('damSocLoading')}</p>
         ) : null}
 
+        {effectiveInverterSn && hasChart && !loading ? (
+          <label className="dam-freq-toggle">
+            <input
+              type="checkbox"
+              checked={showGridFrequencyLine}
+              onChange={(e) => setShowGridFrequencyLine(e.target.checked)}
+            />
+            <span>{t('damShowGridFreq')}</span>
+          </label>
+        ) : null}
+
         {!loading && hasChart ? (
           <div className="dam-recharts-wrap" style={{ minHeight: h }}>
             <ResponsiveContainer width="100%" height={h}>
@@ -479,7 +528,7 @@ export default function DamChartPanel({
                 syncId="dam-day"
                 margin={{
                   top: 8,
-                  right: effectiveInverterSn ? 52 : 16,
+                  right: lineChartRightMargin,
                   left: 8,
                   bottom: 6,
                 }}
@@ -524,6 +573,25 @@ export default function DamChartPanel({
                     }}
                   />
                 ) : null}
+                {effectiveInverterSn && showGridFrequencyLine ? (
+                  <YAxis
+                    yAxisId="hz"
+                    orientation="right"
+                    domain={hzDomain}
+                    width={44}
+                    tick={{ fill: 'rgba(250, 204, 21, 0.92)', fontSize: 10 }}
+                    tickLine={false}
+                    tickFormatter={(v) => fmtHz.format(v)}
+                    axisLine={{ stroke: 'rgba(250, 204, 21, 0.35)' }}
+                    label={{
+                      value: t('damGridFreqAxis'),
+                      angle: 90,
+                      position: 'insideRight',
+                      offset: 4,
+                      style: { fill: 'rgba(250, 204, 21, 0.75)', fontSize: 10, textAnchor: 'end' },
+                    }}
+                  />
+                ) : null}
                 <Tooltip
                   separator=": "
                   contentStyle={{
@@ -538,6 +606,8 @@ export default function DamChartPanel({
                     if (value == null || value === '') return ['—', name];
                     const socLabel = t('damSeriesSoc');
                     if (name === socLabel) return [`${fmt1.format(value)} %`, socLabel];
+                    const hzLabel = t('damSeriesGridFreq');
+                    if (name === hzLabel) return [`${fmtHz.format(value)} Hz`, hzLabel];
                     return [`${fmt1.format(value)}`, name];
                   }}
                   labelFormatter={(hour) => `${t('damHourTooltip')} ${hour}`}
@@ -565,6 +635,18 @@ export default function DamChartPanel({
                     stroke="#60a5fa"
                     strokeWidth={2}
                     dot={{ r: 2.2, fill: '#60a5fa' }}
+                    connectNulls
+                  />
+                ) : null}
+                {effectiveInverterSn && showGridFrequencyLine ? (
+                  <Line
+                    yAxisId="hz"
+                    type="monotone"
+                    dataKey="gridFreqHz"
+                    name={t('damSeriesGridFreq')}
+                    stroke="#facc15"
+                    strokeWidth={1.85}
+                    dot={{ r: 2, fill: '#facc15' }}
                     connectNulls
                   />
                 ) : null}

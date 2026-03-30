@@ -75,6 +75,16 @@ OREE_DAM_LAZY_FETCH_MAX: int = _env_int("OREE_DAM_LAZY_FETCH_MAX", 3, 0, 50)
 DEYE_SOC_SNAPSHOT_ENABLED: bool = _env_bool("DEYE_SOC_SNAPSHOT_ENABLED", True)
 DEYE_SOC_SNAPSHOT_INTERVAL_SEC: int = _env_int("DEYE_SOC_SNAPSHOT_INTERVAL_SEC", 300, 60, 3600)
 
+# POST /strategy/dynamicControl — template power (W) for timeUseSettingItems; also maxSell/maxSolar when SELLING_FIRST.
+DEYE_DYNAMIC_CONTROL_RATED_POWER_W: int = _env_int("DEYE_DYNAMIC_CONTROL_RATED_POWER_W", 10_000, 500, 200_000)
+# discharge-2pct: poll SoC and max wait (blocking HTTP — raise reverse-proxy read timeouts if needed).
+DEYE_DISCHARGE_SOC_POLL_SEC: int = _env_int("DEYE_DISCHARGE_SOC_POLL_SEC", 15, 5, 120)
+DEYE_DISCHARGE_SOC_TIMEOUT_SEC: int = _env_int("DEYE_DISCHARGE_SOC_TIMEOUT_SEC", 1800, 120, 7200)
+
+# Backend: discharge ~2% SoC once per (Kyiv calendar day, inverter, DAM peak hour) when pref enabled.
+DEYE_PEAK_AUTO_DISCHARGE_SCHEDULER_ENABLED: bool = _env_bool("DEYE_PEAK_AUTO_DISCHARGE_SCHEDULER_ENABLED", True)
+DEYE_PEAK_AUTO_DISCHARGE_INTERVAL_SEC: int = _env_int("DEYE_PEAK_AUTO_DISCHARGE_INTERVAL_SEC", 600, 20, 600)
+
 # Per-client IP HTTP rate limit (sliding 60s window, in-process memory). Trust X-Forwarded-For only behind a trusted proxy.
 RATE_LIMIT_ENABLED: bool = _env_bool("RATE_LIMIT_ENABLED", True)
-RATE_LIMIT_PER_IP_PER_MINUTE: int = _env_int("RATE_LIMIT_PER_IP_PER_MINUTE", 100, 1, 10_000)
+RATE_LIMIT_PER_IP_PER_MINUTE: int = _env_int("RATE_LIMIT_PER_IP_PER_MINUTE", 200, 1, 10_000)

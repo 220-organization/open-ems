@@ -65,6 +65,24 @@
   gap: 6px;
 }
 
+.dam-freq-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-size: 0.85rem;
+  color: rgba(255, 248, 252, 0.78);
+  cursor: pointer;
+  user-select: none;
+}
+
+.dam-freq-toggle input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: #facc15;
+  cursor: pointer;
+}
+
 .dam-grid-bars-wrap {
   margin-top: 10px;
   padding-top: 4px;

@@ -1,7 +1,7 @@
 import datetime
 from typing import Optional
 
-from sqlalchemy import Date, DateTime, Double, Integer, SmallInteger, String, Text, func
+from sqlalchemy import Boolean, Date, DateTime, Double, Integer, SmallInteger, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -28,6 +28,7 @@ class DeyeSocSample(Base):
     )
     soc_percent: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
     grid_power_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    grid_frequency_hz: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
     created_on: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -42,6 +43,32 @@ class OreeDamLazyFetch(Base):
     attempts: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
     updated_on: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class DeyePeakAutoDischargePref(Base):
+    """Per-inverter: peak-DAM auto flag and SoC drop % for manual + scheduled discharge."""
+
+    __tablename__ = "deye_peak_auto_discharge_pref"
+
+    device_sn: Mapped[str] = mapped_column(String(64), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    discharge_soc_delta_pct: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=2)
+    updated_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class DeyePeakAutoDischargeFired(Base):
+    """Successful peak-hour auto discharge (retry allowed if row missing / failed attempt not stored)."""
+
+    __tablename__ = "deye_peak_auto_discharge_fired"
+
+    trade_day: Mapped[datetime.date] = mapped_column(Date, primary_key=True)
+    device_sn: Mapped[str] = mapped_column(String(64), primary_key=True)
+    peak_hour: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    success_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
 

@@ -38,6 +38,17 @@ function apiUrl(path) {
   return `${base}${path}`;
 }
 
+const DISCHARGE_SOC_DELTA_OPTIONS = Object.freeze([2, 10, 20]);
+
+function normalizeDischargeSocDeltaPct(p) {
+  const n = Math.round(Number(p));
+  if (!Number.isFinite(n)) return 2;
+  if (DISCHARGE_SOC_DELTA_OPTIONS.includes(n)) return n;
+  return DISCHARGE_SOC_DELTA_OPTIONS.reduce((best, x) =>
+    Math.abs(x - n) < Math.abs(best - n) ? x : best,
+  );
+}
+
 function MotionDot({ pathD }) {
   return (
     <circle r="5.8" fill="url(#pf-flow-dot-grad)" className="pf-flow-dot">
@@ -311,6 +322,136 @@ export default function PowerFlowPage({
   /** Deye live metrics when an inverter is selected: battery, load, PV, grid. */
   const [deyeLive, setDeyeLive] = useState(null);
   const [deyeLiveLoading, setDeyeLiveLoading] = useState(false);
+  const [discharge2Busy, setDischarge2Busy] = useState(false);
+  const [discharge2Feedback, setDischarge2Feedback] = useState('');
+  const discharge2BusyRef = useRef(false);
+  const [peakDamDischargeEnabled, setPeakDamDischargeEnabled] = useState(false);
+  const [dischargeSocDeltaPct, setDischargeSocDeltaPct] = useState(2);
+  const [peakDamPrefLoading, setPeakDamPrefLoading] = useState(false);
+  const [dischargeConfirmOpen, setDischargeConfirmOpen] = useState(false);
+  const peakPrefSaveTimerRef = useRef(null);
+  const peakDamEnabledRef = useRef(false);
+
+  useEffect(() => {
+    peakDamEnabledRef.current = peakDamDischargeEnabled;
+  }, [peakDamDischargeEnabled]);
+
+  useEffect(() => {
+    discharge2BusyRef.current = discharge2Busy;
+  }, [discharge2Busy]);
+
+  useEffect(() => {
+    setDischarge2Feedback('');
+  }, [selInverterSn]);
+
+  useEffect(() => {
+    if (peakPrefSaveTimerRef.current != null) {
+      clearTimeout(peakPrefSaveTimerRef.current);
+      peakPrefSaveTimerRef.current = null;
+    }
+    if (!selInverterSn || inverterRows.error) {
+      setPeakDamDischargeEnabled(false);
+      setDischargeSocDeltaPct(2);
+      setPeakDamPrefLoading(false);
+      return undefined;
+    }
+    if (inverterRows.loading) {
+      return undefined;
+    }
+    if (!inverterRows.configured) {
+      setPeakDamDischargeEnabled(false);
+      setDischargeSocDeltaPct(2);
+      setPeakDamPrefLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    const load = async () => {
+      setPeakDamPrefLoading(true);
+      try {
+        const q = new URLSearchParams({ deviceSn: selInverterSn });
+        const r = await fetch(`${apiUrl('/api/deye/peak-auto-discharge')}?${q}`, {
+          cache: 'no-store',
+        });
+        const data = await r.json().catch(() => ({}));
+        if (cancelled) return;
+        if (r.ok && data.ok && data.configured && typeof data.enabled === 'boolean') {
+          setPeakDamDischargeEnabled(data.enabled);
+        } else {
+          setPeakDamDischargeEnabled(false);
+        }
+        const p = data.dischargeSocDeltaPct;
+        if (p != null && Number.isFinite(Number(p))) {
+          setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
+        } else {
+          setDischargeSocDeltaPct(2);
+        }
+      } catch {
+        if (!cancelled) {
+          setPeakDamDischargeEnabled(false);
+          setDischargeSocDeltaPct(2);
+        }
+      } finally {
+        if (!cancelled) setPeakDamPrefLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [selInverterSn, inverterRows.configured, inverterRows.error, inverterRows.loading]);
+
+  const savePeakAutoPref = useCallback(async (nextEnabled, nextPct) => {
+    const sn = selInverterSn?.trim();
+    if (!sn) return null;
+    const r = await fetch(apiUrl('/api/deye/peak-auto-discharge'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        deviceSn: sn,
+        enabled: nextEnabled,
+        dischargeSocDeltaPct: nextPct,
+      }),
+      cache: 'no-store',
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || !data.ok) {
+      let msg = data.detail ?? r.statusText;
+      if (Array.isArray(msg)) {
+        msg = msg
+          .map((x) => (x && typeof x === 'object' ? x.msg || JSON.stringify(x) : x))
+          .join('; ');
+      }
+      throw new Error(String(msg || 'Save failed'));
+    }
+    return data;
+  }, [selInverterSn]);
+
+  const scheduleDischargePctSave = useCallback(
+    (nextPct) => {
+      if (peakPrefSaveTimerRef.current != null) {
+        clearTimeout(peakPrefSaveTimerRef.current);
+      }
+      peakPrefSaveTimerRef.current = setTimeout(() => {
+        peakPrefSaveTimerRef.current = null;
+        void (async () => {
+          try {
+            const data = await savePeakAutoPref(peakDamEnabledRef.current, nextPct);
+            if (data && typeof data.enabled === 'boolean') {
+              setPeakDamDischargeEnabled(data.enabled);
+            }
+            const p = data?.dischargeSocDeltaPct;
+            if (p != null && Number.isFinite(Number(p))) {
+              setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
+            }
+          } catch (err) {
+            const m = err instanceof Error ? err.message : String(err);
+            setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
+          }
+        })();
+      }, 450);
+    },
+    [savePeakAutoPref, t],
+  );
 
   const inverterSnsKey = useMemo(
     () =>
@@ -541,6 +682,122 @@ export default function PowerFlowPage({
   const essSocPercent = essSocHasKey ? socBySn[selInverterSn] : undefined;
   const essSocPending = Boolean(selInverterSn && !essSocHasKey && socListLoading);
 
+  const executeDischarge2Pct = useCallback(async () => {
+    const deviceSn = selInverterSn?.trim();
+    if (!deviceSn || discharge2BusyRef.current) return false;
+    discharge2BusyRef.current = true;
+    setDischarge2Busy(true);
+    setDischarge2Feedback('');
+    try {
+      const r = await fetch(apiUrl('/api/deye/discharge-2pct'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceSn, socDeltaPercent: dischargeSocDeltaPct }),
+        cache: 'no-store',
+      });
+      let data = {};
+      try {
+        data = await r.json();
+      } catch {
+        /* ignore */
+      }
+      if (!r.ok) {
+        let msg = data.detail ?? data.msg ?? r.statusText;
+        if (Array.isArray(msg)) {
+          msg = msg
+            .map((x) => (x && typeof x === 'object' ? x.msg || JSON.stringify(x) : x))
+            .join('; ');
+        }
+        throw new Error(String(msg || 'Request failed'));
+      }
+      if (!data.ok) {
+        throw new Error(String(data.detail || 'Discharge not started'));
+      }
+      const from =
+        data.startSoc != null && Number.isFinite(Number(data.startSoc))
+          ? inverterSocFmt.format(Number(data.startSoc))
+          : '—';
+      const to =
+        data.lastSoc != null && Number.isFinite(Number(data.lastSoc))
+          ? inverterSocFmt.format(Number(data.lastSoc))
+          : '—';
+      const body = data.hitTarget
+        ? t('dischargeSoc2Ok', { from, to })
+        : t('dischargeSoc2Partial', { from, to });
+      setDischarge2Feedback(body);
+      try {
+        const rs = await fetch(
+          apiUrl(`/api/deye/soc?${new URLSearchParams({ deviceSn })}`),
+          { cache: 'no-store' },
+        );
+        const js = await rs.json();
+        if (rs.ok && js.socPercent != null && Number.isFinite(Number(js.socPercent))) {
+          setSocBySn((prev) => ({
+            ...prev,
+            [deviceSn]: Number(js.socPercent),
+          }));
+        }
+      } catch {
+        /* ignore */
+      }
+      return true;
+    } catch (e) {
+      const err = e instanceof Error ? e.message : String(e);
+      setDischarge2Feedback(`${t('dischargeSoc2Error')}: ${err}`);
+      return false;
+    } finally {
+      discharge2BusyRef.current = false;
+      setDischarge2Busy(false);
+    }
+  }, [selInverterSn, inverterSocFmt, t, dischargeSocDeltaPct]);
+
+  const requestDischarge2Pct = useCallback(() => {
+    const deviceSn = selInverterSn?.trim();
+    if (!deviceSn || discharge2BusyRef.current || discharge2Busy) return;
+    if (!essSocHasKey || essSocPercent == null || !Number.isFinite(Number(essSocPercent))) {
+      setDischarge2Feedback(t('dischargeConfirmNoSoc'));
+      return;
+    }
+    const cur = Number(essSocPercent);
+    if (cur < dischargeSocDeltaPct) {
+      setDischarge2Feedback(
+        t('dischargeConfirmInsufficientSoc', {
+          current: inverterSocFmt.format(cur),
+          delta: dischargeSocDeltaPct,
+        }),
+      );
+      return;
+    }
+    setDischarge2Feedback('');
+    setDischargeConfirmOpen(true);
+  }, [
+    selInverterSn,
+    discharge2Busy,
+    essSocHasKey,
+    essSocPercent,
+    dischargeSocDeltaPct,
+    inverterSocFmt,
+    t,
+  ]);
+
+  const cancelDischargeConfirm = useCallback(() => {
+    setDischargeConfirmOpen(false);
+  }, []);
+
+  const confirmDischargeFromModal = useCallback(() => {
+    setDischargeConfirmOpen(false);
+    void executeDischarge2Pct();
+  }, [executeDischarge2Pct]);
+
+  useEffect(() => {
+    if (!dischargeConfirmOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setDischargeConfirmOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [dischargeConfirmOpen]);
+
   useEffect(() => {
     const id = setInterval(() => setSimTick((n) => n + 1), 60_000);
     return () => clearInterval(id);
@@ -549,8 +806,10 @@ export default function PowerFlowPage({
   return (
     <div className="pf-body">
       <div className="pf-root">
-        <header className="pf-header">
-          <div className="pf-station-field pf-inverter-field">
+        <div className="pf-top-bar">
+          <header className="pf-header">
+            <div className="pf-header-primary">
+              <div className="pf-station-field pf-inverter-field">
             <select
               id="pf-inverter"
               className="pf-inverter-select pf-header-select--inverter"
@@ -615,7 +874,8 @@ export default function PowerFlowPage({
                 );
               })}
             </select>
-          </div>
+              </div>
+            </div>
           <select
             id="pf-lang"
             className="pf-lang-select pf-header-select--lang"
@@ -630,7 +890,115 @@ export default function PowerFlowPage({
               </option>
             ))}
           </select>
-        </header>
+          </header>
+          {inverterRows.configured && !inverterRows.loading && !inverterRows.error ? (
+            <div className="pf-header-discharge-row">
+              <div className="pf-discharge-toolbar">
+                <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header">
+                <div className="pf-discharge-delta-controls">
+                  <button
+                    type="button"
+                    className="pf-discharge-btn pf-discharge-go-btn"
+                    onClick={requestDischarge2Pct}
+                    disabled={!selInverterSn || discharge2Busy || peakDamPrefLoading}
+                    title={t('dischargeSoc2Hint')}
+                    aria-label={t('dischargeGoAria')}
+                  >
+                    {discharge2Busy ? t('dischargeSoc2Busy') : t('dischargeGoButton')}
+                  </button>
+                  <select
+                    id="pf-discharge-delta-select"
+                    className="pf-discharge-delta-select pf-discharge-delta-select--header"
+                    value={dischargeSocDeltaPct}
+                    disabled={!selInverterSn || peakDamPrefLoading}
+                    aria-label={t('dischargeSocDeltaAria')}
+                    onChange={(e) => {
+                      const n = normalizeDischargeSocDeltaPct(e.target.value);
+                      setDischargeSocDeltaPct(n);
+                      scheduleDischargePctSave(n);
+                    }}
+                  >
+                    {DISCHARGE_SOC_DELTA_OPTIONS.map((o) => (
+                      <option key={o} value={o}>
+                        {t('dischargeSocDeltaValue', { pct: o })}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
+                  <input
+                    type="checkbox"
+                    checked={peakDamDischargeEnabled}
+                    disabled={!selInverterSn || peakDamPrefLoading}
+                    onChange={async (e) => {
+                      const v = e.target.checked;
+                      const sn = selInverterSn?.trim();
+                      if (!sn) return;
+                      const prev = peakDamDischargeEnabled;
+                      const prevPct = dischargeSocDeltaPct;
+                      if (peakPrefSaveTimerRef.current != null) {
+                        clearTimeout(peakPrefSaveTimerRef.current);
+                        peakPrefSaveTimerRef.current = null;
+                      }
+                      setPeakDamDischargeEnabled(v);
+                      setDischarge2Feedback('');
+                      try {
+                        const r = await fetch(apiUrl('/api/deye/peak-auto-discharge'), {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            deviceSn: sn,
+                            enabled: v,
+                            dischargeSocDeltaPct: dischargeSocDeltaPct,
+                          }),
+                          cache: 'no-store',
+                        });
+                        const data = await r.json().catch(() => ({}));
+                        if (!r.ok || !data.ok) {
+                          let msg = data.detail ?? r.statusText;
+                          if (Array.isArray(msg)) {
+                            msg = msg
+                              .map((x) =>
+                                x && typeof x === 'object' ? x.msg || JSON.stringify(x) : x,
+                              )
+                              .join('; ');
+                          }
+                          throw new Error(String(msg || 'Save failed'));
+                        }
+                        if (typeof data.enabled === 'boolean') {
+                          setPeakDamDischargeEnabled(data.enabled);
+                        }
+                        const p = data.dischargeSocDeltaPct;
+                        if (p != null && Number.isFinite(Number(p))) {
+                          setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
+                        }
+                      } catch (err) {
+                        setPeakDamDischargeEnabled(prev);
+                        setDischargeSocDeltaPct(prevPct);
+                        const m = err instanceof Error ? err.message : String(err);
+                        setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
+                      }
+                    }}
+                    aria-label={t('peakDamDischargeToggleAria')}
+                  />
+                  <span
+                    className="pf-peak-dam-toggle-label"
+                    title={t('peakDamDischargeToggleHint')}
+                  >
+                    {t('peakDamDischargeToggle')}
+                  </span>
+                </label>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        {discharge2Feedback ? (
+          <div className="pf-discharge-feedback" role="status">
+            {discharge2Feedback}
+          </div>
+        ) : null}
 
         <div className="pf-graph-wrap">
           <div
@@ -793,26 +1161,27 @@ export default function PowerFlowPage({
                   {formatPower(displaySolarW, t, bcp47)}
                 </span>
               </div>
-              <button
-                type="button"
-                className="pf-node"
-                data-pos="left-center"
-                id="pf-node-grid"
-                data-active={hasFlow && gridFlowActive ? 'true' : 'false'}
-              >
-                <span className="pf-node-icon" aria-hidden>
-                  ⚡
-                </span>
-                <span className="pf-node-label">{t('nodeGrid')}</span>
-                <span className="pf-node-value" id="pf-val-grid">
-                  {gridSelling
-                    ? `↓ ${formatPower(Math.abs(effectiveGridW), t, bcp47)}`
-                    : formatPower(effectiveGridW, t, bcp47)}
-                </span>
-                <span className="pf-ess-status" id="pf-grid-selling" hidden={!gridSelling}>
-                  {t('gridSelling')}
-                </span>
-              </button>
+              <div className="pf-node-stack" data-pos="left-center">
+                <button
+                  type="button"
+                  className="pf-node"
+                  id="pf-node-grid"
+                  data-active={hasFlow && gridFlowActive ? 'true' : 'false'}
+                >
+                  <span className="pf-node-icon" aria-hidden>
+                    ⚡
+                  </span>
+                  <span className="pf-node-label">{t('nodeGrid')}</span>
+                  <span className="pf-node-value" id="pf-val-grid">
+                    {gridSelling
+                      ? `↓ ${formatPower(Math.abs(effectiveGridW), t, bcp47)}`
+                      : formatPower(effectiveGridW, t, bcp47)}
+                  </span>
+                  <span className="pf-ess-status" id="pf-grid-selling" hidden={!gridSelling}>
+                    {t('gridSelling')}
+                  </span>
+                </button>
+              </div>
               <div
                 className="pf-node"
                 data-pos="left-bottom"
@@ -986,6 +1355,49 @@ export default function PowerFlowPage({
             chartHeight={320}
           />
         </section>
+
+        {dischargeConfirmOpen &&
+        essSocPercent != null &&
+        Number.isFinite(Number(essSocPercent)) ? (
+          <div
+            className="pf-modal-backdrop"
+            role="presentation"
+            onClick={cancelDischargeConfirm}
+          >
+            <div
+              className="pf-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="pf-discharge-confirm-title"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p id="pf-discharge-confirm-title" className="pf-modal-message">
+                {t('dischargeConfirmMessage', {
+                  from: inverterSocFmt.format(Number(essSocPercent)),
+                  to: inverterSocFmt.format(
+                    Math.max(0, Number(essSocPercent) - dischargeSocDeltaPct),
+                  ),
+                })}
+              </p>
+              <div className="pf-modal-actions">
+                <button
+                  type="button"
+                  className="pf-modal-btn pf-modal-btn--secondary"
+                  onClick={cancelDischargeConfirm}
+                >
+                  {t('dischargeConfirmCancel')}
+                </button>
+                <button
+                  type="button"
+                  className="pf-modal-btn pf-modal-btn--primary"
+                  onClick={confirmDischargeFromModal}
+                >
+                  {t('dischargeConfirmOk')}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

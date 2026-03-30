@@ -19,6 +19,7 @@ from app.deye_api import deye_configured, deye_missing_env_names
 from app.oree_dam_scheduler import dam_daily_sync_loop
 from app.oree_dam_service import oree_dam_configured
 from app.deye_soc_scheduler import deye_soc_snapshot_loop
+from app.deye_peak_auto_scheduler import deye_peak_auto_discharge_loop
 from app.rate_limit_middleware import InMemoryIpRateLimiter, PerIpRateLimitMiddleware
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -72,6 +73,16 @@ async def lifespan(app: FastAPI):
             settings.DEYE_SOC_SNAPSHOT_INTERVAL_SEC,
         )
 
+    stop_peak_auto: asyncio.Event | None = None
+    peak_auto_task: asyncio.Task[None] | None = None
+    if settings.DEYE_PEAK_AUTO_DISCHARGE_SCHEDULER_ENABLED:
+        stop_peak_auto = asyncio.Event()
+        peak_auto_task = asyncio.create_task(deye_peak_auto_discharge_loop(stop_peak_auto))
+        logger.info(
+            "Deye peak DAM auto discharge: tick every %ss when DEYE_* is set (DEYE_PEAK_AUTO_DISCHARGE_*)",
+            settings.DEYE_PEAK_AUTO_DISCHARGE_INTERVAL_SEC,
+        )
+
     yield
 
     if dam_sched_task is not None and stop_dam_sched is not None:
@@ -86,6 +97,13 @@ async def lifespan(app: FastAPI):
         deye_soc_task.cancel()
         try:
             await deye_soc_task
+        except asyncio.CancelledError:
+            pass
+    if peak_auto_task is not None and stop_peak_auto is not None:
+        stop_peak_auto.set()
+        peak_auto_task.cancel()
+        try:
+            await peak_auto_task
         except asyncio.CancelledError:
             pass
     logger.info("Open EMS shutting down")

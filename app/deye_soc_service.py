@@ -36,20 +36,26 @@ async def upsert_deye_sample(
     bucket_start: datetime,
     soc_percent: Optional[float],
     grid_power_w: Optional[float],
+    grid_frequency_hz: Optional[float] = None,
 ) -> None:
-    if soc_percent is None and grid_power_w is None:
+    if soc_percent is None and grid_power_w is None and grid_frequency_hz is None:
         return
     stmt = pg_insert(DeyeSocSample).values(
         device_sn=device_sn,
         bucket_start=bucket_start,
         soc_percent=soc_percent,
         grid_power_w=grid_power_w,
+        grid_frequency_hz=grid_frequency_hz,
     )
     stmt = stmt.on_conflict_do_update(
         index_elements=["device_sn", "bucket_start"],
         set_={
             "soc_percent": func.coalesce(stmt.excluded.soc_percent, DeyeSocSample.soc_percent),
             "grid_power_w": func.coalesce(stmt.excluded.grid_power_w, DeyeSocSample.grid_power_w),
+            "grid_frequency_hz": func.coalesce(
+                stmt.excluded.grid_frequency_hz,
+                DeyeSocSample.grid_frequency_hz,
+            ),
         },
     )
     await session.execute(stmt)
@@ -71,7 +77,7 @@ async def run_deye_soc_snapshot(session: AsyncSession) -> int:
     bucket = floor_to_5min_utc(datetime.now(timezone.utc))
     n = 0
     for sn in sns:
-        soc, _, _, _, grid_w = merged.get(sn, (None, None, None, None, None))
+        soc, _, _, _, grid_w, freq_hz = merged.get(sn, (None, None, None, None, None, None))
         soc_val: Optional[float] = None
         if soc is not None:
             try:
@@ -86,9 +92,17 @@ async def run_deye_soc_snapshot(session: AsyncSession) -> int:
                 grid_val = float(grid_w)
             except (TypeError, ValueError):
                 pass
-        if soc_val is None and grid_val is None:
+        freq_val: Optional[float] = None
+        if freq_hz is not None:
+            try:
+                fv = float(freq_hz)
+                if 40.0 <= fv <= 70.0:
+                    freq_val = fv
+            except (TypeError, ValueError):
+                pass
+        if soc_val is None and grid_val is None and freq_val is None:
             continue
-        await upsert_deye_sample(session, sn, bucket, soc_val, grid_val)
+        await upsert_deye_sample(session, sn, bucket, soc_val, grid_val, freq_val)
         n += 1
     return n
 
@@ -103,13 +117,15 @@ async def hourly_inverter_history_for_kyiv_day(
     session: AsyncSession,
     device_sn: str,
     trade_day: date,
-) -> tuple[list[Optional[float]], list[Optional[float]]]:
+) -> tuple[list[Optional[float]], list[Optional[float]], list[Optional[float]]]:
     """
-    Two lists of 24 values (chart hours 1..24): mean SoC % and mean grid power (W signed) per Kyiv hour.
+    Three lists of 24 values (chart hours 1..24): mean SoC %, mean grid power (W signed),
+    mean grid frequency (Hz) per Kyiv hour.
     """
     sn = (device_sn or "").strip()
     if not sn:
-        return [None] * 24, [None] * 24
+        empty = [None] * 24
+        return empty, empty, empty
 
     start_kyiv, end_kyiv = _kyiv_day_bounds(trade_day)
     start_utc = start_kyiv.astimezone(timezone.utc)
@@ -120,6 +136,7 @@ async def hourly_inverter_history_for_kyiv_day(
             DeyeSocSample.bucket_start,
             DeyeSocSample.soc_percent,
             DeyeSocSample.grid_power_w,
+            DeyeSocSample.grid_frequency_hz,
         ).where(
             DeyeSocSample.device_sn == sn,
             DeyeSocSample.bucket_start >= start_utc,
@@ -129,7 +146,8 @@ async def hourly_inverter_history_for_kyiv_day(
     rows = result.all()
     soc_buckets: list[list[float]] = [[] for _ in range(24)]
     grid_buckets: list[list[float]] = [[] for _ in range(24)]
-    for bucket_start, soc, grid_w in rows:
+    freq_buckets: list[list[float]] = [[] for _ in range(24)]
+    for bucket_start, soc, grid_w, freq_hz in rows:
         local = bucket_start.astimezone(KYIV)
         h = int(local.hour)
         if 0 <= h <= 23:
@@ -137,7 +155,10 @@ async def hourly_inverter_history_for_kyiv_day(
                 soc_buckets[h].append(float(soc))
             if grid_w is not None:
                 grid_buckets[h].append(float(grid_w))
+            if freq_hz is not None:
+                freq_buckets[h].append(float(freq_hz))
 
     soc_out = [_mean_or_none(soc_buckets[i]) for i in range(24)]
     grid_out = [_mean_or_none(grid_buckets[i]) for i in range(24)]
-    return soc_out, grid_out
+    freq_out = [_mean_or_none(freq_buckets[i]) for i in range(24)]
+    return soc_out, grid_out, freq_out

@@ -24,9 +24,10 @@ _lock = asyncio.Lock()
 # Inverter SoC %; live metrics from POST /device/latest:
 # battery (W signed), load (W magnitude), PV (W production), grid (W signed import/export).
 _soc_cache: dict[str, tuple[Optional[float], float]] = {}
+# battery W, load W, pv W, grid W, grid frequency Hz, monotonic fetch time
 _live_cache: dict[
     str,
-    tuple[Optional[float], Optional[float], Optional[float], Optional[float], float],
+    tuple[Optional[float], Optional[float], Optional[float], Optional[float], Optional[float], float],
 ] = {}
 _soc_lock = asyncio.Lock()
 SOC_CACHE_TTL_SEC = 300.0
@@ -558,19 +559,62 @@ def _grid_power_signed_watts_from_data_list(dl: Any) -> Optional[float]:
     return None
 
 
+def _grid_frequency_hz_from_data_list(dl: Any) -> Optional[float]:
+    """Grid / AC frequency in Hz from Deye dataList (keys vary by firmware)."""
+    if not isinstance(dl, list):
+        return None
+    found: dict[str, float] = {}
+    for row in dl:
+        if not isinstance(row, dict):
+            continue
+        k = _metric_key(row.get("key"))
+        if "FREQ" not in k and "FREQUENCY" not in k:
+            continue
+        if "BATTERY" in k or k.startswith("BAT"):
+            continue
+        try:
+            v = float(row.get("value"))
+        except (TypeError, ValueError):
+            continue
+        if 40.0 <= v <= 70.0:
+            found[k] = v
+    if not found:
+        return None
+    for prefer in (
+        "GRID_FREQUENCY",
+        "GRID_FREQ",
+        "MAINS_FREQUENCY",
+        "UTILITY_FREQUENCY",
+        "AC_FREQUENCY",
+        "AC_FREQ",
+        "OUTPUT_FREQUENCY",
+        "OUT_FREQUENCY",
+        "OUT_FREQ",
+        "EPS_FREQUENCY",
+        "INVERTER_FREQUENCY",
+        "PCU_FREQUENCY",
+    ):
+        if prefer in found:
+            return found[prefer]
+    return next(iter(found.values()))
+
+
 def _parse_metrics_from_entry(
     dev_entry: Any,
-) -> tuple[Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]]:
-    """(soc %, battery W signed, load W, pv W, grid W signed)."""
+) -> tuple[
+    Optional[float], Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]
+]:
+    """(soc %, battery W signed, load W, pv W, grid W signed, grid frequency Hz)."""
     soc = _soc_percent_from_device_data_entry(dev_entry)
     if not isinstance(dev_entry, dict):
-        return soc, None, None, None, None
+        return soc, None, None, None, None, None
     dl = dev_entry.get("dataList")
     pwr = _battery_signed_watts_from_data_list(dl)
     load_w = _load_power_watts_from_data_list(dl)
     pv_w = _pv_power_watts_from_data_list(dl)
     grid_w = _grid_power_signed_watts_from_data_list(dl)
-    return soc, pwr, load_w, pv_w, grid_w
+    freq_hz = _grid_frequency_hz_from_data_list(dl)
+    return soc, pwr, load_w, pv_w, grid_w, freq_hz
 
 
 def _resolve_batch_target_sn(entry: Any, sns: list[str], index: int) -> Optional[str]:
@@ -595,14 +639,19 @@ async def _post_latest_metrics_map(
     headers: dict[str, str],
     base: str,
     sns: list[str],
-) -> dict[str, tuple[Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]]]:
-    """POST /device/latest for up to 10 serials. Returns sn -> (soc %, bat W, load W, pv W, grid W)."""
+) -> dict[
+    str,
+    tuple[Optional[float], Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]],
+]:
+    """POST /device/latest for up to 10 serials. Returns sn -> (soc %, bat W, load W, pv W, grid W, freq Hz)."""
     if not sns:
         return {}
     url = f"{base.rstrip('/')}/device/latest"
-    out: dict[str, tuple[Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]]] = {
-        sn: (None, None, None, None, None) for sn in sns
-    }
+    empty6 = (None, None, None, None, None, None)
+    out: dict[
+        str,
+        tuple[Optional[float], Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]],
+    ] = {sn: empty6 for sn in sns}
     r = await client.post(url, headers=headers, json={"deviceList": sns})
     if r.status_code >= 400:
         logger.warning(
@@ -634,11 +683,11 @@ async def _post_latest_metrics_map(
     logger.info("Deye: device/latest deviceDataList_len=%s", len(ddl))
 
     for i, entry in enumerate(ddl):
-        soc, pwr, load_w, pv_w, grid_w = _parse_metrics_from_entry(entry)
+        soc, pwr, load_w, pv_w, grid_w, freq_hz = _parse_metrics_from_entry(entry)
         target = _resolve_batch_target_sn(entry, sns, i)
         if target is None or target not in out:
             continue
-        prev_soc, prev_pwr, prev_load, prev_pv, prev_grid = out[target]
+        prev_soc, prev_pwr, prev_load, prev_pv, prev_grid, prev_freq = out[target]
         if soc is not None:
             prev_soc = soc
         if pwr is not None:
@@ -649,19 +698,22 @@ async def _post_latest_metrics_map(
             prev_pv = pv_w
         if grid_w is not None:
             prev_grid = grid_w
-        out[target] = (prev_soc, prev_pwr, prev_load, prev_pv, prev_grid)
+        if freq_hz is not None:
+            prev_freq = freq_hz
+        out[target] = (prev_soc, prev_pwr, prev_load, prev_pv, prev_grid, prev_freq)
     if sns:
         sample_sn = sns[0]
         sample = out.get(sample_sn)
         if sample is not None:
-            _, sbat, sload, spv, sgrid = sample
+            _, sbat, sload, spv, sgrid, sfreq = sample
             logger.info(
-                "Deye: parsed sample sn=%s batteryW=%s loadW=%s pvW=%s gridW=%s",
+                "Deye: parsed sample sn=%s batteryW=%s loadW=%s pvW=%s gridW=%s gridHz=%s",
                 sample_sn,
                 sbat,
                 sload,
                 spv,
                 sgrid,
+                sfreq,
             )
     return out
 
@@ -702,7 +754,14 @@ async def get_soc_map_cached(device_sns: list[str]) -> dict[str, Optional[float]
 
     merged_fetch: dict[
         str,
-        tuple[Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]],
+        tuple[
+            Optional[float],
+            Optional[float],
+            Optional[float],
+            Optional[float],
+            Optional[float],
+            Optional[float],
+        ],
     ] = {}
     if to_fetch:
         base = settings.DEYE_API_BASE_URL.rstrip("/")
@@ -719,20 +778,22 @@ async def get_soc_map_cached(device_sns: list[str]) -> dict[str, Optional[float]
 
         fetch_time = time.monotonic()
         async with _soc_lock:
-            for sn, (soc, pwr, load_w, pv_w, grid_w) in merged_fetch.items():
+            for sn, (soc, pwr, load_w, pv_w, grid_w, freq_hz) in merged_fetch.items():
                 _soc_cache[sn] = (soc, fetch_time)
                 obat: Optional[float] = None
                 oload: Optional[float] = None
                 opv: Optional[float] = None
                 ogrid: Optional[float] = None
+                ofreq: Optional[float] = None
                 prev_live = _live_cache.get(sn)
                 if prev_live is not None:
-                    obat, oload, opv, ogrid, _ = prev_live
+                    obat, oload, opv, ogrid, ofreq, _ = prev_live
                 nbat = pwr if pwr is not None else obat
                 nload = load_w if load_w is not None else oload
                 npv = pv_w if pv_w is not None else opv
                 ngrid = grid_w if grid_w is not None else ogrid
-                _live_cache[sn] = (nbat, nload, npv, ngrid, fetch_time)
+                nfreq = freq_hz if freq_hz is not None else ofreq
+                _live_cache[sn] = (nbat, nload, npv, ngrid, nfreq, fetch_time)
 
     for sn in unique:
         if sn in result:
@@ -756,10 +817,20 @@ def _normalize_digit_serials(device_sns: list[str]) -> list[str]:
 
 async def refresh_device_latest_batches(
     device_sns: list[str],
-) -> dict[str, tuple[Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]]]:
+) -> dict[
+    str,
+    tuple[
+        Optional[float],
+        Optional[float],
+        Optional[float],
+        Optional[float],
+        Optional[float],
+        Optional[float],
+    ],
+]:
     """
     Always POST /device/latest in batches of up to 10; refresh _soc_cache and _live_cache.
-    Returns sn -> (soc %, battery W, load W, pv W, grid W signed).
+    Returns sn -> (soc %, battery W, load W, pv W, grid W signed, grid frequency Hz).
     """
     unique = _normalize_digit_serials(device_sns)
     if not unique:
@@ -767,7 +838,14 @@ async def refresh_device_latest_batches(
 
     merged_fetch: dict[
         str,
-        tuple[Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]],
+        tuple[
+            Optional[float],
+            Optional[float],
+            Optional[float],
+            Optional[float],
+            Optional[float],
+            Optional[float],
+        ],
     ] = {}
     base = settings.DEYE_API_BASE_URL.rstrip("/")
     async with httpx.AsyncClient(timeout=45.0) as client:
@@ -783,22 +861,24 @@ async def refresh_device_latest_batches(
 
     fetch_time = time.monotonic()
     async with _soc_lock:
-        for sn, (soc, pwr, load_w, pv_w, grid_w) in merged_fetch.items():
+        for sn, (soc, pwr, load_w, pv_w, grid_w, freq_hz) in merged_fetch.items():
             _soc_cache[sn] = (soc, fetch_time)
             obat: Optional[float] = None
             oload: Optional[float] = None
             opv: Optional[float] = None
             ogrid: Optional[float] = None
+            ofreq: Optional[float] = None
             prev_live = _live_cache.get(sn)
             if prev_live is not None:
-                obat, oload, opv, ogrid, _ = prev_live
+                obat, oload, opv, ogrid, ofreq, _ = prev_live
             nbat = pwr if pwr is not None else obat
             nload = load_w if load_w is not None else oload
             npv = pv_w if pv_w is not None else opv
             ngrid = grid_w if grid_w is not None else ogrid
-            _live_cache[sn] = (nbat, nload, npv, ngrid, fetch_time)
+            nfreq = freq_hz if freq_hz is not None else ofreq
+            _live_cache[sn] = (nbat, nload, npv, ngrid, nfreq, fetch_time)
 
-    empty = (None, None, None, None, None)
+    empty = (None, None, None, None, None, None)
     return {sn: merged_fetch.get(sn, empty) for sn in unique}
 
 
@@ -818,22 +898,22 @@ async def fetch_soc_map_refresh(device_sns: list[str]) -> dict[str, Optional[flo
 
 async def get_live_metrics_cached(
     device_sn: str,
-) -> tuple[Optional[float], Optional[float], Optional[float], Optional[float]]:
+) -> tuple[Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]]:
     """
-    Latest (battery W signed, load W, pv W, grid W signed) for one inverter.
+    Latest (battery W signed, load W, pv W, grid W signed, grid frequency Hz) for one inverter.
     TTL ESS_POWER_CACHE_TTL_SEC. Same Deye call fills both.
     """
     sn = (device_sn or "").strip()
     if not sn or not deye_configured():
-        return None, None, None, None
+        return None, None, None, None, None
 
     async with _soc_lock:
         now = time.monotonic()
         hit = _live_cache.get(sn)
         if hit is not None:
-            bat, load_w, pv_w, grid_w, ts = hit
+            bat, load_w, pv_w, grid_w, freq_hz, ts = hit
             if now - ts < ESS_POWER_CACHE_TTL_SEC:
-                return bat, load_w, pv_w, grid_w
+                return bat, load_w, pv_w, grid_w, freq_hz
 
     base = settings.DEYE_API_BASE_URL.rstrip("/")
     async with httpx.AsyncClient(timeout=45.0) as client:
@@ -845,35 +925,38 @@ async def get_live_metrics_cached(
         merged = await _post_latest_metrics_map(client, hdrs, base, [sn])
 
     fetch_time = time.monotonic()
-    soc, pwr, load_w, pv_w, grid_w = merged.get(sn, (None, None, None, None, None))
+    soc, pwr, load_w, pv_w, grid_w, freq_hz = merged.get(sn, (None, None, None, None, None, None))
     async with _soc_lock:
         _soc_cache[sn] = (soc, fetch_time)
         obat: Optional[float] = None
         oload: Optional[float] = None
         opv: Optional[float] = None
         ogrid: Optional[float] = None
+        ofreq: Optional[float] = None
         prev_live = _live_cache.get(sn)
         if prev_live is not None:
-            obat, oload, opv, ogrid, _ = prev_live
+            obat, oload, opv, ogrid, ofreq, _ = prev_live
         nbat = pwr if pwr is not None else obat
         nload = load_w if load_w is not None else oload
         npv = pv_w if pv_w is not None else opv
         ngrid = grid_w if grid_w is not None else ogrid
-        _live_cache[sn] = (nbat, nload, npv, ngrid, fetch_time)
+        nfreq = freq_hz if freq_hz is not None else ofreq
+        _live_cache[sn] = (nbat, nload, npv, ngrid, nfreq, fetch_time)
     logger.info(
-        "Deye: live metrics sn=%s batteryW=%s loadW=%s pvW=%s gridW=%s",
+        "Deye: live metrics sn=%s batteryW=%s loadW=%s pvW=%s gridW=%s gridHz=%s",
         sn,
         nbat,
         nload,
         npv,
         ngrid,
+        nfreq,
     )
-    return nbat, nload, npv, ngrid
+    return nbat, nload, npv, ngrid, nfreq
 
 
 async def get_battery_power_w_cached(device_sn: str) -> Optional[float]:
     """Battery W only; same cache as get_live_metrics_cached."""
-    b, _, _, _ = await get_live_metrics_cached(device_sn)
+    b, _, _, _, _ = await get_live_metrics_cached(device_sn)
     return b
 
 
@@ -884,3 +967,185 @@ async def fetch_device_soc_percent(device_sn: str) -> Optional[float]:
         return None
     m = await get_soc_map_cached([sn])
     return m.get(sn)
+
+
+# Week + 6 TOU slots — same shape as Deye sample scripts (dynamic_control_*.py).
+_TOU_DAYS: list[str] = [
+    "SUNDAY",
+    "MONDAY",
+    "TUESDAY",
+    "WEDNESDAY",
+    "THURSDAY",
+    "FRIDAY",
+    "SATURDAY",
+]
+_TOU_TIMES: tuple[str, ...] = ("02:30", "06:30", "20:30", "21:30", "22:30", "23:30")
+
+
+def _tou_setting_items(soc: float, power: int) -> list[dict[str, Any]]:
+    return [
+        {
+            "enableGeneration": True,
+            "enableGridCharge": True,
+            "power": int(power),
+            "soc": float(soc),
+            "time": t,
+        }
+        for t in _TOU_TIMES
+    ]
+
+
+def _body_selling_first(device_sn: str, tou_soc: float, rated_power: int) -> dict[str, Any]:
+    rp = int(rated_power)
+    return {
+        "deviceSn": device_sn,
+        "maxSellPower": rp,
+        "maxSolarPower": rp,
+        "solarSellAction": "on",
+        "touAction": "on",
+        "touDays": list(_TOU_DAYS),
+        "workMode": "SELLING_FIRST",
+        "timeUseSettingItems": _tou_setting_items(tou_soc, rp),
+    }
+
+
+def _body_zero_export_to_ct(device_sn: str, rated_power: int) -> dict[str, Any]:
+    """Restore template aligned with Deye sample `dynamic_control_self_consumption.py`."""
+    power = int(rated_power)
+    low_soc = 15.0
+    return {
+        "deviceSn": device_sn,
+        "solarSellAction": "on",
+        "touAction": "on",
+        "touDays": list(_TOU_DAYS),
+        "workMode": "ZERO_EXPORT_TO_CT",
+        "timeUseSettingItems": _tou_setting_items(low_soc, power),
+    }
+
+
+async def _post_strategy_dynamic_control(body: dict[str, Any]) -> None:
+    """
+    POST /strategy/dynamicControl — overwrites device TOU / work mode per Deye cloud semantics.
+    See official samples: clientcode/strategy/dynamic_control_*.py
+    """
+    if not deye_configured():
+        raise RuntimeError("Deye API credentials not configured")
+    base = settings.DEYE_API_BASE_URL.rstrip("/")
+    async with httpx.AsyncClient(timeout=90.0) as client:
+        token = await _ensure_token(client)
+        r = await client.post(
+            f"{base}/strategy/dynamicControl",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {token}",
+            },
+            json=body,
+        )
+        snippet = (r.text or "")[:900]
+        if r.status_code >= 400:
+            logger.warning("Deye: dynamicControl HTTP %s — %s", r.status_code, snippet)
+            r.raise_for_status()
+        try:
+            data = r.json()
+        except Exception:
+            return
+        if isinstance(data, dict) and data.get("success") is False:
+            msg = str(data.get("msg") or data.get("message") or "dynamicControl failed")
+            logger.warning("Deye: dynamicControl success=false msg=%s raw=%s", msg[:300], snippet)
+            raise RuntimeError(msg)
+
+
+async def assert_inverter_owned(device_sn: str) -> None:
+    sn = (device_sn or "").strip()
+    items = await list_inverter_devices()
+    allowed = {str(it.get("deviceSn") or "").strip() for it in items if it.get("deviceSn")}
+    if sn not in allowed:
+        raise ValueError(f"Inverter serial not in this account: {sn}")
+
+
+_DISCHARGE_SOC_DELTA_MIN = 2.0
+_DISCHARGE_SOC_DELTA_MAX = 40.0
+
+
+async def discharge_soc_delta_then_zero_export_ct(
+    device_sn: str,
+    soc_delta_pct: float,
+) -> dict[str, Any]:
+    """
+    1) Set workMode SELLING_FIRST via dynamicControl (discharge-friendly TOU template).
+    2) Poll SoC until it drops by soc_delta_pct points or timeout.
+    3) Set workMode ZERO_EXPORT_TO_CT (sample self-consumption template).
+
+    soc_delta_pct: 2..40 (percentage points of SoC to shed).
+
+    Warning: replaces the device's TOU schedule with the template (Deye API limitation).
+    """
+    delta = float(soc_delta_pct)
+    if delta < _DISCHARGE_SOC_DELTA_MIN or delta > _DISCHARGE_SOC_DELTA_MAX:
+        raise ValueError(
+            f"soc_delta_pct must be between {int(_DISCHARGE_SOC_DELTA_MIN)} "
+            f"and {int(_DISCHARGE_SOC_DELTA_MAX)}"
+        )
+
+    await assert_inverter_owned(device_sn)
+    sn = device_sn.strip()
+    rated = settings.DEYE_DYNAMIC_CONTROL_RATED_POWER_W
+    soc_map = await fetch_soc_map_refresh([sn])
+    soc0 = soc_map.get(sn)
+    if soc0 is None:
+        raise ValueError("SOC not available from device — cannot run discharge sequence")
+    soc0_f = float(soc0)
+    if soc0_f < delta:
+        raise ValueError(
+            f"SOC below {delta:.0f}% — cannot target a {delta:.0f} percentage-point discharge"
+        )
+
+    target = max(0.0, soc0_f - delta)
+    poll = max(5, settings.DEYE_DISCHARGE_SOC_POLL_SEC)
+    timeout = max(60, settings.DEYE_DISCHARGE_SOC_TIMEOUT_SEC)
+    # TOU soc floor = desired SoC after discharge target (Deye samples use low soc to allow discharge)
+    tou_soc_discharge = round(target, 2)
+
+    hit_target = False
+    last_soc: Optional[float] = float(soc0)
+    restore_error: Optional[str] = None
+
+    try:
+        await _post_strategy_dynamic_control(_body_selling_first(sn, tou_soc_discharge, rated))
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            await asyncio.sleep(poll)
+            refreshed = await fetch_soc_map_refresh([sn])
+            cur = refreshed.get(sn)
+            if cur is not None:
+                last_soc = float(cur)
+                if last_soc <= target + 0.08:
+                    hit_target = True
+                    break
+    except Exception:
+        logger.exception("Deye: discharge sequence failed before restore sn=%s", sn)
+        raise
+    finally:
+        try:
+            await _post_strategy_dynamic_control(_body_zero_export_to_ct(sn, rated))
+        except Exception as exc:
+            restore_error = str(exc)
+            logger.exception("Deye: ZERO_EXPORT_TO_CT restore failed sn=%s", sn)
+
+    if restore_error:
+        raise RuntimeError(f"Failed to restore ZERO_EXPORT_TO_CT: {restore_error}")
+
+    return {
+        "deviceSn": sn,
+        "socDeltaPercent": round(delta, 2),
+        "startSoc": soc0_f,
+        "targetSoc": float(target),
+        "lastSoc": last_soc,
+        "hitTarget": hit_target,
+        "workModeRestored": "ZERO_EXPORT_TO_CT",
+    }
+
+
+async def discharge_two_percent_then_zero_export_ct(device_sn: str) -> dict[str, Any]:
+    """Backward-compatible name: fixed 2 percentage-point drop."""
+    return await discharge_soc_delta_then_zero_export_ct(device_sn, 2.0)

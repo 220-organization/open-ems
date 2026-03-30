@@ -2,6 +2,7 @@
 
 import logging
 from datetime import date as date_cls
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
@@ -12,10 +13,16 @@ from app.db import get_db
 from app.deye_api import (
     deye_configured,
     deye_missing_env_names,
+    discharge_soc_delta_then_zero_export_ct,
     fetch_device_soc_percent,
     get_live_metrics_cached,
     get_soc_map_cached,
     list_inverter_devices,
+)
+from app.deye_peak_auto_service import (
+    get_discharge_soc_delta_stored,
+    get_peak_auto_pref,
+    set_peak_auto_from_ui,
 )
 from app.deye_soc_service import hourly_inverter_history_for_kyiv_day
 
@@ -28,9 +35,24 @@ _NO_STORE_CACHE = {"Cache-Control": "no-store, max-age=0, must-revalidate"}
 
 _MAX_INVERTER_SOCS = 200
 
+DischargeSocDeltaPctOption = Literal[2, 10, 20]
+
 
 class InverterSocsBody(BaseModel):
     deviceSns: list[str] = Field(default_factory=list, max_length=_MAX_INVERTER_SOCS)
+
+
+class Discharge2PctBody(BaseModel):
+    """socDeltaPercent: optional; when omitted, uses stored per-device prefs (2, 10, or 20)."""
+
+    deviceSn: str = Field(..., min_length=6, max_length=64)
+    socDeltaPercent: Optional[DischargeSocDeltaPctOption] = None
+
+
+class PeakAutoDischargeBody(BaseModel):
+    deviceSn: str = Field(..., min_length=6, max_length=64)
+    enabled: bool
+    dischargeSocDeltaPct: DischargeSocDeltaPctOption = 2
 
 
 @router.get("/inverters")
@@ -128,6 +150,7 @@ async def get_soc_history_day(
                 "date": date,
                 "hourlySocPercent": [None] * 24,
                 "hourlyGridPowerW": [None] * 24,
+                "hourlyGridFrequencyHz": [None] * 24,
             },
             headers=_NO_STORE_CACHE,
         )
@@ -136,7 +159,9 @@ async def get_soc_history_day(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD") from exc
     try:
-        hourly_soc, hourly_grid_w = await hourly_inverter_history_for_kyiv_day(db, deviceSn, trade_day)
+        hourly_soc, hourly_grid_w, hourly_grid_hz = await hourly_inverter_history_for_kyiv_day(
+            db, deviceSn, trade_day
+        )
         return JSONResponse(
             content={
                 "ok": True,
@@ -145,6 +170,7 @@ async def get_soc_history_day(
                 "date": date,
                 "hourlySocPercent": hourly_soc,
                 "hourlyGridPowerW": hourly_grid_w,
+                "hourlyGridFrequencyHz": hourly_grid_hz,
             },
             headers=_NO_STORE_CACHE,
         )
@@ -177,18 +203,20 @@ async def get_ess_power(
                 "loadPowerW": None,
                 "pvPowerW": None,
                 "gridPowerW": None,
+                "gridFrequencyHz": None,
             },
             headers=_NO_STORE_CACHE,
         )
     try:
-        bat, load_w, pv_w, grid_w = await get_live_metrics_cached(deviceSn)
+        bat, load_w, pv_w, grid_w, grid_hz = await get_live_metrics_cached(deviceSn)
         logger.info(
-            "GET /api/deye/ess-power — sn=%s batteryW=%s loadW=%s pvW=%s gridW=%s",
+            "GET /api/deye/ess-power — sn=%s batteryW=%s loadW=%s pvW=%s gridW=%s gridHz=%s",
             deviceSn,
             bat,
             load_w,
             pv_w,
             grid_w,
+            grid_hz,
         )
         return JSONResponse(
             content={
@@ -198,6 +226,7 @@ async def get_ess_power(
                 "loadPowerW": load_w,
                 "pvPowerW": pv_w,
                 "gridPowerW": grid_w,
+                "gridFrequencyHz": grid_hz,
             },
             headers=_NO_STORE_CACHE,
         )
@@ -240,4 +269,119 @@ async def post_inverter_socs(body: InverterSocsBody):
         )
     except Exception as exc:
         logger.exception("POST /api/deye/inverter-socs — failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/peak-auto-discharge")
+async def get_peak_auto_discharge(
+    deviceSn: str = Query(
+        ...,
+        min_length=6,
+        max_length=32,
+        pattern=r"^[0-9]+$",
+        description="Deye inverter serial",
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Per-device preference: backend auto discharge at Kyiv hour of today’s DAM price peak (DB)."""
+    if not deye_configured():
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": False,
+                "enabled": False,
+                "dischargeSocDeltaPct": 2,
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    en, pct = await get_peak_auto_pref(db, deviceSn.strip())
+    return JSONResponse(
+        content={
+            "ok": True,
+            "configured": True,
+            "deviceSn": deviceSn.strip(),
+            "enabled": en,
+            "dischargeSocDeltaPct": pct,
+        },
+        headers=_NO_STORE_CACHE,
+    )
+
+
+@router.post("/peak-auto-discharge")
+async def post_peak_auto_discharge(
+    body: PeakAutoDischargeBody,
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Upsert preference; enabling checks device is in listWithDevice for this account."""
+    if not deye_configured():
+        missing = deye_missing_env_names()
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": False,
+                "enabled": False,
+                "detail": "DEYE_* not set"
+                + (f" (missing: {', '.join(missing)})" if missing else ""),
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    sn = body.deviceSn.strip()
+    try:
+        await set_peak_auto_from_ui(db, sn, body.enabled, body.dischargeSocDeltaPct)
+        await db.commit()
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        await db.rollback()
+        logger.exception("POST /api/deye/peak-auto-discharge — failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return JSONResponse(
+        content={
+            "ok": True,
+            "configured": True,
+            "deviceSn": sn,
+            "enabled": body.enabled,
+            "dischargeSocDeltaPct": body.dischargeSocDeltaPct,
+        },
+        headers=_NO_STORE_CACHE,
+    )
+
+
+@router.post("/discharge-2pct")
+async def post_discharge_2pct(
+    body: Discharge2PctBody,
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """
+    Set Deye strategy to SELLING_FIRST, wait until SoC drops by socDeltaPercent (2, 10, or 20) or timeout,
+    then ZERO_EXPORT_TO_CT. If socDeltaPercent is omitted, uses stored per-device prefs (default 2).
+    Overwrites device TOU template per Deye /strategy/dynamicControl (see Deye sample scripts).
+    Long-running: ensure reverse-proxy read timeout > DEYE_DISCHARGE_SOC_TIMEOUT_SEC.
+    """
+    if not deye_configured():
+        missing = deye_missing_env_names()
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": False,
+                "detail": "DEYE_* not set"
+                + (f" (missing: {', '.join(missing)})" if missing else ""),
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    try:
+        sn = body.deviceSn.strip()
+        delta = body.socDeltaPercent
+        if delta is None:
+            delta = await get_discharge_soc_delta_stored(db, sn)
+        result = await discharge_soc_delta_then_zero_export_ct(sn, float(delta))
+        return JSONResponse(
+            content={"ok": True, "configured": True, **result},
+            headers=_NO_STORE_CACHE,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("POST /api/deye/discharge-2pct — failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
