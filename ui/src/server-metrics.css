@@ -1,0 +1,63 @@
+/* App shell: main + footer that scrolls with the document */
+.app-root-layout {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-root-layout__main {
+  flex: 1 0 auto;
+  min-height: 0;
+}
+
+.app-shell-footer {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 8px max(12px, env(safe-area-inset-right, 0px)) max(12px, env(safe-area-inset-bottom, 0px))
+    max(12px, env(safe-area-inset-left, 0px));
+}
+
+/* Host metrics strip — in document flow (footer), scrolls with page */
+.pf-server-metrics {
+  position: static;
+  margin: 0;
+  max-width: min(100%, 28rem);
+  padding: 6px 10px;
+  box-sizing: border-box;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: 0.02em;
+  color: rgba(255, 248, 252, 0.88);
+  text-align: right;
+  background: rgba(24, 8, 32, 0.88);
+  border: 1px solid rgba(252, 1, 155, 0.28);
+  border-radius: 10px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 4px 18px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  user-select: none;
+}
+
+.pf-server-metrics-inner {
+  display: block;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.pf-server-metrics--stale {
+  border-color: rgba(234, 179, 8, 0.45);
+  color: rgba(253, 230, 138, 0.92);
+}
+
+@media (max-width: 480px) {
+  .pf-server-metrics {
+    font-size: 10px;
+    padding: 5px 8px;
+    max-width: calc(100vw - 12px);
+  }
+}
