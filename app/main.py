@@ -18,6 +18,7 @@ from app import settings
 from app.deye_api import deye_configured, deye_missing_env_names
 from app.oree_dam_scheduler import dam_daily_sync_loop
 from app.oree_dam_service import oree_dam_configured
+from app.deye_soc_scheduler import deye_soc_snapshot_loop
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 UI_BUILD = BASE_DIR / "ui" / "build"
@@ -54,6 +55,16 @@ async def lifespan(app: FastAPI):
             settings.OREE_DAM_DAILY_SYNC_MINUTE_KYIV,
         )
 
+    stop_deye_soc: asyncio.Event | None = None
+    deye_soc_task: asyncio.Task[None] | None = None
+    if settings.DEYE_SOC_SNAPSHOT_ENABLED:
+        stop_deye_soc = asyncio.Event()
+        deye_soc_task = asyncio.create_task(deye_soc_snapshot_loop(stop_deye_soc))
+        logger.info(
+            "Deye SoC: snapshot to DB every %ss (DEYE_SOC_SNAPSHOT_*)",
+            settings.DEYE_SOC_SNAPSHOT_INTERVAL_SEC,
+        )
+
     yield
 
     if dam_sched_task is not None and stop_dam_sched is not None:
@@ -61,6 +72,13 @@ async def lifespan(app: FastAPI):
         dam_sched_task.cancel()
         try:
             await dam_sched_task
+        except asyncio.CancelledError:
+            pass
+    if deye_soc_task is not None and stop_deye_soc is not None:
+        stop_deye_soc.set()
+        deye_soc_task.cancel()
+        try:
+            await deye_soc_task
         except asyncio.CancelledError:
             pass
     logger.info("Open EMS shutting down")

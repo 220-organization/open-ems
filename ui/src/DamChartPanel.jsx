@@ -59,8 +59,18 @@ function replaceUrlDate(isoDate) {
   }
 }
 
+function readInverterFromSearchOnce() {
+  try {
+    const v = new URLSearchParams(window.location.search).get('inverter');
+    return v && /^\d{6,32}$/.test(v.trim()) ? v.trim() : '';
+  } catch {
+    return '';
+  }
+}
+
 /**
  * @param {'embedded' | 'fullpage'} variant — fullpage: URL ?date= sync + top nav; embedded: bottom of Power flow only.
+ * @param {string} [inverterSn] — Deye serial; when set, overlays mean SoC % per hour (from DB) on the chart.
  */
 export default function DamChartPanel({
   t,
@@ -71,6 +81,7 @@ export default function DamChartPanel({
   SUPPORTED,
   LOCALE_NAMES,
   onLangSelectChange,
+  inverterSn: inverterSnProp,
 }) {
   const [tradeDay, setTradeDay] = useState(() =>
     variant === 'fullpage' ? initialTradeDayFullPage() : kyivCalendarIso(),
@@ -78,6 +89,15 @@ export default function DamChartPanel({
   const [payload, setPayload] = useState(null);
   const [loadError, setLoadError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [socPayload, setSocPayload] = useState(null);
+  const [socError, setSocError] = useState('');
+  const [socLoading, setSocLoading] = useState(false);
+  const [urlInverterOnce] = useState(readInverterFromSearchOnce);
+
+  const effectiveInverterSn = (
+    (inverterSnProp && String(inverterSnProp).trim()) ||
+    (variant === 'fullpage' ? urlInverterOnce : '')
+  ).trim();
 
   const h = chartHeight ?? (variant === 'embedded' ? 300 : 420);
 
@@ -117,14 +137,58 @@ export default function DamChartPanel({
     load();
   }, [load]);
 
+  useEffect(() => {
+    if (!effectiveInverterSn) {
+      setSocPayload(null);
+      setSocError('');
+      setSocLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    const loadSoc = async () => {
+      setSocLoading(true);
+      setSocError('');
+      try {
+        const q = new URLSearchParams({ deviceSn: effectiveInverterSn, date: tradeDay });
+        const r = await fetch(apiUrl(`/api/deye/soc-history-day?${q}`), { cache: 'no-store' });
+        if (!r.ok) throw new Error((await r.text()) || r.statusText);
+        const data = await r.json();
+        if (cancelled) return;
+        setSocPayload(data);
+      } catch (e) {
+        if (!cancelled) setSocError(e instanceof Error ? e.message : String(e));
+        if (!cancelled) setSocPayload(null);
+      } finally {
+        if (!cancelled) setSocLoading(false);
+      }
+    };
+    loadSoc();
+    return () => {
+      cancelled = true;
+    };
+  }, [tradeDay, effectiveInverterSn]);
+
   const rows = useMemo(() => {
     if (!payload || !Array.isArray(payload.hourlyPriceDamUahPerKwh)) return [];
     const dam = payload.hourlyPriceDamUahPerKwh;
-    return Array.from({ length: 24 }, (_, i) => ({
-      hour: i + 1,
-      damUahKwh: dam[i] != null && Number.isFinite(Number(dam[i])) ? Number(dam[i]) : null,
-    }));
-  }, [payload]);
+    const socArr =
+      socPayload?.ok &&
+      socPayload?.configured &&
+      Array.isArray(socPayload.hourlySocPercent)
+        ? socPayload.hourlySocPercent
+        : null;
+    return Array.from({ length: 24 }, (_, i) => {
+      let socPercent = null;
+      if (socArr && socArr[i] != null && Number.isFinite(Number(socArr[i]))) {
+        socPercent = Number(socArr[i]);
+      }
+      return {
+        hour: i + 1,
+        damUahKwh: dam[i] != null && Number.isFinite(Number(dam[i])) ? Number(dam[i]) : null,
+        socPercent,
+      };
+    });
+  }, [payload, socPayload]);
 
   const onDateInput = (e) => {
     const v = e.target.value;
@@ -197,6 +261,12 @@ export default function DamChartPanel({
         </div>
       ) : null}
 
+      {effectiveInverterSn && socError ? (
+        <div className="dam-banner dam-banner-warn" role="status">
+          {t('damSocHistoryError')}: {socError}
+        </div>
+      ) : null}
+
       <div className={variant === 'fullpage' ? 'dam-chart-card' : 'dam-chart-card dam-chart-card-embedded'}>
         {variant === 'fullpage' ? <h1 className="dam-title">{t('damChartHeading')}</h1> : null}
 
@@ -210,10 +280,22 @@ export default function DamChartPanel({
           <p className="dam-loading">{t('damLoading')}</p>
         ) : null}
 
+        {effectiveInverterSn && socLoading && !loading && hasChart ? (
+          <p className="dam-loading dam-soc-loading">{t('damSocLoading')}</p>
+        ) : null}
+
         {!loading && hasChart ? (
           <div className="dam-recharts-wrap" style={{ minHeight: h }}>
             <ResponsiveContainer width="100%" height={h}>
-              <LineChart data={rows} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
+              <LineChart
+                data={rows}
+                margin={{
+                  top: 8,
+                  right: effectiveInverterSn ? 52 : 16,
+                  left: 8,
+                  bottom: 8,
+                }}
+              >
                 <CartesianGrid stroke="rgba(252, 1, 155, 0.12)" strokeDasharray="3 3" />
                 <XAxis
                   dataKey="hour"
@@ -228,6 +310,7 @@ export default function DamChartPanel({
                   }}
                 />
                 <YAxis
+                  yAxisId="dam"
                   tick={{ fill: 'rgba(255,248,252,0.75)', fontSize: 11 }}
                   tickLine={false}
                   axisLine={{ stroke: 'rgba(252, 1, 155, 0.25)' }}
@@ -238,6 +321,22 @@ export default function DamChartPanel({
                     style: { fill: 'rgba(255,248,252,0.55)', fontSize: 11 },
                   }}
                 />
+                {effectiveInverterSn ? (
+                  <YAxis
+                    yAxisId="soc"
+                    orientation="right"
+                    domain={[0, 100]}
+                    tick={{ fill: 'rgba(147, 197, 253, 0.9)', fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={{ stroke: 'rgba(96, 165, 250, 0.35)' }}
+                    label={{
+                      value: t('damSocAxis'),
+                      angle: 90,
+                      position: 'insideRight',
+                      style: { fill: 'rgba(147, 197, 253, 0.7)', fontSize: 11 },
+                    }}
+                  />
+                ) : null}
                 <Tooltip
                   contentStyle={{
                     background: 'rgba(24, 8, 32, 0.94)',
@@ -247,6 +346,8 @@ export default function DamChartPanel({
                   }}
                   formatter={(value, name) => {
                     if (value == null || value === '') return ['—', name];
+                    const socLabel = t('damSeriesSoc');
+                    if (name === socLabel) return [`${fmt1.format(value)} %`, name];
                     return [`${fmt1.format(value)}`, name];
                   }}
                   labelFormatter={(hour) => `${t('damHourTooltip')} ${hour}`}
@@ -256,6 +357,7 @@ export default function DamChartPanel({
                   formatter={(value) => <span style={{ color: 'rgba(255,248,252,0.88)' }}>{value}</span>}
                 />
                 <Line
+                  yAxisId="dam"
                   type="monotone"
                   dataKey="damUahKwh"
                   name={t('damSeriesDam')}
@@ -264,6 +366,18 @@ export default function DamChartPanel({
                   dot={{ r: 2.5, fill: '#22c55e' }}
                   connectNulls
                 />
+                {effectiveInverterSn ? (
+                  <Line
+                    yAxisId="soc"
+                    type="monotone"
+                    dataKey="socPercent"
+                    name={t('damSeriesSoc')}
+                    stroke="#60a5fa"
+                    strokeWidth={2}
+                    dot={{ r: 2.2, fill: '#60a5fa' }}
+                    connectNulls
+                  />
+                ) : null}
               </LineChart>
             </ResponsiveContainer>
           </div>

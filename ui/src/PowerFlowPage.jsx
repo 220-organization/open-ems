@@ -975,7 +975,13 @@ export default function PowerFlowPage({
         </aside>
 
         <section className="pf-dam-section" aria-label={t('damChartHeading')}>
-          <DamChartPanel variant="embedded" t={t} getBcp47Locale={getBcp47Locale} chartHeight={320} />
+          <DamChartPanel
+            variant="embedded"
+            inverterSn={selInverterSn || undefined}
+            t={t}
+            getBcp47Locale={getBcp47Locale}
+            chartHeight={320}
+          />
         </section>
       </div>
     </div>

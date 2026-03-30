@@ -742,6 +742,61 @@ async def get_soc_map_cached(device_sns: list[str]) -> dict[str, Optional[float]
     return result
 
 
+async def fetch_soc_map_refresh(device_sns: list[str]) -> dict[str, Optional[float]]:
+    """
+    Always calls Deye POST /device/latest (batched); updates _soc_cache and _live_cache.
+    Use for DB snapshots so samples are not stuck behind SOC_CACHE_TTL_SEC.
+    """
+    if not deye_configured():
+        return {}
+
+    unique: list[str] = []
+    seen: set[str] = set()
+    for s in device_sns:
+        sn = str(s or "").strip()
+        if not sn.isdigit() or sn in seen:
+            continue
+        seen.add(sn)
+        unique.append(sn)
+    if not unique:
+        return {}
+
+    merged_fetch: dict[
+        str,
+        tuple[Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]],
+    ] = {}
+    base = settings.DEYE_API_BASE_URL.rstrip("/")
+    async with httpx.AsyncClient(timeout=45.0) as client:
+        token = await _ensure_token(client)
+        hdrs = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+        }
+        for off in range(0, len(unique), 10):
+            chunk = unique[off : off + 10]
+            part = await _post_latest_metrics_map(client, hdrs, base, chunk)
+            merged_fetch.update(part)
+
+    fetch_time = time.monotonic()
+    async with _soc_lock:
+        for sn, (soc, pwr, load_w, pv_w, grid_w) in merged_fetch.items():
+            _soc_cache[sn] = (soc, fetch_time)
+            obat: Optional[float] = None
+            oload: Optional[float] = None
+            opv: Optional[float] = None
+            ogrid: Optional[float] = None
+            prev_live = _live_cache.get(sn)
+            if prev_live is not None:
+                obat, oload, opv, ogrid, _ = prev_live
+            nbat = pwr if pwr is not None else obat
+            nload = load_w if load_w is not None else oload
+            npv = pv_w if pv_w is not None else opv
+            ngrid = grid_w if grid_w is not None else ogrid
+            _live_cache[sn] = (nbat, nload, npv, ngrid, fetch_time)
+
+    return {sn: merged_fetch[sn][0] if sn in merged_fetch else None for sn in unique}
+
+
 async def get_live_metrics_cached(
     device_sn: str,
 ) -> tuple[Optional[float], Optional[float], Optional[float], Optional[float]]:

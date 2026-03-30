@@ -1,11 +1,14 @@
 """Expose Deye inverter list for the Power flow UI (server-side token; no secrets in browser)."""
 
 import logging
+from datetime import date as date_cls
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db import get_db
 from app.deye_api import (
     deye_configured,
     deye_missing_env_names,
@@ -14,6 +17,7 @@ from app.deye_api import (
     get_soc_map_cached,
     list_inverter_devices,
 )
+from app.deye_soc_service import hourly_soc_percent_for_kyiv_day
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -91,6 +95,59 @@ async def get_inverter_soc(
         )
     except Exception as exc:
         logger.exception("GET /api/deye/soc — failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/soc-history-day")
+async def get_soc_history_day(
+    deviceSn: str = Query(
+        ...,
+        min_length=6,
+        max_length=32,
+        pattern=r"^[0-9]+$",
+        description="Deye inverter serial",
+    ),
+    date: str = Query(
+        ...,
+        min_length=10,
+        max_length=10,
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+        description="Calendar day YYYY-MM-DD (Europe/Kyiv boundaries)",
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Mean SoC % per Kyiv local hour (24 values) from deye_soc_sample (5-min DB snapshots).
+    """
+    if not deye_configured():
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": False,
+                "deviceSn": deviceSn,
+                "date": date,
+                "hourlySocPercent": [None] * 24,
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    try:
+        trade_day = date_cls.fromisoformat(date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD") from exc
+    try:
+        hourly = await hourly_soc_percent_for_kyiv_day(db, deviceSn, trade_day)
+        return JSONResponse(
+            content={
+                "ok": True,
+                "configured": True,
+                "deviceSn": deviceSn,
+                "date": date,
+                "hourlySocPercent": hourly,
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    except Exception as exc:
+        logger.exception("GET /api/deye/soc-history-day — failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 

@@ -48,6 +48,8 @@ The **`/dam-chart`** page and **`GET /api/dam/chart-day`** use only the **`oree_
 | `OREE_DAM_DAILY_SYNC_HOUR_KYIV` | Optional. Default `13` (0–23, Europe/Kiev wall time) |
 | `OREE_DAM_DAILY_SYNC_MINUTE_KYIV` | Optional. Default `0` (0–59) |
 
+**SoC on the DAM chart:** With an inverter selected on the Power flow page (`?inverter=<serial>`) or on **`/dam-chart?inverter=<serial>`**, the UI requests **`GET /api/deye/soc-history-day`** and draws **mean battery SoC % per Europe/Kyiv clock hour** (24 points, same *hour* axis as DAM) on a **right Y-axis**. Data comes from the **`deye_soc_sample`** table (Flyway **`V3__deye_soc_sample.sql`**): the API process snapshots **all** inverters from **`listWithDevice`** every **`DEYE_SOC_SNAPSHOT_INTERVAL_SEC`** (default **300**), using a **fresh** Deye `device/latest` call (not the UI’s in-memory SoC TTL).
+
 ### Deye inverter list (Power flow)
 
 The header **Inverter ID** dropdown loads inverters from the **Deye Cloud Open API** (`POST /v1.0/station/listWithDevice`), i.e. plants/devices tied to the same account as the web [plant list](https://www.deyecloud.com/business/maintain/plant). Configure via environment variables (see `.env.example`):
@@ -60,6 +62,8 @@ The header **Inverter ID** dropdown loads inverters from the **Deye Cloud Open A
 | `DEYE_PASSWORD` | Deye Cloud account password (plain in env; the server sends **SHA-256** to `POST /account/token`, same pattern as the Java `DeyeAuth` client) |
 | `DEYE_COMPANY_ID` | Usually `0` for a personal account; for a business member account, use the company id from Deye (e.g. `/account/info` in the Open API docs) |
 | `DEYE_API_BASE_URL` | Optional. Default `https://eu1-developer.deyecloud.com/v1.0` (EU). Use the US base URL if your developer account is on the US data center. |
+| `DEYE_SOC_SNAPSHOT_ENABLED` | Optional. Default `true` — background task writes SoC to **`deye_soc_sample`**; set `0` / `false` to disable |
+| `DEYE_SOC_SNAPSHOT_INTERVAL_SEC` | Optional. Default `300` (min `60`, max `3600`) — seconds between DB snapshots |
 
 UI calls `GET /api/deye/inverters` (JSON: `configured`, `items[]` with `deviceSn` and `label`), `POST /api/deye/inverter-socs` with body `{"deviceSns":["…"]}` for SoC in the dropdown (batched Deye `POST /device/latest`, **5-minute in-memory TTL cache** on the server), and optionally `GET /api/deye/soc?deviceSn=<serial>` (same SoC source, uses the same cache). With an inverter selected, it polls `GET /api/deye/ess-power?deviceSn=<serial>` about every **20s** (same Deye `device/latest` response, **~25s** server cache): **`batteryPowerW`** signed (**positive = discharging**, **negative = charging**) for the Battery tile and ESS flow; **`loadPowerW`** (non-negative, home/AC load) for the **Load** tile and its flow only—no B2B consumption there. If a metric is missing in `dataList`, that tile uses `—` or simulated ESS for battery only. SoC parser matches the Java `DynamicPriceService` idea (`SOC` / `BMS_SOC` / `BATTERY_SOC`). Do not commit real credentials.
 

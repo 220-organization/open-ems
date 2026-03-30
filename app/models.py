@@ -16,6 +16,21 @@ class Note(Base):
     body: Mapped[str] = mapped_column(Text, default="", nullable=False)
 
 
+class DeyeSocSample(Base):
+    """Deye battery SoC % sampled every ~5 minutes (UTC bucket_start aligned to 5 min)."""
+
+    __tablename__ = "deye_soc_sample"
+
+    device_sn: Mapped[str] = mapped_column(String(64), primary_key=True)
+    bucket_start: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), primary_key=True
+    )
+    soc_percent: Mapped[float] = mapped_column(Double, nullable=False)
+    created_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class OreeDamPrice(Base):
     """Hourly DAM price from OREE (UAH/MWh); period 1..24."""
 

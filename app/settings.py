@@ -67,3 +67,7 @@ def _env_int(name: str, default: int, min_v: int, max_v: int) -> int:
 
 OREE_DAM_DAILY_SYNC_HOUR_KYIV: int = _env_int("OREE_DAM_DAILY_SYNC_HOUR_KYIV", 13, 0, 23)
 OREE_DAM_DAILY_SYNC_MINUTE_KYIV: int = _env_int("OREE_DAM_DAILY_SYNC_MINUTE_KYIV", 0, 0, 59)
+
+# Persist Deye SoC to DB on a fixed interval (all inverters from listWithDevice; UTC 5-min buckets).
+DEYE_SOC_SNAPSHOT_ENABLED: bool = _env_bool("DEYE_SOC_SNAPSHOT_ENABLED", True)
+DEYE_SOC_SNAPSHOT_INTERVAL_SEC: int = _env_int("DEYE_SOC_SNAPSHOT_INTERVAL_SEC", 300, 60, 3600)
