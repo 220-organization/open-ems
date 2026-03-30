@@ -12,6 +12,7 @@ import {
   formatUsdt,
 } from './powerFlowEngine';
 import DamChartPanel from './DamChartPanel';
+import DeyeInverterMessengerModal from './DeyeInverterMessengerModal';
 import './power-flow.css';
 import './dam-chart.css';
 
@@ -117,6 +118,19 @@ export default function PowerFlowPage({
     items: [],
   });
   const [simTick, setSimTick] = useState(0);
+  const [deyeMessengerOpen, setDeyeMessengerOpen] = useState(false);
+
+  const closeDeyeMessenger = useCallback(() => {
+    setDeyeMessengerOpen(false);
+    try {
+      if (window.location.hash === '#addDeyeInverter') {
+        const { pathname, search } = window.location;
+        window.history.replaceState(null, '', pathname + (search || ''));
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   const bcp47 = getBcp47Locale();
   const inverterSocFmt = useMemo(
@@ -1071,6 +1085,25 @@ export default function PowerFlowPage({
     return () => clearInterval(id);
   }, []);
 
+  useEffect(() => {
+    const syncFromHash = () => {
+      if (window.location.hash === '#addDeyeInverter') {
+        setDeyeMessengerOpen(true);
+        requestAnimationFrame(() => {
+          document.getElementById('addDeyeInverter')?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'nearest',
+          });
+        });
+      } else {
+        setDeyeMessengerOpen(false);
+      }
+    };
+    syncFromHash();
+    window.addEventListener('hashchange', syncFromHash);
+    return () => window.removeEventListener('hashchange', syncFromHash);
+  }, []);
+
   return (
     <div className="pf-body">
       <div className="pf-root">
@@ -1120,6 +1153,14 @@ export default function PowerFlowPage({
                 </>
               )}
             </select>
+            <button
+              type="button"
+              id="addDeyeInverter"
+              className="pf-add-deye-btn"
+              onClick={() => setDeyeMessengerOpen(true)}
+            >
+              {t('addDeyeInverterButton')}
+            </button>
           </div>
           <div className="pf-station-field">
             <select
@@ -1894,6 +1935,7 @@ export default function PowerFlowPage({
           </div>
         ) : null}
       </div>
+      <DeyeInverterMessengerModal open={deyeMessengerOpen} onClose={closeDeyeMessenger} t={t} />
     </div>
   );
 }

@@ -109,5 +109,10 @@
   "damOreeNotConfigured": "OREE_API_KEY is not set — DAM line will be empty until prices are synced on a server with the key.",
   "damSyncNote": "DAM prices were just synced from OREE for this view.",
   "damLazyOreeExhausted": "On-demand OREE sync for tomorrow reached the server limit. DAM uses the database only until the next scheduled sync or POST /api/dam/sync.",
+  "addDeyeInverterButton": "Deye-omvormer toevoegen",
+  "addDeyeMessengerTitle": "Neem contact op via Telegram of WhatsApp",
+  "addDeyeMessengerPrefill": "Goedendag, ik wil een Deye-omvormer toevoegen aan Open EMS.\n\n#addDeyeInverter",
+  "addDeyeMessengerTelegramAria": "Telegram (nieuw tabblad)",
+  "addDeyeMessengerWhatsAppAria": "WhatsApp (nieuw tabblad)",
   "damLoading": "Loading…"
 }

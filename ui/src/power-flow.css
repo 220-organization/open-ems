@@ -194,6 +194,23 @@ body {
   gap: 8px;
 }
 
+/* Inverter select + Add Deye button: same width (stacked), aligned with select sizing */
+.pf-station-field.pf-inverter-field {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.pf-header .pf-station-field.pf-inverter-field .pf-inverter-select.pf-header-select--inverter {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
 .pf-station-input {
   background: var(--pf-surface);
   border: 1px solid var(--pf-border);
@@ -897,6 +914,14 @@ a.pf-node {
     gap: 6px;
   }
 
+  .pf-station-field.pf-inverter-field {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+    max-width: 100%;
+    gap: 6px;
+  }
+
   .pf-station-field > span {
     font-size: 13px;
   }
@@ -914,6 +939,13 @@ a.pf-node {
   .pf-header .pf-lang-select {
     min-height: 40px;
     font-size: 14px;
+  }
+
+  .pf-header .pf-station-field.pf-inverter-field .pf-add-deye-btn {
+    min-height: 40px;
+    font-size: 14px;
+    padding-top: 8px;
+    padding-bottom: 8px;
   }
 
   .pf-discharge-delta-select--header,
@@ -1147,4 +1179,117 @@ a.pf-node {
 
 .pf-modal-message--error {
   color: #fca5a5;
+}
+
+/* Add Deye inverter — B2B-style messenger modal (220-km.com/b2b) */
+.pf-add-deye-btn {
+  margin: 0;
+  cursor: pointer;
+  color: var(--pf-label);
+  background: var(--pf-surface);
+  border: 1px solid var(--pf-border);
+  border-radius: 10px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.pf-header .pf-station-field.pf-inverter-field .pf-add-deye-btn {
+  width: 100%;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  padding: 6px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.25;
+  text-align: center;
+  white-space: normal;
+}
+
+.pf-add-deye-btn:hover {
+  border-color: rgba(252, 1, 155, 0.45);
+}
+
+.pf-add-deye-btn:focus-visible {
+  outline: 2px solid var(--pf-pink-soft);
+  outline-offset: 2px;
+}
+
+.pf-messenger-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px))
+    max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.55);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+.pf-messenger-dialog {
+  width: 100%;
+  max-width: 360px;
+  box-sizing: border-box;
+}
+
+.pf-messenger-panel {
+  padding: 24px 20px;
+  text-align: center;
+  background: #2d2d33;
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+.pf-messenger-title {
+  margin: 0 0 20px;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #fff;
+}
+
+.pf-messenger-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pf-messenger-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 56px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  cursor: pointer;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  transition:
+    filter 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.pf-messenger-icon-btn:hover {
+  filter: brightness(1.06);
+}
+
+.pf-messenger-icon-btn:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.85);
+  outline-offset: 3px;
+}
+
+.pf-messenger-icon-btn--telegram {
+  background: linear-gradient(145deg, #2aabee 0%, #0088cc 100%);
+  border-color: #0077b5;
+}
+
+.pf-messenger-icon-btn--whatsapp {
+  background: linear-gradient(145deg, #3fe27c 0%, #25d366 55%, #128c7e 100%);
+  border-color: #1da851;
 }
