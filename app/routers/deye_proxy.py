@@ -165,6 +165,9 @@ async def get_soc_history_day(
 ):
     """
     Mean SoC % and mean grid power (W signed: + import, − export) per Kyiv local hour from deye_soc_sample.
+
+    For configured balance-site serials (see app.deye_flow_balance), hourly grid is derived from stored
+    load/PV/battery samples when all three exist: grid = load − 2×PV − battery (same as Power flow).
     """
     if not deye_configured():
         return JSONResponse(

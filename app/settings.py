@@ -65,11 +65,45 @@ def _env_int(name: str, default: int, min_v: int, max_v: int) -> int:
     return max(min_v, min(max_v, v))
 
 
-OREE_DAM_DAILY_SYNC_HOUR_KYIV: int = _env_int("OREE_DAM_DAILY_SYNC_HOUR_KYIV", 13, 0, 23)
+def _parse_oree_sync_hours_kyiv() -> tuple[int, ...]:
+    """
+    Europe/Kiev wall-clock hours for scheduled OREE DAM pulls (comma-separated), default 12–15.
+    If OREE_DAM_SYNC_HOURS_KYIV is unset, OREE_DAM_DAILY_SYNC_HOUR_KYIV (single hour) is still honored.
+    """
+    raw = (os.environ.get("OREE_DAM_SYNC_HOURS_KYIV") or "").strip()
+    if raw:
+        hs: list[int] = []
+        for part in raw.split(","):
+            p = part.strip()
+            if not p:
+                continue
+            try:
+                h = int(p)
+                if 0 <= h <= 23:
+                    hs.append(h)
+            except ValueError:
+                pass
+        return tuple(sorted(set(hs))) if hs else (12, 13, 14, 15)
+    legacy = (os.environ.get("OREE_DAM_DAILY_SYNC_HOUR_KYIV") or "").strip()
+    if legacy:
+        try:
+            h = int(legacy)
+            if 0 <= h <= 23:
+                return (h,)
+        except ValueError:
+            pass
+    return (12, 13, 14, 15)
+
+
+# Scheduled OREE DAM sync: these Kyiv hours (see oree_dam_scheduler).
+OREE_DAM_SYNC_HOURS_KYIV: tuple[int, ...] = _parse_oree_sync_hours_kyiv()
 OREE_DAM_DAILY_SYNC_MINUTE_KYIV: int = _env_int("OREE_DAM_DAILY_SYNC_MINUTE_KYIV", 0, 0, 59)
 
-# Max on-demand OREE /damprices pulls via GET /api/dam/chart-day when DB has no rows for Kyiv tomorrow.
-OREE_DAM_LAZY_FETCH_MAX: int = _env_int("OREE_DAM_LAZY_FETCH_MAX", 3, 0, 50)
+# Allow POST /api/dam/sync (off by default — OREE only via daily scheduler).
+OREE_DAM_MANUAL_SYNC_ENABLED: bool = _env_bool("OREE_DAM_MANUAL_SYNC_ENABLED", False)
+
+# Max on-demand OREE pulls via GET /api/dam/chart-day when DB empty for Kyiv tomorrow (0 = off; UI never triggers OREE).
+OREE_DAM_LAZY_FETCH_MAX: int = _env_int("OREE_DAM_LAZY_FETCH_MAX", 0, 0, 50)
 
 # Persist Deye SoC to DB on a fixed interval (all inverters from listWithDevice; UTC 5-min buckets).
 DEYE_SOC_SNAPSHOT_ENABLED: bool = _env_bool("DEYE_SOC_SNAPSHOT_ENABLED", True)

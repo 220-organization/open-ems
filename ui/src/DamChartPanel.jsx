@@ -14,6 +14,8 @@ import {
   YAxis,
 } from 'recharts';
 import './dam-chart.css';
+import { DEYE_FLOW_BALANCE_PV_FACTOR, usesDeyeFlowBalance } from './deyeFlowBalanceSites';
+import { OREE_DAM_CHART_URL } from './OreeDamChartModal';
 
 function apiUrl(path) {
   const base = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
@@ -102,9 +104,7 @@ const DAM_RIGHT_Y_AXIS_WIDTH = 48;
 const DAM_HZ_Y_AXIS_WIDTH = 72;
 
 /** Hour index on X-axis (data uses 1–24): show even ticks only. */
-const DAM_HOUR_X_TICKS = Object.freeze(
-  [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24],
-);
+const DAM_HOUR_X_TICKS = Object.freeze([2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24]);
 
 function fiveSymmetricTicks(lo, hi) {
   if (!Number.isFinite(lo) || !Number.isFinite(hi) || lo >= hi) return [0];
@@ -122,7 +122,7 @@ function kyivHourIndexNowForDate(tradeDayIso) {
       hour: 'numeric',
       hour12: false,
     }).formatToParts(new Date());
-    const hp = parts.find((p) => p.type === 'hour');
+    const hp = parts.find(p => p.type === 'hour');
     if (!hp) return null;
     const h = parseInt(hp.value, 10);
     return Number.isFinite(h) ? h % 24 : null;
@@ -147,7 +147,7 @@ export default function DamChartPanel({
   inverterSn: inverterSnProp,
 }) {
   const [tradeDay, setTradeDay] = useState(() =>
-    clampTradeDayIso(variant === 'fullpage' ? initialTradeDayFullPage() : kyivCalendarIso()),
+    clampTradeDayIso(variant === 'fullpage' ? initialTradeDayFullPage() : kyivCalendarIso())
   );
   const [payload, setPayload] = useState(null);
   const [loadError, setLoadError] = useState('');
@@ -158,6 +158,8 @@ export default function DamChartPanel({
   /** Live grid power (W, Deye signed); used when hourly DB aggregates are missing. */
   const [liveGridPowerW, setLiveGridPowerW] = useState(null);
   const [liveLoadPowerW, setLiveLoadPowerW] = useState(null);
+  const [livePvPowerW, setLivePvPowerW] = useState(null);
+  const [liveBatteryPowerW, setLiveBatteryPowerW] = useState(null);
   /** Grid frequency (Hz) line on DAM chart — off by default. */
   const [showGridFrequencyLine, setShowGridFrequencyLine] = useState(false);
   const [urlInverterOnce] = useState(readInverterFromSearchOnce);
@@ -177,6 +179,15 @@ export default function DamChartPanel({
         minimumFractionDigits: 0,
         maximumFractionDigits: 1,
       }),
+    [bcp47]
+  );
+
+  const fmtDamTooltip = useMemo(
+    () =>
+      new Intl.NumberFormat(bcp47, {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1,
+      }),
     [bcp47],
   );
 
@@ -186,7 +197,7 @@ export default function DamChartPanel({
         minimumFractionDigits: 0,
         maximumFractionDigits: 2,
       }),
-    [bcp47],
+    [bcp47]
   );
 
   const fmtHz = useMemo(
@@ -195,7 +206,7 @@ export default function DamChartPanel({
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
-    [bcp47],
+    [bcp47]
   );
 
   const maxTradeDay = maxTradeDayKyivIso();
@@ -265,33 +276,42 @@ export default function DamChartPanel({
     if (!effectiveInverterSn) {
       setLiveGridPowerW(null);
       setLiveLoadPowerW(null);
+      setLivePvPowerW(null);
+      setLiveBatteryPowerW(null);
       return undefined;
     }
     let cancelled = false;
     const loadLive = async () => {
       try {
-        const r = await fetch(
-          apiUrl(`/api/deye/ess-power?deviceSn=${encodeURIComponent(effectiveInverterSn)}`),
-          { cache: 'no-store' },
-        );
+        const r = await fetch(apiUrl(`/api/deye/ess-power?deviceSn=${encodeURIComponent(effectiveInverterSn)}`), {
+          cache: 'no-store',
+        });
         const d = await r.json();
         if (cancelled || !d?.ok || d?.configured === false) {
           if (!cancelled) {
             setLiveGridPowerW(null);
             setLiveLoadPowerW(null);
+            setLivePvPowerW(null);
+            setLiveBatteryPowerW(null);
           }
           return;
         }
         const g = d.gridPowerW;
         const l = d.loadPowerW;
+        const pv = d.pvPowerW;
+        const bat = d.batteryPowerW;
         if (!cancelled) {
           setLiveGridPowerW(g != null && Number.isFinite(Number(g)) ? Number(g) : null);
           setLiveLoadPowerW(l != null && Number.isFinite(Number(l)) ? Number(l) : null);
+          setLivePvPowerW(pv != null && Number.isFinite(Number(pv)) ? Number(pv) : null);
+          setLiveBatteryPowerW(bat != null && Number.isFinite(Number(bat)) ? Number(bat) : null);
         }
       } catch {
         if (!cancelled) {
           setLiveGridPowerW(null);
           setLiveLoadPowerW(null);
+          setLivePvPowerW(null);
+          setLiveBatteryPowerW(null);
         }
       }
     };
@@ -307,21 +327,15 @@ export default function DamChartPanel({
     if (!payload || !Array.isArray(payload.hourlyPriceDamUahPerKwh)) return [];
     const dam = payload.hourlyPriceDamUahPerKwh;
     const socArr =
-      socPayload?.ok &&
-      socPayload?.configured &&
-      Array.isArray(socPayload.hourlySocPercent)
+      socPayload?.ok && socPayload?.configured && Array.isArray(socPayload.hourlySocPercent)
         ? socPayload.hourlySocPercent
         : null;
     const gridArr =
-      socPayload?.ok &&
-      socPayload?.configured &&
-      Array.isArray(socPayload.hourlyGridPowerW)
+      socPayload?.ok && socPayload?.configured && Array.isArray(socPayload.hourlyGridPowerW)
         ? socPayload.hourlyGridPowerW
         : null;
     const freqArr =
-      socPayload?.ok &&
-      socPayload?.configured &&
-      Array.isArray(socPayload.hourlyGridFrequencyHz)
+      socPayload?.ok && socPayload?.configured && Array.isArray(socPayload.hourlyGridFrequencyHz)
         ? socPayload.hourlyGridFrequencyHz
         : null;
     const out = Array.from({ length: 24 }, (_, i) => {
@@ -349,16 +363,12 @@ export default function DamChartPanel({
     });
 
     const liveGridKw =
-      liveGridPowerW != null && Number.isFinite(Number(liveGridPowerW))
-        ? Number(liveGridPowerW) / 1000
-        : null;
+      liveGridPowerW != null && Number.isFinite(Number(liveGridPowerW)) ? Number(liveGridPowerW) / 1000 : null;
     const liveLoadKw =
-      liveLoadPowerW != null && Number.isFinite(Number(liveLoadPowerW))
-        ? Number(liveLoadPowerW) / 1000
-        : null;
+      liveLoadPowerW != null && Number.isFinite(Number(liveLoadPowerW)) ? Number(liveLoadPowerW) / 1000 : null;
     const hi = kyivHourIndexNowForDate(tradeDay);
     if (hi != null) {
-      const hasAnyGrid = out.some((r) => r.gridKw != null && Number.isFinite(r.gridKw));
+      const hasAnyGrid = out.some(r => r.gridKw != null && Number.isFinite(r.gridKw));
       const slot = out[hi];
       const slotEmpty = slot.gridKw == null || !Number.isFinite(slot.gridKw);
       let fallbackKw = liveGridKw;
@@ -371,13 +381,42 @@ export default function DamChartPanel({
         out[hi] = { ...slot, gridKw: fallbackKw, gridKwLive: true, gridKwFromLoad: fallbackFromLoad };
       }
     }
+    if (
+      usesDeyeFlowBalance(effectiveInverterSn) &&
+      hi != null &&
+      liveLoadPowerW != null &&
+      livePvPowerW != null &&
+      liveBatteryPowerW != null &&
+      Number.isFinite(Number(liveLoadPowerW)) &&
+      Number.isFinite(Number(livePvPowerW)) &&
+      Number.isFinite(Number(liveBatteryPowerW))
+    ) {
+      const balW =
+        Number(liveLoadPowerW) - DEYE_FLOW_BALANCE_PV_FACTOR * Number(livePvPowerW) - Number(liveBatteryPowerW);
+      const slot = out[hi];
+      out[hi] = {
+        ...slot,
+        gridKw: balW / 1000,
+        gridKwLive: true,
+        gridKwFromLoad: false,
+      };
+    }
     return out;
-  }, [payload, socPayload, tradeDay, liveGridPowerW, liveLoadPowerW]);
+  }, [
+    payload,
+    socPayload,
+    tradeDay,
+    liveGridPowerW,
+    liveLoadPowerW,
+    livePvPowerW,
+    liveBatteryPowerW,
+    effectiveInverterSn,
+  ]);
 
   const gridDomain = useMemo(() => {
-    const vals = rows.map((r) => r.gridKw).filter((v) => v != null && Number.isFinite(v));
+    const vals = rows.map(r => r.gridKw).filter(v => v != null && Number.isFinite(v));
     if (!vals.length) return [-0.25, 0.25];
-    const raw = Math.max(...vals.map((v) => Math.abs(v)), 0.25);
+    const raw = Math.max(...vals.map(v => Math.abs(v)), 0.25);
     const cap = niceSymmetricCap(raw);
     return [-cap, cap];
   }, [rows]);
@@ -385,7 +424,7 @@ export default function DamChartPanel({
   const gridYTicks = useMemo(() => fiveSymmetricTicks(gridDomain[0], gridDomain[1]), [gridDomain]);
 
   const hzDomain = useMemo(() => {
-    const vals = rows.map((r) => r.gridFreqHz).filter((v) => v != null && Number.isFinite(v));
+    const vals = rows.map(r => r.gridFreqHz).filter(v => v != null && Number.isFinite(v));
     if (!vals.length) return [49.5, 50.5];
     const lo = Math.min(...vals);
     const hi = Math.max(...vals);
@@ -408,7 +447,7 @@ export default function DamChartPanel({
       left: 8,
       bottom: 10,
     }),
-    [lineChartRightMargin],
+    [lineChartRightMargin]
   );
 
   const damComposedChartMargin = useMemo(
@@ -418,17 +457,17 @@ export default function DamChartPanel({
       left: 8,
       bottom: 28,
     }),
-    [lineChartRightMargin],
+    [lineChartRightMargin]
   );
 
-  const onDateInput = (e) => {
+  const onDateInput = e => {
     const v = e.target.value;
     if (/^\d{4}-\d{2}-\d{2}$/.test(v)) setTradeDay(clampTradeDayIso(v));
   };
 
-  const goPrev = () => setTradeDay((d) => addCalendarDays(d, -1));
+  const goPrev = () => setTradeDay(d => addCalendarDays(d, -1));
   const goNext = () =>
-    setTradeDay((d) => {
+    setTradeDay(d => {
       const next = addCalendarDays(d, 1);
       const cap = maxTradeDayKyivIso();
       return next > cap ? cap : next;
@@ -436,8 +475,8 @@ export default function DamChartPanel({
 
   const hasChart = Boolean(payload) && rows.length === 24;
   const hasAnyDamPrice = useMemo(
-    () => rows.some((r) => r.damUahKwh != null && Number.isFinite(Number(r.damUahKwh))),
-    [rows],
+    () => rows.some(r => r.damUahKwh != null && Number.isFinite(Number(r.damUahKwh))),
+    [rows]
   );
 
   const dateBar = (
@@ -482,7 +521,7 @@ export default function DamChartPanel({
             value={locale}
             onChange={onLangSelectChange}
           >
-            {SUPPORTED.map((code) => (
+            {SUPPORTED.map(code => (
               <option key={code} value={code}>
                 {LOCALE_NAMES[code] || code}
               </option>
@@ -529,9 +568,7 @@ export default function DamChartPanel({
           </p>
         ) : null}
 
-        {loading && !hasChart ? (
-          <p className="dam-loading">{t('damLoading')}</p>
-        ) : null}
+        {loading && !hasChart ? <p className="dam-loading">{t('damLoading')}</p> : null}
 
         {effectiveInverterSn && socLoading && !loading && hasChart ? (
           <p className="dam-loading dam-soc-loading">{t('damSocLoading')}</p>
@@ -542,17 +579,14 @@ export default function DamChartPanel({
             <input
               type="checkbox"
               checked={showGridFrequencyLine}
-              onChange={(e) => setShowGridFrequencyLine(e.target.checked)}
+              onChange={e => setShowGridFrequencyLine(e.target.checked)}
             />
             <span>{t('damShowGridFreq')}</span>
           </label>
         ) : null}
 
         {!loading && hasChart ? (
-          <div
-            className="dam-recharts-wrap dam-recharts-wrap--line-stack"
-            style={{ minHeight: `calc(${h}px + 42px)` }}
-          >
+          <div className="dam-recharts-wrap dam-recharts-wrap--line-stack" style={{ minHeight: `calc(${h}px + 42px)` }}>
             <ResponsiveContainer width="100%" height={h}>
               <LineChart data={rows} syncId="dam-day" margin={damLineChartMargin}>
                 <CartesianGrid stroke="rgba(252, 1, 155, 0.12)" strokeDasharray="3 3" />
@@ -571,7 +605,7 @@ export default function DamChartPanel({
                   width={DAM_LEFT_Y_AXIS_WIDTH}
                   tick={{ fill: 'rgba(255,248,252,0.75)', fontSize: 11 }}
                   tickLine={false}
-                  tickFormatter={(v) => fmt1.format(v)}
+                  tickFormatter={v => fmt1.format(v)}
                   axisLine={{ stroke: 'rgba(252, 1, 155, 0.25)' }}
                   label={{
                     value: t('damTariffAxis'),
@@ -589,7 +623,7 @@ export default function DamChartPanel({
                     width={DAM_RIGHT_Y_AXIS_WIDTH}
                     tick={{ fill: 'rgba(147, 197, 253, 0.9)', fontSize: 11 }}
                     tickLine={false}
-                    tickFormatter={(v) => fmt1.format(v)}
+                    tickFormatter={v => fmt1.format(v)}
                     axisLine={{ stroke: 'rgba(96, 165, 250, 0.35)' }}
                     label={{
                       value: t('damSocAxis'),
@@ -612,7 +646,7 @@ export default function DamChartPanel({
                       dx: 6,
                     }}
                     tickLine={false}
-                    tickFormatter={(v) => fmtHz.format(v)}
+                    tickFormatter={v => fmtHz.format(v)}
                     axisLine={{ stroke: 'rgba(250, 204, 21, 0.35)' }}
                     label={{
                       value: t('damGridFreqAxis'),
@@ -635,13 +669,22 @@ export default function DamChartPanel({
                   itemStyle={{ color: 'rgba(255, 248, 252, 0.95)' }}
                   formatter={(value, name) => {
                     if (value == null || value === '') return ['—', name];
+                    const damSeriesName = t('damSeriesDam');
+                    if (name === damSeriesName) {
+                      const n = Number(value);
+                      if (!Number.isFinite(n)) return ['—', t('damTooltipDamLabel')];
+                      return [
+                        `${fmtDamTooltip.format(n)} ${t('damTooltipDamUnit')}`,
+                        t('damTooltipDamLabel'),
+                      ];
+                    }
                     const socLabel = t('damSeriesSoc');
                     if (name === socLabel) return [`${fmt1.format(value)} %`, socLabel];
                     const hzLabel = t('damSeriesGridFreq');
                     if (name === hzLabel) return [`${fmtHz.format(value)} Hz`, hzLabel];
                     return [`${fmt1.format(value)}`, name];
                   }}
-                  labelFormatter={(hour) => `${t('damHourTooltip')} ${hour}`}
+                  labelFormatter={hour => `${t('damHourTooltip')} ${hour}`}
                 />
                 <Line
                   yAxisId="dam"
@@ -705,11 +748,7 @@ export default function DamChartPanel({
             <p className="dam-grid-bars-caption">{t('damGridBarsCaption')}</p>
             <ResponsiveContainer width="100%" height={gridBarH}>
               <ComposedChart data={rows} syncId="dam-day" margin={damComposedChartMargin}>
-                <CartesianGrid
-                  stroke="rgba(252, 1, 155, 0.08)"
-                  strokeDasharray="3 3"
-                  vertical={false}
-                />
+                <CartesianGrid stroke="rgba(252, 1, 155, 0.08)" strokeDasharray="3 3" vertical={false} />
                 <XAxis
                   dataKey="hour"
                   type="number"
@@ -733,7 +772,7 @@ export default function DamChartPanel({
                   width={DAM_LEFT_Y_AXIS_WIDTH}
                   tick={{ fill: 'rgba(255,248,252,0.72)', fontSize: 10 }}
                   tickLine={false}
-                  tickFormatter={(v) => fmtGridKwTick.format(v)}
+                  tickFormatter={v => fmtGridKwTick.format(v)}
                   label={{
                     value: t('damGridPowerAxis'),
                     angle: -90,
@@ -777,8 +816,7 @@ export default function DamChartPanel({
                   formatter={(value, name, item) => {
                     if (value == null || value === '') return ['—', name];
                     const kw = Number(value);
-                    const tag =
-                      kw > 0 ? t('damGridImportTag') : kw < 0 ? t('damGridExportTag') : '';
+                    const tag = kw > 0 ? t('damGridImportTag') : kw < 0 ? t('damGridExportTag') : '';
                     const gridPayload = item?.payload ?? item;
                     const live = gridPayload?.gridKwLive ? ` — ${t('damGridLiveTag')}` : '';
                     const fromLoad = gridPayload?.gridKwFromLoad ? ` (${t('damGridFromLoadTag')})` : '';
@@ -786,14 +824,9 @@ export default function DamChartPanel({
                     const gridLabel = t('damSeriesGrid');
                     return [`${s}${fromLoad}${live}`, gridLabel];
                   }}
-                  labelFormatter={(hour) => `${t('damHourTooltip')} ${hour}`}
+                  labelFormatter={hour => `${t('damHourTooltip')} ${hour}`}
                 />
-                <Bar
-                  dataKey="gridKw"
-                  name={t('damSeriesGrid')}
-                  maxBarSize={26}
-                  minPointSize={8}
-                >
+                <Bar dataKey="gridKw" name={t('damSeriesGrid')} maxBarSize={26} minPointSize={8}>
                   {rows.map((e, i) => (
                     <Cell
                       key={`grid-${i}`}
@@ -812,20 +845,13 @@ export default function DamChartPanel({
                   tooltipType="none"
                   legendType="none"
                   isAnimationActive={false}
-                  shape={(dotProps) => {
+                  shape={dotProps => {
                     const { cx, cy, payload } = dotProps;
                     const v = payload?.gridKw;
                     if (v == null || !Number.isFinite(v) || cx == null || cy == null) return null;
                     const fill = v >= 0 ? '#f59e0b' : '#38bdf8';
                     return (
-                      <circle
-                        cx={cx}
-                        cy={cy}
-                        r={5.5}
-                        fill={fill}
-                        stroke="rgba(255,255,255,0.45)"
-                        strokeWidth={1.2}
-                      />
+                      <circle cx={cx} cy={cy} r={5.5} fill={fill} stroke="rgba(255,255,255,0.45)" strokeWidth={1.2} />
                     );
                   }}
                 />
@@ -833,6 +859,22 @@ export default function DamChartPanel({
             </ResponsiveContainer>
           </div>
         ) : null}
+
+        <section className="dam-oree-embed" aria-labelledby="dam-oree-embed-title">
+          <div className="dam-oree-embed-header">
+            <h3 id="dam-oree-embed-title" className="dam-oree-embed-title">
+              {t('damOreeWebsiteLink')}
+            </h3>
+          </div>
+          <div className="dam-oree-embed-frame-wrap">
+            <iframe
+              title={t('damOreeEmbedIframeTitle')}
+              src={OREE_DAM_CHART_URL}
+              className="dam-oree-embed-iframe"
+              referrerPolicy="no-referrer-when-downgrade"
+            />
+          </div>
+        </section>
       </div>
     </>
   );

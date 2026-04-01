@@ -5,13 +5,39 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deye_api import deye_configured, list_inverter_devices, refresh_device_latest_batches
+from app.deye_flow_balance import FLOW_BALANCE_DEVICE_SNS, FLOW_BALANCE_PV_FACTOR
 from app.models import DeyeSocSample
 from app.oree_dam_service import KYIV
+
+# Cached True once columns exist. Before that, re-probe each call (migration may run without restart).
+_balance_input_columns_ready: bool = False
+
+
+async def deye_soc_balance_input_columns_ready(session: AsyncSession) -> bool:
+    """
+    True when deye_soc_sample has load_power_w, pv_power_w, battery_power_w (migration applied).
+    While columns are missing, probes every call so Flyway can enable balance without API restart.
+    """
+    global _balance_input_columns_ready
+    if _balance_input_columns_ready:
+        return True
+    r = await session.execute(
+        text(
+            "SELECT COUNT(*)::int FROM information_schema.columns "
+            "WHERE table_name = 'deye_soc_sample' "
+            "AND column_name IN ('load_power_w', 'pv_power_w', 'battery_power_w')"
+        )
+    )
+    n = r.scalar_one()
+    ok = int(n or 0) >= 3
+    if ok:
+        _balance_input_columns_ready = True
+    return ok
 
 
 def floor_to_5min_utc(when: datetime) -> datetime:
@@ -37,27 +63,67 @@ async def upsert_deye_sample(
     soc_percent: Optional[float],
     grid_power_w: Optional[float],
     grid_frequency_hz: Optional[float] = None,
+    load_power_w: Optional[float] = None,
+    pv_power_w: Optional[float] = None,
+    battery_power_w: Optional[float] = None,
 ) -> None:
-    if soc_percent is None and grid_power_w is None and grid_frequency_hz is None:
+    if (
+        soc_percent is None
+        and grid_power_w is None
+        and grid_frequency_hz is None
+        and load_power_w is None
+        and pv_power_w is None
+        and battery_power_w is None
+    ):
         return
-    stmt = pg_insert(DeyeSocSample).values(
-        device_sn=device_sn,
-        bucket_start=bucket_start,
-        soc_percent=soc_percent,
-        grid_power_w=grid_power_w,
-        grid_frequency_hz=grid_frequency_hz,
-    )
-    stmt = stmt.on_conflict_do_update(
-        index_elements=["device_sn", "bucket_start"],
-        set_={
-            "soc_percent": func.coalesce(stmt.excluded.soc_percent, DeyeSocSample.soc_percent),
-            "grid_power_w": func.coalesce(stmt.excluded.grid_power_w, DeyeSocSample.grid_power_w),
-            "grid_frequency_hz": func.coalesce(
-                stmt.excluded.grid_frequency_hz,
-                DeyeSocSample.grid_frequency_hz,
-            ),
-        },
-    )
+    extras = await deye_soc_balance_input_columns_ready(session)
+    if extras:
+        stmt = pg_insert(DeyeSocSample).values(
+            device_sn=device_sn,
+            bucket_start=bucket_start,
+            soc_percent=soc_percent,
+            grid_power_w=grid_power_w,
+            grid_frequency_hz=grid_frequency_hz,
+            load_power_w=load_power_w,
+            pv_power_w=pv_power_w,
+            battery_power_w=battery_power_w,
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["device_sn", "bucket_start"],
+            set_={
+                "soc_percent": func.coalesce(stmt.excluded.soc_percent, DeyeSocSample.soc_percent),
+                "grid_power_w": func.coalesce(stmt.excluded.grid_power_w, DeyeSocSample.grid_power_w),
+                "grid_frequency_hz": func.coalesce(
+                    stmt.excluded.grid_frequency_hz,
+                    DeyeSocSample.grid_frequency_hz,
+                ),
+                "load_power_w": func.coalesce(stmt.excluded.load_power_w, DeyeSocSample.load_power_w),
+                "pv_power_w": func.coalesce(stmt.excluded.pv_power_w, DeyeSocSample.pv_power_w),
+                "battery_power_w": func.coalesce(
+                    stmt.excluded.battery_power_w,
+                    DeyeSocSample.battery_power_w,
+                ),
+            },
+        )
+    else:
+        stmt = pg_insert(DeyeSocSample).values(
+            device_sn=device_sn,
+            bucket_start=bucket_start,
+            soc_percent=soc_percent,
+            grid_power_w=grid_power_w,
+            grid_frequency_hz=grid_frequency_hz,
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["device_sn", "bucket_start"],
+            set_={
+                "soc_percent": func.coalesce(stmt.excluded.soc_percent, DeyeSocSample.soc_percent),
+                "grid_power_w": func.coalesce(stmt.excluded.grid_power_w, DeyeSocSample.grid_power_w),
+                "grid_frequency_hz": func.coalesce(
+                    stmt.excluded.grid_frequency_hz,
+                    DeyeSocSample.grid_frequency_hz,
+                ),
+            },
+        )
     await session.execute(stmt)
 
 
@@ -66,6 +132,7 @@ async def run_deye_soc_snapshot(session: AsyncSession) -> int:
     List all inverters, fetch fresh metrics from Deye, upsert per device per 5-min bucket.
       - soc_percent: 0..100 when available
       - grid_power_w: signed W (positive = grid import, negative = export)
+      - load_power_w, pv_power_w, battery_power_w: for hourly grid balance on calibrated SN
     """
     if not deye_configured():
         return 0
@@ -77,7 +144,9 @@ async def run_deye_soc_snapshot(session: AsyncSession) -> int:
     bucket = floor_to_5min_utc(datetime.now(timezone.utc))
     n = 0
     for sn in sns:
-        soc, _, _, _, grid_w, freq_hz = merged.get(sn, (None, None, None, None, None, None))
+        soc, bat_w, load_w, pv_w, grid_w, freq_hz = merged.get(
+            sn, (None, None, None, None, None, None)
+        )
         soc_val: Optional[float] = None
         if soc is not None:
             try:
@@ -100,9 +169,44 @@ async def run_deye_soc_snapshot(session: AsyncSession) -> int:
                     freq_val = fv
             except (TypeError, ValueError):
                 pass
-        if soc_val is None and grid_val is None and freq_val is None:
+        load_val: Optional[float] = None
+        if load_w is not None:
+            try:
+                load_val = max(0.0, float(load_w))
+            except (TypeError, ValueError):
+                pass
+        pv_val: Optional[float] = None
+        if pv_w is not None:
+            try:
+                pv_val = max(0.0, float(pv_w))
+            except (TypeError, ValueError):
+                pass
+        bat_val: Optional[float] = None
+        if bat_w is not None:
+            try:
+                bat_val = float(bat_w)
+            except (TypeError, ValueError):
+                pass
+        if (
+            soc_val is None
+            and grid_val is None
+            and freq_val is None
+            and load_val is None
+            and pv_val is None
+            and bat_val is None
+        ):
             continue
-        await upsert_deye_sample(session, sn, bucket, soc_val, grid_val, freq_val)
+        await upsert_deye_sample(
+            session,
+            sn,
+            bucket,
+            soc_val,
+            grid_val,
+            freq_val,
+            load_val,
+            pv_val,
+            bat_val,
+        )
         n += 1
     return n
 
@@ -131,23 +235,44 @@ async def hourly_inverter_history_for_kyiv_day(
     start_utc = start_kyiv.astimezone(timezone.utc)
     end_utc = end_kyiv.astimezone(timezone.utc)
 
-    result = await session.execute(
-        select(
-            DeyeSocSample.bucket_start,
-            DeyeSocSample.soc_percent,
-            DeyeSocSample.grid_power_w,
-            DeyeSocSample.grid_frequency_hz,
-        ).where(
-            DeyeSocSample.device_sn == sn,
-            DeyeSocSample.bucket_start >= start_utc,
-            DeyeSocSample.bucket_start < end_utc,
+    extras = await deye_soc_balance_input_columns_ready(session)
+    if extras:
+        result = await session.execute(
+            select(
+                DeyeSocSample.bucket_start,
+                DeyeSocSample.soc_percent,
+                DeyeSocSample.grid_power_w,
+                DeyeSocSample.grid_frequency_hz,
+                DeyeSocSample.load_power_w,
+                DeyeSocSample.pv_power_w,
+                DeyeSocSample.battery_power_w,
+            ).where(
+                DeyeSocSample.device_sn == sn,
+                DeyeSocSample.bucket_start >= start_utc,
+                DeyeSocSample.bucket_start < end_utc,
+            )
         )
-    )
-    rows = result.all()
+        rows = result.all()
+    else:
+        result = await session.execute(
+            select(
+                DeyeSocSample.bucket_start,
+                DeyeSocSample.soc_percent,
+                DeyeSocSample.grid_power_w,
+                DeyeSocSample.grid_frequency_hz,
+            ).where(
+                DeyeSocSample.device_sn == sn,
+                DeyeSocSample.bucket_start >= start_utc,
+                DeyeSocSample.bucket_start < end_utc,
+            )
+        )
+        rows = [(a, b, c, d, None, None, None) for (a, b, c, d) in result.all()]
+
     soc_buckets: list[list[float]] = [[] for _ in range(24)]
     grid_buckets: list[list[float]] = [[] for _ in range(24)]
     freq_buckets: list[list[float]] = [[] for _ in range(24)]
-    for bucket_start, soc, grid_w, freq_hz in rows:
+    balance_buckets: list[list[float]] = [[] for _ in range(24)]
+    for bucket_start, soc, grid_w, freq_hz, load_w, pv_w, bat_w in rows:
         local = bucket_start.astimezone(KYIV)
         h = int(local.hour)
         if 0 <= h <= 23:
@@ -157,8 +282,21 @@ async def hourly_inverter_history_for_kyiv_day(
                 grid_buckets[h].append(float(grid_w))
             if freq_hz is not None:
                 freq_buckets[h].append(float(freq_hz))
+            if load_w is not None and pv_w is not None and bat_w is not None:
+                balance_buckets[h].append(
+                    float(load_w)
+                    - FLOW_BALANCE_PV_FACTOR * float(pv_w)
+                    - float(bat_w)
+                )
 
     soc_out = [_mean_or_none(soc_buckets[i]) for i in range(24)]
     grid_out = [_mean_or_none(grid_buckets[i]) for i in range(24)]
     freq_out = [_mean_or_none(freq_buckets[i]) for i in range(24)]
+    balance_out = [_mean_or_none(balance_buckets[i]) for i in range(24)]
+
+    if sn in FLOW_BALANCE_DEVICE_SNS:
+        grid_out = [
+            balance_out[i] if balance_out[i] is not None else grid_out[i] for i in range(24)
+        ]
+
     return soc_out, grid_out, freq_out

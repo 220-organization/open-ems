@@ -29,6 +29,9 @@ class DeyeSocSample(Base):
     soc_percent: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
     grid_power_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
     grid_frequency_hz: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    load_power_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    pv_power_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    battery_power_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
     created_on: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

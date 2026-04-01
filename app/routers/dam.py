@@ -1,4 +1,4 @@
-"""DAM (OREE) hourly prices from open-ems DB; optional on-demand OREE sync for Kyiv tomorrow."""
+"""DAM (OREE) hourly prices from open-ems DB; chart-day is DB-only unless lazy sync is explicitly enabled."""
 
 from __future__ import annotations
 
@@ -33,7 +33,22 @@ def _kyiv_today() -> date:
 
 @router.post("/sync")
 async def dam_sync_now(db: AsyncSession = Depends(get_db)) -> JSONResponse:
-    """Fetch DAM from OREE API and upsert into oree_dam_price (requires OREE_API_KEY)."""
+    """
+    Fetch DAM from OREE API and upsert into oree_dam_price (requires OREE_API_KEY).
+
+    Disabled unless OREE_DAM_MANUAL_SYNC_ENABLED=1 — normal flow is daily background sync only.
+    """
+    if not settings.OREE_DAM_MANUAL_SYNC_ENABLED:
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": oree_dam_configured(),
+                "rows": 0,
+                "detail": "Manual DAM sync is disabled (set OREE_DAM_MANUAL_SYNC_ENABLED=1 to enable POST /api/dam/sync)",
+            },
+            status_code=403,
+            headers=_NO_STORE,
+        )
     if not oree_dam_configured():
         return JSONResponse(
             content={"ok": False, "configured": False, "rows": 0, "detail": "OREE_API_KEY not set"},
@@ -56,10 +71,10 @@ async def dam_chart_day(
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """
-    DAM chart hourly prices: always read from DB first (UAH/kWh = MWh/1000).
+    DAM chart hourly prices: read from DB only (UAH/kWh = MWh/1000).
 
-    If the DB has no data for the requested day and that day is tomorrow in Kyiv, may trigger an
-    OREE pull subject to OREE_DAM_LAZY_FETCH_MAX (chart-day lazy sync only). Other days never pull OREE here.
+    OREE is not called from this endpoint when OREE_DAM_LAZY_FETCH_MAX=0 (default). Populate prices via
+    the daily scheduler (OREE_DAM_DAILY_SYNC_* Europe/Kyiv) or manual POST /api/dam/sync if enabled.
     """
     day = date_param or _kyiv_today()
     zone = settings.OREE_COMPARE_ZONE_EIC

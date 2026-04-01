@@ -13,6 +13,7 @@ import {
 } from './powerFlowEngine';
 import DamChartPanel from './DamChartPanel';
 import DeyeInverterMessengerModal from './DeyeInverterMessengerModal';
+import { DEYE_FLOW_BALANCE_PV_FACTOR, usesDeyeFlowBalance } from './deyeFlowBalanceSites';
 import './power-flow.css';
 import './dam-chart.css';
 
@@ -707,11 +708,15 @@ export default function PowerFlowPage({
     Boolean(selInverterSn) &&
     deyeLive?.pvPowerW != null &&
     Number.isFinite(deyeLive.pvPowerW);
-  const displaySolarW = selInverterSn
+  const rawDisplaySolarW = selInverterSn
     ? useLivePv
       ? Math.max(0, deyeLive.pvPowerW)
       : null
     : solarW;
+  const displaySolarW =
+    rawDisplaySolarW != null && usesDeyeFlowBalance(selInverterSn)
+      ? rawDisplaySolarW * DEYE_FLOW_BALANCE_PV_FACTOR
+      : rawDisplaySolarW;
   /** Aggregate EV charging (B2B) is misleading next to a single Deye site — hide when an inverter is selected. */
   const showEvAggregate = !selInverterSn;
   const useLiveGrid =
@@ -731,10 +736,18 @@ export default function PowerFlowPage({
     Number.isFinite(deyeLive.loadPowerW)
       ? Math.max(0, deyeLive.loadPowerW)
       : null;
+  const useSpecialGridBalance =
+    usesDeyeFlowBalance(selInverterSn) &&
+    displaySolarW != null &&
+    displayEssW != null &&
+    displayLoadW != null;
+  const displayGridW = useSpecialGridBalance
+    ? displayLoadW - displaySolarW - displayEssW
+    : effectiveGridW;
   const loadFlowActive = displayLoadW != null && displayLoadW > 0;
   const solarFlowActive = displaySolarW != null && displaySolarW > 0;
-  const gridFlowActive = effectiveGridW != null && Math.abs(effectiveGridW) > 0;
-  const gridSelling = effectiveGridW != null && effectiveGridW < 0;
+  const gridFlowActive = displayGridW != null && Math.abs(displayGridW) > 0;
+  const gridSelling = displayGridW != null && displayGridW < 0;
   const hasFlow =
     (showEvAggregate && consumptionW > 0) ||
     minerW > 0 ||
@@ -1590,8 +1603,8 @@ export default function PowerFlowPage({
                   <span className="pf-node-label">{t('nodeGrid')}</span>
                   <span className="pf-node-value" id="pf-val-grid">
                     {gridSelling
-                      ? `↓ ${formatPower(Math.abs(effectiveGridW), t, bcp47)}`
-                      : formatPower(effectiveGridW, t, bcp47)}
+                      ? `↓ ${formatPower(Math.abs(displayGridW), t, bcp47)}`
+                      : formatPower(displayGridW, t, bcp47)}
                   </span>
                   <span className="pf-ess-status" id="pf-grid-selling" hidden={!gridSelling}>
                     {t('gridSelling')}

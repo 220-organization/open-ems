@@ -60,8 +60,8 @@ async def lifespan(app: FastAPI):
         stop_dam_sched = asyncio.Event()
         dam_sched_task = asyncio.create_task(dam_daily_sync_loop(stop_dam_sched))
         logger.info(
-            "OREE DAM: daily DB sync at %02d:%02d Europe/Kiev (OREE_DAM_DAILY_SYNC_* / disable with OREE_DAM_DAILY_SYNC_ENABLED=0)",
-            settings.OREE_DAM_DAILY_SYNC_HOUR_KYIV,
+            "OREE DAM: DB sync at Kyiv hours %s:%02d (skip if tomorrow complete; OREE_DAM_SYNC_HOURS_KYIV / disable with OREE_DAM_DAILY_SYNC_ENABLED=0)",
+            ",".join(str(h) for h in settings.OREE_DAM_SYNC_HOURS_KYIV),
             settings.OREE_DAM_DAILY_SYNC_MINUTE_KYIV,
         )
 

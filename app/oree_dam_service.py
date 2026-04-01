@@ -177,6 +177,16 @@ async def get_lazy_oree_chart_meta(session: AsyncSession, trade_day: date) -> Op
     }
 
 
+async def dam_trade_day_complete_in_db(
+    session: AsyncSession,
+    trade_day: date,
+    zone_eic: str,
+) -> bool:
+    """True when all 24 DAM periods exist for trade_day + zone (no OREE call needed)."""
+    hourly = await get_hourly_dam_uah_mwh(session, trade_day, zone_eic)
+    return len(hourly) == 24 and all(x is not None for x in hourly)
+
+
 async def get_hourly_dam_uah_mwh(
     session: AsyncSession,
     trade_day: date,

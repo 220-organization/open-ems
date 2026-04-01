@@ -13,6 +13,7 @@ from typing import Any, Optional
 import httpx
 
 from app import settings
+from app.deye_flow_balance import device_uses_flow_balance, flow_balance_grid_w
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -32,6 +33,22 @@ _live_cache: dict[
 _soc_lock = asyncio.Lock()
 SOC_CACHE_TTL_SEC = 300.0
 ESS_POWER_CACHE_TTL_SEC = 25.0
+
+
+def _finalize_live_metrics_for_sn(
+    sn: str,
+    bat: Optional[float],
+    load_w: Optional[float],
+    pv_w: Optional[float],
+    grid_w: Optional[float],
+    freq_hz: Optional[float],
+) -> tuple[Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]]:
+    """Override grid with load − k×pv − battery for sites where Deye grid register is wrong."""
+    if device_uses_flow_balance(sn):
+        derived = flow_balance_grid_w(load_w, pv_w, bat)
+        if derived is not None:
+            grid_w = derived
+    return bat, load_w, pv_w, grid_w, freq_hz
 
 
 def deye_missing_env_names() -> list[str]:
@@ -913,7 +930,7 @@ async def get_live_metrics_cached(
         if hit is not None:
             bat, load_w, pv_w, grid_w, freq_hz, ts = hit
             if now - ts < ESS_POWER_CACHE_TTL_SEC:
-                return bat, load_w, pv_w, grid_w, freq_hz
+                return _finalize_live_metrics_for_sn(sn, bat, load_w, pv_w, grid_w, freq_hz)
 
     base = settings.DEYE_API_BASE_URL.rstrip("/")
     async with httpx.AsyncClient(timeout=45.0) as client:
@@ -942,16 +959,17 @@ async def get_live_metrics_cached(
         ngrid = grid_w if grid_w is not None else ogrid
         nfreq = freq_hz if freq_hz is not None else ofreq
         _live_cache[sn] = (nbat, nload, npv, ngrid, nfreq, fetch_time)
+    fbat, fload, fpv, fgrid, ffreq = _finalize_live_metrics_for_sn(sn, nbat, nload, npv, ngrid, nfreq)
     logger.info(
         "Deye: live metrics sn=%s batteryW=%s loadW=%s pvW=%s gridW=%s gridHz=%s",
         sn,
-        nbat,
-        nload,
-        npv,
-        ngrid,
-        nfreq,
+        fbat,
+        fload,
+        fpv,
+        fgrid,
+        ffreq,
     )
-    return nbat, nload, npv, ngrid, nfreq
+    return fbat, fload, fpv, fgrid, ffreq
 
 
 async def get_battery_power_w_cached(device_sn: str) -> Optional[float]:
