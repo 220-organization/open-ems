@@ -12,10 +12,59 @@
 .dam-embedded-head {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 10px;
+}
+
+.dam-embedded-head-main {
+  flex: 1;
+  min-width: 160px;
+}
+
+.dam-title-with-compare {
+  margin-bottom: 16px;
+}
+
+.dam-title-with-compare .dam-title {
+  margin: 0 0 8px;
+}
+
+.dam-compare-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+}
+
+.dam-compare-select {
+  min-width: min(100%, 220px);
+  max-width: 100%;
+}
+
+.dam-trend-line {
+  font-size: 0.92rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.dam-trend-line-caption {
+  font-weight: 500;
+  color: rgba(255, 248, 252, 0.72);
+}
+
+.dam-trend-line--up {
+  color: #86efac;
+}
+
+.dam-trend-line--down {
+  color: #fca5a5;
+}
+
+.dam-trend-line--muted {
+  color: rgba(255, 248, 252, 0.45);
+  font-weight: 500;
 }
 
 .dam-title-embedded {
@@ -219,6 +268,69 @@
 }
 
 /* OREE official DAM embed — same layout idea as b2b OreePriceIndicesWidget (full-width under Open EMS chart). */
+.dam-indexes-wrap {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(252, 1, 155, 0.15);
+  width: 100%;
+}
+
+.dam-indexes-title {
+  margin: 0 0 6px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--pf-label);
+  line-height: 1.3;
+}
+
+.dam-base-index-block {
+  margin: 14px 0 12px;
+}
+
+.dam-base-index-heading {
+  margin: 0 0 8px;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--pf-label);
+  line-height: 1.25;
+}
+
+.dam-base-index-compare-row {
+  align-items: center;
+}
+
+.dam-indexes-trade-day {
+  margin: 0 0 10px;
+  font-size: 0.8125rem;
+  color: rgba(255, 248, 252, 0.62);
+}
+
+.dam-indexes-loading,
+.dam-indexes-error {
+  margin: 0 0 8px;
+  font-size: 0.875rem;
+}
+
+.dam-indexes-chart {
+  width: 100%;
+  min-height: 240px;
+}
+
+/* Recharts tooltip — force white text (library defaults can stay grey) */
+.dam-indexes-tooltip-wrap .recharts-default-tooltip {
+  color: #ffffff !important;
+}
+
+.dam-indexes-tooltip-wrap .recharts-tooltip-label {
+  color: #ffffff !important;
+}
+
+.dam-indexes-tooltip-wrap .recharts-tooltip-item-name,
+.dam-indexes-tooltip-wrap .recharts-tooltip-item-value,
+.dam-indexes-tooltip-wrap .recharts-tooltip-item-separator {
+  color: #ffffff !important;
+}
+
 .dam-oree-embed {
   margin-top: 16px;
   padding-top: 14px;

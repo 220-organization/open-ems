@@ -45,6 +45,7 @@ OREE_API_BASE_URL: str = os.environ.get(
     "https://api.oree.com.ua/index.php/api",
 ).rstrip("/")
 OREE_API_DAM_PRICES_PATH: str = (os.environ.get("OREE_API_DAM_PRICES_PATH") or "/damprices").strip()
+OREE_API_DAM_INDEXES_PATH: str = (os.environ.get("OREE_API_DAM_INDEXES_PATH") or "/damindexes").strip()
 OREE_API_KEY: str = (os.environ.get("OREE_API_KEY") or os.environ.get("OREE_API_API_KEY") or "").strip()
 OREE_COMPARE_ZONE_EIC: str = (
     os.environ.get("OREE_COMPARE_ZONE_EIC") or "10Y1001C--000182"

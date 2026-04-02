@@ -13,11 +13,13 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import settings
-from app.models import OreeDamLazyFetch, OreeDamPrice
+from app.models import OreeDamIndex, OreeDamLazyFetch, OreeDamPrice
 
 logger = logging.getLogger(__name__)
 
 KYIV = ZoneInfo("Europe/Kiev")
+
+DAM_INDEX_BANDS: tuple[str, ...] = ("DAY", "NIGHT", "PEAK", "HPEAK", "BASE")
 
 
 def oree_dam_configured() -> bool:
@@ -47,6 +49,36 @@ def _parse_date(s: str) -> Optional[date]:
         return date.fromisoformat(str(s).strip()[:10])
     except (TypeError, ValueError):
         return None
+
+
+def _parse_oree_index_trade_day(s: str) -> Optional[date]:
+    """Parse OREE index trade_day like '03.04.2026' (DD.MM.YYYY)."""
+    try:
+        parts = str(s).strip().split(".")
+        if len(parts) != 3:
+            return None
+        d, m, y = int(parts[0]), int(parts[1]), int(parts[2])
+        return date(y, m, d)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _format_trade_day_ddmmyyyy(d: date) -> str:
+    return f"{d.day:02d}.{d.month:02d}.{d.year}"
+
+
+def damindexes_response_trade_day(raw: dict[str, Any]) -> Optional[date]:
+    """First zone block with a parseable trade_day."""
+    for block in raw.values():
+        if not isinstance(block, dict):
+            continue
+        td = block.get("trade_day")
+        if td is None:
+            continue
+        parsed = _parse_oree_index_trade_day(str(td))
+        if parsed is not None:
+            return parsed
+    return None
 
 
 def _has_any_hourly(values: list[Optional[float]]) -> bool:
@@ -123,8 +155,9 @@ async def sync_dam_prices_to_db(session: AsyncSession) -> int:
                 },
             )
             saved += 1
+    idx_saved = await sync_dam_indexes_from_oree_fetch(session, None)
     await session.commit()
-    logger.info("OREE DAM sync: %s row(s) upserted", saved)
+    logger.info("OREE DAM sync: %s hour row(s); %s DAM index band row(s)", saved, idx_saved)
     return saved
 
 
@@ -253,3 +286,157 @@ async def get_hourly_dam_with_optional_sync(
     await sync_dam_prices_to_db(session)
     hourly = await get_hourly_dam_uah_mwh(session, trade_day, zone_eic)
     return hourly, True
+
+
+async def fetch_dam_indexes_json(trade_day: Optional[date] = None) -> dict[str, Any]:
+    """
+    GET OREE /damindexes — aggregated DAM index prices (DAY/NIGHT/PEAK/HPEAK/BASE) per zone.
+    Optional `trade_day` is sent as query param `date=YYYY-MM-DD` when set (if upstream supports it).
+    """
+    if not oree_dam_configured():
+        return {}
+    url = f"{settings.OREE_API_BASE_URL}{settings.OREE_API_DAM_INDEXES_PATH}"
+    headers = {"Accept": "application/json", "X-API-KEY": settings.OREE_API_KEY}
+    params: dict[str, str] = {}
+    if trade_day is not None:
+        params["date"] = trade_day.isoformat()
+    async with httpx.AsyncClient(timeout=45.0) as client:
+        r = await client.get(url, headers=headers, params=params or None)
+    if r.status_code >= 400:
+        logger.warning("OREE damindexes HTTP %s — %s", r.status_code, (r.text or "")[:500])
+        r.raise_for_status()
+    data = r.json()
+    if not isinstance(data, dict):
+        logger.warning("OREE damindexes: expected JSON object, got %s", type(data).__name__)
+        return {}
+    return data
+
+
+async def upsert_dam_indexes_from_oree_json(session: AsyncSession, raw: dict[str, Any]) -> int:
+    """Upsert all zones/bands from OREE /damindexes JSON. Returns number of rows written."""
+    if not raw:
+        return 0
+    upsert_sql = text(
+        """
+        INSERT INTO oree_dam_index (trade_day, zone_code, band, price_uah_mwh, percent_vs_prev, created_on, updated_on)
+        VALUES (:trade_day, :zone_code, :band, :price_uah_mwh, :percent_vs_prev, NOW(), NOW())
+        ON CONFLICT (trade_day, zone_code, band) DO UPDATE SET
+          price_uah_mwh = EXCLUDED.price_uah_mwh,
+          percent_vs_prev = EXCLUDED.percent_vs_prev,
+          updated_on = NOW()
+        """
+    )
+    n = 0
+    for zone_code, block in raw.items():
+        if not isinstance(block, dict):
+            continue
+        zc = str(zone_code).strip()[:16]
+        td_s = block.get("trade_day")
+        if td_s is None:
+            continue
+        trade_day = _parse_oree_index_trade_day(str(td_s))
+        if trade_day is None:
+            continue
+        for band in DAM_INDEX_BANDS:
+            cell = block.get(band)
+            if not isinstance(cell, dict):
+                continue
+            price_raw = cell.get("price")
+            if price_raw is None:
+                continue
+            price_uah_mwh = _parse_double(str(price_raw))
+            pct_raw = cell.get("percent")
+            pct_val: Optional[float]
+            if pct_raw is None or str(pct_raw).strip() == "":
+                pct_val = None
+            else:
+                pct_val = _parse_double(str(pct_raw))
+            await session.execute(
+                upsert_sql,
+                {
+                    "trade_day": trade_day,
+                    "zone_code": zc,
+                    "band": band,
+                    "price_uah_mwh": price_uah_mwh,
+                    "percent_vs_prev": pct_val,
+                },
+            )
+            n += 1
+    await session.flush()
+    return n
+
+
+async def sync_dam_indexes_from_oree_fetch(
+    session: AsyncSession, trade_day: Optional[date]
+) -> int:
+    """
+    Pull /damindexes from OREE and upsert into oree_dam_index.
+    When `trade_day` is set, only persist if API response trade_day matches (avoids wrong-day data).
+    """
+    if not oree_dam_configured():
+        return 0
+    raw = await fetch_dam_indexes_json(trade_day)
+    if not raw:
+        return 0
+    td = damindexes_response_trade_day(raw)
+    if td is None:
+        logger.warning("OREE damindexes: could not parse trade_day from response")
+        return 0
+    if trade_day is not None and td != trade_day:
+        logger.warning(
+            "OREE damindexes: requested %s but API returned %s — not saving",
+            trade_day.isoformat(),
+            td.isoformat(),
+        )
+        return 0
+    return await upsert_dam_indexes_from_oree_json(session, raw)
+
+
+async def get_dam_indexes_oree_shape_from_db(session: AsyncSession, day: date) -> Optional[dict[str, Any]]:
+    """Rebuild OREE-like JSON from DB for one calendar day, or None if no rows."""
+    res = await session.execute(
+        select(OreeDamIndex)
+        .where(OreeDamIndex.trade_day == day)
+        .order_by(OreeDamIndex.zone_code, OreeDamIndex.band)
+    )
+    rows = res.scalars().all()
+    if not rows:
+        return None
+    out: dict[str, Any] = {}
+    for r in rows:
+        z = r.zone_code
+        if z not in out:
+            out[z] = {"trade_day": _format_trade_day_ddmmyyyy(r.trade_day)}
+        pct_s = "" if r.percent_vs_prev is None else f"{r.percent_vs_prev:.2f}".replace(".", ",")
+        out[z][r.band] = {
+            "price": f"{r.price_uah_mwh:.2f}",
+            "percent": pct_s,
+        }
+    return out
+
+
+async def ensure_dam_indexes_for_day(session: AsyncSession, day: date) -> tuple[Optional[dict[str, Any]], str]:
+    """
+    Return OREE-shaped index JSON for `day` from DB if present; otherwise fetch OREE, upsert, commit.
+    Returns (data, source) with source 'db' | 'oree', or (None, '') if unavailable.
+    """
+    cached = await get_dam_indexes_oree_shape_from_db(session, day)
+    if cached is not None:
+        return cached, "db"
+    if not oree_dam_configured():
+        return None, ""
+    n = await sync_dam_indexes_from_oree_fetch(session, day)
+    if n == 0:
+        raw = await fetch_dam_indexes_json(None)
+        if not raw:
+            return None, ""
+        td = damindexes_response_trade_day(raw)
+        if td == day:
+            n = await upsert_dam_indexes_from_oree_json(session, raw)
+    if n == 0:
+        return None, ""
+    await session.commit()
+    out = await get_dam_indexes_oree_shape_from_db(session, day)
+    if out is None:
+        return None, ""
+    return out, "oree"

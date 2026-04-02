@@ -8,6 +8,35 @@ cd "$(dirname "$0")"
 #
 # Fixed dev layout: CRA (Power flow UI) on 9220, FastAPI on 9221. Re-run kills listeners first.
 # Override: UI_PORT=9330 API_PORT=9331 ./run-local.sh
+#
+# Fresh DB (drops Postgres volume, re-runs Flyway): ./run-local.sh -clean
+
+CLEAN_DB=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -clean|--clean)
+      CLEAN_DB=1
+      shift
+      ;;
+    -h|--help)
+      cat <<'EOF'
+Usage: ./run-local.sh [options]
+
+  -clean, --clean   Stop compose services and remove the PostgreSQL volume (empty DB, Flyway from scratch).
+                    Use after migration checksum conflicts or to reset local data.
+
+  -h, --help        Show this help.
+
+Environment: UI_PORT, API_PORT, DATABASE_URL, UVICORN_RELOAD, REACT_APP_API_BASE_URL, ...
+EOF
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1 (use -h for help)" >&2
+      exit 1
+      ;;
+  esac
+done
 
 export DATABASE_URL="${DATABASE_URL:-postgresql+asyncpg://openems:openems@127.0.0.1:5433/openems}"
 
@@ -34,6 +63,11 @@ sleep 1
 
 if ! command -v lsof >/dev/null 2>&1; then
   echo "Note: lsof not found — install it to auto-free ports when re-running this script." >&2
+fi
+
+if [[ "${CLEAN_DB}" -eq 1 ]]; then
+  echo "Cleaning local database: docker compose down -v (removes volume open_ems_pgdata)…" >&2
+  docker compose down -v
 fi
 
 docker compose up -d db

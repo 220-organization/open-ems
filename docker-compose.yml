@@ -11,9 +11,9 @@ services:
     volumes:
       - open_ems_pgdata:/var/lib/postgresql/data
     ports:
-      - "5433:5432"
+      - '5433:5432'
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U openems -d openems"]
+      test: ['CMD-SHELL', 'pg_isready -U openems -d openems']
       interval: 3s
       timeout: 5s
       retries: 15
@@ -31,9 +31,9 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - "9221:8090"
+      - '9221:8090'
     environment:
-      OPEN_EMS_SERVE_SPA: "0"
+      OPEN_EMS_SERVE_SPA: '0'
       DATABASE_URL: postgresql+asyncpg://openems:openems@db:5432/openems
       B2B_API_BASE_URL: ${B2B_API_BASE_URL:-https://220-km.com:8080}
       DEYE_API_BASE_URL: ${DEYE_API_BASE_URL:-https://eu1-developer.deyecloud.com/v1.0}
@@ -64,7 +64,7 @@ services:
         REACT_APP_GA_MEASUREMENT_ID: ${REACT_APP_GA_MEASUREMENT_ID:-}
     restart: unless-stopped
     ports:
-      - "9220:80"
+      - '9220:80'
     depends_on:
       - api
 

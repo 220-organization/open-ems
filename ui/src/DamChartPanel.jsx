@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Bar,
+  BarChart,
   CartesianGrid,
   Cell,
   ComposedChart,
@@ -21,6 +22,46 @@ function apiUrl(path) {
   const base = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
   if (!base) return path;
   return `${base}${path}`;
+}
+
+const DAM_INDEX_KEYS = ['DAY', 'NIGHT', 'PEAK', 'HPEAK', 'BASE'];
+
+const DAM_INDEX_BAR_COLORS = ['#22c55e', '#38bdf8', '#f59e0b', '#a78bfa', '#f472b6'];
+
+function parseOreeDecimalLoose(s) {
+  if (s == null || s === '') return null;
+  const n = Number(String(s).replace(',', '.').trim());
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Pick first zone block (prefer IND) from OREE /damindexes JSON. */
+function pickDamIndexesZone(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  if (raw.IND && typeof raw.IND === 'object') return raw.IND;
+  const withDay = Object.keys(raw).find(k => raw[k]?.trade_day != null);
+  return withDay ? raw[withDay] : null;
+}
+
+function buildDamIndexRows(oreeZoneBlock, t) {
+  if (!oreeZoneBlock || typeof oreeZoneBlock !== 'object') return { tradeDay: '', rows: [] };
+  const tradeDay = oreeZoneBlock.trade_day != null ? String(oreeZoneBlock.trade_day) : '';
+  const rows = [];
+  for (let i = 0; i < DAM_INDEX_KEYS.length; i += 1) {
+    const k = DAM_INDEX_KEYS[i];
+    const cell = oreeZoneBlock[k];
+    const priceMwh = cell && typeof cell === 'object' ? parseOreeDecimalLoose(cell.price) : null;
+    const percent = cell && typeof cell === 'object' ? parseOreeDecimalLoose(cell.percent) : null;
+    if (priceMwh == null) continue;
+    const priceUahKwh = priceMwh / 1000;
+    rows.push({
+      key: k,
+      label: t(`damIndex${k}`),
+      priceUahKwh,
+      percent,
+      color: DAM_INDEX_BAR_COLORS[i] ?? '#e879f9',
+    });
+  }
+  return { tradeDay, rows };
 }
 
 function kyivCalendarIso() {
@@ -53,6 +94,121 @@ function maxTradeDayKyivIso() {
 function clampTradeDayIso(iso) {
   const cap = maxTradeDayKyivIso();
   return iso > cap ? cap : iso;
+}
+
+function isoFromUtcDate(d) {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function monthStartIso(iso) {
+  const [y, m] = iso.split('-').map(Number);
+  return `${y}-${String(m).padStart(2, '0')}-01`;
+}
+
+/** Inclusive list of calendar ISO dates from start to end (string order matches chronology). */
+function listDaysInclusive(startIso, endIso) {
+  const out = [];
+  let cur = startIso;
+  while (cur <= endIso) {
+    out.push(cur);
+    cur = addCalendarDays(cur, 1);
+  }
+  return out;
+}
+
+function prevMonthRangeIso(tradeDayIso) {
+  const [y, m] = tradeDayIso.split('-').map(Number);
+  const monthIdx = m - 1;
+  const end = new Date(Date.UTC(y, monthIdx, 0));
+  const start = new Date(Date.UTC(y, monthIdx - 1, 1));
+  return listDaysInclusive(isoFromUtcDate(start), isoFromUtcDate(end));
+}
+
+function avgDamFromHourly(hourly) {
+  if (!Array.isArray(hourly)) return null;
+  const nums = hourly.filter(x => x != null && Number.isFinite(Number(x))).map(Number);
+  if (!nums.length) return null;
+  return nums.reduce((a, b) => a + b, 0) / nums.length;
+}
+
+function combinedAvgFromPayloads(payloads) {
+  const all = [];
+  for (const p of payloads) {
+    const h = p?.hourlyPriceDamUahPerKwh;
+    if (!Array.isArray(h)) continue;
+    for (const x of h) {
+      if (x != null && Number.isFinite(Number(x))) all.push(Number(x));
+    }
+  }
+  if (!all.length) return null;
+  return all.reduce((a, b) => a + b, 0) / all.length;
+}
+
+/** Compare DAM at Kyiv current hour vs previous hour; for other days compare last two hours of the day. */
+function hourComparisonIndices(tradeDayIso) {
+  const todayKyiv = kyivCalendarIso();
+  if (tradeDayIso === todayKyiv) {
+    const hi = kyivHourIndexNowForDate(tradeDayIso);
+    if (hi === null) {
+      return { currentIdx: 23, prevIdx: 22, needPrevDay: false };
+    }
+    return {
+      currentIdx: hi,
+      prevIdx: hi > 0 ? hi - 1 : null,
+      needPrevDay: hi === 0,
+    };
+  }
+  return { currentIdx: 23, prevIdx: 22, needPrevDay: false };
+}
+
+const DAM_COMPARE_DAY = 'day';
+const DAM_COMPARE_HOUR = 'hour';
+const DAM_COMPARE_MONTH = 'month';
+
+function computeNeededCompareDates(tradeDay, mode) {
+  if (mode === DAM_COMPARE_DAY) {
+    return [addCalendarDays(tradeDay, -1)];
+  }
+  if (mode === DAM_COMPARE_HOUR) {
+    const h = hourComparisonIndices(tradeDay);
+    return h.needPrevDay ? [addCalendarDays(tradeDay, -1)] : [];
+  }
+  if (mode === DAM_COMPARE_MONTH) {
+    const mtd = listDaysInclusive(monthStartIso(tradeDay), tradeDay);
+    const prev = prevMonthRangeIso(tradeDay);
+    const set = new Set([...mtd.filter(d => d !== tradeDay), ...prev]);
+    return [...set];
+  }
+  return [];
+}
+
+/** BASE index is one value per trade day — no hourly comparison; skip extra fetches for hour mode. */
+function computeNeededBaseIndexCompareDates(tradeDay, mode) {
+  if (mode === DAM_COMPARE_HOUR) {
+    return [];
+  }
+  return computeNeededCompareDates(tradeDay, mode);
+}
+
+function basePriceUahMwhFromDamindexesPayload(perm) {
+  if (!perm?.ok || !perm.data) return null;
+  const z = pickDamIndexesZone(perm.data);
+  const cell = z?.BASE;
+  if (!cell || typeof cell !== 'object') return null;
+  return parseOreeDecimalLoose(cell.price);
+}
+
+function combinedAvgBaseFromIndexPayloads(payloads) {
+  const nums = [];
+  for (const p of payloads) {
+    const v = basePriceUahMwhFromDamindexesPayload(p);
+    if (v != null && Number.isFinite(v)) nums.push(v);
+  }
+  if (!nums.length) return null;
+  return nums.reduce((a, b) => a + b, 0) / nums.length;
 }
 
 function initialTradeDayFullPage() {
@@ -162,6 +318,15 @@ export default function DamChartPanel({
   const [liveBatteryPowerW, setLiveBatteryPowerW] = useState(null);
   /** Grid frequency (Hz) line on DAM chart — off by default. */
   const [showGridFrequencyLine, setShowGridFrequencyLine] = useState(false);
+  const [damCompareMode, setDamCompareMode] = useState(DAM_COMPARE_DAY);
+  const [extraByDate, setExtraByDate] = useState({});
+  const [compareLoading, setCompareLoading] = useState(false);
+  const [indexesPayload, setIndexesPayload] = useState(null);
+  const [indexesLoading, setIndexesLoading] = useState(true);
+  const [indexesError, setIndexesError] = useState('');
+  const [baseIndexCompareMode, setBaseIndexCompareMode] = useState(DAM_COMPARE_DAY);
+  const [baseIndexExtraByDate, setBaseIndexExtraByDate] = useState({});
+  const [baseIndexCompareLoading, setBaseIndexCompareLoading] = useState(false);
   const [urlInverterOnce] = useState(readInverterFromSearchOnce);
 
   const effectiveInverterSn = (
@@ -188,7 +353,7 @@ export default function DamChartPanel({
         minimumFractionDigits: 1,
         maximumFractionDigits: 1,
       }),
-    [bcp47],
+    [bcp47]
   );
 
   const fmtGridKwTick = useMemo(
@@ -205,6 +370,26 @@ export default function DamChartPanel({
       new Intl.NumberFormat(bcp47, {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
+      }),
+    [bcp47]
+  );
+
+  const fmtPct = useMemo(
+    () =>
+      new Intl.NumberFormat(bcp47, {
+        maximumFractionDigits: 1,
+        minimumFractionDigits: 1,
+        signDisplay: 'exceptZero',
+      }),
+    [bcp47]
+  );
+
+  /** DAM index chart values are UAH/kWh (API stores UAH/MWh). */
+  const fmtIndexKwh = useMemo(
+    () =>
+      new Intl.NumberFormat(bcp47, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 3,
       }),
     [bcp47]
   );
@@ -240,6 +425,115 @@ export default function DamChartPanel({
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setIndexesLoading(true);
+      setIndexesError('');
+      try {
+        const q = new URLSearchParams({ date: tradeDay });
+        const r = await fetch(apiUrl(`/api/dam/damindexes?${q}`), { cache: 'no-store' });
+        const data = await r.json().catch(() => ({}));
+        if (cancelled) return;
+        setIndexesPayload(data);
+        if (!r.ok || !data.ok) {
+          if (data.configured === false) setIndexesError('');
+          else setIndexesError(data.detail || r.statusText || 'damindexes');
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setIndexesPayload(null);
+          setIndexesError(e instanceof Error ? e.message : String(e));
+        }
+      } finally {
+        if (!cancelled) setIndexesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tradeDay]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const need = computeNeededCompareDates(tradeDay, damCompareMode);
+    const needFetch = need.filter(d => d !== tradeDay);
+    if (needFetch.length === 0) {
+      setExtraByDate({});
+      setCompareLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+    setCompareLoading(true);
+    setExtraByDate({});
+    (async () => {
+      const entries = await Promise.all(
+        needFetch.map(async iso => {
+          try {
+            const q = new URLSearchParams({ date: iso });
+            const r = await fetch(apiUrl(`/api/dam/chart-day?${q}`), { cache: 'no-store' });
+            if (!r.ok) return [iso, null];
+            const data = await r.json();
+            return [iso, data];
+          } catch {
+            return [iso, null];
+          }
+        })
+      );
+      if (cancelled) return;
+      const next = {};
+      for (const [iso, data] of entries) {
+        if (data?.ok) next[iso] = data;
+      }
+      setExtraByDate(next);
+      setCompareLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tradeDay, damCompareMode]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const need = computeNeededBaseIndexCompareDates(tradeDay, baseIndexCompareMode);
+    const needFetch = need.filter(d => d !== tradeDay);
+    if (needFetch.length === 0) {
+      setBaseIndexExtraByDate({});
+      setBaseIndexCompareLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+    setBaseIndexCompareLoading(true);
+    setBaseIndexExtraByDate({});
+    (async () => {
+      const entries = await Promise.all(
+        needFetch.map(async iso => {
+          try {
+            const q = new URLSearchParams({ date: iso });
+            const r = await fetch(apiUrl(`/api/dam/damindexes?${q}`), { cache: 'no-store' });
+            if (!r.ok) return [iso, null];
+            const data = await r.json();
+            return [iso, data];
+          } catch {
+            return [iso, null];
+          }
+        })
+      );
+      if (cancelled) return;
+      const next = {};
+      for (const [iso, data] of entries) {
+        if (data?.ok) next[iso] = data;
+      }
+      setBaseIndexExtraByDate(next);
+      setBaseIndexCompareLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tradeDay, baseIndexCompareMode]);
 
   useEffect(() => {
     if (!effectiveInverterSn) {
@@ -479,6 +773,118 @@ export default function DamChartPanel({
     [rows]
   );
 
+  const damTrendPct = useMemo(() => {
+    if (!payload?.ok || !Array.isArray(payload.hourlyPriceDamUahPerKwh)) return null;
+    if (compareLoading) return null;
+    const dam = payload.hourlyPriceDamUahPerKwh;
+
+    if (damCompareMode === DAM_COMPARE_DAY) {
+      const prev = extraByDate[addCalendarDays(tradeDay, -1)]?.hourlyPriceDamUahPerKwh;
+      const a = avgDamFromHourly(dam);
+      const b = avgDamFromHourly(prev);
+      if (a == null || b == null || b === 0) return null;
+      return ((a - b) / b) * 100;
+    }
+
+    if (damCompareMode === DAM_COMPARE_HOUR) {
+      const h = hourComparisonIndices(tradeDay);
+      const cur = dam[h.currentIdx];
+      let prev;
+      if (h.needPrevDay) {
+        const pd = extraByDate[addCalendarDays(tradeDay, -1)]?.hourlyPriceDamUahPerKwh;
+        prev = Array.isArray(pd) ? pd[23] : null;
+      } else {
+        prev = h.prevIdx != null ? dam[h.prevIdx] : null;
+      }
+      if (
+        cur == null ||
+        prev == null ||
+        !Number.isFinite(Number(cur)) ||
+        !Number.isFinite(Number(prev)) ||
+        Number(prev) === 0
+      ) {
+        return null;
+      }
+      return ((Number(cur) - Number(prev)) / Number(prev)) * 100;
+    }
+
+    if (damCompareMode === DAM_COMPARE_MONTH) {
+      const mtd = listDaysInclusive(monthStartIso(tradeDay), tradeDay);
+      const prevRange = prevMonthRangeIso(tradeDay);
+      const mtdPayloads = mtd.map(d => (d === tradeDay ? payload : extraByDate[d]));
+      const prevPayloads = prevRange.map(d => extraByDate[d]);
+      if (mtdPayloads.some(p => !p?.ok)) return null;
+      if (prevPayloads.some(p => !p?.ok)) return null;
+      const a = combinedAvgFromPayloads(mtdPayloads);
+      const b = combinedAvgFromPayloads(prevPayloads);
+      if (a == null || b == null || b === 0) return null;
+      return ((a - b) / b) * 100;
+    }
+
+    return null;
+  }, [payload, extraByDate, tradeDay, damCompareMode, compareLoading]);
+
+  const damTrendCaptionKey =
+    damCompareMode === DAM_COMPARE_HOUR
+      ? 'damTrendCaptionHour'
+      : damCompareMode === DAM_COMPARE_MONTH
+        ? 'damTrendCaptionMonth'
+        : 'damTrendCaptionDay';
+
+  const damIndexChart = useMemo(() => {
+    if (!indexesPayload?.ok || !indexesPayload?.data) return { tradeDay: '', rows: [] };
+    const zone = pickDamIndexesZone(indexesPayload.data);
+    if (!zone) return { tradeDay: '', rows: [] };
+    return buildDamIndexRows(zone, t);
+  }, [indexesPayload, t]);
+
+  const baseIndexTrendPct = useMemo(() => {
+    if (!indexesPayload?.ok || !indexesPayload.data) return null;
+    if (baseIndexCompareLoading || indexesLoading) return null;
+
+    if (baseIndexCompareMode === DAM_COMPARE_HOUR) {
+      return null;
+    }
+
+    if (baseIndexCompareMode === DAM_COMPARE_DAY) {
+      const a = basePriceUahMwhFromDamindexesPayload(indexesPayload);
+      const b = basePriceUahMwhFromDamindexesPayload(
+        baseIndexExtraByDate[addCalendarDays(tradeDay, -1)]
+      );
+      if (a == null || b == null || b === 0) return null;
+      return ((a - b) / b) * 100;
+    }
+
+    if (baseIndexCompareMode === DAM_COMPARE_MONTH) {
+      const mtd = listDaysInclusive(monthStartIso(tradeDay), tradeDay);
+      const prevRange = prevMonthRangeIso(tradeDay);
+      const mtdPayloads = mtd.map(d => (d === tradeDay ? indexesPayload : baseIndexExtraByDate[d]));
+      const prevPayloads = prevRange.map(d => baseIndexExtraByDate[d]);
+      if (mtdPayloads.some(p => !p?.ok)) return null;
+      if (prevPayloads.some(p => !p?.ok)) return null;
+      const a = combinedAvgBaseFromIndexPayloads(mtdPayloads);
+      const b = combinedAvgBaseFromIndexPayloads(prevPayloads);
+      if (a == null || b == null || b === 0) return null;
+      return ((a - b) / b) * 100;
+    }
+
+    return null;
+  }, [
+    indexesPayload,
+    baseIndexExtraByDate,
+    tradeDay,
+    baseIndexCompareMode,
+    baseIndexCompareLoading,
+    indexesLoading,
+  ]);
+
+  const baseIndexTrendCaptionKey =
+    baseIndexCompareMode === DAM_COMPARE_HOUR
+      ? 'damTrendCaptionHour'
+      : baseIndexCompareMode === DAM_COMPARE_MONTH
+        ? 'damTrendCaptionMonth'
+        : 'damTrendCaptionDay';
+
   const dateBar = (
     <div className="dam-date-bar" role="group" aria-label={t('damDateLabel')}>
       <button type="button" className="dam-date-btn" onClick={goPrev} aria-label={t('damPrevDay')}>
@@ -501,6 +907,36 @@ export default function DamChartPanel({
       >
         ›
       </button>
+    </div>
+  );
+
+  const damCompareControls = (
+    <div className="dam-compare-row">
+      <select
+        id={`dam-compare-mode-${variant}`}
+        className="pf-lang-select dam-compare-select"
+        aria-label={t('damCompareSelectAria')}
+        value={damCompareMode}
+        onChange={e => setDamCompareMode(e.target.value)}
+      >
+        <option value={DAM_COMPARE_HOUR}>{t('damCompareOptionHour')}</option>
+        <option value={DAM_COMPARE_DAY}>{t('damCompareOptionDay')}</option>
+        <option value={DAM_COMPARE_MONTH}>{t('damCompareOptionMonth')}</option>
+      </select>
+      <div className="dam-trend-line" aria-live="polite">
+        {compareLoading || loading ? (
+          <span className="dam-trend-line--muted">…</span>
+        ) : damTrendPct == null ? (
+          <span className="dam-trend-line--muted">—</span>
+        ) : (
+          <>
+            <span className={damTrendPct >= 0 ? 'dam-trend-line--up' : 'dam-trend-line--down'}>
+              {fmtPct.format(damTrendPct)}%
+            </span>
+            <span className="dam-trend-line-caption"> {t(damTrendCaptionKey)}</span>
+          </>
+        )}
+      </div>
     </div>
   );
 
@@ -530,7 +966,10 @@ export default function DamChartPanel({
         </header>
       ) : (
         <div className="dam-embedded-head">
-          <h2 className="dam-title dam-title-embedded">{t('damChartHeading')}</h2>
+          <div className="dam-embedded-head-main">
+            <h2 className="dam-title dam-title-embedded">{t('damChartHeading')}</h2>
+            {damCompareControls}
+          </div>
           {dateBar}
         </div>
       )}
@@ -560,7 +999,12 @@ export default function DamChartPanel({
       ) : null}
 
       <div className={variant === 'fullpage' ? 'dam-chart-card' : 'dam-chart-card dam-chart-card-embedded'}>
-        {variant === 'fullpage' ? <h1 className="dam-title">{t('damChartHeading')}</h1> : null}
+        {variant === 'fullpage' ? (
+          <div className="dam-title-with-compare">
+            <h1 className="dam-title">{t('damChartHeading')}</h1>
+            {damCompareControls}
+          </div>
+        ) : null}
 
         {loadError ? (
           <p className="dam-error" role="alert">
@@ -673,10 +1117,7 @@ export default function DamChartPanel({
                     if (name === damSeriesName) {
                       const n = Number(value);
                       if (!Number.isFinite(n)) return ['—', t('damTooltipDamLabel')];
-                      return [
-                        `${fmtDamTooltip.format(n)} ${t('damTooltipDamUnit')}`,
-                        t('damTooltipDamLabel'),
-                      ];
+                      return [`${fmtDamTooltip.format(n)} ${t('damTooltipDamUnit')}`, t('damTooltipDamLabel')];
                     }
                     const socLabel = t('damSeriesSoc');
                     if (name === socLabel) return [`${fmt1.format(value)} %`, socLabel];
@@ -857,6 +1298,124 @@ export default function DamChartPanel({
                 />
               </ComposedChart>
             </ResponsiveContainer>
+          </div>
+        ) : null}
+
+        {(!indexesPayload || indexesPayload.configured !== false) ? (
+          <div className="dam-indexes-wrap">
+            <h3 className="dam-indexes-title">{t('damIndexesTitle')}</h3>
+            {damIndexChart.tradeDay ? (
+              <p className="dam-indexes-trade-day">
+                {t('damIndexesTradeDay')}: {damIndexChart.tradeDay}
+              </p>
+            ) : null}
+            <div className="dam-base-index-block">
+              <h4 className="dam-base-index-heading">{t('damBaseIndexHeading')}</h4>
+              <div className="dam-compare-row dam-base-index-compare-row">
+                <select
+                  id={`dam-base-index-compare-${variant}`}
+                  className="pf-lang-select dam-compare-select"
+                  aria-label={t('damBaseIndexCompareAria')}
+                  value={baseIndexCompareMode}
+                  onChange={e => setBaseIndexCompareMode(e.target.value)}
+                >
+                  <option value={DAM_COMPARE_HOUR}>{t('damCompareOptionHour')}</option>
+                  <option value={DAM_COMPARE_DAY}>{t('damCompareOptionDay')}</option>
+                  <option value={DAM_COMPARE_MONTH}>{t('damCompareOptionMonth')}</option>
+                </select>
+                <div className="dam-trend-line" aria-live="polite">
+                  {baseIndexCompareLoading || indexesLoading ? (
+                    <span className="dam-trend-line--muted">…</span>
+                  ) : baseIndexTrendPct == null ? (
+                    <span className="dam-trend-line--muted">—</span>
+                  ) : (
+                    <>
+                      <span
+                        className={baseIndexTrendPct >= 0 ? 'dam-trend-line--up' : 'dam-trend-line--down'}
+                      >
+                        {fmtPct.format(baseIndexTrendPct)}%
+                      </span>
+                      <span className="dam-trend-line-caption"> {t(baseIndexTrendCaptionKey)}</span>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+            {indexesLoading ? (
+              <p className="dam-loading dam-indexes-loading">{t('damIndexesLoading')}</p>
+            ) : null}
+            {indexesError ? (
+              <p className="dam-error dam-indexes-error" role="alert">
+                {t('damIndexesError')}: {indexesError}
+              </p>
+            ) : null}
+            {!indexesLoading && !indexesError && damIndexChart.rows.length > 0 ? (
+              <div className="dam-indexes-chart">
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart
+                    data={damIndexChart.rows}
+                    margin={{ top: 8, right: 10, left: 52, bottom: 8 }}
+                    aria-label={t('damIndexesTitle')}
+                  >
+                    <CartesianGrid stroke="rgba(252, 1, 155, 0.1)" strokeDasharray="3 3" vertical={false} />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fill: 'rgba(255,248,252,0.78)', fontSize: 11 }}
+                      tickLine={false}
+                      axisLine={{ stroke: 'rgba(252, 1, 155, 0.25)' }}
+                    />
+                    <YAxis
+                      width={72}
+                      tick={{ fill: 'rgba(255,248,252,0.85)', fontSize: 11 }}
+                      tickLine={false}
+                      axisLine={{ stroke: 'rgba(252, 1, 155, 0.25)' }}
+                      tickFormatter={v => fmtIndexKwh.format(v)}
+                      label={{
+                        value: t('damIndexesAxis'),
+                        angle: -90,
+                        position: 'left',
+                        offset: 2,
+                        dx: -44,
+                        style: {
+                          fill: 'rgba(255,248,252,0.88)',
+                          fontSize: 11,
+                          textAnchor: 'middle',
+                        },
+                      }}
+                    />
+                    <Tooltip
+                      cursor={{ fill: 'rgba(252, 1, 155, 0.06)' }}
+                      wrapperClassName="dam-indexes-tooltip-wrap"
+                      contentStyle={{
+                        background: 'rgba(24, 8, 32, 0.96)',
+                        border: '1px solid rgba(252, 1, 155, 0.35)',
+                        borderRadius: 10,
+                        color: '#ffffff',
+                      }}
+                      labelStyle={{ color: '#ffffff', fontWeight: 600 }}
+                      itemStyle={{ color: '#ffffff' }}
+                      formatter={(value, _name, item) => {
+                        const row = item?.payload;
+                        const pct =
+                          row?.percent != null && Number.isFinite(row.percent)
+                            ? ` (${fmtPct.format(row.percent)}%)`
+                            : '';
+                        return [
+                          `${fmtIndexKwh.format(value)} ${t('damTooltipDamUnit')}${pct}`,
+                          t('damIndexesTooltipPrice'),
+                        ];
+                      }}
+                      labelFormatter={label => label}
+                    />
+                    <Bar dataKey="priceUahKwh" name={t('damIndexesTooltipPrice')} radius={[8, 8, 0, 0]} maxBarSize={56}>
+                      {damIndexChart.rows.map(e => (
+                        <Cell key={`ix-${e.key}`} fill={e.color} fillOpacity={0.92} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : null}
           </div>
         ) : null}
 

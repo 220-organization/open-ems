@@ -116,3 +116,21 @@ class OreeDamPrice(Base):
     updated_on: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+
+class OreeDamIndex(Base):
+    """OREE /damindexes band prices (UAH/MWh); UI shows UAH/kWh = MWh/1000."""
+
+    __tablename__ = "oree_dam_index"
+
+    trade_day: Mapped[datetime.date] = mapped_column(Date, primary_key=True)
+    zone_code: Mapped[str] = mapped_column(String(16), primary_key=True)
+    band: Mapped[str] = mapped_column(String(16), primary_key=True)
+    price_uah_mwh: Mapped[float] = mapped_column(Double, nullable=False)
+    percent_vs_prev: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    created_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )

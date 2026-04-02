@@ -14,6 +14,7 @@ from app.db import get_db
 from app import settings
 from app.oree_dam_service import (
     KYIV,
+    ensure_dam_indexes_for_day,
     get_hourly_dam_with_optional_sync,
     get_lazy_oree_chart_meta,
     oree_dam_configured,
@@ -101,3 +102,54 @@ async def dam_chart_day(
         },
         headers=_NO_STORE,
     )
+
+
+@router.get("/damindexes")
+async def dam_damindexes(
+    date_param: Optional[date] = Query(default=None, alias="date"),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """
+    DAM price indices (DAY/NIGHT/PEAK/HPEAK/BASE) for `date` (YYYY-MM-DD), default Kyiv today.
+    Reads `oree_dam_index` first; if empty, calls OREE /damindexes and upserts, then returns.
+    Response `data` matches OREE shape (prices in UAH/MWh strings); UI converts to UAH/kWh.
+    """
+    day = date_param or _kyiv_today()
+    if not oree_dam_configured():
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": False,
+                "detail": "OREE_API_KEY not set",
+                "data": None,
+                "date": day.isoformat(),
+            },
+            headers=_NO_STORE,
+        )
+    try:
+        data, source = await ensure_dam_indexes_for_day(db, day)
+        if data is None:
+            return JSONResponse(
+                content={
+                    "ok": False,
+                    "configured": True,
+                    "detail": "No DAM index data for this date.",
+                    "data": None,
+                    "date": day.isoformat(),
+                },
+                status_code=404,
+                headers=_NO_STORE,
+            )
+        return JSONResponse(
+            content={
+                "ok": True,
+                "configured": True,
+                "date": day.isoformat(),
+                "source": source,
+                "data": data,
+            },
+            headers=_NO_STORE,
+        )
+    except Exception as exc:
+        logger.exception("damindexes failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
