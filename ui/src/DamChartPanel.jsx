@@ -147,34 +147,12 @@ function combinedAvgFromPayloads(payloads) {
   return all.reduce((a, b) => a + b, 0) / all.length;
 }
 
-/** Compare DAM at Kyiv current hour vs previous hour; for other days compare last two hours of the day. */
-function hourComparisonIndices(tradeDayIso) {
-  const todayKyiv = kyivCalendarIso();
-  if (tradeDayIso === todayKyiv) {
-    const hi = kyivHourIndexNowForDate(tradeDayIso);
-    if (hi === null) {
-      return { currentIdx: 23, prevIdx: 22, needPrevDay: false };
-    }
-    return {
-      currentIdx: hi,
-      prevIdx: hi > 0 ? hi - 1 : null,
-      needPrevDay: hi === 0,
-    };
-  }
-  return { currentIdx: 23, prevIdx: 22, needPrevDay: false };
-}
-
 const DAM_COMPARE_DAY = 'day';
-const DAM_COMPARE_HOUR = 'hour';
 const DAM_COMPARE_MONTH = 'month';
 
 function computeNeededCompareDates(tradeDay, mode) {
   if (mode === DAM_COMPARE_DAY) {
     return [addCalendarDays(tradeDay, -1)];
-  }
-  if (mode === DAM_COMPARE_HOUR) {
-    const h = hourComparisonIndices(tradeDay);
-    return h.needPrevDay ? [addCalendarDays(tradeDay, -1)] : [];
   }
   if (mode === DAM_COMPARE_MONTH) {
     const mtd = listDaysInclusive(monthStartIso(tradeDay), tradeDay);
@@ -183,14 +161,6 @@ function computeNeededCompareDates(tradeDay, mode) {
     return [...set];
   }
   return [];
-}
-
-/** BASE index is one value per trade day — no hourly comparison; skip extra fetches for hour mode. */
-function computeNeededBaseIndexCompareDates(tradeDay, mode) {
-  if (mode === DAM_COMPARE_HOUR) {
-    return [];
-  }
-  return computeNeededCompareDates(tradeDay, mode);
 }
 
 function basePriceUahMwhFromDamindexesPayload(perm) {
@@ -497,7 +467,7 @@ export default function DamChartPanel({
 
   useEffect(() => {
     let cancelled = false;
-    const need = computeNeededBaseIndexCompareDates(tradeDay, baseIndexCompareMode);
+    const need = computeNeededCompareDates(tradeDay, baseIndexCompareMode);
     const needFetch = need.filter(d => d !== tradeDay);
     if (needFetch.length === 0) {
       setBaseIndexExtraByDate({});
@@ -786,28 +756,6 @@ export default function DamChartPanel({
       return ((a - b) / b) * 100;
     }
 
-    if (damCompareMode === DAM_COMPARE_HOUR) {
-      const h = hourComparisonIndices(tradeDay);
-      const cur = dam[h.currentIdx];
-      let prev;
-      if (h.needPrevDay) {
-        const pd = extraByDate[addCalendarDays(tradeDay, -1)]?.hourlyPriceDamUahPerKwh;
-        prev = Array.isArray(pd) ? pd[23] : null;
-      } else {
-        prev = h.prevIdx != null ? dam[h.prevIdx] : null;
-      }
-      if (
-        cur == null ||
-        prev == null ||
-        !Number.isFinite(Number(cur)) ||
-        !Number.isFinite(Number(prev)) ||
-        Number(prev) === 0
-      ) {
-        return null;
-      }
-      return ((Number(cur) - Number(prev)) / Number(prev)) * 100;
-    }
-
     if (damCompareMode === DAM_COMPARE_MONTH) {
       const mtd = listDaysInclusive(monthStartIso(tradeDay), tradeDay);
       const prevRange = prevMonthRangeIso(tradeDay);
@@ -825,11 +773,7 @@ export default function DamChartPanel({
   }, [payload, extraByDate, tradeDay, damCompareMode, compareLoading]);
 
   const damTrendCaptionKey =
-    damCompareMode === DAM_COMPARE_HOUR
-      ? 'damTrendCaptionHour'
-      : damCompareMode === DAM_COMPARE_MONTH
-        ? 'damTrendCaptionMonth'
-        : 'damTrendCaptionDay';
+    damCompareMode === DAM_COMPARE_MONTH ? 'damTrendCaptionMonth' : 'damTrendCaptionDay';
 
   const damIndexChart = useMemo(() => {
     if (!indexesPayload?.ok || !indexesPayload?.data) return { tradeDay: '', rows: [] };
@@ -841,10 +785,6 @@ export default function DamChartPanel({
   const baseIndexTrendPct = useMemo(() => {
     if (!indexesPayload?.ok || !indexesPayload.data) return null;
     if (baseIndexCompareLoading || indexesLoading) return null;
-
-    if (baseIndexCompareMode === DAM_COMPARE_HOUR) {
-      return null;
-    }
 
     if (baseIndexCompareMode === DAM_COMPARE_DAY) {
       const a = basePriceUahMwhFromDamindexesPayload(indexesPayload);
@@ -879,11 +819,7 @@ export default function DamChartPanel({
   ]);
 
   const baseIndexTrendCaptionKey =
-    baseIndexCompareMode === DAM_COMPARE_HOUR
-      ? 'damTrendCaptionHour'
-      : baseIndexCompareMode === DAM_COMPARE_MONTH
-        ? 'damTrendCaptionMonth'
-        : 'damTrendCaptionDay';
+    baseIndexCompareMode === DAM_COMPARE_MONTH ? 'damTrendCaptionMonth' : 'damTrendCaptionDay';
 
   const dateBar = (
     <div className="dam-date-bar" role="group" aria-label={t('damDateLabel')}>
@@ -919,7 +855,6 @@ export default function DamChartPanel({
         value={damCompareMode}
         onChange={e => setDamCompareMode(e.target.value)}
       >
-        <option value={DAM_COMPARE_HOUR}>{t('damCompareOptionHour')}</option>
         <option value={DAM_COMPARE_DAY}>{t('damCompareOptionDay')}</option>
         <option value={DAM_COMPARE_MONTH}>{t('damCompareOptionMonth')}</option>
       </select>
@@ -1319,7 +1254,6 @@ export default function DamChartPanel({
                   value={baseIndexCompareMode}
                   onChange={e => setBaseIndexCompareMode(e.target.value)}
                 >
-                  <option value={DAM_COMPARE_HOUR}>{t('damCompareOptionHour')}</option>
                   <option value={DAM_COMPARE_DAY}>{t('damCompareOptionDay')}</option>
                   <option value={DAM_COMPARE_MONTH}>{t('damCompareOptionMonth')}</option>
                 </select>

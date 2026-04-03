@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.deye_api import (
+    assert_deye_write_pin,
     charge_soc_delta_then_zero_export_ct,
     deye_configured,
     deye_missing_env_names,
@@ -58,12 +59,14 @@ class Discharge2PctBody(BaseModel):
     deviceSn: str = Field(..., min_length=6, max_length=64)
     socDeltaPercent: Optional[DischargeSocDeltaPctOption] = None
     respondAfterStart: bool = False
+    pin: Optional[str] = Field(default=None, max_length=12)
 
 
 class PeakAutoDischargeBody(BaseModel):
     deviceSn: str = Field(..., min_length=6, max_length=64)
     enabled: bool
     dischargeSocDeltaPct: DischargeSocDeltaPctOption = 2
+    pin: Optional[str] = Field(default=None, max_length=12)
 
 
 class Charge2PctBody(BaseModel):
@@ -72,12 +75,14 @@ class Charge2PctBody(BaseModel):
     deviceSn: str = Field(..., min_length=6, max_length=64)
     socDeltaPercent: Optional[ChargeSocDeltaPctOption] = None
     respondAfterStart: bool = False
+    pin: Optional[str] = Field(default=None, max_length=12)
 
 
 class LowDamChargeBody(BaseModel):
     deviceSn: str = Field(..., min_length=6, max_length=64)
     enabled: bool
     chargeSocDeltaPct: ChargeSocDeltaPctOption = 10
+    pin: Optional[str] = Field(default=None, max_length=12)
 
 
 @router.get("/inverters")
@@ -355,8 +360,12 @@ async def post_peak_auto_discharge(
         )
     sn = body.deviceSn.strip()
     try:
+        await assert_deye_write_pin(sn, body.pin)
         await set_peak_auto_from_ui(db, sn, body.enabled, body.dischargeSocDeltaPct)
         await db.commit()
+    except HTTPException:
+        await db.rollback()
+        raise
     except ValueError as exc:
         await db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -400,6 +409,7 @@ async def post_discharge_2pct(
         )
     try:
         sn = body.deviceSn.strip()
+        await assert_deye_write_pin(sn, body.pin)
         delta = body.socDeltaPercent
         if delta is None:
             delta = await get_discharge_soc_delta_stored(db, sn)
@@ -410,6 +420,8 @@ async def post_discharge_2pct(
             content={"ok": True, "configured": True, **result},
             headers=_NO_STORE_CACHE,
         )
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -472,8 +484,12 @@ async def post_low_dam_charge(
         )
     sn = body.deviceSn.strip()
     try:
+        await assert_deye_write_pin(sn, body.pin)
         await set_low_dam_charge_from_ui(db, sn, body.enabled, body.chargeSocDeltaPct)
         await db.commit()
+    except HTTPException:
+        await db.rollback()
+        raise
     except ValueError as exc:
         await db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -515,6 +531,7 @@ async def post_charge_2pct(
         )
     try:
         sn = body.deviceSn.strip()
+        await assert_deye_write_pin(sn, body.pin)
         delta = body.socDeltaPercent
         if delta is None:
             delta = await get_charge_soc_delta_stored(db, sn)
@@ -525,6 +542,8 @@ async def post_charge_2pct(
             content={"ok": True, "configured": True, **result},
             headers=_NO_STORE_CACHE,
         )
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:

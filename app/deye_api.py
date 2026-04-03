@@ -8,12 +8,14 @@ import json
 import logging
 import re
 import time
+from dataclasses import dataclass
 from typing import Any, Optional
 
 import httpx
 
 from app import settings
 from app.deye_flow_balance import device_uses_flow_balance, flow_balance_grid_w
+from app.deye_inverter_pin import assert_inverter_write_pin, strip_inverter_pin_suffix
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -218,21 +220,27 @@ def _log_list_with_device_round_trip(page: int, base: str, req_body: dict[str, A
             logger.info("Deye: listWithDevice RESPONSE (could not json-dump)")
 
 
-def _station_label(st: dict[str, Any], device: dict[str, Any]) -> str:
-    pname = str(
-        st.get("stationName") or st.get("name") or st.get("title") or "",
-    ).strip()
-    dname = str(device.get("deviceName") or device.get("name") or "").strip()
-    sn = str(device.get("deviceSn") or device.get("serialNumber") or "")
-    if pname and dname:
-        return f"{pname} — {dname}"
-    if pname:
-        return f"{pname} — {sn}" if sn else pname
-    return dname or sn or "inverter"
+def _compose_inverter_label(pname: str, dname: str, sn: str) -> str:
+    """Build list label from plant + device display names (already PIN-stripped by caller)."""
+    p = (pname or "").strip()
+    d = (dname or "").strip()
+    s = (sn or "").strip()
+    if p and d:
+        return f"{p} — {d}"
+    if p:
+        return f"{p} — {s}" if s else p
+    return d or s or "inverter"
 
 
-async def list_inverter_devices() -> list[dict[str, str]]:
-    """Inverters from POST /station/listWithDevice (plant list + device list, same data as cloud plant UI)."""
+@dataclass(frozen=True)
+class _InverterListRow:
+    device_sn: str
+    label: str
+    pin: Optional[str]
+
+
+async def _list_inverter_rows() -> list[_InverterListRow]:
+    """Raw inverter rows including optional PIN parsed from device name (not exposed in list API)."""
     if not deye_configured():
         return []
 
@@ -246,7 +254,7 @@ async def list_inverter_devices() -> list[dict[str, str]]:
             "Authorization": f"Bearer {token}",
         }
 
-        items: list[dict[str, str]] = []
+        items: list[_InverterListRow] = []
         seen: set[str] = set()
         page = 1
         # Deye Open API rejects size > 50 (e.g. msg "size max 50", code 2101006).
@@ -297,7 +305,15 @@ async def list_inverter_devices() -> list[dict[str, str]]:
                     if not sn or sn in seen:
                         continue
                     seen.add(sn)
-                    items.append({"deviceSn": sn, "label": _station_label(st, dev)})
+                    pname_raw = str(
+                        st.get("stationName") or st.get("name") or st.get("title") or "",
+                    ).strip()
+                    pname_show, pin_from_plant = strip_inverter_pin_suffix(pname_raw)
+                    dname_raw = str(dev.get("deviceName") or dev.get("name") or "").strip()
+                    dname_show, pin_from_device = strip_inverter_pin_suffix(dname_raw)
+                    pin_code = pin_from_device if pin_from_device is not None else pin_from_plant
+                    label = _compose_inverter_label(pname_show, dname_show, sn)
+                    items.append(_InverterListRow(sn, label, pin_code))
                     page_inverter_count += 1
             logger.info(
                 "Deye: listWithDevice page=%s new_inverters_added=%s (total_so_far=%s)",
@@ -310,7 +326,7 @@ async def list_inverter_devices() -> list[dict[str, str]]:
                 break
             page += 1
 
-        items.sort(key=lambda x: x["label"].lower())
+        items.sort(key=lambda x: x.label.lower())
         elapsed = time.perf_counter() - t0
         logger.info(
             "Deye: inverter list done — %s device(s), %s page(s), %.2fs",
@@ -319,6 +335,26 @@ async def list_inverter_devices() -> list[dict[str, str]]:
             elapsed,
         )
         return items
+
+
+async def list_inverter_devices() -> list[dict[str, Any]]:
+    """Inverters from POST /station/listWithDevice (plant list + device list, same data as cloud plant UI)."""
+    rows = await _list_inverter_rows()
+    return [
+        {"deviceSn": r.device_sn, "label": r.label, "pinRequired": r.pin is not None} for r in rows
+    ]
+
+
+async def assert_deye_write_pin(device_sn: str, pin: Optional[str]) -> None:
+    """Require matching PIN when the inverter device name encodes one (trailing `` pin<digits>``)."""
+    sn = (device_sn or "").strip()
+    if not sn:
+        return
+    rows = await _list_inverter_rows()
+    row = next((r for r in rows if r.device_sn == sn), None)
+    if row is None:
+        return
+    assert_inverter_write_pin(pin, row.pin)
 
 
 _SOC_KEYS = frozenset({"SOC", "BMS_SOC", "BATTERY_SOC"})

@@ -317,6 +317,18 @@ body {
   border-radius: 10px;
 }
 
+.pf-discharge-feedback p {
+  margin: 0;
+}
+
+.pf-discharge-feedback p + p {
+  margin-top: 6px;
+}
+
+.pf-deye-remote-write-locked {
+  color: rgba(255, 206, 225, 0.95);
+}
+
 .pf-graph-wrap {
   flex: 1;
   display: flex;
@@ -1094,6 +1106,45 @@ a.pf-node {
   line-height: 1.45;
   color: var(--pf-label);
   font-variant-numeric: tabular-nums;
+}
+
+.pf-modal-pin-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 14px;
+}
+
+.pf-modal-pin-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pf-muted, rgba(255, 255, 255, 0.65));
+}
+
+.pf-modal-pin-input {
+  width: 100%;
+  max-width: 220px;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--pf-border);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--pf-label);
+}
+
+.pf-modal-pin-input:focus-visible {
+  outline: 2px solid rgba(252, 1, 155, 0.45);
+  outline-offset: 2px;
+}
+
+.pf-modal-pin-error {
+  margin: -8px 0 12px;
+  font-size: 13px;
+  line-height: 1.35;
+  color: #ff8a8a;
 }
 
 .pf-modal-actions {
