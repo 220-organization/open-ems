@@ -12,11 +12,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.deye_api import (
     assert_deye_write_pin,
+    assert_inverter_owned,
     charge_soc_delta_then_zero_export_ct,
     deye_configured,
     deye_missing_env_names,
     discharge_soc_delta_then_zero_export_ct,
     fetch_device_soc_percent,
+    get_inverter_station_coordinates,
     get_live_metrics_cached,
     get_soc_map_cached,
     list_inverter_devices,
@@ -32,6 +34,7 @@ from app.deye_peak_auto_service import (
     set_peak_auto_from_ui,
 )
 from app.deye_soc_service import hourly_inverter_history_for_kyiv_day
+from app.solar_forecast_open_meteo import fetch_tomorrow_insolation_percent
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -210,6 +213,59 @@ async def get_soc_history_day(
     except Exception as exc:
         logger.exception("GET /api/deye/soc-history-day — failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/solar-insolation-tomorrow")
+async def get_solar_insolation_tomorrow(
+    deviceSn: str = Query(
+        ...,
+        min_length=6,
+        max_length=32,
+        pattern=r"^[0-9]+$",
+        description="Deye inverter serial; coordinates resolved server-side from listWithDevice (not returned).",
+    ),
+) -> JSONResponse:
+    """
+    Tomorrow insolation index (0–100 %) from Open-Meteo for the plant/device location in Deye Cloud.
+
+    GPS is never sent to the browser; only the percentage and optional local forecast date are returned.
+    """
+    if not deye_configured():
+        return JSONResponse(
+            content={"ok": False, "configured": False, "insolationPct": None},
+            headers=_NO_STORE_CACHE,
+        )
+    sn = deviceSn.strip()
+    try:
+        await assert_inverter_owned(sn)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    lat, lon = await get_inverter_station_coordinates(sn)
+    if lat is None or lon is None:
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": True,
+                "insolationPct": None,
+                "detail": "no_station_coordinates",
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    pct, day = await fetch_tomorrow_insolation_percent(lat, lon)
+    if pct is None:
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": True,
+                "insolationPct": None,
+                "detail": "forecast_unavailable",
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    return JSONResponse(
+        content={"ok": True, "configured": True, "insolationPct": pct, "date": day},
+        headers=_NO_STORE_CACHE,
+    )
 
 
 @router.get("/ess-power")

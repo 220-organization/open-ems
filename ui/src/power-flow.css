@@ -480,6 +480,15 @@ a.pf-node {
   opacity: 0.9;
 }
 
+.pf-node-solar-forecast {
+  color: var(--pf-value);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
 .pf-ess-soc {
   font-weight: 700;
   color: var(--pf-pink-soft);

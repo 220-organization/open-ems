@@ -361,6 +361,12 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   /** Deye live metrics when an inverter is selected: battery, load, PV, grid. */
   const [deyeLive, setDeyeLive] = useState(null);
   const [deyeLiveLoading, setDeyeLiveLoading] = useState(false);
+  /** Tomorrow insolation % from server (coordinates never exposed to browser). */
+  const [solarTomorrowForecast, setSolarTomorrowForecast] = useState({
+    loading: false,
+    pct: null,
+    hintKey: null,
+  });
   const [discharge2Feedback, setDischarge2Feedback] = useState('');
   const discharge2BusyRef = useRef(false);
   const charge2BusyRef = useRef(false);
@@ -662,6 +668,58 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     };
     loadLive();
     const id = setInterval(loadLive, 20_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [selInverterSn, inverterRows.configured, inverterRows.error]);
+
+  useEffect(() => {
+    if (!selInverterSn || !inverterRows.configured || inverterRows.error) {
+      setSolarTomorrowForecast({ loading: false, pct: null, hintKey: null });
+      return undefined;
+    }
+    let cancelled = false;
+    const load = async () => {
+      setSolarTomorrowForecast({ loading: true, pct: null, hintKey: null });
+      try {
+        const q = new URLSearchParams({ deviceSn: selInverterSn });
+        const r = await fetch(`${apiUrl('/api/deye/solar-insolation-tomorrow')}?${q}`, {
+          cache: 'no-store',
+        });
+        const data = await r.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!r.ok) {
+          setSolarTomorrowForecast({ loading: false, pct: null, hintKey: 'solarInsolationUnavailable' });
+          return;
+        }
+        if (!data.configured) {
+          setSolarTomorrowForecast({ loading: false, pct: null, hintKey: null });
+          return;
+        }
+        const p = data.insolationPct;
+        if (data.ok && p != null && Number.isFinite(Number(p))) {
+          setSolarTomorrowForecast({
+            loading: false,
+            pct: Math.max(0, Math.min(100, Math.round(Number(p)))),
+            hintKey: null,
+          });
+          return;
+        }
+        const d = data.detail;
+        if (d === 'no_station_coordinates') {
+          setSolarTomorrowForecast({ loading: false, pct: null, hintKey: 'solarInsolationNoCoords' });
+        } else {
+          setSolarTomorrowForecast({ loading: false, pct: null, hintKey: 'solarInsolationUnavailable' });
+        }
+      } catch {
+        if (!cancelled) {
+          setSolarTomorrowForecast({ loading: false, pct: null, hintKey: 'solarInsolationUnavailable' });
+        }
+      }
+    };
+    void load();
+    const id = setInterval(load, 3_600_000);
     return () => {
       cancelled = true;
       clearInterval(id);
@@ -1623,6 +1681,17 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                 <span className="pf-node-value" id="pf-val-solar">
                   {formatPower(displaySolarW, t, bcp47)}
                 </span>
+                {selInverterSn ? (
+                  <span className="pf-node-sub pf-node-solar-forecast" id="pf-solar-insolation-tomorrow">
+                    {solarTomorrowForecast.loading
+                      ? '…'
+                      : solarTomorrowForecast.pct != null
+                        ? t('solarInsolationTomorrow', { pct: solarTomorrowForecast.pct })
+                        : solarTomorrowForecast.hintKey
+                          ? t(solarTomorrowForecast.hintKey)
+                          : ''}
+                  </span>
+                ) : null}
               </div>
               <div className="pf-node-stack" data-pos="left-center">
                 <button

@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import re
 import time
 from dataclasses import dataclass
@@ -220,6 +221,65 @@ def _log_list_with_device_round_trip(page: int, base: str, req_body: dict[str, A
             logger.info("Deye: listWithDevice RESPONSE (could not json-dump)")
 
 
+def _coerce_geo_float(raw: Any) -> Optional[float]:
+    if raw is None:
+        return None
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(v):
+        return None
+    return v
+
+
+def _parse_geo_from_dict(d: dict[str, Any], _depth: int = 0) -> tuple[Optional[float], Optional[float]]:
+    """Best-effort lat/lon from Deye station or device payloads (field names vary by API version)."""
+    if not d or _depth > 4:
+        return None, None
+    lat_keys = (
+        "latitude",
+        "lat",
+        "stationLat",
+        "stationLatitude",
+        "geoLat",
+        "locationLat",
+        "latVal",
+    )
+    lon_keys = (
+        "longitude",
+        "lng",
+        "lon",
+        "stationLng",
+        "stationLongitude",
+        "geoLng",
+        "locationLng",
+        "lngVal",
+    )
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    for k in lat_keys:
+        if k in d:
+            lat = _coerce_geo_float(d.get(k))
+            if lat is not None and -90.0 <= lat <= 90.0:
+                break
+            lat = None
+    for k in lon_keys:
+        if k in d:
+            lon = _coerce_geo_float(d.get(k))
+            if lon is not None and -180.0 <= lon <= 180.0:
+                break
+            lon = None
+    nested = d.get("location") or d.get("geo") or d.get("position")
+    if isinstance(nested, dict) and (lat is None or lon is None):
+        nlat, nlon = _parse_geo_from_dict(nested, _depth + 1)
+        if lat is None:
+            lat = nlat
+        if lon is None:
+            lon = nlon
+    return lat, lon
+
+
 def _compose_inverter_label(pname: str, dname: str, sn: str) -> str:
     """Build list label from plant + device display names (already PIN-stripped by caller)."""
     p = (pname or "").strip()
@@ -237,6 +297,8 @@ class _InverterListRow:
     device_sn: str
     label: str
     pin: Optional[str]
+    lat: Optional[float]
+    lon: Optional[float]
 
 
 async def _list_inverter_rows() -> list[_InverterListRow]:
@@ -313,7 +375,11 @@ async def _list_inverter_rows() -> list[_InverterListRow]:
                     dname_show, pin_from_device = strip_inverter_pin_suffix(dname_raw)
                     pin_code = pin_from_device if pin_from_device is not None else pin_from_plant
                     label = _compose_inverter_label(pname_show, dname_show, sn)
-                    items.append(_InverterListRow(sn, label, pin_code))
+                    st_lat, st_lon = _parse_geo_from_dict(st)
+                    dev_lat, dev_lon = _parse_geo_from_dict(dev)
+                    lat = dev_lat if dev_lat is not None else st_lat
+                    lon = dev_lon if dev_lon is not None else st_lon
+                    items.append(_InverterListRow(sn, label, pin_code, lat, lon))
                     page_inverter_count += 1
             logger.info(
                 "Deye: listWithDevice page=%s new_inverters_added=%s (total_so_far=%s)",
@@ -343,6 +409,18 @@ async def list_inverter_devices() -> list[dict[str, Any]]:
     return [
         {"deviceSn": r.device_sn, "label": r.label, "pinRequired": r.pin is not None} for r in rows
     ]
+
+
+async def get_inverter_station_coordinates(device_sn: str) -> tuple[Optional[float], Optional[float]]:
+    """Lat/lon from Deye listWithDevice (station or device). Not exposed via list_inverter_devices()."""
+    sn = (device_sn or "").strip()
+    if not sn:
+        return None, None
+    rows = await _list_inverter_rows()
+    row = next((r for r in rows if r.device_sn == sn), None)
+    if row is None:
+        return None, None
+    return row.lat, row.lon
 
 
 async def assert_deye_write_pin(device_sn: str, pin: Optional[str]) -> None:
