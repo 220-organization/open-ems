@@ -104,7 +104,7 @@ OREE_DAM_DAILY_SYNC_MINUTE_KYIV: int = _env_int("OREE_DAM_DAILY_SYNC_MINUTE_KYIV
 OREE_DAM_MANUAL_SYNC_ENABLED: bool = _env_bool("OREE_DAM_MANUAL_SYNC_ENABLED", False)
 
 # Max on-demand OREE pulls via GET /api/dam/chart-day when DB empty for Kyiv tomorrow (0 = off; UI never triggers OREE).
-OREE_DAM_LAZY_FETCH_MAX: int = _env_int("OREE_DAM_LAZY_FETCH_MAX", 0, 0, 50)
+OREE_DAM_LAZY_FETCH_MAX: int = _env_int("OREE_DAM_LAZY_FETCH_MAX", 10, 0, 50)
 
 # Persist Deye SoC to DB on a fixed interval (all inverters from listWithDevice; UTC 5-min buckets).
 DEYE_SOC_SNAPSHOT_ENABLED: bool = _env_bool("DEYE_SOC_SNAPSHOT_ENABLED", True)
