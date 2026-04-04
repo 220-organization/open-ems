@@ -176,6 +176,8 @@
   "roiStackAria": "Стек ROI: кВт·год споживання зі знімків навантаження; гривні — РДН у годину споживання (Київ). PV кВт·год — довідково про генерацію.",
   "roiSetupTitle": "Статистика ROI",
   "roiCapexPrompt": "Сума інвестицій (USD)",
+  "roiStartDatePrompt": "Дата початку (календар Києва)",
+  "roiStartDateInvalid": "Некоректна дата початку.",
   "roiSetupSave": "Зберегти",
   "roiSetupCancel": "Скасувати",
   "roiSetupSaveError": "Не вдалося зберегти налаштування ROI.",

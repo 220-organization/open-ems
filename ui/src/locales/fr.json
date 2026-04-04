@@ -176,6 +176,8 @@
   "roiStackAria": "ROI stack: consommation — énergie PV issue de la base tarifée au DAM par heure de Kyiv; les autres catégories sont des placeholders.",
   "roiSetupTitle": "ROI statistics",
   "roiCapexPrompt": "CAPEX (USD)",
+  "roiStartDatePrompt": "Start date (Kyiv calendar)",
+  "roiStartDateInvalid": "Invalid start date.",
   "roiSetupSave": "Save",
   "roiSetupCancel": "Cancel",
   "roiSetupSaveError": "Could not save ROI settings.",

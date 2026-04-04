@@ -11,6 +11,36 @@ function roiConfigKey(deviceSn) {
   return `pf-roi-config-v1-${String(deviceSn || '').trim()}`;
 }
 
+/** Local calendar YYYY-MM-DD (browser timezone). */
+function localYmdToday() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/** Kyiv calendar YYYY-MM-DD for an ISO instant (matches ROI period display). */
+function isoToKyivYmd(startIso) {
+  try {
+    const d = new Date(startIso);
+    if (Number.isNaN(d.getTime())) return localYmdToday();
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Kyiv',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(d);
+    const y = parts.find(p => p.type === 'year')?.value;
+    const mo = parts.find(p => p.type === 'month')?.value;
+    const day = parts.find(p => p.type === 'day')?.value;
+    if (y && mo && day) return `${y}-${mo}-${day}`;
+  } catch {
+    /* ignore */
+  }
+  return localYmdToday();
+}
+
 const NBU_USD_URL = 'https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?valcode=USD&json';
 const USD_UAH_FALLBACK = 42;
 const MIN_ELAPSED_MS_FOR_ROI = 6 * 60 * 60 * 1000;
@@ -74,6 +104,7 @@ export default function RoiStackStatistics({
 }) {
   const [setupOpen, setSetupOpen] = useState(false);
   const [capexInput, setCapexInput] = useState('');
+  const [startDateInput, setStartDateInput] = useState(() => localYmdToday());
   const [pinInput, setPinInput] = useState('');
   const [setupPinError, setSetupPinError] = useState('');
   const [config, setConfig] = useState(null);
@@ -125,6 +156,7 @@ export default function RoiStackStatistics({
                   deviceSn: sn,
                   capexUsd: Number(capex),
                   pin: migPin.trim(),
+                  periodStartDate: localYmdToday(),
                 }),
               });
               const pd = await pr.json().catch(() => ({}));
@@ -441,6 +473,7 @@ export default function RoiStackStatistics({
 
   const onOpenSetup = () => {
     setCapexInput(config ? String(Math.round(config.capexUsd)) : '');
+    setStartDateInput(config?.startIso ? isoToKyivYmd(config.startIso) : localYmdToday());
     setPinInput(String(cachedPin || '').trim());
     setSetupPinError('');
     setSetupOpen(true);
@@ -455,11 +488,16 @@ export default function RoiStackStatistics({
       return;
     }
     setSetupPinError('');
+    const ymd = String(startDateInput || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
+      setSetupPinError(t('roiStartDateInvalid'));
+      return;
+    }
     try {
       const r = await fetch(apiUrl('/api/deye/roi-settings'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceSn: sn, capexUsd: n, pin }),
+        body: JSON.stringify({ deviceSn: sn, capexUsd: n, pin, periodStartDate: ymd }),
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data.ok || !data.periodStartIso) {
@@ -623,6 +661,20 @@ export default function RoiStackStatistics({
                 className="pf-roi-modal-input"
                 value={capexInput}
                 onChange={e => setCapexInput(e.target.value)}
+                autoComplete="off"
+              />
+              <label className="pf-roi-modal-label" htmlFor="pf-roi-start-date">
+                {t('roiStartDatePrompt')}
+              </label>
+              <input
+                id="pf-roi-start-date"
+                type="date"
+                className="pf-roi-modal-input"
+                value={startDateInput}
+                onChange={e => {
+                  setStartDateInput(e.target.value);
+                  setSetupPinError('');
+                }}
                 autoComplete="off"
               />
               <label className="pf-roi-modal-label" htmlFor="pf-roi-pin">

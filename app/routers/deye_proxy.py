@@ -33,7 +33,12 @@ from app.deye_peak_auto_service import (
     get_peak_auto_pref,
     set_peak_auto_from_ui,
 )
-from app.deye_roi_capex_service import get_roi_capex, get_roi_capex_map_for_devices, upsert_roi_capex
+from app.deye_roi_capex_service import (
+    get_roi_capex,
+    get_roi_capex_map_for_devices,
+    period_start_utc_from_kyiv_calendar_date,
+    upsert_roi_capex,
+)
 from app.deye_roi_service import (
     compute_roi_pv_kwh_and_value_uah,
     compute_roi_pv_kwh_and_value_uah_previous_kyiv_month,
@@ -100,6 +105,11 @@ class RoiSettingsBody(BaseModel):
     deviceSn: str = Field(..., min_length=6, max_length=64)
     capexUsd: float = Field(..., gt=0, le=1e12)
     pin: Optional[str] = Field(default=None, max_length=12)
+    periodStartDate: Optional[str] = Field(
+        default=None,
+        max_length=10,
+        description="YYYY-MM-DD Kyiv calendar day; ROI starts at Kyiv midnight. Omit for current UTC time.",
+    )
 
 
 @router.get("/inverters")
@@ -350,7 +360,7 @@ async def post_roi_settings(
     body: RoiSettingsBody,
     db: AsyncSession = Depends(get_db),
 ):
-    """Save CAPEX and set ROI period start to now (same as previous localStorage behaviour)."""
+    """Save CAPEX and ROI period start (Kyiv calendar date or current UTC if omitted)."""
     if not deye_configured():
         return JSONResponse(
             content={"ok": False, "configured": False},
@@ -362,8 +372,18 @@ async def post_roi_settings(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await assert_deye_write_pin(sn, body.pin)
+    period_start_override = None
+    psd = (body.periodStartDate or "").strip()
+    if psd:
+        try:
+            period_start_override = period_start_utc_from_kyiv_calendar_date(psd)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid periodStartDate; use YYYY-MM-DD",
+            ) from None
     try:
-        period_start = await upsert_roi_capex(db, sn, body.capexUsd)
+        period_start = await upsert_roi_capex(db, sn, body.capexUsd, period_start_at=period_start_override)
         await db.commit()
         iso = period_start.isoformat().replace("+00:00", "Z")
         return JSONResponse(
