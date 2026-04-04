@@ -229,19 +229,47 @@ def _mean_or_none(values: list[float]) -> Optional[float]:
     return sum(values) / len(values)
 
 
+def _mean_power_w_to_kwh_hour(mean_w: Optional[float]) -> Optional[float]:
+    """Approximate kWh in the hour from mean power (W) over 5-min samples in that hour."""
+    if mean_w is None:
+        return None
+    return float(mean_w) / 1000.0
+
+
+def _effective_pv_watts_for_sample(
+    device_sn: str,
+    pv_w: Optional[float],
+    pv_generation_w: Optional[float],
+) -> Optional[float]:
+    if pv_generation_w is not None:
+        return float(pv_generation_w)
+    if pv_w is None:
+        return None
+    return float(effective_pv_generation_watts(device_sn, float(pv_w)))
+
+
 async def hourly_inverter_history_for_kyiv_day(
     session: AsyncSession,
     device_sn: str,
     trade_day: date,
-) -> tuple[list[Optional[float]], list[Optional[float]], list[Optional[float]]]:
+) -> tuple[
+    list[Optional[float]],
+    list[Optional[float]],
+    list[Optional[float]],
+    list[Optional[float]],
+    list[Optional[float]],
+]:
     """
-    Three lists of 24 values (chart hours 1..24): mean SoC %, mean grid power (W signed),
-    mean grid frequency (Hz) per Kyiv hour.
+    Five lists of 24 values (chart hours 0..23 mapped to display hours 1..24):
+
+    - mean SoC %, mean grid power (W signed), mean grid frequency (Hz)
+    - mean PV energy (kWh) and mean load energy (kWh) per Kyiv hour from 5-min samples
+      (kWh ≈ mean power in W / 1000 for that hour).
     """
     sn = (device_sn or "").strip()
     if not sn:
         empty = [None] * 24
-        return empty, empty, empty
+        return empty, empty, empty, empty, empty
 
     start_kyiv, end_kyiv = _kyiv_day_bounds(trade_day)
     start_utc = start_kyiv.astimezone(timezone.utc)
@@ -257,6 +285,7 @@ async def hourly_inverter_history_for_kyiv_day(
                 DeyeSocSample.grid_frequency_hz,
                 DeyeSocSample.load_power_w,
                 DeyeSocSample.pv_power_w,
+                DeyeSocSample.pv_generation_w,
                 DeyeSocSample.battery_power_w,
             ).where(
                 DeyeSocSample.device_sn == sn,
@@ -278,13 +307,15 @@ async def hourly_inverter_history_for_kyiv_day(
                 DeyeSocSample.bucket_start < end_utc,
             )
         )
-        rows = [(a, b, c, d, None, None, None) for (a, b, c, d) in result.all()]
+        rows = [(a, b, c, d, None, None, None, None) for (a, b, c, d) in result.all()]
 
     soc_buckets: list[list[float]] = [[] for _ in range(24)]
     grid_buckets: list[list[float]] = [[] for _ in range(24)]
     freq_buckets: list[list[float]] = [[] for _ in range(24)]
     balance_buckets: list[list[float]] = [[] for _ in range(24)]
-    for bucket_start, soc, grid_w, freq_hz, load_w, pv_w, bat_w in rows:
+    pv_w_buckets: list[list[float]] = [[] for _ in range(24)]
+    load_w_buckets: list[list[float]] = [[] for _ in range(24)]
+    for bucket_start, soc, grid_w, freq_hz, load_w, pv_w, pv_gen_w, bat_w in rows:
         local = bucket_start.astimezone(KYIV)
         h = int(local.hour)
         if 0 <= h <= 23:
@@ -300,6 +331,11 @@ async def hourly_inverter_history_for_kyiv_day(
                     - FLOW_BALANCE_PV_FACTOR * float(pv_w)
                     - float(bat_w)
                 )
+            eff_pv = _effective_pv_watts_for_sample(sn, pv_w, pv_gen_w)
+            if eff_pv is not None:
+                pv_w_buckets[h].append(eff_pv)
+            if load_w is not None:
+                load_w_buckets[h].append(float(load_w))
 
     soc_out = [_mean_or_none(soc_buckets[i]) for i in range(24)]
     grid_out = [_mean_or_none(grid_buckets[i]) for i in range(24)]
@@ -311,4 +347,11 @@ async def hourly_inverter_history_for_kyiv_day(
             balance_out[i] if balance_out[i] is not None else grid_out[i] for i in range(24)
         ]
 
-    return soc_out, grid_out, freq_out
+    if extras:
+        pv_kwh_out = [_mean_power_w_to_kwh_hour(_mean_or_none(pv_w_buckets[i])) for i in range(24)]
+        load_kwh_out = [_mean_power_w_to_kwh_hour(_mean_or_none(load_w_buckets[i])) for i in range(24)]
+    else:
+        pv_kwh_out = [None] * 24
+        load_kwh_out = [None] * 24
+
+    return soc_out, grid_out, freq_out, pv_kwh_out, load_kwh_out

@@ -213,6 +213,9 @@ async def get_soc_history_day(
 
     For configured balance-site serials (see app.deye_flow_balance), hourly grid is derived from stored
     load/PV/battery samples when all three exist: grid = load − 2×PV − battery (same as Power flow).
+
+    ``hourlyPvKwh`` / ``hourlyLoadKwh`` are approximate kWh per hour from mean W in that hour
+    (needs balance-input columns + PV/load snapshots).
     """
     if not deye_configured():
         return JSONResponse(
@@ -224,6 +227,8 @@ async def get_soc_history_day(
                 "hourlySocPercent": [None] * 24,
                 "hourlyGridPowerW": [None] * 24,
                 "hourlyGridFrequencyHz": [None] * 24,
+                "hourlyPvKwh": [None] * 24,
+                "hourlyLoadKwh": [None] * 24,
             },
             headers=_NO_STORE_CACHE,
         )
@@ -232,8 +237,8 @@ async def get_soc_history_day(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD") from exc
     try:
-        hourly_soc, hourly_grid_w, hourly_grid_hz = await hourly_inverter_history_for_kyiv_day(
-            db, deviceSn, trade_day
+        hourly_soc, hourly_grid_w, hourly_grid_hz, hourly_pv_kwh, hourly_load_kwh = (
+            await hourly_inverter_history_for_kyiv_day(db, deviceSn, trade_day)
         )
         return JSONResponse(
             content={
@@ -244,6 +249,8 @@ async def get_soc_history_day(
                 "hourlySocPercent": hourly_soc,
                 "hourlyGridPowerW": hourly_grid_w,
                 "hourlyGridFrequencyHz": hourly_grid_hz,
+                "hourlyPvKwh": hourly_pv_kwh,
+                "hourlyLoadKwh": hourly_load_kwh,
             },
             headers=_NO_STORE_CACHE,
         )

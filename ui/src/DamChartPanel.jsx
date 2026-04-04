@@ -335,6 +335,15 @@ export default function DamChartPanel({
     [bcp47]
   );
 
+  const fmtKwhTick = useMemo(
+    () =>
+      new Intl.NumberFormat(bcp47, {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2,
+      }),
+    [bcp47]
+  );
+
   const fmtHz = useMemo(
     () =>
       new Intl.NumberFormat(bcp47, {
@@ -602,6 +611,14 @@ export default function DamChartPanel({
       socPayload?.ok && socPayload?.configured && Array.isArray(socPayload.hourlyGridFrequencyHz)
         ? socPayload.hourlyGridFrequencyHz
         : null;
+    const pvKwhArr =
+      socPayload?.ok && socPayload?.configured && Array.isArray(socPayload.hourlyPvKwh)
+        ? socPayload.hourlyPvKwh
+        : null;
+    const loadKwhArr =
+      socPayload?.ok && socPayload?.configured && Array.isArray(socPayload.hourlyLoadKwh)
+        ? socPayload.hourlyLoadKwh
+        : null;
     const out = Array.from({ length: 24 }, (_, i) => {
       let socPercent = null;
       if (socArr && socArr[i] != null && Number.isFinite(Number(socArr[i]))) {
@@ -615,6 +632,14 @@ export default function DamChartPanel({
       if (freqArr && freqArr[i] != null && Number.isFinite(Number(freqArr[i]))) {
         gridFreqHz = Number(freqArr[i]);
       }
+      let pvKwh = null;
+      if (pvKwhArr && pvKwhArr[i] != null && Number.isFinite(Number(pvKwhArr[i]))) {
+        pvKwh = Number(pvKwhArr[i]);
+      }
+      let consKwhNeg = null;
+      if (loadKwhArr && loadKwhArr[i] != null && Number.isFinite(Number(loadKwhArr[i]))) {
+        consKwhNeg = -Math.abs(Number(loadKwhArr[i]));
+      }
       return {
         hour: i + 1,
         damUahKwh: dam[i] != null && Number.isFinite(Number(dam[i])) ? Number(dam[i]) : null,
@@ -623,6 +648,9 @@ export default function DamChartPanel({
         gridFreqHz,
         gridKwLive: false,
         gridKwFromLoad: false,
+        pvKwh,
+        consKwhNeg,
+        pvLoadLive: false,
       };
     });
 
@@ -665,6 +693,39 @@ export default function DamChartPanel({
         gridKwFromLoad: false,
       };
     }
+    if (hi != null && effectiveInverterSn) {
+      const hasAnyPv = out.some(r => r.pvKwh != null && Number.isFinite(r.pvKwh));
+      const hasAnyLoad = out.some(r => r.consKwhNeg != null && Number.isFinite(r.consKwhNeg));
+      const slot = out[hi];
+      let pvK = slot.pvKwh;
+      let cNeg = slot.consKwhNeg;
+      if (
+        livePvPowerW != null &&
+        Number.isFinite(Number(livePvPowerW)) &&
+        (pvK == null || !hasAnyPv)
+      ) {
+        const raw = Number(livePvPowerW);
+        const eff = usesDeyeFlowBalance(effectiveInverterSn)
+          ? raw * DEYE_FLOW_BALANCE_PV_FACTOR
+          : raw;
+        pvK = eff / 1000;
+      }
+      if (
+        liveLoadPowerW != null &&
+        Number.isFinite(Number(liveLoadPowerW)) &&
+        (cNeg == null || !hasAnyLoad)
+      ) {
+        cNeg = -Math.abs(Number(liveLoadPowerW)) / 1000;
+      }
+      if (pvK !== slot.pvKwh || cNeg !== slot.consKwhNeg) {
+        out[hi] = {
+          ...slot,
+          pvKwh: pvK ?? slot.pvKwh,
+          consKwhNeg: cNeg ?? slot.consKwhNeg,
+          pvLoadLive: true,
+        };
+      }
+    }
     return out;
   }, [
     payload,
@@ -686,6 +747,23 @@ export default function DamChartPanel({
   }, [rows]);
 
   const gridYTicks = useMemo(() => fiveSymmetricTicks(gridDomain[0], gridDomain[1]), [gridDomain]);
+
+  const pvLoadDomain = useMemo(() => {
+    const vals = [];
+    for (const r of rows) {
+      if (r.pvKwh != null && Number.isFinite(r.pvKwh)) vals.push(r.pvKwh);
+      if (r.consKwhNeg != null && Number.isFinite(r.consKwhNeg)) vals.push(Math.abs(r.consKwhNeg));
+    }
+    if (!vals.length) return [-0.25, 0.25];
+    const raw = Math.max(...vals, 0.25);
+    const cap = niceSymmetricCap(raw);
+    return [-cap, cap];
+  }, [rows]);
+
+  const pvLoadYTicks = useMemo(
+    () => fiveSymmetricTicks(pvLoadDomain[0], pvLoadDomain[1]),
+    [pvLoadDomain]
+  );
 
   const hzDomain = useMemo(() => {
     const vals = rows.map(r => r.gridFreqHz).filter(v => v != null && Number.isFinite(v));
@@ -1228,6 +1306,151 @@ export default function DamChartPanel({
                     const fill = v >= 0 ? '#f59e0b' : '#38bdf8';
                     return (
                       <circle cx={cx} cy={cy} r={5.5} fill={fill} stroke="rgba(255,255,255,0.45)" strokeWidth={1.2} />
+                    );
+                  }}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        ) : null}
+
+        {!loading && hasChart && effectiveInverterSn ? (
+          <div className="dam-pv-load-bars-wrap">
+            <p className="dam-grid-bars-caption">{t('damPvLoadBarsCaption')}</p>
+            <ResponsiveContainer width="100%" height={gridBarH}>
+              <ComposedChart data={rows} syncId="dam-day" margin={damComposedChartMargin}>
+                <CartesianGrid stroke="rgba(252, 1, 155, 0.08)" strokeDasharray="3 3" vertical={false} />
+                <XAxis
+                  dataKey="hour"
+                  type="number"
+                  domain={[1, 24]}
+                  ticks={DAM_HOUR_X_TICKS}
+                  allowDecimals={false}
+                  padding={{ left: 0, right: 0 }}
+                  tick={{ fill: 'rgba(255,248,252,0.75)', fontSize: 11 }}
+                  tickLine={false}
+                  label={{
+                    value: t('damHourAxis'),
+                    position: 'insideBottom',
+                    offset: -10,
+                    fill: 'rgba(255,248,252,0.55)',
+                    fontSize: 11,
+                  }}
+                />
+                <YAxis
+                  domain={pvLoadDomain}
+                  ticks={pvLoadYTicks}
+                  width={DAM_LEFT_Y_AXIS_WIDTH}
+                  tick={{ fill: 'rgba(255,248,252,0.72)', fontSize: 10 }}
+                  tickLine={false}
+                  tickFormatter={v => fmtKwhTick.format(v)}
+                  label={{
+                    value: t('damPvLoadEnergyAxis'),
+                    angle: -90,
+                    position: 'insideLeft',
+                    offset: 10,
+                    style: { fill: 'rgba(255,248,252,0.55)', fontSize: 10, textAnchor: 'end' },
+                  }}
+                />
+                <YAxis
+                  yAxisId="sync-right-margin"
+                  orientation="right"
+                  domain={[0, 100]}
+                  width={DAM_RIGHT_Y_AXIS_WIDTH}
+                  tick={false}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                {showGridFrequencyLine ? (
+                  <YAxis
+                    yAxisId="sync-hz-margin"
+                    orientation="right"
+                    domain={[0, 1]}
+                    width={DAM_HZ_Y_AXIS_WIDTH}
+                    tick={false}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                ) : null}
+                <ReferenceLine y={0} stroke="rgba(255,248,252,0.35)" strokeDasharray="4 4" />
+                <Tooltip
+                  separator=": "
+                  contentStyle={{
+                    background: 'rgba(24, 8, 32, 0.94)',
+                    border: '1px solid rgba(252, 1, 155, 0.35)',
+                    borderRadius: 10,
+                    color: '#fff',
+                  }}
+                  labelStyle={{ color: 'rgba(255, 248, 252, 0.95)' }}
+                  itemStyle={{ color: 'rgba(255, 248, 252, 0.95)' }}
+                  formatter={(value, name, item) => {
+                    if (value == null || value === '') return ['—', name];
+                    const num = Number(value);
+                    const payload = item?.payload ?? item;
+                    const live = payload?.pvLoadLive ? ` — ${t('damPvLoadLiveTag')}` : '';
+                    if (name === t('damSeriesPvKwh')) {
+                      return [`${fmt1.format(num)} kWh${live}`, name];
+                    }
+                    if (name === t('damSeriesLoadKwh')) {
+                      const mag = Number.isFinite(num) ? Math.abs(num) : null;
+                      return [
+                        mag != null ? `${fmt1.format(mag)} kWh${live}` : '—',
+                        name,
+                      ];
+                    }
+                    return [`${fmt1.format(num)}`, name];
+                  }}
+                  labelFormatter={hour => `${t('damHourTooltip')} ${hour}`}
+                />
+                <Bar dataKey="pvKwh" name={t('damSeriesPvKwh')} maxBarSize={22} minPointSize={6}>
+                  {rows.map((e, i) => (
+                    <Cell
+                      key={`pv-${i}`}
+                      fill={
+                        e.pvKwh == null || !Number.isFinite(e.pvKwh)
+                          ? 'rgba(90, 90, 110, 0.2)'
+                          : '#22c55e'
+                      }
+                    />
+                  ))}
+                </Bar>
+                <Bar dataKey="consKwhNeg" name={t('damSeriesLoadKwh')} maxBarSize={22} minPointSize={6}>
+                  {rows.map((e, i) => (
+                    <Cell
+                      key={`load-${i}`}
+                      fill={
+                        e.consKwhNeg == null || !Number.isFinite(e.consKwhNeg)
+                          ? 'rgba(90, 90, 110, 0.2)'
+                          : '#fb923c'
+                      }
+                    />
+                  ))}
+                </Bar>
+                <Scatter
+                  dataKey="pvKwh"
+                  tooltipType="none"
+                  legendType="none"
+                  isAnimationActive={false}
+                  shape={dotProps => {
+                    const { cx, cy, payload } = dotProps;
+                    const v = payload?.pvKwh;
+                    if (v == null || !Number.isFinite(v) || cx == null || cy == null) return null;
+                    return (
+                      <circle cx={cx} cy={cy} r={5} fill="#22c55e" stroke="rgba(255,255,255,0.45)" strokeWidth={1.2} />
+                    );
+                  }}
+                />
+                <Scatter
+                  dataKey="consKwhNeg"
+                  tooltipType="none"
+                  legendType="none"
+                  isAnimationActive={false}
+                  shape={dotProps => {
+                    const { cx, cy, payload } = dotProps;
+                    const v = payload?.consKwhNeg;
+                    if (v == null || !Number.isFinite(v) || cx == null || cy == null) return null;
+                    return (
+                      <circle cx={cx} cy={cy} r={5} fill="#fb923c" stroke="rgba(255,255,255,0.45)" strokeWidth={1.2} />
                     );
                   }}
                 />
