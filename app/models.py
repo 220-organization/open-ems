@@ -71,7 +71,7 @@ class OreeDamLazyFetch(Base):
 
 
 class DeyePeakAutoDischargePref(Base):
-    """Per-inverter: peak-DAM auto flag and SoC drop % for manual + scheduled discharge."""
+    """Per-inverter: peak-DAM auto flag; discharge_soc_delta_pct is 2, 10, 20, or 100 (full → ~0% SoC at run time)."""
 
     __tablename__ = "deye_peak_auto_discharge_pref"
 

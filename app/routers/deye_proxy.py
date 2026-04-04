@@ -31,6 +31,7 @@ from app.deye_low_dam_charge_service import (
 from app.deye_peak_auto_service import (
     get_discharge_soc_delta_stored,
     get_peak_auto_pref,
+    resolve_stored_discharge_delta_points,
     set_peak_auto_from_ui,
 )
 from app.deye_roi_capex_service import (
@@ -58,7 +59,7 @@ _NO_STORE_CACHE = {"Cache-Control": "no-store, max-age=0, must-revalidate"}
 
 _MAX_INVERTER_SOCS = 200
 
-DischargeSocDeltaPctOption = Literal[2, 10, 20]
+DischargeSocDeltaPctOption = Literal[2, 10, 20, 100]
 ChargeSocDeltaPctOption = Literal[2, 10, 20, 50, 100]
 
 
@@ -69,11 +70,18 @@ class InverterSocsBody(BaseModel):
 class Discharge2PctBody(BaseModel):
     """socDeltaPercent: optional; when omitted, uses stored per-device prefs (2, 10, or 20).
 
+    Manual discharge accepts 1–100 percentage points (use current SoC for a full discharge to ~0%).
+
     respondAfterStart: return immediately after the inverter accepts the command; polling + restore run in background.
     """
 
     deviceSn: str = Field(..., min_length=6, max_length=64)
-    socDeltaPercent: Optional[DischargeSocDeltaPctOption] = None
+    socDeltaPercent: Optional[float] = Field(
+        default=None,
+        ge=1,
+        le=100,
+        description="SoC drop in percentage points (1–100). Peak-auto prefs: 2/10/20 or 100 (full).",
+    )
     respondAfterStart: bool = False
     pin: Optional[str] = Field(default=None, max_length=12)
 
@@ -696,8 +704,8 @@ async def post_discharge_2pct(
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """
-    Set Deye strategy to SELLING_FIRST, wait until SoC drops by socDeltaPercent (2, 10, or 20) or timeout,
-    then ZERO_EXPORT_TO_CT. If socDeltaPercent is omitted, uses stored per-device prefs (default 2).
+    Set Deye strategy to SELLING_FIRST, wait until SoC drops by socDeltaPercent (1–100 points) or timeout,
+    then ZERO_EXPORT_TO_CT. If socDeltaPercent is omitted, uses stored per-device prefs (2, 10, 20, or 100=full).
     Overwrites device TOU template per Deye /strategy/dynamicControl (see Deye sample scripts).
     Long-running: ensure reverse-proxy read timeout > DEYE_DISCHARGE_SOC_TIMEOUT_SEC.
     """
@@ -717,7 +725,10 @@ async def post_discharge_2pct(
         await assert_deye_write_pin(sn, body.pin)
         delta = body.socDeltaPercent
         if delta is None:
-            delta = await get_discharge_soc_delta_stored(db, sn)
+            stored = await get_discharge_soc_delta_stored(db, sn)
+            delta = await resolve_stored_discharge_delta_points(sn, int(stored))
+        else:
+            delta = float(delta)
         result = await discharge_soc_delta_then_zero_export_ct(
             sn, float(delta), return_after_start=body.respondAfterStart
         )

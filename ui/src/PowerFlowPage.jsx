@@ -47,10 +47,29 @@ function apiUrl(path) {
 }
 
 const DISCHARGE_SOC_DELTA_OPTIONS = Object.freeze([2, 10, 20]);
+/** Full discharge: UI `full` ↔ API/DB `100` (resolved to current SoC at run time). */
+const FULL_DISCHARGE = 'full';
+
+function peakPrefDischargePctForApi(pct) {
+  return pct === FULL_DISCHARGE ? 100 : pct;
+}
+
+/** SoC drop sent to POST /api/deye/discharge-2pct (1–100). */
+function effectiveDischargeDeltaForApi(pct, currentSoc) {
+  if (pct === FULL_DISCHARGE) {
+    const c = Number(currentSoc);
+    if (!Number.isFinite(c)) return 2;
+    return Math.min(100, Math.max(1, Math.round(c * 100) / 100));
+  }
+  return pct;
+}
 
 function normalizeDischargeSocDeltaPct(p) {
+  const s = String(p).trim().toLowerCase();
+  if (s === FULL_DISCHARGE) return FULL_DISCHARGE;
   const n = Math.round(Number(p));
   if (!Number.isFinite(n)) return 2;
+  if (n === 100) return FULL_DISCHARGE;
   if (DISCHARGE_SOC_DELTA_OPTIONS.includes(n)) return n;
   return DISCHARGE_SOC_DELTA_OPTIONS.reduce((best, x) => (Math.abs(x - n) < Math.abs(best - n) ? x : best));
 }
@@ -145,7 +164,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   );
 
   /** Dropdown CAPEX: plain amount + space + $ (no locale currency symbol / grouping). */
-  const formatInverterCapexUsd = useCallback((n) => {
+  const formatInverterCapexUsd = useCallback(n => {
     const v = Math.round(Number(n));
     if (!Number.isFinite(v)) return '';
     return `${v} $`;
@@ -724,13 +743,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
         const tm = data.tomorrow;
         const tp = td?.insolationPct;
         const mp = tm?.insolationPct;
-        if (
-          data.ok &&
-          tp != null &&
-          mp != null &&
-          Number.isFinite(Number(tp)) &&
-          Number.isFinite(Number(mp))
-        ) {
+        if (data.ok && tp != null && mp != null && Number.isFinite(Number(tp)) && Number.isFinite(Number(mp))) {
           const cloudy = td?.cloudy;
           setSolarForecast({
             loading: false,
@@ -894,9 +907,10 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       discharge2BusyRef.current = true;
       setDischarge2Feedback('');
       try {
+        const socDeltaPercent = effectiveDischargeDeltaForApi(dischargeSocDeltaPct, essSocPercent);
         const body = {
           deviceSn,
-          socDeltaPercent: dischargeSocDeltaPct,
+          socDeltaPercent,
           respondAfterStart: true,
         };
         const p = String(commandPin ?? '').trim();
@@ -970,7 +984,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
         discharge2BusyRef.current = false;
       }
     },
-    [selInverterSn, inverterSocFmt, t, dischargeSocDeltaPct]
+    [selInverterSn, inverterSocFmt, t, dischargeSocDeltaPct, essSocPercent]
   );
 
   const executeCharge2Pct = useCallback(
@@ -1071,11 +1085,13 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       return;
     }
     const cur = Number(essSocPercent);
-    if (cur < dischargeSocDeltaPct) {
+    const deltaNeeded =
+      dischargeSocDeltaPct === FULL_DISCHARGE ? effectiveDischargeDeltaForApi(FULL_DISCHARGE, cur) : dischargeSocDeltaPct;
+    if (cur < deltaNeeded) {
       setDischarge2Feedback(
         t('dischargeConfirmInsufficientSoc', {
           current: inverterSocFmt.format(cur),
-          delta: dischargeSocDeltaPct,
+          delta: deltaNeeded,
         })
       );
       return;
@@ -1210,7 +1226,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
         if (p != null && Number.isFinite(Number(p))) {
           setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
         } else {
-          setDischargeSocDeltaPct(g.nextPct);
+          setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(g.nextPct));
         }
       } else if (g.kind === 'lowPct') {
         const data = await saveLowDamChargePref(lowDamEnabledRef.current, g.nextPct, pin);
@@ -1340,9 +1356,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                         const socSuffix = p != null && Number.isFinite(p) ? ` · ${inverterSocFmt.format(p)}%` : '';
                         const c = row.capexUsd;
                         const capexSuffix =
-                          c != null && Number.isFinite(Number(c))
-                            ? ` · ${formatInverterCapexUsd(Number(c))}`
-                            : '';
+                          c != null && Number.isFinite(Number(c)) ? ` · ${formatInverterCapexUsd(Number(c))}` : '';
                         const shortLabel = inverterSelectShortLabel(row.label, row.deviceSn);
                         return (
                           <option key={row.deviceSn} value={row.deviceSn}>
@@ -1429,7 +1443,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                         <select
                           id="pf-discharge-delta-select"
                           className="pf-discharge-delta-select pf-discharge-delta-select--header"
-                          value={dischargeSocDeltaPct}
+                          value={dischargeSocDeltaPct === FULL_DISCHARGE ? FULL_DISCHARGE : String(dischargeSocDeltaPct)}
                           disabled={deyeWritesHardBlocked}
                           aria-label={t('dischargeSocDeltaAria')}
                           onChange={e => {
@@ -1437,12 +1451,15 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                               setRemoteWriteNeedsPinOpen(true);
                               return;
                             }
-                            const n = normalizeDischargeSocDeltaPct(e.target.value);
+                            const raw = e.target.value;
+                            const n =
+                              raw === FULL_DISCHARGE ? FULL_DISCHARGE : normalizeDischargeSocDeltaPct(raw);
+                            const apiPct = peakPrefDischargePctForApi(n);
                             const cached = readCachedInverterPin(selInverterSn?.trim() || '');
                             if (cached) {
                               void (async () => {
                                 try {
-                                  const data = await savePeakAutoPref(peakDamEnabledRef.current, n, cached);
+                                  const data = await savePeakAutoPref(peakDamEnabledRef.current, apiPct, cached);
                                   setDischargeSocDeltaPct(n);
                                   if (data && typeof data.enabled === 'boolean') {
                                     setPeakDamDischargeEnabled(data.enabled);
@@ -1458,7 +1475,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                               })();
                               return;
                             }
-                            setWritePinGate({ kind: 'peakPct', nextPct: n });
+                            setWritePinGate({ kind: 'peakPct', nextPct: apiPct });
                           }}
                         >
                           {DISCHARGE_SOC_DELTA_OPTIONS.map(o => (
@@ -1466,6 +1483,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                               {t('dischargeSocDeltaValue', { pct: o })}
                             </option>
                           ))}
+                          <option value={FULL_DISCHARGE}>{t('dischargeSocDeltaValueFull')}</option>
                         </select>
                       </div>
                       <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
@@ -1496,7 +1514,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                               setPeakDamDischargeEnabled(v);
                               setDischarge2Feedback('');
                               try {
-                                const data = await savePeakAutoPref(v, dischargeSocDeltaPct, cached);
+                                const data = await savePeakAutoPref(v, peakPrefDischargePctForApi(dischargeSocDeltaPct), cached);
                                 if (data && typeof data.enabled === 'boolean') {
                                   setPeakDamDischargeEnabled(data.enabled);
                                 }
@@ -1515,7 +1533,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                             setWritePinGate({
                               kind: 'peak',
                               nextEnabled: v,
-                              nextPct: dischargeSocDeltaPct,
+                              nextPct: peakPrefDischargePctForApi(dischargeSocDeltaPct),
                             });
                           }}
                           aria-label={t('peakDamDischargeToggleAria')}
@@ -1790,9 +1808,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   </span>
                   {selInverterSn && (solarForecast.loading || solarForecast.todayPct != null) ? (
                     <span className="pf-solar-today-near-icon" id="pf-solar-insolation-today">
-                      {solarForecast.loading
-                        ? '…'
-                        : t('solarInsolationToday', { pct: solarForecast.todayPct })}
+                      {solarForecast.loading ? '…' : t('solarInsolationToday', { pct: solarForecast.todayPct })}
                     </span>
                   ) : null}
                 </div>
@@ -2047,7 +2063,11 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
               <p id="pf-discharge-confirm-title" className="pf-modal-message">
                 {t('dischargeConfirmMessage', {
                   from: inverterSocFmt.format(Number(essSocPercent)),
-                  to: inverterSocFmt.format(Math.max(0, Number(essSocPercent) - dischargeSocDeltaPct)),
+                  to: inverterSocFmt.format(
+                    dischargeSocDeltaPct === FULL_DISCHARGE
+                      ? 0
+                      : Math.max(0, Number(essSocPercent) - dischargeSocDeltaPct)
+                  ),
                 })}
               </p>
               {selInverterPinRequired && !cachedWritePin ? (

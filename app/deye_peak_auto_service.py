@@ -13,7 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import func
 
 from app import settings
-from app.deye_api import assert_inverter_owned, deye_configured, discharge_soc_delta_then_zero_export_ct
+from app.deye_api import (
+    assert_inverter_owned,
+    deye_configured,
+    discharge_soc_delta_then_zero_export_ct,
+    fetch_soc_map_refresh,
+)
 from app.models import DeyePeakAutoDischargeFired, DeyePeakAutoDischargePref
 from app.oree_dam_service import KYIV, get_hourly_dam_uah_mwh
 
@@ -21,14 +26,30 @@ logger = logging.getLogger(__name__)
 
 _DISCHARGE_DELTA_MIN = 2
 _DISCHARGE_DELTA_MAX = 40
-DISCHARGE_SOC_DELTA_PCT_ALLOWED: tuple[int, ...] = (2, 10, 20)
+# 100 = full discharge to ~0% (resolved to current SoC in percentage points at execution).
+DISCHARGE_SOC_DELTA_PCT_ALLOWED: tuple[int, ...] = (2, 10, 20, 100)
+DISCHARGE_SOC_DELTA_FULL_SENTINEL: int = 100
 
 
 def normalize_discharge_soc_delta_pct(pct: int) -> int:
-    """Map legacy stored values to the nearest allowed discrete percentage."""
+    """Map legacy stored values to the nearest allowed discrete percentage (2/10/20/100)."""
     if pct in DISCHARGE_SOC_DELTA_PCT_ALLOWED:
         return pct
-    return min(DISCHARGE_SOC_DELTA_PCT_ALLOWED, key=lambda x: abs(x - pct))
+    discrete = (2, 10, 20)
+    return min(discrete, key=lambda x: abs(x - pct))
+
+
+async def resolve_stored_discharge_delta_points(device_sn: str, stored_pct: int) -> float:
+    """DB preference to API delta: 2/10/20 as-is; 100 = drop by current SoC (full discharge)."""
+    if int(stored_pct) != DISCHARGE_SOC_DELTA_FULL_SENTINEL:
+        return float(stored_pct)
+    sn = (device_sn or "").strip()
+    soc_map = await fetch_soc_map_refresh([sn])
+    cur = soc_map.get(sn)
+    if cur is None:
+        raise ValueError("SOC not available from device — cannot run full discharge")
+    c = float(cur)
+    return float(min(100.0, max(1.0, round(c, 2))))
 
 
 def peak_hour_index_from_hourly_uah_mwh(hourly: list[Optional[float]]) -> Optional[int]:
@@ -51,7 +72,7 @@ def peak_hour_index_from_hourly_uah_mwh(hourly: list[Optional[float]]) -> Option
 
 
 async def get_peak_auto_pref(session: AsyncSession, device_sn: str) -> tuple[bool, int]:
-    """(enabled, discharge_soc_delta_pct) — defaults when row missing: False, 2 (allowed: 2, 10, 20)."""
+    """(enabled, discharge_soc_delta_pct) — defaults: False, 2. Allowed: 2, 10, 20, 100 (full)."""
     sn = (device_sn or "").strip()
     if not sn:
         return False, _DISCHARGE_DELTA_MIN
@@ -59,6 +80,8 @@ async def get_peak_auto_pref(session: AsyncSession, device_sn: str) -> tuple[boo
     if not row:
         return False, _DISCHARGE_DELTA_MIN
     pct = int(row.discharge_soc_delta_pct)
+    if pct == DISCHARGE_SOC_DELTA_FULL_SENTINEL:
+        return bool(row.enabled), DISCHARGE_SOC_DELTA_FULL_SENTINEL
     pct = max(_DISCHARGE_DELTA_MIN, min(_DISCHARGE_DELTA_MAX, pct))
     pct = normalize_discharge_soc_delta_pct(pct)
     return bool(row.enabled), pct
@@ -125,16 +148,22 @@ async def run_peak_auto_discharge_tick() -> None:
                 DeyePeakAutoDischargePref.discharge_soc_delta_pct,
             ).where(DeyePeakAutoDischargePref.enabled.is_(True))
         )
-        devices = [
-            (
-                str(r[0]),
-                normalize_discharge_soc_delta_pct(
-                    max(_DISCHARGE_DELTA_MIN, min(_DISCHARGE_DELTA_MAX, int(r[1])))
-                ),
-            )
-            for r in res.all()
-            if r[0]
-        ]
+        devices: list[tuple[str, int]] = []
+        for r in res.all():
+            if not r[0]:
+                continue
+            raw = int(r[1])
+            if raw == DISCHARGE_SOC_DELTA_FULL_SENTINEL:
+                devices.append((str(r[0]), DISCHARGE_SOC_DELTA_FULL_SENTINEL))
+            else:
+                devices.append(
+                    (
+                        str(r[0]),
+                        normalize_discharge_soc_delta_pct(
+                            max(_DISCHARGE_DELTA_MIN, min(_DISCHARGE_DELTA_MAX, raw))
+                        ),
+                    )
+                )
         if not devices:
             return
         hourly = await get_hourly_dam_uah_mwh(session, today, zone)
@@ -159,14 +188,15 @@ async def run_peak_auto_discharge_tick() -> None:
                 continue
 
         logger.info(
-            "Peak DAM auto: discharge starting device_sn=%s trade_day=%s peak_hour=%s delta_pct=%s",
+            "Peak DAM auto: discharge starting device_sn=%s trade_day=%s peak_hour=%s stored_delta=%s",
             sn,
             today.isoformat(),
             peak_idx,
             delta_pct,
         )
         try:
-            await discharge_soc_delta_then_zero_export_ct(sn, float(delta_pct))
+            actual_delta = await resolve_stored_discharge_delta_points(sn, delta_pct)
+            await discharge_soc_delta_then_zero_export_ct(sn, actual_delta)
         except Exception:
             logger.exception("Peak DAM auto: discharge failed device_sn=%s", sn)
             continue

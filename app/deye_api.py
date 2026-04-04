@@ -1197,8 +1197,8 @@ async def assert_inverter_owned(device_sn: str) -> None:
         raise ValueError(f"Inverter serial not in this account: {sn}")
 
 
-_DISCHARGE_SOC_DELTA_MIN = 2.0
-_DISCHARGE_SOC_DELTA_MAX = 40.0
+_DISCHARGE_SOC_DELTA_MIN = 1.0
+_DISCHARGE_SOC_DELTA_MAX = 100.0
 
 
 async def _discharge_soc_delta_poll_loop_and_restore(
@@ -1249,7 +1249,7 @@ async def discharge_soc_delta_then_zero_export_ct(
     2) Poll SoC until it drops by soc_delta_pct points or timeout.
     3) Set ZERO_EXPORT_TO_CT with TOU SoC = max(15%, discharge target SoC).
 
-    soc_delta_pct: 2..40 (percentage points of SoC to shed).
+    soc_delta_pct: 1..100 (percentage points of SoC to shed; use ~100% of current SoC for full discharge).
 
     When return_after_start is True, step 1 is awaited and the HTTP handler can return
     immediately; steps 2–3 continue in a background task (for UI loaders).
@@ -1259,8 +1259,7 @@ async def discharge_soc_delta_then_zero_export_ct(
     delta = float(soc_delta_pct)
     if delta < _DISCHARGE_SOC_DELTA_MIN or delta > _DISCHARGE_SOC_DELTA_MAX:
         raise ValueError(
-            f"soc_delta_pct must be between {int(_DISCHARGE_SOC_DELTA_MIN)} "
-            f"and {int(_DISCHARGE_SOC_DELTA_MAX)}"
+            f"soc_delta_pct must be between {_DISCHARGE_SOC_DELTA_MIN} and {_DISCHARGE_SOC_DELTA_MAX}"
         )
 
     await assert_inverter_owned(device_sn)
