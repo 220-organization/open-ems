@@ -221,7 +221,8 @@ function niceSymmetricCap(rawMax) {
 }
 
 /** Left Y-axis band width — same on DAM line chart and grid bar chart so hours align vertically. */
-const DAM_LEFT_Y_AXIS_WIDTH = 56;
+/** Wide enough for Y-axis labels (e.g. Gen/Cons, kWh) across synced DAM charts. */
+const DAM_LEFT_Y_AXIS_WIDTH = 72;
 
 /** Right SoC / placeholder axis width — bottom chart uses a hidden right axis with the same width so plot areas match. */
 const DAM_RIGHT_Y_AXIS_WIDTH = 48;
@@ -231,6 +232,9 @@ const DAM_HZ_Y_AXIS_WIDTH = 72;
 
 /** Hour index on X-axis (data uses 1–24): show even ticks only. */
 const DAM_HOUR_X_TICKS = Object.freeze([2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24]);
+
+/** Half-hour gutters on the X domain so hour-1 bars do not sit on the Y-axis (keep in sync across DAM charts). */
+const DAM_X_AXIS_DOMAIN = Object.freeze([0.5, 24.5]);
 
 function fiveSymmetricTicks(lo, hi) {
   if (!Number.isFinite(lo) || !Number.isFinite(hi) || lo >= hi) return [0];
@@ -765,6 +769,49 @@ export default function DamChartPanel({
     [pvLoadDomain]
   );
 
+  /** Approximate kWh for the selected Kyiv calendar day from hourly series (kW·h for grid; kWh per hour for PV/load). */
+  const damDayEnergyTotals = useMemo(() => {
+    if (!rows.length) {
+      return { importKwh: null, exportKwh: null, generationKwh: null, consumptionKwh: null };
+    }
+    let importKwh = 0;
+    let exportKwh = 0;
+    let generationKwh = 0;
+    let consumptionKwh = 0;
+    let anyImport = false;
+    let anyExport = false;
+    let anyGen = false;
+    let anyCons = false;
+    for (const r of rows) {
+      const g = r.gridKw;
+      if (g != null && Number.isFinite(g)) {
+        if (g > 0) {
+          importKwh += g;
+          anyImport = true;
+        } else if (g < 0) {
+          exportKwh += -g;
+          anyExport = true;
+        }
+      }
+      const pv = r.pvKwh;
+      if (pv != null && Number.isFinite(pv)) {
+        generationKwh += Math.max(0, pv);
+        anyGen = true;
+      }
+      const c = r.consKwhNeg;
+      if (c != null && Number.isFinite(c)) {
+        consumptionKwh += Math.abs(c);
+        anyCons = true;
+      }
+    }
+    return {
+      importKwh: anyImport ? importKwh : null,
+      exportKwh: anyExport ? exportKwh : null,
+      generationKwh: anyGen ? generationKwh : null,
+      consumptionKwh: anyCons ? consumptionKwh : null,
+    };
+  }, [rows]);
+
   const hzDomain = useMemo(() => {
     const vals = rows.map(r => r.gridFreqHz).filter(v => v != null && Number.isFinite(v));
     if (!vals.length) return [49.5, 50.5];
@@ -1050,7 +1097,7 @@ export default function DamChartPanel({
                 <XAxis
                   dataKey="hour"
                   type="number"
-                  domain={[1, 24]}
+                  domain={DAM_X_AXIS_DOMAIN}
                   ticks={DAM_HOUR_X_TICKS}
                   allowDecimals={false}
                   padding={{ left: 0, right: 0 }}
@@ -1200,13 +1247,33 @@ export default function DamChartPanel({
         {!loading && hasChart && effectiveInverterSn ? (
           <div className="dam-grid-bars-wrap">
             <p className="dam-grid-bars-caption">{t('damGridBarsCaption')}</p>
+            <ul className="dam-day-energy-totals dam-day-energy-totals--grid" aria-label={t('damEnergyTotalsGridAria')}>
+              <li className="dam-day-energy-totals__item">
+                <span className="dam-day-energy-totals__swatch" style={{ background: '#f59e0b' }} aria-hidden />
+                <span className="dam-day-energy-totals__text">
+                  {t('damEnergyTotalImport')}:{` `}
+                  <span className="dam-day-energy-totals__value">
+                    {damDayEnergyTotals.importKwh != null ? `${fmt1.format(damDayEnergyTotals.importKwh)} ${t('damEnergyKwhUnit')}` : '—'}
+                  </span>
+                </span>
+              </li>
+              <li className="dam-day-energy-totals__item">
+                <span className="dam-day-energy-totals__swatch" style={{ background: '#38bdf8' }} aria-hidden />
+                <span className="dam-day-energy-totals__text">
+                  {t('damEnergyTotalExport')}:{` `}
+                  <span className="dam-day-energy-totals__value">
+                    {damDayEnergyTotals.exportKwh != null ? `${fmt1.format(damDayEnergyTotals.exportKwh)} ${t('damEnergyKwhUnit')}` : '—'}
+                  </span>
+                </span>
+              </li>
+            </ul>
             <ResponsiveContainer width="100%" height={gridBarH}>
               <ComposedChart data={rows} syncId="dam-day" margin={damComposedChartMargin}>
                 <CartesianGrid stroke="rgba(252, 1, 155, 0.08)" strokeDasharray="3 3" vertical={false} />
                 <XAxis
                   dataKey="hour"
                   type="number"
-                  domain={[1, 24]}
+                  domain={DAM_X_AXIS_DOMAIN}
                   ticks={DAM_HOUR_X_TICKS}
                   allowDecimals={false}
                   padding={{ left: 0, right: 0 }}
@@ -1274,7 +1341,8 @@ export default function DamChartPanel({
                     const gridPayload = item?.payload ?? item;
                     const live = gridPayload?.gridKwLive ? ` — ${t('damGridLiveTag')}` : '';
                     const fromLoad = gridPayload?.gridKwFromLoad ? ` (${t('damGridFromLoadTag')})` : '';
-                    const s = tag ? `${fmt1.format(kw)} kW (${tag})` : `${fmt1.format(kw)} kW`;
+                    const unit = t('damEnergyKwhUnit');
+                    const s = tag ? `${fmt1.format(kw)} ${unit} (${tag})` : `${fmt1.format(kw)} ${unit}`;
                     const gridLabel = t('damSeriesGrid');
                     return [`${s}${fromLoad}${live}`, gridLabel];
                   }}
@@ -1317,13 +1385,37 @@ export default function DamChartPanel({
         {!loading && hasChart && effectiveInverterSn ? (
           <div className="dam-pv-load-bars-wrap">
             <p className="dam-grid-bars-caption">{t('damPvLoadBarsCaption')}</p>
+            <ul className="dam-day-energy-totals dam-day-energy-totals--pv-load" aria-label={t('damEnergyTotalsPvLoadAria')}>
+              <li className="dam-day-energy-totals__item">
+                <span className="dam-day-energy-totals__swatch" style={{ background: '#22c55e' }} aria-hidden />
+                <span className="dam-day-energy-totals__text">
+                  {t('damEnergyTotalGeneration')}:{` `}
+                  <span className="dam-day-energy-totals__value">
+                    {damDayEnergyTotals.generationKwh != null
+                      ? `${fmt1.format(damDayEnergyTotals.generationKwh)} ${t('damEnergyKwhUnit')}`
+                      : '—'}
+                  </span>
+                </span>
+              </li>
+              <li className="dam-day-energy-totals__item">
+                <span className="dam-day-energy-totals__swatch" style={{ background: '#fb923c' }} aria-hidden />
+                <span className="dam-day-energy-totals__text">
+                  {t('damEnergyTotalConsumption')}:{` `}
+                  <span className="dam-day-energy-totals__value">
+                    {damDayEnergyTotals.consumptionKwh != null
+                      ? `${fmt1.format(damDayEnergyTotals.consumptionKwh)} ${t('damEnergyKwhUnit')}`
+                      : '—'}
+                  </span>
+                </span>
+              </li>
+            </ul>
             <ResponsiveContainer width="100%" height={gridBarH}>
               <ComposedChart data={rows} syncId="dam-day" margin={damComposedChartMargin}>
                 <CartesianGrid stroke="rgba(252, 1, 155, 0.08)" strokeDasharray="3 3" vertical={false} />
                 <XAxis
                   dataKey="hour"
                   type="number"
-                  domain={[1, 24]}
+                  domain={DAM_X_AXIS_DOMAIN}
                   ticks={DAM_HOUR_X_TICKS}
                   allowDecimals={false}
                   padding={{ left: 0, right: 0 }}

@@ -151,6 +151,40 @@
   line-height: 1.35;
 }
 
+.dam-day-energy-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  align-items: baseline;
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+  font-size: 0.78rem;
+  color: rgba(255, 248, 252, 0.72);
+  line-height: 1.45;
+}
+
+.dam-day-energy-totals__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.dam-day-energy-totals__swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.dam-day-energy-totals__value {
+  color: rgba(255, 248, 252, 0.92);
+  font-variant-numeric: tabular-nums;
+}
+
 .dam-date-btn {
   appearance: none;
   background: var(--pf-surface);
