@@ -368,6 +368,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     hintKey: null,
   });
   const [discharge2Feedback, setDischarge2Feedback] = useState('');
+  const [remoteWriteNeedsPinOpen, setRemoteWriteNeedsPinOpen] = useState(false);
   const discharge2BusyRef = useRef(false);
   const charge2BusyRef = useRef(false);
   const [peakDamDischargeEnabled, setPeakDamDischargeEnabled] = useState(false);
@@ -376,20 +377,12 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const [chargeSocDeltaPct, setChargeSocDeltaPct] = useState(10);
   const [toolbarPrefsLoading, setToolbarPrefsLoading] = useState(false);
 
-  /** Writes need a trailing pin<digits> in Deye plant/device name (see API pinRequired). */
-  const deyeWritesBlocked = !selInverterSn || toolbarPrefsLoading || !selInverterPinRequired;
+  /** No serial or prefs still loading — controls stay disabled (no click). Missing PIN in name: enabled, click opens modal. */
+  const deyeWritesHardBlocked = !selInverterSn || toolbarPrefsLoading;
 
-  const showDeyeRemoteWriteLockedHint = useMemo(
-    () =>
-      Boolean(
-        selInverterSn &&
-          !selInverterPinRequired &&
-          inverterRows.configured &&
-          !inverterRows.loading &&
-          !inverterRows.error
-      ),
-    [selInverterSn, selInverterPinRequired, inverterRows.configured, inverterRows.loading, inverterRows.error]
-  );
+  const closeRemoteWriteNeedsPinModal = useCallback(() => {
+    setRemoteWriteNeedsPinOpen(false);
+  }, []);
 
   const [dischargeConfirmOpen, setDischargeConfirmOpen] = useState(false);
   const [chargeConfirmOpen, setChargeConfirmOpen] = useState(false);
@@ -996,7 +989,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     const deviceSn = selInverterSn?.trim();
     if (!deviceSn || discharge2BusyRef.current) return;
     if (!selInverterPinRequired) {
-      setDischarge2Feedback(t('deyeRemoteWriteNeedsPin'));
+      setRemoteWriteNeedsPinOpen(true);
       return;
     }
     if (!essSocHasKey || essSocPercent == null || !Number.isFinite(Number(essSocPercent))) {
@@ -1022,7 +1015,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     const deviceSn = selInverterSn?.trim();
     if (!deviceSn || charge2BusyRef.current) return;
     if (!selInverterPinRequired) {
-      setDischarge2Feedback(t('deyeRemoteWriteNeedsPin'));
+      setRemoteWriteNeedsPinOpen(true);
       return;
     }
     if (!essSocHasKey || essSocPercent == null || !Number.isFinite(Number(essSocPercent))) {
@@ -1197,6 +1190,15 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   }, [writePinGate, cancelWritePinGate]);
 
   useEffect(() => {
+    if (!remoteWriteNeedsPinOpen) return undefined;
+    const onKey = e => {
+      if (e.key === 'Escape') closeRemoteWriteNeedsPinModal();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [remoteWriteNeedsPinOpen, closeRemoteWriteNeedsPinModal]);
+
+  useEffect(() => {
     if (!deyeCommandModal || deyeCommandModal.phase === 'loading') return undefined;
     const onKey = e => {
       if (e.key === 'Escape') setDeyeCommandModal(null);
@@ -1328,7 +1330,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                           type="button"
                           className="pf-discharge-btn pf-discharge-go-btn"
                           onClick={requestDischarge2Pct}
-                          disabled={deyeWritesBlocked}
+                          disabled={deyeWritesHardBlocked}
                           title={t('dischargeSoc2Hint')}
                           aria-label={t('dischargeGoAria')}
                         >
@@ -1338,9 +1340,13 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                           id="pf-discharge-delta-select"
                           className="pf-discharge-delta-select pf-discharge-delta-select--header"
                           value={dischargeSocDeltaPct}
-                          disabled={deyeWritesBlocked}
+                          disabled={deyeWritesHardBlocked}
                           aria-label={t('dischargeSocDeltaAria')}
                           onChange={e => {
+                            if (!selInverterPinRequired) {
+                              setRemoteWriteNeedsPinOpen(true);
+                              return;
+                            }
                             const n = normalizeDischargeSocDeltaPct(e.target.value);
                             const cached = readCachedInverterPin(selInverterSn?.trim() || '');
                             if (cached) {
@@ -1376,8 +1382,12 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                         <input
                           type="checkbox"
                           checked={peakDamDischargeEnabled}
-                          disabled={deyeWritesBlocked}
+                          disabled={deyeWritesHardBlocked}
                           onChange={async e => {
+                            if (!selInverterPinRequired) {
+                              setRemoteWriteNeedsPinOpen(true);
+                              return;
+                            }
                             const v = e.target.checked;
                             const sn = selInverterSn?.trim();
                             if (!sn) return;
@@ -1431,7 +1441,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                           type="button"
                           className="pf-discharge-btn pf-discharge-go-btn pf-charge-go-btn"
                           onClick={requestCharge2Pct}
-                          disabled={deyeWritesBlocked}
+                          disabled={deyeWritesHardBlocked}
                           title={t('chargeSoc2Hint')}
                           aria-label={t('chargeGoAria')}
                         >
@@ -1441,9 +1451,13 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                           id="pf-charge-delta-select"
                           className="pf-discharge-delta-select pf-discharge-delta-select--header"
                           value={chargeSocDeltaPct}
-                          disabled={deyeWritesBlocked}
+                          disabled={deyeWritesHardBlocked}
                           aria-label={t('chargeSocDeltaAria')}
                           onChange={e => {
+                            if (!selInverterPinRequired) {
+                              setRemoteWriteNeedsPinOpen(true);
+                              return;
+                            }
                             const n = normalizeChargeSocDeltaPct(e.target.value);
                             const cached = readCachedInverterPin(selInverterSn?.trim() || '');
                             if (cached) {
@@ -1479,8 +1493,12 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                         <input
                           type="checkbox"
                           checked={lowDamChargeEnabled}
-                          disabled={deyeWritesBlocked}
+                          disabled={deyeWritesHardBlocked}
                           onChange={async e => {
+                            if (!selInverterPinRequired) {
+                              setRemoteWriteNeedsPinOpen(true);
+                              return;
+                            }
                             const v = e.target.checked;
                             const sn = selInverterSn?.trim();
                             if (!sn) return;
@@ -1535,12 +1553,9 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
           ) : null}
         </div>
 
-        {discharge2Feedback || showDeyeRemoteWriteLockedHint ? (
+        {discharge2Feedback ? (
           <div className="pf-discharge-feedback" role="status">
-            {showDeyeRemoteWriteLockedHint ? (
-              <p className="pf-deye-remote-write-locked">{t('deyeRemoteWriteNeedsPin')}</p>
-            ) : null}
-            {discharge2Feedback ? <p>{discharge2Feedback}</p> : null}
+            <p>{discharge2Feedback}</p>
           </div>
         ) : null}
 
@@ -1992,6 +2007,31 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   onClick={confirmChargeFromModal}
                 >
                   {t('chargeConfirmOk')}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {remoteWriteNeedsPinOpen ? (
+          <div className="pf-modal-backdrop" role="presentation" onClick={closeRemoteWriteNeedsPinModal}>
+            <div
+              className="pf-modal pf-modal--remote-write-needs-pin"
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="pf-remote-write-needs-pin-title"
+              onClick={e => e.stopPropagation()}
+            >
+              <p id="pf-remote-write-needs-pin-title" className="pf-modal-message pf-modal-message--multiline">
+                {t('deyeRemoteWriteNeedsPin')}
+              </p>
+              <div className="pf-modal-actions">
+                <button
+                  type="button"
+                  className="pf-modal-btn pf-modal-btn--primary"
+                  onClick={closeRemoteWriteNeedsPinModal}
+                >
+                  {t('deyeRemoteWriteNeedsPinOk')}
                 </button>
               </div>
             </div>

@@ -47,6 +47,7 @@
   "deyeWritePinTitlePeakPct": "Enter PIN to save discharge depth",
   "deyeWritePinTitleLowPct": "Enter PIN to save charge depth",
   "deyeRemoteWriteNeedsPin": "Remote control is off for this inverter. Add a PIN suffix in the Deye Cloud plant or inverter name (e.g. \"My site pin1234\"), then reload the list.",
+  "deyeRemoteWriteNeedsPinOk": "OK",
   "chargeConfirmMessage": "Charge now from {{from}}% to {{to}}%?",
   "chargeConfirmCancel": "Cancel",
   "chargeConfirmOk": "Charge",

@@ -47,6 +47,7 @@
   "deyeWritePinTitlePeakPct": "Введіть PIN, щоб зберегти глибину розряду",
   "deyeWritePinTitleLowPct": "Введіть PIN, щоб зберегти глибину заряду",
   "deyeRemoteWriteNeedsPin": "Віддалене керування вимкнено для цього інвертора. Додайте суфікс PIN у назві станції або інвертора в Deye Cloud (наприклад «Мій об’єкт pin1234») і оновіть список.",
+  "deyeRemoteWriteNeedsPinOk": "Зрозуміло",
   "chargeConfirmMessage": "Зарядити зараз з {{from}}% до {{to}}%?",
   "chargeConfirmCancel": "Скасувати",
   "chargeConfirmOk": "Заряд",
