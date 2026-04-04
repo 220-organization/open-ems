@@ -1274,6 +1274,182 @@ a.pf-node {
   outline-offset: 2px;
 }
 
+/* ROI stack statistics (Power flow header) */
+.pf-roi-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.pf-roi-setup-btn {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.pf-roi-card {
+  padding: 10px 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--pf-border);
+  background: var(--pf-surface);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  box-sizing: border-box;
+}
+
+.pf-roi-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.pf-roi-meta-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.pf-roi-meta-right {
+  text-align: right;
+}
+
+.pf-roi-meta-line {
+  color: var(--pf-label);
+  word-break: break-word;
+}
+
+.pf-roi-meta-muted {
+  opacity: 0.82;
+}
+
+.pf-roi-hint {
+  margin: 0 0 8px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: rgba(250, 250, 250, 0.65);
+}
+
+.pf-roi-stack-bar {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.pf-roi-stack-seg {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 8px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(252, 1, 155, 0.22);
+  box-sizing: border-box;
+  min-height: 48px;
+  min-width: 0;
+}
+
+.pf-roi-stack-seg--load {
+  flex: 2 1 200px;
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.22), rgba(16, 185, 129, 0.12));
+}
+
+.pf-roi-stack-seg--placeholder {
+  flex: 1 1 72px;
+  opacity: 0.88;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.pf-roi-stack-seg-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--pf-label);
+}
+
+.pf-roi-stack-seg-sub {
+  font-size: 11px;
+  line-height: 1.3;
+  color: rgba(250, 250, 250, 0.78);
+}
+
+.pf-roi-stack-seg-rate {
+  font-size: 10px;
+  line-height: 1.35;
+  color: rgba(250, 250, 250, 0.62);
+  margin-top: 2px;
+}
+
+.pf-roi-modal-label {
+  display: block;
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.88);
+  text-align: left;
+}
+
+.pf-roi-modal-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(252, 1, 155, 0.35);
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font-size: 16px;
+}
+
+.pf-roi-modal-input:focus-visible {
+  outline: 2px solid var(--pf-pink-soft);
+  outline-offset: 2px;
+}
+
+.pf-roi-modal-error {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.35;
+  color: #fca5a5;
+}
+
+.pf-roi-modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pf-roi-modal-btn {
+  appearance: none;
+  cursor: pointer;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--pf-border);
+  background: var(--pf-surface);
+  color: var(--pf-label);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.pf-roi-modal-btn:hover {
+  border-color: rgba(252, 1, 155, 0.45);
+}
+
+.pf-roi-modal-btn--primary {
+  border-color: rgba(252, 1, 155, 0.55);
+  background: rgba(168, 85, 247, 0.2);
+}
+
 .pf-messenger-scrim {
   position: fixed;
   inset: 0;

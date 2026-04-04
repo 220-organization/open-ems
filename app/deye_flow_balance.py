@@ -28,3 +28,14 @@ def flow_balance_grid_w(
     if load_w is None or pv_w is None or battery_w is None:
         return None
     return float(load_w) - float(pv_factor) * float(pv_w) - float(battery_w)
+
+
+def effective_pv_generation_watts(device_sn: str, pv_w: float) -> float:
+    """
+    PV power (W) used for generation / ROI energy accounting.
+    Matches UI DEYE_FLOW_BALANCE_PV_FACTOR for calibrated serials (same set as device_uses_flow_balance).
+    """
+    v = max(0.0, float(pv_w))
+    if device_uses_flow_balance(device_sn):
+        return v * float(FLOW_BALANCE_PV_FACTOR)
+    return v

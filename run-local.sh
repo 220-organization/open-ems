@@ -28,6 +28,10 @@ Usage: ./run-local.sh [options]
   -h, --help        Show this help.
 
 Environment: UI_PORT, API_PORT, DATABASE_URL, UVICORN_RELOAD, REACT_APP_API_BASE_URL, ...
+
+  ROI dev seed: after Flyway migrations runs ./scripts/seed_roi_dev_data.sh for DEVICE_SN=2512291445
+  (3 months of PV samples + DAM rows + deye_roi_capex, period start 3 months ago). Change DEVICE_SN in this script if needed.
+  Optional: ZONE_EIC (default 10Y1001C--000182). Requires psql or Docker db container.
 EOF
       exit 0
       ;;
@@ -39,6 +43,9 @@ EOF
 done
 
 export DATABASE_URL="${DATABASE_URL:-postgresql+asyncpg://openems:openems@127.0.0.1:5433/openems}"
+
+# ROI dev DB seed target (scripts/seed_roi_dev_data.sh)
+export DEVICE_SN="2512291445"
 
 UI_PORT="${UI_PORT:-9220}"
 API_PORT="${API_PORT:-9221}"
@@ -85,6 +92,11 @@ if ! docker compose exec -T db pg_isready -U openems -d openems >/dev/null 2>&1;
 fi
 
 docker compose run --rm migrate
+
+echo "Running ROI dev DB seed for DEVICE_SN=${DEVICE_SN} (./scripts/seed_roi_dev_data.sh)…" >&2
+if ! ./scripts/seed_roi_dev_data.sh; then
+  echo "WARN: ROI dev seed failed (non-fatal). Fix DATABASE_URL or run ./scripts/seed_roi_dev_data.sh manually." >&2
+fi
 
 if [[ ! -d .venv ]]; then
   python3 -m venv .venv

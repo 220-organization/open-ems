@@ -33,6 +33,11 @@ from app.deye_peak_auto_service import (
     get_peak_auto_pref,
     set_peak_auto_from_ui,
 )
+from app.deye_roi_capex_service import get_roi_capex, get_roi_capex_map_for_devices, upsert_roi_capex
+from app.deye_roi_service import (
+    compute_roi_pv_kwh_and_value_uah,
+    compute_roi_pv_kwh_and_value_uah_previous_kyiv_month,
+)
 from app.deye_soc_service import hourly_inverter_history_for_kyiv_day
 from app.solar_forecast_open_meteo import fetch_tomorrow_insolation_percent
 
@@ -88,11 +93,19 @@ class LowDamChargeBody(BaseModel):
     pin: Optional[str] = Field(default=None, max_length=12)
 
 
+class RoiSettingsBody(BaseModel):
+    deviceSn: str = Field(..., min_length=6, max_length=64)
+    capexUsd: float = Field(..., gt=0, le=1e12)
+    pin: Optional[str] = Field(default=None, max_length=12)
+
+
 @router.get("/inverters")
-async def get_inverters():
+async def get_inverters(db: AsyncSession = Depends(get_db)):
     """
     Inverters under your Deye Cloud plants (Open API /station/listWithDevice).
     Requires DEYE_* env vars; returns empty list when not configured.
+
+    Each item may include ``capexUsd`` when ROI CAPEX is stored in ``deye_roi_capex`` (for dropdown).
     """
     if not deye_configured():
         missing = deye_missing_env_names()
@@ -106,6 +119,17 @@ async def get_inverters():
         )
     try:
         items = await list_inverter_devices()
+        sns = [str(it.get("deviceSn") or "").strip() for it in items if it.get("deviceSn")]
+        try:
+            capex_map = await get_roi_capex_map_for_devices(db, sns)
+            for it in items:
+                sn = str(it.get("deviceSn") or "").strip()
+                if sn:
+                    it["capexUsd"] = capex_map.get(sn)
+        except Exception:
+            logger.exception("GET /api/deye/inverters — CAPEX merge failed; returning without capexUsd")
+            for it in items:
+                it["capexUsd"] = None
         logger.info("GET /api/deye/inverters — OK, %s inverter(s)", len(items))
         return JSONResponse(
             content={"configured": True, "items": items},
@@ -212,6 +236,145 @@ async def get_soc_history_day(
         )
     except Exception as exc:
         logger.exception("GET /api/deye/soc-history-day — failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/roi-stats")
+async def get_roi_stats(
+    deviceSn: str = Query(
+        ...,
+        min_length=6,
+        max_length=32,
+        pattern=r"^[0-9]+$",
+        description="Deye inverter serial",
+    ),
+    startIso: str = Query(
+        ...,
+        min_length=8,
+        max_length=64,
+        description="ROI period start (ISO-8601, e.g. from Setup ROI statistics)",
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Consumption kWh from ``load_power_w`` (DB) and UAH = kWh × DAM at each consumption hour (Kyiv).
+
+    ``totalPvKwh`` is PV generation (reference). ``totalConsumptionKwh`` and ``totalValueUah`` use load.
+    ``dailyConsumptionKwh`` lists Kyiv-calendar days with per-day kWh and UAH (1-day aggregation).
+
+    ``effectiveRateUahPerKwh`` is ``totalValueUah / totalConsumptionKwh`` (DAM-weighted by when load ran).
+
+    ``previousMonth`` is the same for the previous calendar month (Europe/Kyiv), intersected with the ROI window.
+    """
+    if not deye_configured():
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": False,
+                "detail": "deye_not_configured",
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    sn = deviceSn.strip()
+    try:
+        await assert_inverter_owned(sn)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        data = await compute_roi_pv_kwh_and_value_uah(db, sn, startIso)
+        previous_month = await compute_roi_pv_kwh_and_value_uah_previous_kyiv_month(db, sn, startIso)
+        return JSONResponse(
+            content={
+                "ok": True,
+                "configured": True,
+                "deviceSn": sn,
+                **data,
+                "previousMonth": previous_month,
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    except Exception as exc:
+        logger.exception("GET /api/deye/roi-stats — failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/roi-settings")
+async def get_roi_settings(
+    deviceSn: str = Query(
+        ...,
+        min_length=6,
+        max_length=32,
+        pattern=r"^[0-9]+$",
+        description="Deye inverter serial",
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """CAPEX (USD) and ROI period start from deye_roi_capex (Setup ROI statistics)."""
+    if not deye_configured():
+        return JSONResponse(
+            content={"ok": False, "configured": False},
+            headers=_NO_STORE_CACHE,
+        )
+    sn = deviceSn.strip()
+    try:
+        await assert_inverter_owned(sn)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        row = await get_roi_capex(db, sn)
+        if row is None:
+            return JSONResponse(
+                content={"ok": True, "configured": True, "hasRow": False},
+                headers=_NO_STORE_CACHE,
+            )
+        return JSONResponse(
+            content={
+                "ok": True,
+                "configured": True,
+                "hasRow": True,
+                "capexUsd": row["capexUsd"],
+                "periodStartIso": row["periodStartIso"],
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    except Exception as exc:
+        logger.exception("GET /api/deye/roi-settings — failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/roi-settings")
+async def post_roi_settings(
+    body: RoiSettingsBody,
+    db: AsyncSession = Depends(get_db),
+):
+    """Save CAPEX and set ROI period start to now (same as previous localStorage behaviour)."""
+    if not deye_configured():
+        return JSONResponse(
+            content={"ok": False, "configured": False},
+            headers=_NO_STORE_CACHE,
+        )
+    sn = body.deviceSn.strip()
+    try:
+        await assert_inverter_owned(sn)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await assert_deye_write_pin(sn, body.pin)
+    try:
+        period_start = await upsert_roi_capex(db, sn, body.capexUsd)
+        await db.commit()
+        iso = period_start.isoformat().replace("+00:00", "Z")
+        return JSONResponse(
+            content={
+                "ok": True,
+                "configured": True,
+                "capexUsd": body.capexUsd,
+                "periodStartIso": iso,
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    except Exception as exc:
+        logger.exception("POST /api/deye/roi-settings — failed: %s", exc)
+        await db.rollback()
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 

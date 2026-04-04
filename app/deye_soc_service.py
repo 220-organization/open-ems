@@ -10,7 +10,11 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deye_api import deye_configured, list_inverter_devices, refresh_device_latest_batches
-from app.deye_flow_balance import FLOW_BALANCE_DEVICE_SNS, FLOW_BALANCE_PV_FACTOR
+from app.deye_flow_balance import (
+    FLOW_BALANCE_DEVICE_SNS,
+    FLOW_BALANCE_PV_FACTOR,
+    effective_pv_generation_watts,
+)
 from app.models import DeyeSocSample
 from app.oree_dam_service import KYIV
 
@@ -65,6 +69,7 @@ async def upsert_deye_sample(
     grid_frequency_hz: Optional[float] = None,
     load_power_w: Optional[float] = None,
     pv_power_w: Optional[float] = None,
+    pv_generation_w: Optional[float] = None,
     battery_power_w: Optional[float] = None,
 ) -> None:
     if (
@@ -73,6 +78,7 @@ async def upsert_deye_sample(
         and grid_frequency_hz is None
         and load_power_w is None
         and pv_power_w is None
+        and pv_generation_w is None
         and battery_power_w is None
     ):
         return
@@ -86,6 +92,7 @@ async def upsert_deye_sample(
             grid_frequency_hz=grid_frequency_hz,
             load_power_w=load_power_w,
             pv_power_w=pv_power_w,
+            pv_generation_w=pv_generation_w,
             battery_power_w=battery_power_w,
         )
         stmt = stmt.on_conflict_do_update(
@@ -99,6 +106,7 @@ async def upsert_deye_sample(
                 ),
                 "load_power_w": func.coalesce(stmt.excluded.load_power_w, DeyeSocSample.load_power_w),
                 "pv_power_w": func.coalesce(stmt.excluded.pv_power_w, DeyeSocSample.pv_power_w),
+                "pv_generation_w": func.coalesce(stmt.excluded.pv_generation_w, DeyeSocSample.pv_generation_w),
                 "battery_power_w": func.coalesce(
                     stmt.excluded.battery_power_w,
                     DeyeSocSample.battery_power_w,
@@ -133,6 +141,7 @@ async def run_deye_soc_snapshot(session: AsyncSession) -> int:
       - soc_percent: 0..100 when available
       - grid_power_w: signed W (positive = grid import, negative = export)
       - load_power_w, pv_power_w, battery_power_w: for hourly grid balance on calibrated SN
+      - pv_generation_w: effective PV (W) for ROI/load energy — raw PV × FLOW_BALANCE_PV_FACTOR where needed
     """
     if not deye_configured():
         return 0
@@ -176,9 +185,11 @@ async def run_deye_soc_snapshot(session: AsyncSession) -> int:
             except (TypeError, ValueError):
                 pass
         pv_val: Optional[float] = None
+        pv_gen_val: Optional[float] = None
         if pv_w is not None:
             try:
                 pv_val = max(0.0, float(pv_w))
+                pv_gen_val = effective_pv_generation_watts(sn, pv_val)
             except (TypeError, ValueError):
                 pass
         bat_val: Optional[float] = None
@@ -205,6 +216,7 @@ async def run_deye_soc_snapshot(session: AsyncSession) -> int:
             freq_val,
             load_val,
             pv_val,
+            pv_gen_val,
             bat_val,
         )
         n += 1

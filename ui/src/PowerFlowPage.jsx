@@ -13,13 +13,10 @@ import {
 } from './powerFlowEngine';
 import DamChartPanel from './DamChartPanel';
 import DeyeInverterMessengerModal from './DeyeInverterMessengerModal';
+import RoiStackStatistics from './RoiStackStatistics';
 import { DEYE_FLOW_BALANCE_PV_FACTOR, usesDeyeFlowBalance } from './deyeFlowBalanceSites';
 import { inverterSelectShortLabel } from './deyeInverterDisplay';
-import {
-  clearInverterPinCache,
-  readCachedInverterPin,
-  rememberInverterPin,
-} from './deyeInverterPinCache';
+import { clearInverterPinCache, readCachedInverterPin, rememberInverterPin } from './deyeInverterPinCache';
 import './power-flow.css';
 import './dam-chart.css';
 
@@ -137,6 +134,13 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       }),
     [bcp47]
   );
+
+  /** Dropdown CAPEX: plain amount + space + $ (no locale currency symbol / grouping). */
+  const formatInverterCapexUsd = useCallback((n) => {
+    const v = Math.round(Number(n));
+    if (!Number.isFinite(v)) return '';
+    return `${v} $`;
+  }, []);
 
   const geoForPortsRef = useRef(null);
   const geoRequestedRef = useRef(false);
@@ -277,36 +281,30 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     };
   }, [fetchMiner]);
 
-  useEffect(() => {
-    let cancelled = false;
-    const loadInverters = async () => {
-      try {
-        const r = await fetch(apiUrl('/api/deye/inverters'), { cache: 'no-store' });
-        const data = await r.json().catch(() => ({}));
-        if (cancelled) return;
-        if (!r.ok) {
-          setInverterRows({ loading: false, configured: false, items: [], error: true });
-        } else {
-          setInverterRows({
-            loading: false,
-            configured: !!data.configured,
-            items: data.items || [],
-            error: false,
-          });
-        }
-      } catch {
-        if (!cancelled) {
-          setInverterRows({ loading: false, configured: false, items: [], error: true });
-        }
+  const loadInverters = useCallback(async () => {
+    try {
+      const r = await fetch(apiUrl('/api/deye/inverters'), { cache: 'no-store' });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setInverterRows({ loading: false, configured: false, items: [], error: true });
+      } else {
+        setInverterRows({
+          loading: false,
+          configured: !!data.configured,
+          items: data.items || [],
+          error: false,
+        });
       }
-    };
-    loadInverters();
-    const id = setInterval(loadInverters, 60_000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
+    } catch {
+      setInverterRows({ loading: false, configured: false, items: [], error: true });
+    }
   }, []);
+
+  useEffect(() => {
+    void loadInverters();
+    const id = setInterval(() => void loadInverters(), 60_000);
+    return () => clearInterval(id);
+  }, [loadInverters]);
 
   const [inverterValue, setInverterValue] = useState('');
 
@@ -351,10 +349,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   /** Bumps when PIN cache mutates (localStorage is outside React). */
   const [pinCacheBust, setPinCacheBust] = useState(0);
   /** Saved PIN for write actions (24h in localStorage); empty if none / expired. */
-  const cachedWritePin = useMemo(
-    () => readCachedInverterPin(selInverterSn),
-    [selInverterSn, pinCacheBust]
-  );
+  const cachedWritePin = useMemo(() => readCachedInverterPin(selInverterSn), [selInverterSn, pinCacheBust]);
 
   const [socBySn, setSocBySn] = useState({});
   const [socListLoading, setSocListLoading] = useState(false);
@@ -819,171 +814,177 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const essSocPercent = essSocHasKey ? socBySn[selInverterSn] : undefined;
   const essSocPending = Boolean(selInverterSn && !essSocHasKey && socListLoading);
 
-  const executeDischarge2Pct = useCallback(async (commandPin = '') => {
-    const deviceSn = selInverterSn?.trim();
-    if (!deviceSn || discharge2BusyRef.current) return null;
-    discharge2BusyRef.current = true;
-    setDischarge2Feedback('');
-    try {
-      const body = {
-        deviceSn,
-        socDeltaPercent: dischargeSocDeltaPct,
-        respondAfterStart: true,
-      };
-      const p = String(commandPin ?? '').trim();
-      if (p) body.pin = p;
-      const r = await fetch(apiUrl('/api/deye/discharge-2pct'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        cache: 'no-store',
-      });
-      let data = {};
+  const executeDischarge2Pct = useCallback(
+    async (commandPin = '') => {
+      const deviceSn = selInverterSn?.trim();
+      if (!deviceSn || discharge2BusyRef.current) return null;
+      discharge2BusyRef.current = true;
+      setDischarge2Feedback('');
       try {
-        data = await r.json();
-      } catch {
-        /* ignore */
-      }
-      if (!r.ok) {
-        if (r.status === 403) {
-          clearInverterPinCache(deviceSn);
+        const body = {
+          deviceSn,
+          socDeltaPercent: dischargeSocDeltaPct,
+          respondAfterStart: true,
+        };
+        const p = String(commandPin ?? '').trim();
+        if (p) body.pin = p;
+        const r = await fetch(apiUrl('/api/deye/discharge-2pct'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          cache: 'no-store',
+        });
+        let data = {};
+        try {
+          data = await r.json();
+        } catch {
+          /* ignore */
+        }
+        if (!r.ok) {
+          if (r.status === 403) {
+            clearInverterPinCache(deviceSn);
+            setPinCacheBust(x => x + 1);
+          }
+          let msg = data.detail ?? data.msg ?? r.statusText;
+          if (Array.isArray(msg)) {
+            msg = msg.map(x => (x && typeof x === 'object' ? x.msg || JSON.stringify(x) : x)).join('; ');
+          }
+          throw new Error(String(msg || 'Request failed'));
+        }
+        if (!data.ok) {
+          throw new Error(String(data.detail || 'Discharge not started'));
+        }
+        if (p) {
+          rememberInverterPin(deviceSn, p);
           setPinCacheBust(x => x + 1);
         }
-        let msg = data.detail ?? data.msg ?? r.statusText;
-        if (Array.isArray(msg)) {
-          msg = msg.map(x => (x && typeof x === 'object' ? x.msg || JSON.stringify(x) : x)).join('; ');
+        const from =
+          data.startSoc != null && Number.isFinite(Number(data.startSoc))
+            ? inverterSocFmt.format(Number(data.startSoc))
+            : '—';
+        const to =
+          data.lastSoc != null && Number.isFinite(Number(data.lastSoc))
+            ? inverterSocFmt.format(Number(data.lastSoc))
+            : '—';
+        const startN = Number(data.startSoc);
+        const lastN = Number(data.lastSoc);
+        const reportedSocFlat = Number.isFinite(startN) && Number.isFinite(lastN) && Math.abs(startN - lastN) < 0.2;
+        const detail = data.respondAfterStart
+          ? t('deyeCommandContinuesBackground')
+          : data.hitTarget
+            ? t('dischargeSoc2Ok', { from, to })
+            : reportedSocFlat
+              ? t('dischargeSoc2PartialFlat', { from, to })
+              : t('dischargeSoc2Partial', { from, to });
+        const message = `${t('commandSentStatus')}\n\n${detail}`;
+        try {
+          const rs = await fetch(apiUrl(`/api/deye/soc?${new URLSearchParams({ deviceSn })}`), { cache: 'no-store' });
+          const js = await rs.json();
+          if (rs.ok && js.socPercent != null && Number.isFinite(Number(js.socPercent))) {
+            setSocBySn(prev => ({
+              ...prev,
+              [deviceSn]: Number(js.socPercent),
+            }));
+          }
+        } catch {
+          /* ignore */
         }
-        throw new Error(String(msg || 'Request failed'));
+        return { ok: true, message };
+      } catch (e) {
+        const err = e instanceof Error ? e.message : String(e);
+        return { ok: false, message: `${t('dischargeSoc2Error')}: ${err}` };
+      } finally {
+        discharge2BusyRef.current = false;
       }
-      if (!data.ok) {
-        throw new Error(String(data.detail || 'Discharge not started'));
-      }
-      if (p) {
-        rememberInverterPin(deviceSn, p);
-        setPinCacheBust(x => x + 1);
-      }
-      const from =
-        data.startSoc != null && Number.isFinite(Number(data.startSoc))
-          ? inverterSocFmt.format(Number(data.startSoc))
-          : '—';
-      const to =
-        data.lastSoc != null && Number.isFinite(Number(data.lastSoc))
-          ? inverterSocFmt.format(Number(data.lastSoc))
-          : '—';
-      const startN = Number(data.startSoc);
-      const lastN = Number(data.lastSoc);
-      const reportedSocFlat = Number.isFinite(startN) && Number.isFinite(lastN) && Math.abs(startN - lastN) < 0.2;
-      const detail = data.respondAfterStart
-        ? t('deyeCommandContinuesBackground')
-        : data.hitTarget
-          ? t('dischargeSoc2Ok', { from, to })
-          : reportedSocFlat
-            ? t('dischargeSoc2PartialFlat', { from, to })
-            : t('dischargeSoc2Partial', { from, to });
-      const message = `${t('commandSentStatus')}\n\n${detail}`;
-      try {
-        const rs = await fetch(apiUrl(`/api/deye/soc?${new URLSearchParams({ deviceSn })}`), { cache: 'no-store' });
-        const js = await rs.json();
-        if (rs.ok && js.socPercent != null && Number.isFinite(Number(js.socPercent))) {
-          setSocBySn(prev => ({
-            ...prev,
-            [deviceSn]: Number(js.socPercent),
-          }));
-        }
-      } catch {
-        /* ignore */
-      }
-      return { ok: true, message };
-    } catch (e) {
-      const err = e instanceof Error ? e.message : String(e);
-      return { ok: false, message: `${t('dischargeSoc2Error')}: ${err}` };
-    } finally {
-      discharge2BusyRef.current = false;
-    }
-  }, [selInverterSn, inverterSocFmt, t, dischargeSocDeltaPct]);
+    },
+    [selInverterSn, inverterSocFmt, t, dischargeSocDeltaPct]
+  );
 
-  const executeCharge2Pct = useCallback(async (commandPin = '') => {
-    const deviceSn = selInverterSn?.trim();
-    if (!deviceSn || charge2BusyRef.current) return null;
-    charge2BusyRef.current = true;
-    setDischarge2Feedback('');
-    try {
-      const body = {
-        deviceSn,
-        socDeltaPercent: chargeSocDeltaPct,
-        respondAfterStart: true,
-      };
-      const p = String(commandPin ?? '').trim();
-      if (p) body.pin = p;
-      const r = await fetch(apiUrl('/api/deye/charge-2pct'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        cache: 'no-store',
-      });
-      let data = {};
+  const executeCharge2Pct = useCallback(
+    async (commandPin = '') => {
+      const deviceSn = selInverterSn?.trim();
+      if (!deviceSn || charge2BusyRef.current) return null;
+      charge2BusyRef.current = true;
+      setDischarge2Feedback('');
       try {
-        data = await r.json();
-      } catch {
-        /* ignore */
-      }
-      if (!r.ok) {
-        if (r.status === 403) {
-          clearInverterPinCache(deviceSn);
+        const body = {
+          deviceSn,
+          socDeltaPercent: chargeSocDeltaPct,
+          respondAfterStart: true,
+        };
+        const p = String(commandPin ?? '').trim();
+        if (p) body.pin = p;
+        const r = await fetch(apiUrl('/api/deye/charge-2pct'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          cache: 'no-store',
+        });
+        let data = {};
+        try {
+          data = await r.json();
+        } catch {
+          /* ignore */
+        }
+        if (!r.ok) {
+          if (r.status === 403) {
+            clearInverterPinCache(deviceSn);
+            setPinCacheBust(x => x + 1);
+          }
+          let msg = data.detail ?? data.msg ?? r.statusText;
+          if (Array.isArray(msg)) {
+            msg = msg.map(x => (x && typeof x === 'object' ? x.msg || JSON.stringify(x) : x)).join('; ');
+          }
+          throw new Error(String(msg || 'Request failed'));
+        }
+        if (!data.ok) {
+          throw new Error(String(data.detail || 'Charge not started'));
+        }
+        if (p) {
+          rememberInverterPin(deviceSn, p);
           setPinCacheBust(x => x + 1);
         }
-        let msg = data.detail ?? data.msg ?? r.statusText;
-        if (Array.isArray(msg)) {
-          msg = msg.map(x => (x && typeof x === 'object' ? x.msg || JSON.stringify(x) : x)).join('; ');
+        const from =
+          data.startSoc != null && Number.isFinite(Number(data.startSoc))
+            ? inverterSocFmt.format(Number(data.startSoc))
+            : '—';
+        const to =
+          data.lastSoc != null && Number.isFinite(Number(data.lastSoc))
+            ? inverterSocFmt.format(Number(data.lastSoc))
+            : '—';
+        const startN = Number(data.startSoc);
+        const lastN = Number(data.lastSoc);
+        const reportedSocFlat = Number.isFinite(startN) && Number.isFinite(lastN) && Math.abs(startN - lastN) < 0.2;
+        const detail = data.respondAfterStart
+          ? t('deyeChargeStarted')
+          : data.hitTarget
+            ? t('chargeSoc2Ok', { from, to })
+            : reportedSocFlat
+              ? t('chargeSoc2PartialFlat', { from, to })
+              : t('chargeSoc2Partial', { from, to });
+        const message = `${t('commandSentStatus')}\n\n${detail}`;
+        try {
+          const rs = await fetch(apiUrl(`/api/deye/soc?${new URLSearchParams({ deviceSn })}`), { cache: 'no-store' });
+          const js = await rs.json();
+          if (rs.ok && js.socPercent != null && Number.isFinite(Number(js.socPercent))) {
+            setSocBySn(prev => ({
+              ...prev,
+              [deviceSn]: Number(js.socPercent),
+            }));
+          }
+        } catch {
+          /* ignore */
         }
-        throw new Error(String(msg || 'Request failed'));
+        return { ok: true, message };
+      } catch (e) {
+        const err = e instanceof Error ? e.message : String(e);
+        return { ok: false, message: `${t('chargeSoc2Error')}: ${err}` };
+      } finally {
+        charge2BusyRef.current = false;
       }
-      if (!data.ok) {
-        throw new Error(String(data.detail || 'Charge not started'));
-      }
-      if (p) {
-        rememberInverterPin(deviceSn, p);
-        setPinCacheBust(x => x + 1);
-      }
-      const from =
-        data.startSoc != null && Number.isFinite(Number(data.startSoc))
-          ? inverterSocFmt.format(Number(data.startSoc))
-          : '—';
-      const to =
-        data.lastSoc != null && Number.isFinite(Number(data.lastSoc))
-          ? inverterSocFmt.format(Number(data.lastSoc))
-          : '—';
-      const startN = Number(data.startSoc);
-      const lastN = Number(data.lastSoc);
-      const reportedSocFlat = Number.isFinite(startN) && Number.isFinite(lastN) && Math.abs(startN - lastN) < 0.2;
-      const detail = data.respondAfterStart
-        ? t('deyeChargeStarted')
-        : data.hitTarget
-          ? t('chargeSoc2Ok', { from, to })
-          : reportedSocFlat
-            ? t('chargeSoc2PartialFlat', { from, to })
-            : t('chargeSoc2Partial', { from, to });
-      const message = `${t('commandSentStatus')}\n\n${detail}`;
-      try {
-        const rs = await fetch(apiUrl(`/api/deye/soc?${new URLSearchParams({ deviceSn })}`), { cache: 'no-store' });
-        const js = await rs.json();
-        if (rs.ok && js.socPercent != null && Number.isFinite(Number(js.socPercent))) {
-          setSocBySn(prev => ({
-            ...prev,
-            [deviceSn]: Number(js.socPercent),
-          }));
-        }
-      } catch {
-        /* ignore */
-      }
-      return { ok: true, message };
-    } catch (e) {
-      const err = e instanceof Error ? e.message : String(e);
-      return { ok: false, message: `${t('chargeSoc2Error')}: ${err}` };
-    } finally {
-      charge2BusyRef.current = false;
-    }
-  }, [selInverterSn, inverterSocFmt, t, chargeSocDeltaPct]);
+    },
+    [selInverterSn, inverterSocFmt, t, chargeSocDeltaPct]
+  );
 
   const requestDischarge2Pct = useCallback(() => {
     const deviceSn = selInverterSn?.trim();
@@ -1264,10 +1265,15 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                       {inverterRows.items.map(row => {
                         const p = socBySn[row.deviceSn];
                         const socSuffix = p != null && Number.isFinite(p) ? ` · ${inverterSocFmt.format(p)}%` : '';
+                        const c = row.capexUsd;
+                        const capexSuffix =
+                          c != null && Number.isFinite(Number(c))
+                            ? ` · ${formatInverterCapexUsd(Number(c))}`
+                            : '';
                         const shortLabel = inverterSelectShortLabel(row.label, row.deviceSn);
                         return (
                           <option key={row.deviceSn} value={row.deviceSn}>
-                            {shortLabel + socSuffix}
+                            {shortLabel + socSuffix + capexSuffix}
                           </option>
                         );
                       })}
@@ -1282,6 +1288,17 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                 >
                   {t('addDeyeInverterButton')}
                 </button>
+                <RoiStackStatistics
+                  t={t}
+                  bcp47={bcp47}
+                  selInverterSn={selInverterSn}
+                  inverterHeaderOk={inverterRows.configured && !inverterRows.loading && !inverterRows.error}
+                  pinRequired={selInverterPinRequired}
+                  cachedPin={cachedWritePin}
+                  pinCacheBust={pinCacheBust}
+                  onPinRemembered={() => setPinCacheBust(x => x + 1)}
+                  onRoiCapexSaved={loadInverters}
+                />
               </div>
               <div className="pf-station-field">
                 <select
@@ -2080,7 +2097,11 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                 <button type="button" className="pf-modal-btn pf-modal-btn--secondary" onClick={cancelWritePinGate}>
                   {t('dischargeConfirmCancel')}
                 </button>
-                <button type="button" className="pf-modal-btn pf-modal-btn--primary" onClick={() => void submitWritePinGate()}>
+                <button
+                  type="button"
+                  className="pf-modal-btn pf-modal-btn--primary"
+                  onClick={() => void submitWritePinGate()}
+                >
                   {t('deyeWritePinConfirm')}
                 </button>
               </div>

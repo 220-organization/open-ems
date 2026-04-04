@@ -18,7 +18,12 @@ class Note(Base):
 
 
 class DeyeSocSample(Base):
-    """Deye metrics sampled every ~5 minutes (UTC bucket_start aligned to 5 min)."""
+    """
+    Deye metrics sampled every ~5 minutes (UTC bucket_start aligned to 5 min).
+
+    pv_power_w: raw PV from Deye (grid balance formulas use this with FLOW_BALANCE_PV_FACTOR).
+    pv_generation_w: effective PV for generation/ROI (raw × factor on calibrated sites).
+    """
 
     __tablename__ = "deye_soc_sample"
 
@@ -31,9 +36,25 @@ class DeyeSocSample(Base):
     grid_frequency_hz: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
     load_power_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
     pv_power_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    pv_generation_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
     battery_power_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
     created_on: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class DeyeRoiCapex(Base):
+    """User-configured CAPEX (USD) and ROI period start per inverter (Setup ROI statistics)."""
+
+    __tablename__ = "deye_roi_capex"
+
+    device_sn: Mapped[str] = mapped_column(String(64), primary_key=True)
+    capex_usd: Mapped[float] = mapped_column(Double, nullable=False)
+    period_start_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    updated_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
 
