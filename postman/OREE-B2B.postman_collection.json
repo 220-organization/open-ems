@@ -1,0 +1,140 @@
+{
+  "info": {
+    "_postman_id": "a1b2c3d4-oree-b2b-openems",
+    "name": "OREE B2B API (Open EMS)",
+    "description": "Direct calls to api.oree.com.ua — same paths as open-ems (OREE_API_BASE_URL + /damprices, /damindexes).\n\nSet `apiKey` in the collection or environment (header X-API-KEY). Optional: `userAgent`, `tradeDay`.\n\nURLs use explicit protocol/host/path so Postman shows the address bar after import.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "apiKey",
+      "value": ""
+    },
+    {
+      "key": "userAgent",
+      "value": "OpenEMS/1.0 (OREE B2B API)"
+    },
+    {
+      "key": "tradeDay",
+      "value": "2026-04-05"
+    }
+  ],
+  "item": [
+    {
+      "name": "OREE (upstream)",
+      "item": [
+        {
+          "name": "GET /damprices",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-KEY",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "User-Agent",
+                "value": "{{userAgent}}"
+              }
+            ],
+            "url": {
+              "raw": "https://api.oree.com.ua/index.php/api/damprices",
+              "protocol": "https",
+              "host": ["api", "oree", "com", "ua"],
+              "path": ["index.php", "api", "damprices"]
+            },
+            "description": "Hourly DAM prices per zone (JSON array of day objects). Used by OreeDamPriceSyncService and open-ems sync."
+          }
+        },
+        {
+          "name": "GET /damindexes (no date)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-KEY",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "User-Agent",
+                "value": "{{userAgent}}"
+              }
+            ],
+            "url": {
+              "raw": "https://api.oree.com.ua/index.php/api/damindexes",
+              "protocol": "https",
+              "host": ["api", "oree", "com", "ua"],
+              "path": ["index.php", "api", "damindexes"]
+            },
+            "description": "Aggregated DAM index bands (DAY/NIGHT/PEAK/HPEAK/BASE). No ?date= — Open EMS never sends that param (403 on some keys). Default response is for the next trade day."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Open EMS (local proxy, optional)",
+      "item": [
+        {
+          "name": "GET /api/dam/chart-day",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://127.0.0.1:9221/api/dam/chart-day?date={{tradeDay}}",
+              "protocol": "http",
+              "host": ["127", "0", "0", "1"],
+              "port": "9221",
+              "path": ["api", "dam", "chart-day"],
+              "query": [
+                {
+                  "key": "date",
+                  "value": "{{tradeDay}}"
+                }
+              ]
+            },
+            "description": "DAM hourly prices from Open EMS DB (not direct OREE). Requires running API; OREE sync must have populated oree_dam_price."
+          }
+        },
+        {
+          "name": "GET /api/dam/damindexes",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://127.0.0.1:9221/api/dam/damindexes?date={{tradeDay}}",
+              "protocol": "http",
+              "host": ["127", "0", "0", "1"],
+              "port": "9221",
+              "path": ["api", "dam", "damindexes"],
+              "query": [
+                {
+                  "key": "date",
+                  "value": "{{tradeDay}}"
+                }
+              ]
+            },
+            "description": "Indices from DB or upstream OREE (uses OREE_API_KEY on server). 403 often means invalid key or WAF on upstream."
+          }
+        }
+      ]
+    }
+  ]
+}

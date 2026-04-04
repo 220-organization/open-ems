@@ -155,8 +155,17 @@ async def sync_dam_prices_to_db(session: AsyncSession) -> int:
                 },
             )
             saved += 1
-    idx_saved = await sync_dam_indexes_from_oree_fetch(session, None)
+    # Commit hourly prices before /damindexes: some API keys allow /damprices but return 403 on indices.
     await session.commit()
+    idx_saved = 0
+    try:
+        idx_saved = await sync_dam_indexes_from_oree_fetch(session, None)
+        await session.commit()
+    except Exception as exc:
+        logger.warning(
+            "OREE damindexes sync failed (hourly DAM prices already committed): %s",
+            exc,
+        )
     logger.info("OREE DAM sync: %s hour row(s); %s DAM index band row(s)", saved, idx_saved)
     return saved
 
@@ -304,6 +313,9 @@ async def fetch_dam_indexes_json(trade_day: Optional[date] = None) -> dict[str, 
         r = await client.get(url, headers=headers, params=params or None)
     if r.status_code >= 400:
         logger.warning("OREE damindexes HTTP %s — %s", r.status_code, (r.text or "")[:500])
+        # Optional endpoint: many B2B keys are scoped to /damprices only (403 on indices).
+        if r.status_code == 403:
+            return {}
         r.raise_for_status()
     data = r.json()
     if not isinstance(data, dict):
