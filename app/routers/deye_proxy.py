@@ -51,7 +51,7 @@ _NO_STORE_CACHE = {"Cache-Control": "no-store, max-age=0, must-revalidate"}
 _MAX_INVERTER_SOCS = 200
 
 DischargeSocDeltaPctOption = Literal[2, 10, 20]
-ChargeSocDeltaPctOption = Literal[10, 20, 50, 100]
+ChargeSocDeltaPctOption = Literal[2, 10, 20, 50, 100]
 
 
 class InverterSocsBody(BaseModel):
@@ -735,7 +735,7 @@ async def post_charge_2pct(
 ) -> JSONResponse:
     """
     Charge battery toward higher SoC via dynamicControl (same long-running semantics as discharge).
-    socDeltaPercent: 10, 20, 50, or 100 — optional; uses stored per-device prefs when omitted.
+    socDeltaPercent: 2, 10, 20, 50, or 100 — optional; uses stored per-device prefs when omitted.
     """
     if not deye_configured():
         missing = deye_missing_env_names()

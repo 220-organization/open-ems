@@ -26,7 +26,7 @@
   "dischargeConfirmInsufficientSoc": "Не може разряд от {{delta}}%: текущ SoC ({{current}}%) е по-нисък.",
   "chargeGoButton": "Charge",
   "chargeGoAria": "Run grid-biased charge toward higher SoC (may take many minutes).",
-  "chargeSocDeltaAria": "Target SoC increase: 10, 20, 50, or 100 percentage points (capped at 100%). Saved for this inverter.",
+  "chargeSocDeltaAria": "Target SoC increase: 2, 10, 20, 50, or 100 percentage points (capped at 100%). Saved for this inverter.",
   "chargeSocDeltaValue": "+ {{pct}} % SoC",
   "chargeSoc2Hint": "Raises battery SoC via dynamicControl (same TOU overwrite as discharge). May take many minutes.",
   "chargeSoc2Busy": "Charging…",

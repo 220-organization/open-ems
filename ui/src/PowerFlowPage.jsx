@@ -55,7 +55,7 @@ function normalizeDischargeSocDeltaPct(p) {
   return DISCHARGE_SOC_DELTA_OPTIONS.reduce((best, x) => (Math.abs(x - n) < Math.abs(best - n) ? x : best));
 }
 
-const CHARGE_SOC_DELTA_OPTIONS = Object.freeze([10, 20, 50, 100]);
+const CHARGE_SOC_DELTA_OPTIONS = Object.freeze([2, 10, 20, 50, 100]);
 
 function normalizeChargeSocDeltaPct(p) {
   const n = Math.round(Number(p));

@@ -1113,6 +1113,9 @@ _TOU_DAYS: list[str] = [
 ]
 _TOU_TIMES: tuple[str, ...] = ("02:30", "06:30", "20:30", "21:30", "22:30", "23:30")
 
+# Minimum TOU SoC % when restoring ZERO_EXPORT_TO_CT after discharge (Deye self-consumption samples use ~15).
+_ZERO_EXPORT_CT_DEFAULT_TOU_SOC_PCT = 15.0
+
 
 def _tou_setting_items(soc: float, power: int) -> list[dict[str, Any]]:
     return [
@@ -1138,20 +1141,6 @@ def _body_selling_first(device_sn: str, tou_soc: float, rated_power: int) -> dic
         "touDays": list(_TOU_DAYS),
         "workMode": "SELLING_FIRST",
         "timeUseSettingItems": _tou_setting_items(tou_soc, rp),
-    }
-
-
-def _body_zero_export_to_ct(device_sn: str, rated_power: int) -> dict[str, Any]:
-    """Restore template aligned with Deye sample `dynamic_control_self_consumption.py`."""
-    power = int(rated_power)
-    low_soc = 15.0
-    return {
-        "deviceSn": device_sn,
-        "solarSellAction": "on",
-        "touAction": "on",
-        "touDays": list(_TOU_DAYS),
-        "workMode": "ZERO_EXPORT_TO_CT",
-        "timeUseSettingItems": _tou_setting_items(low_soc, power),
     }
 
 
@@ -1220,7 +1209,7 @@ async def _discharge_soc_delta_poll_loop_and_restore(
     timeout: float,
     rated: int,
 ) -> tuple[bool, float, Optional[str]]:
-    """Poll until SoC at target; then restore ZERO_EXPORT_TO_CT."""
+    """Poll until SoC at target; then ZERO_EXPORT_TO_CT with TOU SoC = max(15%, discharge target)."""
     hit_target = False
     last_soc: float = float(soc0_f)
     restore_error: Optional[str] = None
@@ -1240,7 +1229,8 @@ async def _discharge_soc_delta_poll_loop_and_restore(
         raise
     finally:
         try:
-            await _post_strategy_dynamic_control(_body_zero_export_to_ct(sn, rated))
+            tou_soc_rest = max(_ZERO_EXPORT_CT_DEFAULT_TOU_SOC_PCT, round(float(target), 2))
+            await _post_strategy_dynamic_control(_body_zero_export_target_soc(sn, tou_soc_rest, rated))
         except Exception as exc:
             restore_error = str(exc)
             logger.exception("Deye: ZERO_EXPORT_TO_CT restore failed sn=%s", sn)
@@ -1257,7 +1247,7 @@ async def discharge_soc_delta_then_zero_export_ct(
     """
     1) Set workMode SELLING_FIRST via dynamicControl (discharge-friendly TOU template).
     2) Poll SoC until it drops by soc_delta_pct points or timeout.
-    3) Set workMode ZERO_EXPORT_TO_CT (sample self-consumption template).
+    3) Set ZERO_EXPORT_TO_CT with TOU SoC = max(15%, discharge target SoC).
 
     soc_delta_pct: 2..40 (percentage points of SoC to shed).
 
@@ -1346,7 +1336,7 @@ async def discharge_two_percent_then_zero_export_ct(device_sn: str) -> dict[str,
     return await discharge_soc_delta_then_zero_export_ct(device_sn, 2.0)
 
 
-_CHARGE_SOC_DELTA_ALLOWED: tuple[int, ...] = (10, 20, 50, 100)
+_CHARGE_SOC_DELTA_ALLOWED: tuple[int, ...] = (2, 10, 20, 50, 100)
 
 
 async def _charge_soc_delta_poll_loop_and_restore(
@@ -1357,7 +1347,7 @@ async def _charge_soc_delta_poll_loop_and_restore(
     timeout: float,
     rated: int,
 ) -> tuple[bool, float, Optional[str]]:
-    """Poll until SoC reaches charge target; then restore default ZERO_EXPORT_TO_CT template."""
+    """Poll until SoC reaches charge target; then set ZERO_EXPORT_TO_CT TOU SoC to that target (not 15%)."""
     hit_target = False
     last_soc: float = float(soc0_f)
     restore_error: Optional[str] = None
@@ -1377,7 +1367,8 @@ async def _charge_soc_delta_poll_loop_and_restore(
         raise
     finally:
         try:
-            await _post_strategy_dynamic_control(_body_zero_export_to_ct(sn, rated))
+            tou_soc_rest = round(float(target), 2)
+            await _post_strategy_dynamic_control(_body_zero_export_target_soc(sn, tou_soc_rest, rated))
         except Exception as exc:
             restore_error = str(exc)
             logger.exception("Deye: ZERO_EXPORT_TO_CT restore failed after charge sn=%s", sn)
@@ -1394,9 +1385,9 @@ async def charge_soc_delta_then_zero_export_ct(
     """
     1) Set ZERO_EXPORT_TO_CT with a high TOU SoC target (current SoC + delta, capped at 100).
     2) Poll until SoC rises by approximately soc_delta_pct or timeout.
-    3) Restore default ZERO_EXPORT_TO_CT self-consumption template (low SoC slots).
+    3) Re-apply ZERO_EXPORT_TO_CT with TOU SoC set to the charge target (keeps that level in slots).
 
-    soc_delta_pct: one of 10, 20, 50, 100 (percentage points to add toward 100% SoC).
+    soc_delta_pct: one of 2, 10, 20, 50, 100 (percentage points to add toward 100% SoC).
 
     When return_after_start is True, step 1 is awaited and the caller may return immediately;
     steps 2–3 continue in a background task.
