@@ -74,7 +74,7 @@ async def dam_chart_day(
     """
     DAM chart hourly prices: read from DB only (UAH/kWh = MWh/1000).
 
-    OREE is not called from this endpoint when OREE_DAM_LAZY_FETCH_MAX=0. Default is 10 on-demand pulls
+    OREE is not called from this endpoint when OREE_DAM_LAZY_FETCH_MAX=0. Default is 5 on-demand pulls
     per trade day when DB is empty for Kyiv tomorrow. Otherwise populate prices via the daily scheduler
     (OREE_DAM_DAILY_SYNC_* Europe/Kyiv) or manual POST /api/dam/sync if enabled.
     """
