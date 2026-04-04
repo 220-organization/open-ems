@@ -64,6 +64,15 @@ function normalizeChargeSocDeltaPct(p) {
   return CHARGE_SOC_DELTA_OPTIONS.reduce((best, x) => (Math.abs(x - n) < Math.abs(best - n) ? x : best));
 }
 
+/** Battery SoC row color: &lt;20 red, &lt;70 yellow, else green. */
+function essSocBandClassName(pct) {
+  const n = Number(pct);
+  if (!Number.isFinite(n)) return '';
+  if (n < 20) return 'pf-ess-soc--low';
+  if (n < 70) return 'pf-ess-soc--mid';
+  return 'pf-ess-soc--high';
+}
+
 function MotionDot({ pathD }) {
   return (
     <circle r="5.8" fill="url(#pf-flow-dot-grad)" className="pf-flow-dot">
@@ -356,10 +365,12 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   /** Deye live metrics when an inverter is selected: battery, load, PV, grid. */
   const [deyeLive, setDeyeLive] = useState(null);
   const [deyeLiveLoading, setDeyeLiveLoading] = useState(false);
-  /** Tomorrow insolation % from server (coordinates never exposed to browser). */
-  const [solarTomorrowForecast, setSolarTomorrowForecast] = useState({
+  /** Today/tomorrow insolation % + today cloud icon hint (coordinates never exposed to browser). */
+  const [solarForecast, setSolarForecast] = useState({
     loading: false,
-    pct: null,
+    todayPct: null,
+    todayCloudy: null,
+    tomorrowPct: null,
     hintKey: null,
   });
   const [discharge2Feedback, setDischarge2Feedback] = useState('');
@@ -664,45 +675,99 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
 
   useEffect(() => {
     if (!selInverterSn || !inverterRows.configured || inverterRows.error) {
-      setSolarTomorrowForecast({ loading: false, pct: null, hintKey: null });
+      setSolarForecast({
+        loading: false,
+        todayPct: null,
+        todayCloudy: null,
+        tomorrowPct: null,
+        hintKey: null,
+      });
       return undefined;
     }
     let cancelled = false;
     const load = async () => {
-      setSolarTomorrowForecast({ loading: true, pct: null, hintKey: null });
+      setSolarForecast({
+        loading: true,
+        todayPct: null,
+        todayCloudy: null,
+        tomorrowPct: null,
+        hintKey: null,
+      });
       try {
         const q = new URLSearchParams({ deviceSn: selInverterSn });
-        const r = await fetch(`${apiUrl('/api/deye/solar-insolation-tomorrow')}?${q}`, {
+        const r = await fetch(`${apiUrl('/api/deye/solar-insolation')}?${q}`, {
           cache: 'no-store',
         });
         const data = await r.json().catch(() => ({}));
         if (cancelled) return;
         if (!r.ok) {
-          setSolarTomorrowForecast({ loading: false, pct: null, hintKey: 'solarInsolationUnavailable' });
+          setSolarForecast({
+            loading: false,
+            todayPct: null,
+            todayCloudy: null,
+            tomorrowPct: null,
+            hintKey: 'solarInsolationUnavailable',
+          });
           return;
         }
         if (!data.configured) {
-          setSolarTomorrowForecast({ loading: false, pct: null, hintKey: null });
+          setSolarForecast({
+            loading: false,
+            todayPct: null,
+            todayCloudy: null,
+            tomorrowPct: null,
+            hintKey: null,
+          });
           return;
         }
-        const p = data.insolationPct;
-        if (data.ok && p != null && Number.isFinite(Number(p))) {
-          setSolarTomorrowForecast({
+        const td = data.today;
+        const tm = data.tomorrow;
+        const tp = td?.insolationPct;
+        const mp = tm?.insolationPct;
+        if (
+          data.ok &&
+          tp != null &&
+          mp != null &&
+          Number.isFinite(Number(tp)) &&
+          Number.isFinite(Number(mp))
+        ) {
+          const cloudy = td?.cloudy;
+          setSolarForecast({
             loading: false,
-            pct: Math.max(0, Math.min(100, Math.round(Number(p)))),
+            todayPct: Math.max(0, Math.min(100, Math.round(Number(tp)))),
+            todayCloudy: typeof cloudy === 'boolean' ? cloudy : null,
+            tomorrowPct: Math.max(0, Math.min(100, Math.round(Number(mp)))),
             hintKey: null,
           });
           return;
         }
         const d = data.detail;
         if (d === 'no_station_coordinates') {
-          setSolarTomorrowForecast({ loading: false, pct: null, hintKey: 'solarInsolationNoCoords' });
+          setSolarForecast({
+            loading: false,
+            todayPct: null,
+            todayCloudy: null,
+            tomorrowPct: null,
+            hintKey: 'solarInsolationNoCoords',
+          });
         } else {
-          setSolarTomorrowForecast({ loading: false, pct: null, hintKey: 'solarInsolationUnavailable' });
+          setSolarForecast({
+            loading: false,
+            todayPct: null,
+            todayCloudy: null,
+            tomorrowPct: null,
+            hintKey: 'solarInsolationUnavailable',
+          });
         }
       } catch {
         if (!cancelled) {
-          setSolarTomorrowForecast({ loading: false, pct: null, hintKey: 'solarInsolationUnavailable' });
+          setSolarForecast({
+            loading: false,
+            todayPct: null,
+            todayCloudy: null,
+            tomorrowPct: null,
+            hintKey: 'solarInsolationUnavailable',
+          });
         }
       }
     };
@@ -767,6 +832,14 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const displayGridW = useSpecialGridBalance ? displayLoadW - displaySolarW - displayEssW : effectiveGridW;
   const loadFlowActive = displayLoadW != null && displayLoadW > 0;
   const solarFlowActive = displaySolarW != null && displaySolarW > 0;
+  const solarForecastIconChar =
+    selInverterSn && !solarForecast.loading && solarForecast.todayCloudy === true ? '🌤️' : '☀️';
+  const solarForecastIconAria =
+    selInverterSn && !solarForecast.loading && solarForecast.todayPct != null
+      ? solarForecast.todayCloudy === true
+        ? t('solarForecastIconAriaCloudy')
+        : t('solarForecastIconAriaClear')
+      : undefined;
   const gridFlowActive = displayGridW != null && Math.abs(displayGridW) > 0;
   const gridSelling = displayGridW != null && displayGridW < 0;
   const hasFlow =
@@ -1706,22 +1779,40 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                 id="pf-node-solar"
                 data-active={solarFlowActive ? 'true' : 'false'}
               >
-                <span className="pf-node-icon" aria-hidden>
-                  ☀️
-                </span>
+                <div className="pf-solar-header">
+                  <span
+                    className="pf-node-icon"
+                    aria-hidden={!solarForecastIconAria}
+                    aria-label={solarForecastIconAria}
+                    title={solarForecastIconAria}
+                  >
+                    {solarForecastIconChar}
+                  </span>
+                  {selInverterSn && (solarForecast.loading || solarForecast.todayPct != null) ? (
+                    <span className="pf-solar-today-near-icon" id="pf-solar-insolation-today">
+                      {solarForecast.loading
+                        ? '…'
+                        : t('solarInsolationToday', { pct: solarForecast.todayPct })}
+                    </span>
+                  ) : null}
+                </div>
                 <span className="pf-node-label">{t('nodeSolar')}</span>
                 <span className="pf-node-value" id="pf-val-solar">
                   {formatPower(displaySolarW, t, bcp47)}
                 </span>
                 {selInverterSn ? (
-                  <span className="pf-node-sub pf-node-solar-forecast" id="pf-solar-insolation-tomorrow">
-                    {solarTomorrowForecast.loading
-                      ? '…'
-                      : solarTomorrowForecast.pct != null
-                        ? t('solarInsolationTomorrow', { pct: solarTomorrowForecast.pct })
-                        : solarTomorrowForecast.hintKey
-                          ? t(solarTomorrowForecast.hintKey)
-                          : ''}
+                  <span className="pf-node-sub pf-node-solar-forecast" id="pf-solar-insolation-forecast">
+                    {solarForecast.loading ? (
+                      ''
+                    ) : solarForecast.tomorrowPct != null ? (
+                      <span className="pf-solar-insolation-line">
+                        {t('solarInsolationTomorrow', { pct: solarForecast.tomorrowPct })}
+                      </span>
+                    ) : solarForecast.hintKey ? (
+                      t(solarForecast.hintKey)
+                    ) : (
+                      ''
+                    )}
                   </span>
                 ) : null}
               </div>
@@ -1817,14 +1908,24 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                 data-active={essActive ? 'true' : 'false'}
               >
                 <span className="pf-node-icon" id="pf-ess-icon" aria-hidden>
-                  {displayEssCharging ? '🔌' : '🔋'}
+                  {displayEssCharging ? (
+                    <span className="pf-ess-icon-charging">
+                      <span className="pf-ess-icon-charging-bat">🔋</span>
+                      <span className="pf-ess-icon-charging-bolt">⚡</span>
+                    </span>
+                  ) : (
+                    '🔋'
+                  )}
                 </span>
                 <span className="pf-node-label">{t('nodeEss')}</span>
                 <span className="pf-node-value" id="pf-val-ess">
                   {formatPower(Math.abs(displayEssW), t, bcp47)}
                 </span>
                 {selInverterSn && essSocPercent != null && Number.isFinite(essSocPercent) ? (
-                  <span className="pf-node-sub pf-ess-soc" id="pf-ess-soc">
+                  <span
+                    className={`pf-node-sub pf-ess-soc ${essSocBandClassName(essSocPercent)}`.trim()}
+                    id="pf-ess-soc"
+                  >
                     {t('essSoc', {
                       value: inverterSocFmt.format(essSocPercent),
                     })}

@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Optional
 
 # Serials that need derived grid + doubled PV in UI (keep in sync with ui/src/deyeFlowBalanceSites.js).
-FLOW_BALANCE_DEVICE_SNS: frozenset[str] = frozenset({"2407316052", "2505212137"})
+FLOW_BALANCE_DEVICE_SNS: frozenset[str] = frozenset({"2407316052", "2505212137", "2512291445"})
 FLOW_BALANCE_PV_FACTOR: float = 2.0
 
 

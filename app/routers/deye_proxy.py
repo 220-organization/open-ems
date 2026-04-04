@@ -39,7 +39,10 @@ from app.deye_roi_service import (
     compute_roi_pv_kwh_and_value_uah_previous_kyiv_month,
 )
 from app.deye_soc_service import hourly_inverter_history_for_kyiv_day
-from app.solar_forecast_open_meteo import fetch_tomorrow_insolation_percent
+from app.solar_forecast_open_meteo import (
+    fetch_today_tomorrow_insolation_forecast,
+    fetch_tomorrow_insolation_percent,
+)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -378,6 +381,61 @@ async def post_roi_settings(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+@router.get("/solar-insolation")
+async def get_solar_insolation(
+    deviceSn: str = Query(
+        ...,
+        min_length=6,
+        max_length=32,
+        pattern=r"^[0-9]+$",
+        description="Deye inverter serial; coordinates resolved server-side (not returned).",
+    ),
+) -> JSONResponse:
+    """
+    Today + tomorrow insolation (0–100 %) and today's cloud cover class (one Open-Meteo request).
+
+    GPS is never sent to the browser.
+    """
+    if not deye_configured():
+        return JSONResponse(
+            content={"ok": False, "configured": False, "today": None, "tomorrow": None},
+            headers=_NO_STORE_CACHE,
+        )
+    sn = deviceSn.strip()
+    try:
+        await assert_inverter_owned(sn)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    lat, lon = await get_inverter_station_coordinates(sn)
+    if lat is None or lon is None:
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": True,
+                "today": None,
+                "tomorrow": None,
+                "detail": "no_station_coordinates",
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    payload = await fetch_today_tomorrow_insolation_forecast(lat, lon)
+    if payload is None:
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": True,
+                "today": None,
+                "tomorrow": None,
+                "detail": "forecast_unavailable",
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    return JSONResponse(
+        content={"ok": True, "configured": True, **payload},
+        headers=_NO_STORE_CACHE,
+    )
+
+
 @router.get("/solar-insolation-tomorrow")
 async def get_solar_insolation_tomorrow(
     deviceSn: str = Query(
@@ -392,6 +450,7 @@ async def get_solar_insolation_tomorrow(
     Tomorrow insolation index (0–100 %) from Open-Meteo for the plant/device location in Deye Cloud.
 
     GPS is never sent to the browser; only the percentage and optional local forecast date are returned.
+    Prefer GET /solar-insolation when the UI needs today + tomorrow in one call.
     """
     if not deye_configured():
         return JSONResponse(
