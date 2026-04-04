@@ -236,6 +236,127 @@ const DAM_HOUR_X_TICKS = Object.freeze([2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 
 /** Half-hour gutters on the X domain so hour-1 bars do not sit on the Y-axis (keep in sync across DAM charts). */
 const DAM_X_AXIS_DOMAIN = Object.freeze([0.5, 24.5]);
 
+/** Treat SoC as “full” for lost-PV heuristics (hourly % may be rounded). */
+function isSocFullPercent(socPercent) {
+  return socPercent != null && Number.isFinite(Number(socPercent)) && Number(socPercent) >= 99.5;
+}
+
+/**
+ * When the battery is full for 2+ hours, estimate solar income not captured into the pack
+ * as sum(pv_kwh * DAM_uah_kwh) over those hours (DAM = “mining” opportunity rate per kWh).
+ */
+function computeLostSolarIncomeFromFullBatteryUah(rows) {
+  if (!Array.isArray(rows) || !rows.length) return null;
+  const fullHours = rows.filter(r => isSocFullPercent(r.socPercent)).length;
+  if (fullHours < 2) return null;
+  let uah = 0;
+  for (const r of rows) {
+    if (!isSocFullPercent(r.socPercent)) continue;
+    const pv = r.pvKwh;
+    if (pv == null || !Number.isFinite(Number(pv)) || Number(pv) <= 0) continue;
+    const dam = r.damUahKwh;
+    const rate = dam != null && Number.isFinite(Number(dam)) ? Number(dam) : 0;
+    uah += Number(pv) * rate;
+  }
+  return uah;
+}
+
+/** Sum of PV kWh during full-SoC hours when the day has 2+ full hours (same gate as lost income). */
+function computeLostSolarKwhFromFullBattery(rows) {
+  if (!Array.isArray(rows) || !rows.length) return null;
+  const fullHours = rows.filter(r => isSocFullPercent(r.socPercent)).length;
+  if (fullHours < 2) return null;
+  let kwh = 0;
+  let any = false;
+  for (const r of rows) {
+    if (!isSocFullPercent(r.socPercent)) continue;
+    const pv = r.pvKwh;
+    if (pv == null || !Number.isFinite(Number(pv)) || Number(pv) <= 0) continue;
+    kwh += Number(pv);
+    any = true;
+  }
+  return any ? kwh : 0;
+}
+
+function formatDamLineTooltipItem(value, name, t, fmtDamTooltip, fmt1, fmtHz) {
+  if (value == null || value === '') return { display: '—', label: name };
+  const damSeriesName = t('damSeriesDam');
+  if (name === damSeriesName) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return { display: '—', label: t('damTooltipDamLabel') };
+    return {
+      display: `${fmtDamTooltip.format(n)} ${t('damTooltipDamUnit')}`,
+      label: t('damTooltipDamLabel'),
+    };
+  }
+  const socLabel = t('damSeriesSoc');
+  if (name === socLabel) return { display: `${fmt1.format(value)} %`, label: socLabel };
+  const hzLabel = t('damSeriesGridFreq');
+  if (name === hzLabel) return { display: `${fmtHz.format(value)} Hz`, label: hzLabel };
+  return { display: `${fmt1.format(value)}`, label: name };
+}
+
+function DamLineChartTooltip({
+  active,
+  payload,
+  label,
+  t,
+  fmtDamTooltip,
+  fmt1,
+  fmtHz,
+  fmtUah,
+  lostSolarIncomeUah,
+}) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0]?.payload;
+  const tooltipContentStyle = {
+    background: 'rgba(24, 8, 32, 0.94)',
+    border: '1px solid rgba(252, 1, 155, 0.35)',
+    borderRadius: 10,
+    color: '#fff',
+    padding: '8px 12px',
+  };
+  const labelStyle = { color: 'rgba(255, 248, 252, 0.95)' };
+  const itemStyle = { color: 'rgba(255, 248, 252, 0.95)' };
+  const showLostSolar =
+    lostSolarIncomeUah != null && Number.isFinite(lostSolarIncomeUah) && isSocFullPercent(row?.socPercent);
+
+  return (
+    <div className="recharts-default-tooltip" style={tooltipContentStyle}>
+      <p className="recharts-tooltip-label" style={labelStyle}>
+        {`${t('damHourTooltip')} ${label}`}
+      </p>
+      <ul
+        className="recharts-tooltip-item-list"
+        style={{ margin: '4px 0 0', padding: 0, listStyle: 'none' }}
+      >
+        {payload.map((entry, i) => {
+          const { display, label: itemLabel } = formatDamLineTooltipItem(
+            entry.value,
+            entry.name,
+            t,
+            fmtDamTooltip,
+            fmt1,
+            fmtHz
+          );
+          return (
+            <li key={i} className="recharts-tooltip-item" style={{ ...itemStyle, color: entry.color }}>
+              <span className="recharts-tooltip-item-name">{itemLabel}</span>
+              <span className="recharts-tooltip-item-separator">: </span>
+              <span className="recharts-tooltip-item-value">{display}</span>
+            </li>
+          );
+        })}
+      </ul>
+      {showLostSolar ? (
+        <p style={{ ...itemStyle, marginTop: 8, marginBottom: 0, fontSize: 12 }}>
+          {t('damTooltipLostSolarIncome')}: {fmtUah.format(lostSolarIncomeUah)} {t('roiValueUahUnit')}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function fiveSymmetricTicks(lo, hi) {
   if (!Number.isFinite(lo) || !Number.isFinite(hi) || lo >= hi) return [0];
   const step = (hi - lo) / 4;
@@ -363,6 +484,15 @@ export default function DamChartPanel({
         maximumFractionDigits: 1,
         minimumFractionDigits: 1,
         signDisplay: 'exceptZero',
+      }),
+    [bcp47]
+  );
+
+  const fmtUah = useMemo(
+    () =>
+      new Intl.NumberFormat(bcp47, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
       }),
     [bcp47]
   );
@@ -742,6 +872,8 @@ export default function DamChartPanel({
     effectiveInverterSn,
   ]);
 
+  const lostSolarIncomeUah = useMemo(() => computeLostSolarIncomeFromFullBatteryUah(rows), [rows]);
+
   const gridDomain = useMemo(() => {
     const vals = rows.map(r => r.gridKw).filter(v => v != null && Number.isFinite(v));
     if (!vals.length) return [-0.25, 0.25];
@@ -772,7 +904,13 @@ export default function DamChartPanel({
   /** Approximate kWh for the selected Kyiv calendar day from hourly series (kW·h for grid; kWh per hour for PV/load). */
   const damDayEnergyTotals = useMemo(() => {
     if (!rows.length) {
-      return { importKwh: null, exportKwh: null, generationKwh: null, consumptionKwh: null };
+      return {
+        importKwh: null,
+        exportKwh: null,
+        generationKwh: null,
+        consumptionKwh: null,
+        lostSolarKwh: null,
+      };
     }
     let importKwh = 0;
     let exportKwh = 0;
@@ -804,11 +942,13 @@ export default function DamChartPanel({
         anyCons = true;
       }
     }
+    const lostSolarKwh = computeLostSolarKwhFromFullBattery(rows);
     return {
       importKwh: anyImport ? importKwh : null,
       exportKwh: anyExport ? exportKwh : null,
       generationKwh: anyGen ? generationKwh : null,
       consumptionKwh: anyCons ? consumptionKwh : null,
+      lostSolarKwh,
     };
   }, [rows]);
 
@@ -1162,30 +1302,17 @@ export default function DamChartPanel({
                   />
                 ) : null}
                 <Tooltip
-                  separator=": "
-                  contentStyle={{
-                    background: 'rgba(24, 8, 32, 0.94)',
-                    border: '1px solid rgba(252, 1, 155, 0.35)',
-                    borderRadius: 10,
-                    color: '#fff',
-                  }}
-                  labelStyle={{ color: 'rgba(255, 248, 252, 0.95)' }}
-                  itemStyle={{ color: 'rgba(255, 248, 252, 0.95)' }}
-                  formatter={(value, name) => {
-                    if (value == null || value === '') return ['—', name];
-                    const damSeriesName = t('damSeriesDam');
-                    if (name === damSeriesName) {
-                      const n = Number(value);
-                      if (!Number.isFinite(n)) return ['—', t('damTooltipDamLabel')];
-                      return [`${fmtDamTooltip.format(n)} ${t('damTooltipDamUnit')}`, t('damTooltipDamLabel')];
-                    }
-                    const socLabel = t('damSeriesSoc');
-                    if (name === socLabel) return [`${fmt1.format(value)} %`, socLabel];
-                    const hzLabel = t('damSeriesGridFreq');
-                    if (name === hzLabel) return [`${fmtHz.format(value)} Hz`, hzLabel];
-                    return [`${fmt1.format(value)}`, name];
-                  }}
-                  labelFormatter={hour => `${t('damHourTooltip')} ${hour}`}
+                  content={tooltipProps => (
+                    <DamLineChartTooltip
+                      {...tooltipProps}
+                      t={t}
+                      fmtDamTooltip={fmtDamTooltip}
+                      fmt1={fmt1}
+                      fmtHz={fmtHz}
+                      fmtUah={fmtUah}
+                      lostSolarIncomeUah={lostSolarIncomeUah}
+                    />
+                  )}
                 />
                 <Line
                   yAxisId="dam"
@@ -1404,6 +1531,17 @@ export default function DamChartPanel({
                   <span className="dam-day-energy-totals__value">
                     {damDayEnergyTotals.consumptionKwh != null
                       ? `${fmt1.format(damDayEnergyTotals.consumptionKwh)} ${t('damEnergyKwhUnit')}`
+                      : '—'}
+                  </span>
+                </span>
+              </li>
+              <li className="dam-day-energy-totals__item">
+                <span className="dam-day-energy-totals__swatch" style={{ background: '#facc15' }} aria-hidden />
+                <span className="dam-day-energy-totals__text">
+                  {t('damEnergyTotalLostSolar')}:{` `}
+                  <span className="dam-day-energy-totals__value">
+                    {damDayEnergyTotals.lostSolarKwh != null
+                      ? `${fmt1.format(damDayEnergyTotals.lostSolarKwh)} ${t('damEnergyKwhUnit')}`
                       : '—'}
                   </span>
                 </span>

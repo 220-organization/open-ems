@@ -32,6 +32,8 @@ Environment: UI_PORT, API_PORT, DATABASE_URL, UVICORN_RELOAD, REACT_APP_API_BASE
   ROI dev seed: after Flyway migrations runs ./scripts/seed_roi_dev_data.sh for DEVICE_SN=2512291445
   (3 months of PV samples + DAM rows + deye_roi_capex, period start 3 months ago). Change DEVICE_SN in this script if needed.
   Optional: ZONE_EIC (default 10Y1001C--000182). Requires psql or Docker db container.
+
+  Lost-solar test seed: upserts 5-min SoC 100% + PV for Kyiv hours 12–16 (five hours) today (same DEVICE_SN), non-fatal if it fails.
 EOF
       exit 0
       ;;
@@ -96,6 +98,46 @@ docker compose run --rm migrate
 echo "Running ROI dev DB seed for DEVICE_SN=${DEVICE_SN} (./scripts/seed_roi_dev_data.sh)…" >&2
 if ! ./scripts/seed_roi_dev_data.sh; then
   echo "WARN: ROI dev seed failed (non-fatal). Fix DATABASE_URL or run ./scripts/seed_roi_dev_data.sh manually." >&2
+fi
+
+echo "Seeding lost-solar SoC test rows (Kyiv today, hours 12–16, five hours) for DEVICE_SN=${DEVICE_SN}…" >&2
+if ! docker compose exec -T db psql -U openems -d openems -v "device_sn=${DEVICE_SN}" -f - <<'EOSQL'
+\set ON_ERROR_STOP on
+INSERT INTO deye_soc_sample (
+    device_sn,
+    bucket_start,
+    soc_percent,
+    grid_power_w,
+    load_power_w,
+    pv_power_w,
+    pv_generation_w,
+    battery_power_w
+)
+SELECT
+    :'device_sn'::varchar(64),
+    g,
+    100.0,
+    0.0,
+    500.0,
+    2500.0,
+    2500.0,
+    0.0
+FROM generate_series(
+    (((timezone('Europe/Kiev', now()))::date + interval '12 hours')::timestamp AT TIME ZONE 'Europe/Kiev'),
+    (((timezone('Europe/Kiev', now()))::date + interval '17 hours')::timestamp AT TIME ZONE 'Europe/Kiev')
+        - interval '5 minutes',
+    interval '5 minutes'
+) AS g
+ON CONFLICT (device_sn, bucket_start) DO UPDATE SET
+    soc_percent = EXCLUDED.soc_percent,
+    grid_power_w = EXCLUDED.grid_power_w,
+    load_power_w = EXCLUDED.load_power_w,
+    pv_power_w = EXCLUDED.pv_power_w,
+    pv_generation_w = EXCLUDED.pv_generation_w,
+    battery_power_w = EXCLUDED.battery_power_w;
+EOSQL
+then
+  echo "WARN: Lost-solar SoC seed failed (non-fatal)." >&2
 fi
 
 if [[ ! -d .venv ]]; then
