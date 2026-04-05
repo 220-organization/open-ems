@@ -1,12 +1,27 @@
 /**
- * Strip trailing " pin<digits>" from Deye plant/device names for UI (matches server deye_inverter_pin).
+ * Remove " pin<digits>" tokens from Deye plant/device names for UI (any position, not only trailing).
+ * Server-side PIN verification still uses the raw name from Deye; this is display-only.
  */
-const PIN_SUFFIX_RE = /\s+pin(\d{1,12})\s*$/i;
+const PIN_TOKEN_RE = /\bpin\d{1,12}\b/gi;
 
 export function stripInverterPinForDisplay(text) {
   const s = String(text ?? '').trim();
   if (!s) return s;
-  return s.replace(PIN_SUFFIX_RE, '').trimEnd();
+  return s
+    .replace(PIN_TOKEN_RE, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+/** Match ``evport<station>`` in plant/device names (same as backend EV port binding). */
+const EVPORT_RE = /evport\s*(\d+)/i;
+
+/** Station number from label, e.g. ``"738"``, or null if no ``evport`` token. */
+export function parseEvPortStationNumber(text) {
+  const s = String(text ?? '').trim();
+  if (!s) return null;
+  const m = EVPORT_RE.exec(s);
+  return m ? m[1].trim() : null;
 }
 
 /** Short label for inverter <select>: first segment of "Plant — Device", PIN-free. */

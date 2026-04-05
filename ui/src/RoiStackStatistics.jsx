@@ -82,10 +82,7 @@ function readCachedUahPerUsd() {
 
 function writeCachedUahPerUsd(rate) {
   try {
-    sessionStorage.setItem(
-      'pf-nbu-usd-rate',
-      JSON.stringify({ day: new Date().toISOString().slice(0, 10), rate })
-    );
+    sessionStorage.setItem('pf-nbu-usd-rate', JSON.stringify({ day: new Date().toISOString().slice(0, 10), rate }));
   } catch {
     /* ignore */
   }
@@ -123,6 +120,45 @@ export default function RoiStackStatistics({
 
   const sn = String(selInverterSn || '').trim();
 
+  /** POST CAPEX from legacy localStorage when PIN is available — does not GET /roi-settings (avoids overwriting CAPEX). */
+  const tryMigrateRoiFromLocalStorage = useCallback(async () => {
+    if (!sn) return false;
+    try {
+      const raw = localStorage.getItem(roiConfigKey(sn));
+      if (!raw) return false;
+      const o = JSON.parse(raw);
+      const capex = o?.capexUsd;
+      if (!pinRequired || capex == null || !Number.isFinite(Number(capex)) || Number(capex) <= 0) {
+        return false;
+      }
+      const migPin = readCachedInverterPin(sn);
+      if (!migPin?.trim()) return false;
+      const pr = await fetch(apiUrl('/api/deye/roi-settings'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deviceSn: sn,
+          capexUsd: Number(capex),
+          pin: migPin.trim(),
+          periodStartDate: localYmdToday(),
+        }),
+      });
+      const pd = await pr.json().catch(() => ({}));
+      if (pr.ok && pd.ok && pd.periodStartIso) {
+        try {
+          localStorage.removeItem(roiConfigKey(sn));
+        } catch {
+          /* ignore */
+        }
+        setConfig({ capexUsd: Number(capex), startIso: String(pd.periodStartIso) });
+        return true;
+      }
+    } catch {
+      /* ignore */
+    }
+    return false;
+  }, [sn, pinRequired]);
+
   const loadConfigFromServer = useCallback(async () => {
     if (!sn) {
       setConfig(null);
@@ -136,41 +172,10 @@ export default function RoiStackStatistics({
         setConfig({ capexUsd: Number(data.capexUsd), startIso: String(data.periodStartIso) });
         return;
       }
+      if (await tryMigrateRoiFromLocalStorage()) return;
       try {
         const raw = localStorage.getItem(roiConfigKey(sn));
         if (raw) {
-          const o = JSON.parse(raw);
-          const capex = o?.capexUsd;
-          if (
-            pinRequired &&
-            capex != null &&
-            Number.isFinite(Number(capex)) &&
-            Number(capex) > 0
-          ) {
-            const migPin = readCachedInverterPin(sn);
-            if (migPin?.trim()) {
-              const pr = await fetch(apiUrl('/api/deye/roi-settings'), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  deviceSn: sn,
-                  capexUsd: Number(capex),
-                  pin: migPin.trim(),
-                  periodStartDate: localYmdToday(),
-                }),
-              });
-              const pd = await pr.json().catch(() => ({}));
-              if (pr.ok && pd.ok && pd.periodStartIso) {
-                try {
-                  localStorage.removeItem(roiConfigKey(sn));
-                } catch {
-                  /* ignore */
-                }
-                setConfig({ capexUsd: Number(capex), startIso: String(pd.periodStartIso) });
-                return;
-              }
-            }
-          }
           const r2 = await fetch(apiUrl(`/api/deye/roi-settings?${q}`), { cache: 'no-store' });
           const d2 = await r2.json().catch(() => ({}));
           if (r2.ok && d2.hasRow && d2.capexUsd != null && d2.periodStartIso) {
@@ -185,11 +190,17 @@ export default function RoiStackStatistics({
     } catch {
       setConfig(null);
     }
-  }, [sn, pinRequired, pinCacheBust]);
+  }, [sn, pinRequired, tryMigrateRoiFromLocalStorage]);
 
   useEffect(() => {
     void loadConfigFromServer();
   }, [loadConfigFromServer]);
+
+  /** After PIN is remembered (bust &gt; 0), migrate localStorage only — do not re-fetch GET /roi-settings (would overwrite CAPEX). */
+  useEffect(() => {
+    if (pinCacheBust === 0) return;
+    void tryMigrateRoiFromLocalStorage();
+  }, [tryMigrateRoiFromLocalStorage, pinCacheBust]);
 
   useEffect(() => {
     let cancelled = false;
@@ -252,16 +263,13 @@ export default function RoiStackStatistics({
         setRoiStats({
           loading: false,
           error: false,
-          totalPvKwh:
-            data.totalPvKwh != null && Number.isFinite(Number(data.totalPvKwh)) ? Number(data.totalPvKwh) : 0,
+          totalPvKwh: data.totalPvKwh != null && Number.isFinite(Number(data.totalPvKwh)) ? Number(data.totalPvKwh) : 0,
           totalConsumptionKwh:
             data.totalConsumptionKwh != null && Number.isFinite(Number(data.totalConsumptionKwh))
               ? Number(data.totalConsumptionKwh)
               : null,
           totalValueUah:
-            data.totalValueUah != null && Number.isFinite(Number(data.totalValueUah))
-              ? Number(data.totalValueUah)
-              : 0,
+            data.totalValueUah != null && Number.isFinite(Number(data.totalValueUah)) ? Number(data.totalValueUah) : 0,
           effectiveRateUahPerKwh:
             data.effectiveRateUahPerKwh != null && Number.isFinite(Number(data.effectiveRateUahPerKwh))
               ? Number(data.effectiveRateUahPerKwh)
@@ -291,10 +299,8 @@ export default function RoiStackStatistics({
     };
 
     void load();
-    const id = setInterval(load, 60_000);
     return () => {
       cancelled = true;
-      clearInterval(id);
     };
   }, [config?.startIso, sn]);
 
@@ -397,18 +403,12 @@ export default function RoiStackStatistics({
       return Number(tv) / Number(tc);
     }
     return null;
-  }, [
-    roiStats.effectiveRateUahPerKwh,
-    roiStats.totalConsumptionKwh,
-    roiStats.totalValueUah,
-  ]);
+  }, [roiStats.effectiveRateUahPerKwh, roiStats.totalConsumptionKwh, roiStats.totalValueUah]);
   const totalValueUah = roiStats.totalValueUah != null ? roiStats.totalValueUah : 0;
 
   const annualValueUah = elapsedYears > 0 ? totalValueUah / elapsedYears : 0;
   const annualSavingsUsd =
-    uahPerUsd > 0 && Number.isFinite(annualValueUah) && annualValueUah > 0
-      ? annualValueUah / uahPerUsd
-      : null;
+    uahPerUsd > 0 && Number.isFinite(annualValueUah) && annualValueUah > 0 ? annualValueUah / uahPerUsd : null;
 
   const roiYears =
     config &&
@@ -591,35 +591,34 @@ export default function RoiStackStatistics({
                 )}
               </span>
               <span className="pf-roi-meta-line pf-roi-meta-muted">
-                {t('roiValueUahLabel')}:{' '}
                 {roiStats.loading
                   ? '…'
                   : roiStats.error
                     ? '—'
-                    : `${fmtUah.format(totalValueUah)} ${t('roiValueUahUnit')}`}
+                    : t('roiDamTotalLine', {
+                        total: fmtUah.format(totalValueUah),
+                        unit: t('roiValueUahUnit'),
+                        avg:
+                          noSolarEssRateUahPerKwh != null && Number.isFinite(noSolarEssRateUahPerKwh)
+                            ? fmtRateUahPerKwh.format(noSolarEssRateUahPerKwh)
+                            : '—',
+                      })}
               </span>
             </div>
           </div>
 
-          {elapsedMs < MIN_ELAPSED_MS_FOR_ROI ? (
-            <p className="pf-roi-hint">{t('roiCollectingHint')}</p>
-          ) : null}
+          {elapsedMs < MIN_ELAPSED_MS_FOR_ROI ? <p className="pf-roi-hint">{t('roiCollectingHint')}</p> : null}
           {samplesHint ? <p className="pf-roi-hint">{samplesHint}</p> : null}
           {roiStats.missingDamSlices > 0 ? (
             <p className="pf-roi-hint">{t('roiMissingDamHint', { n: roiStats.missingDamSlices })}</p>
           ) : null}
 
           <div className="pf-roi-stack-bar" role="img" aria-label={t('roiStackAria')}>
-            <div className="pf-roi-stack-seg pf-roi-stack-seg--load" style={{ flex: '1 1 100%' }}>
+            <div className="pf-roi-stack-seg pf-roi-stack-seg--load pf-roi-stack-seg--head-inline">
               <span className="pf-roi-stack-seg-title">{t('roiCatLoad')}</span>
               <span className="pf-roi-stack-seg-sub">
-                {roiStats.loading ? '…' : `${fmtKwh.format(consumptionKwh)} kWh · 100%`}
+                {roiStats.loading ? '…' : `${fmtKwh.format(consumptionKwh)} kWh`}
               </span>
-              {!roiStats.loading && !roiStats.error && noSolarEssRateUahPerKwh != null ? (
-                <span className="pf-roi-stack-seg-sub pf-roi-stack-seg-rate">
-                  {t('roiNoSolarEssRate', { rate: fmtRateUahPerKwh.format(noSolarEssRateUahPerKwh) })}
-                </span>
-              ) : null}
             </div>
             <div className="pf-roi-stack-seg pf-roi-stack-seg--placeholder">
               <span className="pf-roi-stack-seg-title">{t('roiCatEv')}</span>

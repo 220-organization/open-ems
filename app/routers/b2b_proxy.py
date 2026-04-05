@@ -7,12 +7,13 @@ import httpx
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
-from app.settings import B2B_API_BASE_URL
+from app.settings import B2B_API_BASE_URL, EV_PORT_DEVICE_CLIENT_UI_ID
 
 logger = logging.getLogger(__name__)
 
 # Public device API (same host as B2B in production): nearest stations + job payload.
 _DEVICE_NEAREST_PATH = "/api/device/v2/station/nearest"
+_DEVICE_STATION_STATUS_PATH = "/api/device/v2/station/status"
 
 router = APIRouter(prefix="/api/b2b", tags=["b2b-proxy"])
 
@@ -154,3 +155,24 @@ async def charging_ports(
     items_out.sort(key=_dist_key)
 
     return JSONResponse(content={"ok": True, "items": items_out}, headers=_NO_STORE_CACHE)
+
+
+@router.get("/station-status")
+async def station_status(
+    station_number: str = Query(
+        ...,
+        min_length=1,
+        max_length=32,
+        description="Charging station number, e.g. 738",
+    ),
+    client_ui_id: Optional[str] = Query(
+        default=None,
+        alias="clientUiId",
+        description="Public device client id (defaults from EV_PORT_DEVICE_CLIENT_UI_ID)",
+    ),
+) -> JSONResponse:
+    """Proxies GET /api/device/v2/station/status — job powerWt for the EV port dropdown / power-flow node."""
+    cid = (client_ui_id or "").strip() or EV_PORT_DEVICE_CLIENT_UI_ID
+    params = {"station_number": station_number.strip(), "clientUiId": cid}
+    data = await _proxy_get(_DEVICE_STATION_STATUS_PATH, params)
+    return JSONResponse(content=data, headers=_NO_STORE_CACHE)

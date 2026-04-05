@@ -9,13 +9,14 @@ import {
   edgeInsetPx,
   flowMotionPath,
   formatPower,
+  formatPowerValueOnly,
   formatUsdt,
 } from './powerFlowEngine';
 import DamChartPanel from './DamChartPanel';
 import DeyeInverterMessengerModal from './DeyeInverterMessengerModal';
 import RoiStackStatistics from './RoiStackStatistics';
 import { DEYE_FLOW_BALANCE_PV_FACTOR, usesDeyeFlowBalance } from './deyeFlowBalanceSites';
-import { inverterSelectShortLabel } from './deyeInverterDisplay';
+import { inverterSelectShortLabel, parseEvPortStationNumber } from './deyeInverterDisplay';
 import { clearInverterPinCache, readCachedInverterPin, rememberInverterPin } from './deyeInverterPinCache';
 import './power-flow.css';
 import './dam-chart.css';
@@ -138,6 +139,9 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     ok: true,
     items: [],
   });
+  /** Charging power (W) from GET /api/b2b/station-status for the selected EV port; null = unknown / error. */
+  const [evStationPowerW, setEvStationPowerW] = useState(null);
+  const [evStationPowerLoading, setEvStationPowerLoading] = useState(false);
   const [simTick, setSimTick] = useState(0);
   const [deyeMessengerOpen, setDeyeMessengerOpen] = useState(false);
 
@@ -284,6 +288,56 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       clearInterval(id);
     };
   }, [fetchRealtime]);
+
+  useEffect(() => {
+    const sn = stationFilter.trim();
+    if (!sn) {
+      setEvStationPowerW(null);
+      setEvStationPowerLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    let first = true;
+    const parsePowerFromStationStatus = data => {
+      if (!data || typeof data !== 'object') return null;
+      if (data.lastJobPresented === false) return 0;
+      const job = data.lastJob;
+      if (!job || typeof job !== 'object') return 0;
+      if (job.deviceOnline === false) return 0;
+      const st = String(job.state || '')
+        .toUpperCase()
+        .replace(/-/g, '_');
+      if (st !== 'IN_PROGRESS') return 0;
+      const p = job.powerWt;
+      if (p == null || !Number.isFinite(Number(p))) return 0;
+      return Math.max(0, Number(p));
+    };
+    const tick = async () => {
+      if (first) setEvStationPowerLoading(true);
+      try {
+        const q = new URLSearchParams({ station_number: sn });
+        const r = await fetch(apiUrl(`/api/b2b/station-status?${q}`), { cache: 'no-store' });
+        const data = await r.json().catch(() => null);
+        if (!cancelled) {
+          if (r.ok && data && typeof data === 'object') setEvStationPowerW(parsePowerFromStationStatus(data));
+          else setEvStationPowerW(null);
+        }
+      } catch {
+        if (!cancelled) setEvStationPowerW(null);
+      } finally {
+        if (!cancelled) {
+          setEvStationPowerLoading(false);
+          first = false;
+        }
+      }
+    };
+    void tick();
+    const id = setInterval(() => void tick(), 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [stationFilter]);
 
   useEffect(() => {
     let cancelled = false;
@@ -802,6 +856,34 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     window.history.replaceState({}, '', u);
   }, []);
 
+  /** When the selected inverter label contains ``evport<N>``, select that EV port in the header dropdown. */
+  useEffect(() => {
+    if (inverterRows.loading || inverterRows.error || !inverterRows.configured) return;
+    const sn = selInverterSn.trim();
+    if (!sn) return;
+    const row = inverterRows.items.find(r => r.deviceSn === sn);
+    if (!row?.label) return;
+    const evStation = parseEvPortStationNumber(row.label);
+    if (!evStation) return;
+    setStationFilter(prev => {
+      if (prev.trim() === evStation) return prev;
+      try {
+        const u = new URL(window.location.href);
+        u.searchParams.set('station', evStation);
+        window.history.replaceState({}, '', u);
+      } catch {
+        /* ignore */
+      }
+      return evStation;
+    });
+  }, [
+    selInverterSn,
+    inverterRows.loading,
+    inverterRows.error,
+    inverterRows.configured,
+    inverterRows.items,
+  ]);
+
   const portSelectOptions = useMemo(() => {
     const base = chargingPorts.items;
     const s = stationFilter.trim();
@@ -855,8 +937,15 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       : undefined;
   const gridFlowActive = displayGridW != null && Math.abs(displayGridW) > 0;
   const gridSelling = displayGridW != null && displayGridW < 0;
+  const stationEvFlowActive =
+    !showEvAggregate && Boolean(stationFilter.trim()) && (evStationPowerW ?? 0) > 0;
   const hasFlow =
-    (showEvAggregate && consumptionW > 0) || minerW > 0 || displayEssW !== 0 || gridFlowActive || loadFlowActive;
+    (showEvAggregate && consumptionW > 0) ||
+    stationEvFlowActive ||
+    minerW > 0 ||
+    displayEssW !== 0 ||
+    gridFlowActive ||
+    loadFlowActive;
   const geom = useMemo(() => computeWideGeometry(graphWidth), [graphWidth]);
   const graphAnchorPct = useMemo(() => (edgeInsetPx(graphWidth) / Math.max(graphWidth, 1)) * 100, [graphWidth]);
 
@@ -893,7 +982,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   }
 
   const evBusy = showEvAggregate && realtimePower == null && loadError === '';
-  const evFlowActive = showEvAggregate && consumptionW > 0;
+  const evFlowActive = (showEvAggregate && consumptionW > 0) || stationEvFlowActive;
   const qrBase = process.env.PUBLIC_URL || '';
 
   const essSocHasKey = Boolean(selInverterSn) && Object.prototype.hasOwnProperty.call(socBySn, selInverterSn);
@@ -1327,6 +1416,42 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
         <div className="pf-top-bar">
           <header className="pf-header">
             <div className="pf-header-primary">
+              <div className="pf-header-trailing">
+                <div className="pf-header-trailing-row">
+                  <select
+                    id="pf-station"
+                    className="pf-inverter-select pf-header-select--port"
+                    aria-label={t('stationLabel')}
+                    title={t('stationPlaceholder')}
+                    value={stationFilter}
+                    onChange={onStationChange}
+                  >
+                    <option value="">{chargingPorts.loading ? '…' : t('stationPlaceholder')}</option>
+                    {portSelectOptions.map(row => {
+                      const num = String(row.number);
+                      return (
+                        <option key={num} value={num}>
+                          {num}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  <select
+                    id="pf-lang"
+                    className="pf-lang-select pf-header-select--lang"
+                    aria-label={t('langSelectAria')}
+                    title={t('langSelectAria')}
+                    value={locale}
+                    onChange={onLangSelectChange}
+                  >
+                    {SUPPORTED.map(code => (
+                      <option key={code} value={code} title={LOCALE_NAMES[code] || code}>
+                        {LANG_HEADER_CODE[code] || String(code).toUpperCase().slice(0, 2)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
               <div className="pf-station-field pf-inverter-field">
                 <select
                   id="pf-inverter"
@@ -1387,41 +1512,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   onRoiCapexSaved={loadInverters}
                 />
               </div>
-              <div className="pf-station-field">
-                <select
-                  id="pf-station"
-                  className="pf-inverter-select pf-header-select--port"
-                  aria-label={t('stationLabel')}
-                  title={t('stationPlaceholder')}
-                  value={stationFilter}
-                  onChange={onStationChange}
-                >
-                  <option value="">{chargingPorts.loading ? '…' : t('stationPlaceholder')}</option>
-                  {portSelectOptions.map(row => {
-                    const num = String(row.number);
-                    return (
-                      <option key={num} value={num}>
-                        {num}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
             </div>
-            <select
-              id="pf-lang"
-              className="pf-lang-select pf-header-select--lang"
-              aria-label={t('langSelectAria')}
-              title={t('langSelectAria')}
-              value={locale}
-              onChange={onLangSelectChange}
-            >
-              {SUPPORTED.map(code => (
-                <option key={code} value={code} title={LOCALE_NAMES[code] || code}>
-                  {LANG_HEADER_CODE[code] || String(code).toUpperCase().slice(0, 2)}
-                </option>
-              ))}
-            </select>
           </header>
           {inverterRows.configured && !inverterRows.loading && !inverterRows.error ? (
             <>
@@ -1832,6 +1923,18 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   </span>
                 ) : null}
               </div>
+              <button
+                type="button"
+                className="pf-graph-refresh"
+                data-pos="top-center"
+                onClick={() => window.location.reload()}
+                aria-label={t('hubRefreshAria')}
+                title={t('hubRefreshAria')}
+              >
+                <span className="pf-graph-refresh-icon" aria-hidden>
+                  ↻
+                </span>
+              </button>
               <div className="pf-node-stack" data-pos="left-center">
                 <button
                   type="button"
@@ -2001,6 +2104,27 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   <span className="pf-node-label">{t('nodeEv')}</span>
                   <span className="pf-node-value" id="pf-val-ev">
                     {evBusy ? '…' : formatPower(consumptionW, t, bcp47)}
+                  </span>
+                </a>
+              ) : stationFilter.trim() ? (
+                <a
+                  className="pf-node"
+                  data-pos="right-bottom"
+                  id="pf-node-ev"
+                  href={EV_LIST_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-active={stationEvFlowActive ? 'true' : 'false'}
+                  title={t('stationLabel')}
+                >
+                  <span className="pf-node-icon" aria-hidden>
+                    🚗
+                  </span>
+                  <span className="pf-node-label">{t('nodeEv')}</span>
+                  <span className="pf-node-value" id="pf-val-ev">
+                    {evStationPowerLoading && evStationPowerW == null
+                      ? '…'
+                      : formatPowerValueOnly(evStationPowerW, bcp47)}
                   </span>
                 </a>
               ) : (

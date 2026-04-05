@@ -48,6 +48,14 @@ export function formatPower(watts, t, bcp47) {
   return `${nf.format(watts / 1000)}\u00a0${t('unitKW')}`;
 }
 
+/** Same scaling as formatPower but digits only (no MW/kW suffix) — compact header / EV hints. */
+export function formatPowerValueOnly(watts, bcp47) {
+  if (watts == null || !Number.isFinite(watts)) return '—';
+  const nf = new Intl.NumberFormat(bcp47, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (watts >= 1_000_000) return nf.format(watts / 1_000_000);
+  return nf.format(watts / 1000);
+}
+
 export function formatUsdt(value, bcp47) {
   if (value == null || !Number.isFinite(value)) return null;
   const nf = new Intl.NumberFormat(bcp47, { minimumFractionDigits: 2, maximumFractionDigits: 2 });

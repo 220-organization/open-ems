@@ -1189,6 +1189,40 @@ async def _post_strategy_dynamic_control(body: dict[str, Any]) -> None:
             raise RuntimeError(msg)
 
 
+def _clamp_sell_power_w(p: int) -> int:
+    """Same bounds as DEYE_DYNAMIC_CONTROL_RATED_POWER_W (settings._env_int 500..200_000)."""
+    return max(500, min(200_000, int(p)))
+
+
+async def apply_selling_first_max_power_w(
+    device_sn: str,
+    max_power_w: int,
+    tou_soc: float,
+) -> None:
+    """
+    SELLING_FIRST with max sell / solar power set to ``max_power_w`` (e.g. EV station job powerWt).
+    ``tou_soc`` should be low enough to allow discharge during the session (see Deye TOU template).
+    """
+    await assert_inverter_owned(device_sn)
+    sn = device_sn.strip()
+    rp = _clamp_sell_power_w(max_power_w)
+    await _post_strategy_dynamic_control(_body_selling_first(sn, float(tou_soc), rp))
+
+
+async def restore_zero_export_ct_current_soc(device_sn: str) -> None:
+    """ZERO_EXPORT_TO_CT with TOU SoC = max(15%, current SoC) — template power from DEYE_DYNAMIC_CONTROL_RATED_POWER_W."""
+    await assert_inverter_owned(device_sn)
+    sn = device_sn.strip()
+    rated = settings.DEYE_DYNAMIC_CONTROL_RATED_POWER_W
+    soc_map = await fetch_soc_map_refresh([sn])
+    soc = soc_map.get(sn)
+    if soc is None:
+        tou_soc = _ZERO_EXPORT_CT_DEFAULT_TOU_SOC_PCT
+    else:
+        tou_soc = max(_ZERO_EXPORT_CT_DEFAULT_TOU_SOC_PCT, round(float(soc), 2))
+    await _post_strategy_dynamic_control(_body_zero_export_target_soc(sn, tou_soc, rated))
+
+
 async def assert_inverter_owned(device_sn: str) -> None:
     sn = (device_sn or "").strip()
     items = await list_inverter_devices()

@@ -138,17 +138,98 @@ body {
 .pf-header-primary {
   display: flex;
   flex-wrap: nowrap;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   flex: 1 1 auto;
   min-width: 0;
+  width: 100%;
   overflow-x: auto;
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
 }
 
-.pf-header > .pf-lang-select {
+/* DOM: trailing first; order restores desktop row: inverter | port+lang */
+.pf-header-primary .pf-station-field.pf-inverter-field {
+  order: 1;
+}
+
+.pf-header-primary .pf-header-trailing {
+  order: 2;
+}
+
+.pf-header-trailing {
+  display: inline-flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  flex: 0 0 auto;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.pf-header-trailing-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.pf-graph .pf-graph-refresh[data-pos='top-center'] {
+  position: absolute;
+  /* Middle of top-row node cards (Solar / Battery), not the diagram center */
+  top: clamp(1.85rem, 11.5%, 3rem);
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 4;
+}
+
+.pf-graph-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(252, 1, 155, 0.28);
+  border-radius: 999px;
+  background: rgba(24, 6, 32, 0.65);
+  color: rgba(255, 248, 252, 0.92);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.pf-graph-refresh:hover {
+  border-color: rgba(252, 1, 155, 0.52);
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 0 12px rgba(252, 1, 155, 0.18);
+}
+
+.pf-graph-refresh:focus-visible {
+  outline: 2px solid var(--pf-pink-soft);
+  outline-offset: 2px;
+}
+
+.pf-graph-refresh-icon {
+  display: block;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.pf-header .pf-header-trailing .pf-lang-select {
   flex: 0 0 auto;
 }
 
@@ -194,21 +275,33 @@ body {
   gap: 8px;
 }
 
-/* Inverter select + Add Deye button: same width (stacked), aligned with select sizing */
+/* Inverter select + Add Deye + ROI: first row = select | Add; ROI card wraps full width */
 .pf-station-field.pf-inverter-field {
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
   flex: 1 1 auto;
   min-width: 0;
 }
 
 .pf-header .pf-station-field.pf-inverter-field .pf-inverter-select.pf-header-select--inverter {
-  width: 100%;
+  flex: 1 1 6.5rem;
+  width: auto;
   max-width: none;
   min-width: 0;
   box-sizing: border-box;
+}
+
+.pf-header .pf-station-field.pf-inverter-field .pf-add-deye-btn {
+  width: auto;
+  flex: 0 0 auto;
+}
+
+.pf-header .pf-station-field.pf-inverter-field .pf-roi-stack {
+  flex: 1 1 100%;
+  min-width: 0;
 }
 
 .pf-station-input {
@@ -579,6 +672,9 @@ a.pf-node {
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   width: auto;
   max-width: min(140px, 42vw);
   padding: 0;
@@ -990,6 +1086,17 @@ a.pf-node {
     padding-bottom: 10px;
   }
 
+  /* Port/lang row above inverter + ROI (DOM order is trailing first) */
+  .pf-header-primary {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+  }
+
+  .pf-header-primary .pf-header-trailing {
+    order: 1;
+  }
+
   .pf-station-field {
     width: auto;
     flex-direction: row;
@@ -997,12 +1104,78 @@ a.pf-node {
     gap: 6px;
   }
 
-  .pf-station-field.pf-inverter-field {
+  .pf-header-primary .pf-station-field.pf-inverter-field {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    flex: 1 1 100%;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    gap: 6px;
+    order: 2;
+  }
+
+  .pf-header .pf-station-field.pf-inverter-field .pf-roi-stack {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .pf-roi-card {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  /* ROI card: stack meta; grid segments — Consumption full width, then EV/DAM/Mining in one row */
+  .pf-roi-meta {
     flex-direction: column;
     align-items: stretch;
+    gap: 8px;
+  }
+
+  .pf-roi-meta-right {
+    text-align: left;
+  }
+
+  .pf-roi-stack-bar {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    overflow-x: visible;
+    align-items: stretch;
+  }
+
+  .pf-roi-stack-seg--load {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .pf-roi-stack-seg {
+    min-height: 44px;
+  }
+
+  .pf-header-trailing {
+    flex: 1 1 100%;
     width: 100%;
     max-width: 100%;
     gap: 6px;
+  }
+
+  .pf-header-trailing-row {
+    justify-content: space-between;
+    gap: 6px;
+  }
+
+  .pf-graph-refresh {
+    width: 26px;
+    height: 26px;
+  }
+
+  .pf-graph-refresh-icon {
+    font-size: 14px;
   }
 
   .pf-station-field > span {
@@ -1138,6 +1311,15 @@ a.pf-node {
   .pf-hub-logo {
     width: 30px;
     height: 30px;
+  }
+
+  /* ROI: single column so EV/DAM/Mining stay readable */
+  .pf-roi-stack-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .pf-roi-stack-seg--load {
+    grid-column: 1;
   }
 }
 
@@ -1315,16 +1497,15 @@ a.pf-node {
 }
 
 .pf-header .pf-station-field.pf-inverter-field .pf-add-deye-btn {
-  width: 100%;
   box-sizing: border-box;
   flex: 0 0 auto;
-  padding: 6px 8px;
+  padding: 6px 10px;
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.02em;
   line-height: 1.25;
   text-align: center;
-  white-space: normal;
+  white-space: nowrap;
 }
 
 .pf-add-deye-btn:hover {
@@ -1403,9 +1584,12 @@ a.pf-node {
 .pf-roi-stack-bar {
   display: flex;
   flex-direction: row;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 6px;
   align-items: stretch;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
 }
 
 .pf-roi-stack-seg {
@@ -1426,6 +1610,25 @@ a.pf-node {
   background: linear-gradient(135deg, rgba(34, 197, 94, 0.22), rgba(16, 185, 129, 0.12));
 }
 
+/* Title + value on one line (Consumption first, then kWh). */
+.pf-roi-stack-seg--head-inline {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
+.pf-roi-stack-seg--head-inline .pf-roi-stack-seg-title {
+  flex: 0 0 auto;
+}
+
+.pf-roi-stack-seg--head-inline .pf-roi-stack-seg-sub {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+}
+
 .pf-roi-stack-seg--placeholder {
   flex: 1 1 72px;
   opacity: 0.88;
@@ -1438,12 +1641,22 @@ a.pf-node {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--pf-label);
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pf-roi-stack-seg-sub {
   font-size: 11px;
   line-height: 1.3;
   color: rgba(250, 250, 250, 0.78);
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pf-roi-stack-seg-rate {
