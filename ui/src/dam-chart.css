@@ -31,6 +31,14 @@
   margin: 0 0 8px;
 }
 
+.dam-line-entsoe-uah-footnote {
+  margin: 8px 4px 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: rgba(251, 191, 36, 0.78);
+  text-align: center;
+}
+
 .dam-compare-row {
   display: flex;
   flex-wrap: wrap;

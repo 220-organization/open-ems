@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.models import Note
-from app.routers import b2b_proxy, dam, deye_proxy, entsoe_dam, server_metrics
+from app.routers import b2b_proxy, dam, deye_proxy, entsoe_dam, nbu_fx, server_metrics
 from app.schemas import NoteCreate, NoteRead
 from app import settings
 from app.deye_api import deye_configured, deye_missing_env_names
@@ -204,6 +204,7 @@ app.include_router(b2b_proxy.router)
 app.include_router(deye_proxy.router)
 app.include_router(dam.router)
 app.include_router(entsoe_dam.router)
+app.include_router(nbu_fx.router)
 app.include_router(server_metrics.router)
 
 # Production / `npm run build`: serve CRA output only (no legacy static HTML).

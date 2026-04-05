@@ -102,6 +102,7 @@
   "damTariffAxis": "Tariff, UAH/kWh",
   "damTariffAxisEur": "Tariff, EUR/kWh",
   "damTariffAxisEntsoeOverlay": "EUR/kWh",
+  "damEntsoeEurUahFootnote": "ENTSO-E ES/PL: NBU EUR→UAH {{rate}} UAH/EUR ({{date}}). Линии в UAH/kWh за сравнение с UA.",
   "damMarketLabel": "DAM market",
   "damMarketEntsoe": "ENTSO-E (ES / PL)",
   "damMarketOree": "Ukraine (OREE)",

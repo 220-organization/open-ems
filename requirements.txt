@@ -1,4 +1,5 @@
 fastapi[standard]
+httpx>=0.27
 sqlalchemy>=2.0
 asyncpg
 greenlet

@@ -356,8 +356,7 @@ function computeLostSolarKwhFromFullBattery(rows) {
 }
 
 function formatDamLineTooltipItem(
-  value,
-  name,
+  entry,
   t,
   fmtDamTooltip,
   fmtEur,
@@ -367,14 +366,37 @@ function formatDamLineTooltipItem(
   damLineSeriesName,
   damEntsoeOverlaySeriesNames,
   damMarket,
-  entsoeZone
+  entsoeZone,
+  damEntsoeOverlaySeriesNameEs,
+  damEntsoeOverlaySeriesNamePl,
+  entsoeOverlayUahMode
 ) {
+  const value = entry?.value;
+  const name = entry?.name;
+  const row = entry?.payload;
   if (value == null || value === '') return { display: '—', label: name };
   const entsoeTipLabel = () => t('damTooltipDamEntsoeLabel', { zone: entsoeZone });
   if (damEntsoeOverlaySeriesNames?.length && damEntsoeOverlaySeriesNames.includes(name)) {
     const n = Number(value);
     if (!Number.isFinite(n))
       return { display: '—', label: t('damTooltipDamEntsoeLabel', { zone: name }) };
+    if (entsoeOverlayUahMode && row) {
+      const eurRaw =
+        name === damEntsoeOverlaySeriesNameEs
+          ? row.damEntsoeEsEurKwh
+          : name === damEntsoeOverlaySeriesNamePl
+            ? row.damEntsoePlEurKwh
+            : null;
+      const eur = eurRaw != null && Number.isFinite(Number(eurRaw)) ? Number(eurRaw) : null;
+      if (eur != null) {
+        return {
+          display: `${fmtEur.format(eur)} ${t('damTooltipDamUnitEur')} (${fmtDamTooltip.format(n)} ${t('damTooltipDamUnit')})`,
+          label: t('damTooltipDamEntsoeLabel', {
+            zone: name === damEntsoeOverlaySeriesNamePl ? 'PL' : 'ES',
+          }),
+        };
+      }
+    }
     return {
       display: `${fmtEur.format(n)} ${t('damTooltipDamUnitEur')}`,
       label: t('damTooltipDamEntsoeLabel', { zone: name }),
@@ -415,6 +437,9 @@ function DamLineChartTooltip({
   damEntsoeOverlaySeriesNames,
   damMarket,
   entsoeZone,
+  damEntsoeOverlaySeriesNameEs,
+  damEntsoeOverlaySeriesNamePl,
+  entsoeOverlayUahMode,
 }) {
   if (!active || !payload?.length) return null;
   const row = payload[0]?.payload;
@@ -443,8 +468,7 @@ function DamLineChartTooltip({
       >
         {payload.map((entry, i) => {
           const { display, label: itemLabel } = formatDamLineTooltipItem(
-            entry.value,
-            entry.name,
+            entry,
             t,
             fmtDamTooltip,
             fmtEur,
@@ -454,7 +478,10 @@ function DamLineChartTooltip({
             damLineSeriesName,
             damEntsoeOverlaySeriesNames,
             damMarket,
-            entsoeZone
+            entsoeZone,
+            damEntsoeOverlaySeriesNameEs,
+            damEntsoeOverlaySeriesNamePl,
+            entsoeOverlayUahMode
           );
           return (
             <li key={i} className="recharts-tooltip-item" style={{ ...itemStyle, color: entry.color }}>
@@ -551,6 +578,9 @@ export default function DamChartPanel({
   const [baseIndexExtraByDate, setBaseIndexExtraByDate] = useState({});
   const [baseIndexCompareLoading, setBaseIndexCompareLoading] = useState(false);
   const [urlInverterOnce] = useState(readInverterFromSearchOnce);
+  /** NBU UAH per 1 EUR — scales ENTSO-E EUR/kWh onto the same axis as Ukraine DAM (UAH/kWh). */
+  const [eurUahRate, setEurUahRate] = useState(null);
+  const [eurUahRateLabel, setEurUahRateLabel] = useState(null);
 
   const effectiveInverterSn = (
     (inverterSnProp && String(inverterSnProp).trim()) ||
@@ -658,9 +688,44 @@ export default function DamChartPanel({
   }, [damMarket, entsoeOverlayByZone]);
 
   const showEntsoeEurAxis = useMemo(
-    () => showEntsoeOverlayAxis && (damSeriesVisible.es || damSeriesVisible.pl),
-    [showEntsoeOverlayAxis, damSeriesVisible.es, damSeriesVisible.pl]
+    () =>
+      showEntsoeOverlayAxis &&
+      (damSeriesVisible.es || damSeriesVisible.pl) &&
+      !(eurUahRate > 0),
+    [showEntsoeOverlayAxis, damSeriesVisible.es, damSeriesVisible.pl, eurUahRate]
   );
+
+  useEffect(() => {
+    if (damMarket !== 'oree') {
+      setEurUahRate(null);
+      setEurUahRateLabel(null);
+      return;
+    }
+    let cancelled = false;
+    setEurUahRate(null);
+    setEurUahRateLabel(null);
+    (async () => {
+      try {
+        const r = await fetch(apiUrl(`/api/fx/eur-uah?date=${encodeURIComponent(tradeDay)}`), {
+          cache: 'no-store',
+        });
+        const d = await r.json();
+        if (cancelled) return;
+        if (d?.ok && d.rate != null && Number.isFinite(Number(d.rate))) {
+          setEurUahRate(Number(d.rate));
+          setEurUahRateLabel(d.exchangedate || d.nbu_query_date || tradeDay);
+        }
+      } catch {
+        if (!cancelled) {
+          setEurUahRate(null);
+          setEurUahRateLabel(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tradeDay, damMarket]);
 
   useEffect(() => {
     if (damMarket !== 'oree') {
@@ -978,6 +1043,7 @@ export default function DamChartPanel({
       plPayload?.ok && Array.isArray(plPayload.hourlyPriceDamEurPerKwh)
         ? plPayload.hourlyPriceDamEurPerKwh
         : null;
+    const fx = eurUahRate;
     const socArr =
       socPayload?.ok && socPayload?.configured && Array.isArray(socPayload.hourlySocPercent)
         ? socPayload.hourlySocPercent
@@ -1029,6 +1095,22 @@ export default function DamChartPanel({
         damEntsoePlEurKwh:
           entsoePlEurArr && entsoePlEurArr[i] != null && Number.isFinite(Number(entsoePlEurArr[i]))
             ? Number(entsoePlEurArr[i])
+            : null,
+        damEntsoeEsUahKwh:
+          fx != null &&
+          fx > 0 &&
+          entsoeEsEurArr &&
+          entsoeEsEurArr[i] != null &&
+          Number.isFinite(Number(entsoeEsEurArr[i]))
+            ? Number(entsoeEsEurArr[i]) * fx
+            : null,
+        damEntsoePlUahKwh:
+          fx != null &&
+          fx > 0 &&
+          entsoePlEurArr &&
+          entsoePlEurArr[i] != null &&
+          Number.isFinite(Number(entsoePlEurArr[i]))
+            ? Number(entsoePlEurArr[i]) * fx
             : null,
         socPercent,
         gridKw,
@@ -1125,6 +1207,7 @@ export default function DamChartPanel({
     livePvPowerW,
     liveBatteryPowerW,
     effectiveInverterSn,
+    eurUahRate,
   ]);
 
   const lostSolarIncomeMoney = useMemo(() => computeLostSolarIncomeFromFullBatteryUah(rows), [rows]);
@@ -1646,6 +1729,9 @@ export default function DamChartPanel({
                       }
                       damMarket={damMarket}
                       entsoeZone={entsoeZone}
+                      damEntsoeOverlaySeriesNameEs={damEntsoeOverlaySeriesNameEs}
+                      damEntsoeOverlaySeriesNamePl={damEntsoeOverlaySeriesNamePl}
+                      entsoeOverlayUahMode={eurUahRate > 0}
                     />
                   )}
                 />
@@ -1664,9 +1750,9 @@ export default function DamChartPanel({
                 ) : null}
                 {showEntsoeOverlayAxis && damSeriesVisible.es ? (
                   <Line
-                    yAxisId="entsoeEur"
+                    yAxisId={eurUahRate > 0 ? 'dam' : 'entsoeEur'}
                     type="monotone"
-                    dataKey="damEntsoeEsEurKwh"
+                    dataKey={eurUahRate > 0 ? 'damEntsoeEsUahKwh' : 'damEntsoeEsEurKwh'}
                     name={damEntsoeOverlaySeriesNameEs}
                     stroke="#f59e0b"
                     strokeWidth={2}
@@ -1678,9 +1764,9 @@ export default function DamChartPanel({
                 ) : null}
                 {showEntsoeOverlayAxis && damSeriesVisible.pl ? (
                   <Line
-                    yAxisId="entsoeEur"
+                    yAxisId={eurUahRate > 0 ? 'dam' : 'entsoeEur'}
                     type="monotone"
-                    dataKey="damEntsoePlEurKwh"
+                    dataKey={eurUahRate > 0 ? 'damEntsoePlUahKwh' : 'damEntsoePlEurKwh'}
                     name={damEntsoeOverlaySeriesNamePl}
                     stroke="#c084fc"
                     strokeWidth={2}
@@ -1823,6 +1909,14 @@ export default function DamChartPanel({
                 </li>
               ) : null}
             </ul>
+            {eurUahRate > 0 && eurUahRateLabel && showEntsoeOverlayAxis ? (
+              <p className="dam-line-entsoe-uah-footnote" role="note">
+                {t('damEntsoeEurUahFootnote', {
+                  date: String(eurUahRateLabel),
+                  rate: fmtDamTooltip.format(eurUahRate),
+                })}
+              </p>
+            ) : null}
           </div>
         ) : null}
 

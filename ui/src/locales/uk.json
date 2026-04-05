@@ -102,6 +102,7 @@
   "damTariffAxis": "Тариф, ₴/кВт·год",
   "damTariffAxisEur": "Тариф, €/кВт·год",
   "damTariffAxisEntsoeOverlay": "€/кВт·год",
+  "damEntsoeEurUahFootnote": "ENTSO-E ES/PL: курс НБУ EUR→UAH {{rate}} грн/Є ({{date}}). Лінії в грн/кВт·год для порівняння з UA.",
   "damMarketLabel": "Ринок РДН",
   "damMarketEntsoe": "ENTSO-E (ES / PL)",
   "damMarketOree": "Україна (OREE)",
