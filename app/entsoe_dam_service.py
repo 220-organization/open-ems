@@ -126,7 +126,10 @@ async def fetch_entsoe_day_ahead_points(
         "periodEnd": pe,
     }
     url = settings.ENTSOE_API_BASE_URL
-    headers = {"Accept": "application/xml"}
+    headers = {
+        "Accept": "application/xml",
+        "User-Agent": settings.ENTSOE_HTTP_USER_AGENT or "OpenEMS/1.0",
+    }
 
     async with httpx.AsyncClient(timeout=60.0) as client:
         r = await client.get(url, headers=headers, params=base)

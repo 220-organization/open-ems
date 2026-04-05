@@ -113,16 +113,38 @@ ENTSOE_API_BASE_URL: str = os.environ.get(
     "https://web-api.tp.entsoe.eu/api",
 ).rstrip("/")
 ENTSOE_SECURITY_TOKEN: str = (os.environ.get("ENTSOE_SECURITY_TOKEN") or "").strip()
+# Transparency REST: recommended User-Agent (identify your client); see ENTSO-E usage policy.
+ENTSOE_HTTP_USER_AGENT: str = (
+    os.environ.get("ENTSOE_HTTP_USER_AGENT") or "OpenEMS/1.0 (open-ems; ENTSO-E Transparency)"
+).strip()
+
+
+# Always persisted by daily ENTSO-E sync (same zones as DAM chart overlays / picker). Not configurable via env.
+_ENTSOE_DAM_ZONE_EICS_BASE: tuple[str, ...] = (
+    "10YES-REE------0",  # Spain (ES)
+    "10YPL-AREA-----S",  # Poland (PL)
+    "10Y1001C--000182",  # Ukraine (UA / UA_ENTSO)
+)
 
 
 def _parse_entsoe_zone_eics() -> tuple[str, ...]:
+    """
+    Built-in ES/PL/UA plus optional extras from ENTSOE_DAM_ZONE_EICS (comma-separated EICs).
+    Extras are merged and de-duplicated — env cannot remove chart zones.
+    """
     raw = (os.environ.get("ENTSOE_DAM_ZONE_EICS") or "").strip()
-    if raw:
-        return tuple(x.strip() for x in raw.split(",") if x.strip())
-    return (
-        "10YES-REE------0",  # Spain (ES)
-        "10YPL-AREA-----S",  # Poland (PL)
-    )
+    extras = tuple(x.strip() for x in raw.split(",") if x.strip()) if raw else ()
+    seen: set[str] = set()
+    out: list[str] = []
+    for z in _ENTSOE_DAM_ZONE_EICS_BASE:
+        if z not in seen:
+            seen.add(z)
+            out.append(z)
+    for z in extras:
+        if z not in seen:
+            seen.add(z)
+            out.append(z)
+    return tuple(out)
 
 
 ENTSOE_DAM_ZONE_EICS: tuple[str, ...] = _parse_entsoe_zone_eics()
@@ -131,11 +153,13 @@ ENTSOE_DAM_ZONE_EICS: tuple[str, ...] = _parse_entsoe_zone_eics()
 ENTSOE_DOMAIN_TIMEZONE: dict[str, str] = {
     "10YES-REE------0": "Europe/Madrid",
     "10YPL-AREA-----S": "Europe/Warsaw",
+    "10Y1001C--000182": "Europe/Kyiv",  # Ukraine (UCTE) — same EIC as OREE_COMPARE_ZONE_EIC
 }
 
 ENTSOE_ZONE_ALIASES: dict[str, str] = {
     "ES": "10YES-REE------0",
     "PL": "10YPL-AREA-----S",
+    "UA_ENTSO": "10Y1001C--000182",
 }
 
 ENTSOE_DAM_DAILY_SYNC_ENABLED: bool = _env_bool("ENTSOE_DAM_DAILY_SYNC_ENABLED", True)

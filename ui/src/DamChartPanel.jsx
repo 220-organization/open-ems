@@ -48,8 +48,8 @@ const ENTSOE_ZONE_OPTIONS = [
   { value: 'PL', label: 'Poland (PL)' },
 ];
 
-/** ENTSO-E zones drawn on the Ukraine (OREE) chart — each EUR/kWh on the orange axis. */
-const ENTSOE_OREE_OVERLAY_ZONES = ['ES', 'PL'];
+/** ENTSO-E zones on the Ukraine (OREE) chart — EUR/kWh (or UAH/kWh via NBU); includes UA bidding zone as alternative to OREE. */
+const ENTSOE_OREE_OVERLAY_ZONES = ['ES', 'PL', 'UA_ENTSO'];
 
 function brusselsCalendarIso() {
   try {
@@ -369,6 +369,7 @@ function formatDamLineTooltipItem(
   entsoeZone,
   damEntsoeOverlaySeriesNameEs,
   damEntsoeOverlaySeriesNamePl,
+  damEntsoeOverlaySeriesNameUaEntsoe,
   entsoeOverlayUahMode
 ) {
   const value = entry?.value;
@@ -381,19 +382,20 @@ function formatDamLineTooltipItem(
     if (!Number.isFinite(n))
       return { display: '—', label: t('damTooltipDamEntsoeLabel', { zone: name }) };
     if (entsoeOverlayUahMode && row) {
-      const eurRaw =
-        name === damEntsoeOverlaySeriesNameEs
-          ? row.damEntsoeEsEurKwh
-          : name === damEntsoeOverlaySeriesNamePl
-            ? row.damEntsoePlEurKwh
-            : null;
+      let eurRaw = null;
+      if (name === damEntsoeOverlaySeriesNameEs) eurRaw = row.damEntsoeEsEurKwh;
+      else if (name === damEntsoeOverlaySeriesNamePl) eurRaw = row.damEntsoePlEurKwh;
+      else if (name === damEntsoeOverlaySeriesNameUaEntsoe) eurRaw = row.damEntsoeUaEntsoeEurKwh;
       const eur = eurRaw != null && Number.isFinite(Number(eurRaw)) ? Number(eurRaw) : null;
       if (eur != null) {
         return {
           display: `${fmtEur.format(eur)} ${t('damTooltipDamUnitEur')} (${fmtDamTooltip.format(n)} ${t('damTooltipDamUnit')})`,
-          label: t('damTooltipDamEntsoeLabel', {
-            zone: name === damEntsoeOverlaySeriesNamePl ? 'PL' : 'ES',
-          }),
+          label:
+            name === damEntsoeOverlaySeriesNameUaEntsoe
+              ? t('damSeriesDamUaEntsoe')
+              : t('damTooltipDamEntsoeLabel', {
+                  zone: name === damEntsoeOverlaySeriesNamePl ? 'PL' : 'ES',
+                }),
         };
       }
     }
@@ -439,6 +441,7 @@ function DamLineChartTooltip({
   entsoeZone,
   damEntsoeOverlaySeriesNameEs,
   damEntsoeOverlaySeriesNamePl,
+  damEntsoeOverlaySeriesNameUaEntsoe,
   entsoeOverlayUahMode,
 }) {
   if (!active || !payload?.length) return null;
@@ -481,6 +484,7 @@ function DamLineChartTooltip({
             entsoeZone,
             damEntsoeOverlaySeriesNameEs,
             damEntsoeOverlaySeriesNamePl,
+            damEntsoeOverlaySeriesNameUaEntsoe,
             entsoeOverlayUahMode
           );
           return (
@@ -555,6 +559,7 @@ export default function DamChartPanel({
     primary: true,
     es: false,
     pl: false,
+    uaEntsoe: false,
     soc: true,
     hz: false,
   });
@@ -678,6 +683,7 @@ export default function DamChartPanel({
 
   const damEntsoeOverlaySeriesNameEs = useMemo(() => t('damSeriesDamEntsoe', { zone: 'ES' }), [t]);
   const damEntsoeOverlaySeriesNamePl = useMemo(() => t('damSeriesDamEntsoe', { zone: 'PL' }), [t]);
+  const damEntsoeOverlaySeriesNameUaEntsoe = useMemo(() => t('damSeriesDamUaEntsoe'), [t]);
 
   const showEntsoeOverlayAxis = useMemo(() => {
     if (damMarket !== 'oree') return false;
@@ -690,9 +696,9 @@ export default function DamChartPanel({
   const showEntsoeEurAxis = useMemo(
     () =>
       showEntsoeOverlayAxis &&
-      (damSeriesVisible.es || damSeriesVisible.pl) &&
+      (damSeriesVisible.es || damSeriesVisible.pl || damSeriesVisible.uaEntsoe) &&
       !(eurUahRate > 0),
-    [showEntsoeOverlayAxis, damSeriesVisible.es, damSeriesVisible.pl, eurUahRate]
+    [showEntsoeOverlayAxis, damSeriesVisible.es, damSeriesVisible.pl, damSeriesVisible.uaEntsoe, eurUahRate]
   );
 
   useEffect(() => {
@@ -729,7 +735,7 @@ export default function DamChartPanel({
 
   useEffect(() => {
     if (damMarket !== 'oree') {
-      setDamSeriesVisible(v => ({ ...v, es: false, pl: false }));
+      setDamSeriesVisible(v => ({ ...v, es: false, pl: false, uaEntsoe: false }));
     }
   }, [damMarket]);
 
@@ -1035,6 +1041,7 @@ export default function DamChartPanel({
     const dam = damArr;
     const esPayload = damMarket === 'oree' ? entsoeOverlayByZone.ES : null;
     const plPayload = damMarket === 'oree' ? entsoeOverlayByZone.PL : null;
+    const uaEntsoPayload = damMarket === 'oree' ? entsoeOverlayByZone.UA_ENTSO : null;
     const entsoeEsEurArr =
       esPayload?.ok && Array.isArray(esPayload.hourlyPriceDamEurPerKwh)
         ? esPayload.hourlyPriceDamEurPerKwh
@@ -1042,6 +1049,10 @@ export default function DamChartPanel({
     const entsoePlEurArr =
       plPayload?.ok && Array.isArray(plPayload.hourlyPriceDamEurPerKwh)
         ? plPayload.hourlyPriceDamEurPerKwh
+        : null;
+    const entsoeUaEntsoeEurArr =
+      uaEntsoPayload?.ok && Array.isArray(uaEntsoPayload.hourlyPriceDamEurPerKwh)
+        ? uaEntsoPayload.hourlyPriceDamEurPerKwh
         : null;
     const fx = eurUahRate;
     const socArr =
@@ -1111,6 +1122,20 @@ export default function DamChartPanel({
           entsoePlEurArr[i] != null &&
           Number.isFinite(Number(entsoePlEurArr[i]))
             ? Number(entsoePlEurArr[i]) * fx
+            : null,
+        damEntsoeUaEntsoeEurKwh:
+          entsoeUaEntsoeEurArr &&
+          entsoeUaEntsoeEurArr[i] != null &&
+          Number.isFinite(Number(entsoeUaEntsoeEurArr[i]))
+            ? Number(entsoeUaEntsoeEurArr[i])
+            : null,
+        damEntsoeUaEntsoeUahKwh:
+          fx != null &&
+          fx > 0 &&
+          entsoeUaEntsoeEurArr &&
+          entsoeUaEntsoeEurArr[i] != null &&
+          Number.isFinite(Number(entsoeUaEntsoeEurArr[i]))
+            ? Number(entsoeUaEntsoeEurArr[i]) * fx
             : null,
         socPercent,
         gridKw,
@@ -1724,6 +1749,7 @@ export default function DamChartPanel({
                           ? [
                               ...(damSeriesVisible.es ? [damEntsoeOverlaySeriesNameEs] : []),
                               ...(damSeriesVisible.pl ? [damEntsoeOverlaySeriesNamePl] : []),
+                              ...(damSeriesVisible.uaEntsoe ? [damEntsoeOverlaySeriesNameUaEntsoe] : []),
                             ]
                           : []
                       }
@@ -1731,6 +1757,7 @@ export default function DamChartPanel({
                       entsoeZone={entsoeZone}
                       damEntsoeOverlaySeriesNameEs={damEntsoeOverlaySeriesNameEs}
                       damEntsoeOverlaySeriesNamePl={damEntsoeOverlaySeriesNamePl}
+                      damEntsoeOverlaySeriesNameUaEntsoe={damEntsoeOverlaySeriesNameUaEntsoe}
                       entsoeOverlayUahMode={eurUahRate > 0}
                     />
                   )}
@@ -1772,6 +1799,20 @@ export default function DamChartPanel({
                     strokeWidth={2}
                     strokeDasharray="6 5"
                     dot={{ r: 2, fill: '#c084fc' }}
+                    connectNulls
+                    isAnimationActive={false}
+                  />
+                ) : null}
+                {showEntsoeOverlayAxis && damSeriesVisible.uaEntsoe ? (
+                  <Line
+                    yAxisId={eurUahRate > 0 ? 'dam' : 'entsoeEur'}
+                    type="monotone"
+                    dataKey={eurUahRate > 0 ? 'damEntsoeUaEntsoeUahKwh' : 'damEntsoeUaEntsoeEurKwh'}
+                    name={damEntsoeOverlaySeriesNameUaEntsoe}
+                    stroke="#22d3ee"
+                    strokeWidth={2}
+                    strokeDasharray="4 3"
+                    dot={{ r: 2, fill: '#22d3ee' }}
                     connectNulls
                     isAnimationActive={false}
                   />
@@ -1863,6 +1904,27 @@ export default function DamChartPanel({
                       aria-hidden
                     />
                     {damEntsoeOverlaySeriesNamePl}
+                  </button>
+                </li>
+              ) : null}
+              {showEntsoeOverlayAxis ? (
+                <li>
+                  <button
+                    type="button"
+                    className={`dam-line-legend-item dam-line-legend-item--toggle ${
+                      damSeriesVisible.uaEntsoe ? 'dam-line-legend-item--on' : 'dam-line-legend-item--off'
+                    }`}
+                    aria-pressed={damSeriesVisible.uaEntsoe}
+                    aria-label={t('damLegendAriaToggleUaEntsoe')}
+                    onClick={() => setDamSeriesVisible(v => ({ ...v, uaEntsoe: !v.uaEntsoe }))}
+                  >
+                    <i
+                      className={`dam-line-legend-swatch dam-line-legend-swatch--ua-entso ${
+                        damSeriesVisible.uaEntsoe ? '' : 'dam-line-legend-swatch--muted'
+                      }`}
+                      aria-hidden
+                    />
+                    {damEntsoeOverlaySeriesNameUaEntsoe}
                   </button>
                 </li>
               ) : null}

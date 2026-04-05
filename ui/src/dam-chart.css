@@ -346,8 +346,13 @@
   background: #c084fc;
 }
 
+.dam-line-legend-swatch--ua-entso {
+  background: #22d3ee;
+}
+
 .dam-line-legend-swatch--es.dam-line-legend-swatch--muted,
-.dam-line-legend-swatch--pl.dam-line-legend-swatch--muted {
+.dam-line-legend-swatch--pl.dam-line-legend-swatch--muted,
+.dam-line-legend-swatch--ua-entso.dam-line-legend-swatch--muted {
   background: transparent;
   border: 2px dashed currentColor;
 }
@@ -358,6 +363,10 @@
 
 .dam-line-legend-swatch--pl.dam-line-legend-swatch--muted {
   color: rgba(192, 132, 252, 0.95);
+}
+
+.dam-line-legend-swatch--ua-entso.dam-line-legend-swatch--muted {
+  color: rgba(34, 211, 238, 0.95);
 }
 
 .dam-line-legend-swatch--primary {

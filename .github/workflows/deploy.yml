@@ -138,7 +138,7 @@ jobs:
             printf '%s\n' "OREE_COMPARE_ZONE_EIC=${OREE_COMPARE_ZONE_EIC:-10Y1001C--000182}"
             printf '%s\n' "ENTSOE_API_BASE_URL=${ENTSOE_API_BASE_URL:-https://web-api.tp.entsoe.eu/api}"
             printf '%s\n' "ENTSOE_SECURITY_TOKEN=${ENTSOE_SECURITY_TOKEN:-}"
-            printf '%s\n' "ENTSOE_DAM_ZONE_EICS=${ENTSOE_DAM_ZONE_EICS:-10YES-REE------0,10YPL-AREA-----S}"
+            printf '%s\n' "ENTSOE_DAM_ZONE_EICS=${ENTSOE_DAM_ZONE_EICS:-}"
           } > /tmp/open-ems-deploy.env
           test -s /tmp/open-ems-deploy.env
       # appleboy/scp-action often creates a *directory* named like the target and nests the file
