@@ -1747,9 +1747,9 @@ export default function DamChartPanel({
                       damEntsoeOverlaySeriesNames={
                         showEntsoeOverlayAxis
                           ? [
+                              ...(damSeriesVisible.uaEntsoe ? [damEntsoeOverlaySeriesNameUaEntsoe] : []),
                               ...(damSeriesVisible.es ? [damEntsoeOverlaySeriesNameEs] : []),
                               ...(damSeriesVisible.pl ? [damEntsoeOverlaySeriesNamePl] : []),
-                              ...(damSeriesVisible.uaEntsoe ? [damEntsoeOverlaySeriesNameUaEntsoe] : []),
                             ]
                           : []
                       }
@@ -1771,6 +1771,20 @@ export default function DamChartPanel({
                     stroke="#22c55e"
                     strokeWidth={2.2}
                     dot={{ r: 2.5, fill: '#22c55e' }}
+                    connectNulls
+                    isAnimationActive={false}
+                  />
+                ) : null}
+                {showEntsoeOverlayAxis && damSeriesVisible.uaEntsoe ? (
+                  <Line
+                    yAxisId={eurUahRate > 0 ? 'dam' : 'entsoeEur'}
+                    type="monotone"
+                    dataKey={eurUahRate > 0 ? 'damEntsoeUaEntsoeUahKwh' : 'damEntsoeUaEntsoeEurKwh'}
+                    name={damEntsoeOverlaySeriesNameUaEntsoe}
+                    stroke="#22d3ee"
+                    strokeWidth={2}
+                    strokeDasharray="4 3"
+                    dot={{ r: 2, fill: '#22d3ee' }}
                     connectNulls
                     isAnimationActive={false}
                   />
@@ -1799,20 +1813,6 @@ export default function DamChartPanel({
                     strokeWidth={2}
                     strokeDasharray="6 5"
                     dot={{ r: 2, fill: '#c084fc' }}
-                    connectNulls
-                    isAnimationActive={false}
-                  />
-                ) : null}
-                {showEntsoeOverlayAxis && damSeriesVisible.uaEntsoe ? (
-                  <Line
-                    yAxisId={eurUahRate > 0 ? 'dam' : 'entsoeEur'}
-                    type="monotone"
-                    dataKey={eurUahRate > 0 ? 'damEntsoeUaEntsoeUahKwh' : 'damEntsoeUaEntsoeEurKwh'}
-                    name={damEntsoeOverlaySeriesNameUaEntsoe}
-                    stroke="#22d3ee"
-                    strokeWidth={2}
-                    strokeDasharray="4 3"
-                    dot={{ r: 2, fill: '#22d3ee' }}
                     connectNulls
                     isAnimationActive={false}
                   />
@@ -1870,6 +1870,27 @@ export default function DamChartPanel({
                   <button
                     type="button"
                     className={`dam-line-legend-item dam-line-legend-item--toggle ${
+                      damSeriesVisible.uaEntsoe ? 'dam-line-legend-item--on' : 'dam-line-legend-item--off'
+                    }`}
+                    aria-pressed={damSeriesVisible.uaEntsoe}
+                    aria-label={t('damLegendAriaToggleUaEntsoe')}
+                    onClick={() => setDamSeriesVisible(v => ({ ...v, uaEntsoe: !v.uaEntsoe }))}
+                  >
+                    <i
+                      className={`dam-line-legend-swatch dam-line-legend-swatch--ua-entso ${
+                        damSeriesVisible.uaEntsoe ? '' : 'dam-line-legend-swatch--muted'
+                      }`}
+                      aria-hidden
+                    />
+                    {damEntsoeOverlaySeriesNameUaEntsoe}
+                  </button>
+                </li>
+              ) : null}
+              {showEntsoeOverlayAxis ? (
+                <li>
+                  <button
+                    type="button"
+                    className={`dam-line-legend-item dam-line-legend-item--toggle ${
                       damSeriesVisible.es ? 'dam-line-legend-item--on' : 'dam-line-legend-item--off'
                     }`}
                     aria-pressed={damSeriesVisible.es}
@@ -1904,27 +1925,6 @@ export default function DamChartPanel({
                       aria-hidden
                     />
                     {damEntsoeOverlaySeriesNamePl}
-                  </button>
-                </li>
-              ) : null}
-              {showEntsoeOverlayAxis ? (
-                <li>
-                  <button
-                    type="button"
-                    className={`dam-line-legend-item dam-line-legend-item--toggle ${
-                      damSeriesVisible.uaEntsoe ? 'dam-line-legend-item--on' : 'dam-line-legend-item--off'
-                    }`}
-                    aria-pressed={damSeriesVisible.uaEntsoe}
-                    aria-label={t('damLegendAriaToggleUaEntsoe')}
-                    onClick={() => setDamSeriesVisible(v => ({ ...v, uaEntsoe: !v.uaEntsoe }))}
-                  >
-                    <i
-                      className={`dam-line-legend-swatch dam-line-legend-swatch--ua-entso ${
-                        damSeriesVisible.uaEntsoe ? '' : 'dam-line-legend-swatch--muted'
-                      }`}
-                      aria-hidden
-                    />
-                    {damEntsoeOverlaySeriesNameUaEntsoe}
                   </button>
                 </li>
               ) : null}

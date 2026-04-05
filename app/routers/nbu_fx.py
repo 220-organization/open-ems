@@ -9,24 +9,11 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, Query
 
+from app.nbu_fx_service import fetch_nbu_eur_row
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/fx", tags=["fx"])
-
-NBU_EXCHANGE_URL = "https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange"
-
-
-async def _fetch_nbu_eur_row(date_compact: str) -> dict[str, Any] | None:
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        r = await client.get(
-            NBU_EXCHANGE_URL,
-            params={"valcode": "EUR", "date": date_compact, "json": ""},
-        )
-        r.raise_for_status()
-        data = r.json()
-        if isinstance(data, list) and data and data[0].get("rate") is not None:
-            return data[0]
-    return None
 
 
 @router.get("/eur-uah")
@@ -52,7 +39,7 @@ async def eur_uah(
         d = d0 - timedelta(days=i)
         compact = d.strftime("%Y%m%d")
         try:
-            row = await _fetch_nbu_eur_row(compact)
+            row = await fetch_nbu_eur_row(compact)
         except httpx.HTTPError as e:
             logger.warning("NBU EUR fetch failed for %s: %s", compact, e)
             return {"ok": False, "detail": "nbu_unavailable"}

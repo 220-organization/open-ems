@@ -60,6 +60,6 @@ With `ENTSOE_DAM_DAILY_SYNC_ENABLED=1` and `ENTSOE_SECURITY_TOKEN` set, Open EMS
 ## Notes
 
 - **Rate limits:** ENTSO-E applies per-token limits; each configured zone is one GET per sync run.  
-- **Currency:** Prices are stored as published (typically **EUR/MWh** for these zones).  
+- **Currency:** Spain and Poland publish **EUR/MWh**. Ukraine (`10Y1001C--000182`) often publishes **UAH/MWh** in the same `price.amount` field; Open EMS reads the document `currency` (and defaults Ukraine to UAH if missing), converts to **EUR/MWh** using the **NBU EUR→UAH** rate for the delivery day, then stores **EUR/MWh** in `entsoe_dam_price` like other zones. **Re-sync** (or chart lazy-fetch) after upgrading replaces older rows that were misinterpreted as EUR.  
 - **DST / resolution:** Responses may use hourly or 15-minute points; 15-minute series are averaged to hourly slots 1..24.  
 - **IOP:** Test environment uses a different host (`iop-transparency` / Keycloak IOP) — not wired in Open EMS by default; set `ENTSOE_API_BASE_URL` if you need IOP.

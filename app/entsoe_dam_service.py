@@ -14,10 +14,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import settings
 from app.models import EntsoeDamPrice
+from app.nbu_fx_service import fetch_eur_uah_rate_for_date
 
 logger = logging.getLogger(__name__)
 
 BRUSSELS = ZoneInfo("Europe/Brussels")
+
+# Ukraine bidding zone — ENTSO-E often publishes day-ahead price.amount in UAH/MWh (not EUR/MWh).
+UKRAINE_ZONE_EIC = "10Y1001C--000182"
 
 
 def entsoe_dam_configured() -> bool:
@@ -47,15 +51,31 @@ def period_start_end_utc(delivery_day: date, tz_name: str) -> tuple[str, str]:
     return su.strftime("%Y%m%d%H%M"), eu.strftime("%Y%m%d%H%M")
 
 
-def parse_entsoe_price_points_xml(content: bytes) -> tuple[Optional[str], dict[int, float]]:
+def _first_currency_name_from_root(root: ET.Element) -> str:
+    """Read currency name from first TimeSeries (e.g. EUR / UAH)."""
+    for el in root.iter():
+        if _local_tag(el.tag) != "TimeSeries":
+            continue
+        for ch in el:
+            if _local_tag(ch.tag) == "currency":
+                for cc in ch:
+                    if _local_tag(cc.tag) == "name" and cc.text:
+                        return cc.text.strip().upper()
+        for k, v in el.attrib.items():
+            if _local_tag(k) == "currency" and v:
+                return str(v).strip().upper()
+    return ""
+
+
+def parse_entsoe_price_points_xml(content: bytes) -> tuple[Optional[str], dict[int, float], str]:
     """
-    Parse Publication_MarketDocument / Price_MarketDocument XML; collect position -> EUR/MWh.
-    Returns (acknowledgement_error_text_or_None, position_to_price).
+    Parse Publication_MarketDocument / Price_MarketDocument XML; collect position -> price (per MWh in document currency).
+    Returns (acknowledgement_error_or_None, position_to_price, currency_name_upper_or_empty).
     """
     try:
         root = ET.fromstring(content)
     except ET.ParseError as exc:
-        return f"XML parse error: {exc}", {}
+        return f"XML parse error: {exc}", {}, ""
 
     if _local_tag(root.tag) == "Acknowledgement_MarketDocument":
         ack_reasons: list[str] = []
@@ -64,7 +84,9 @@ def parse_entsoe_price_points_xml(content: bytes) -> tuple[Optional[str], dict[i
                 code = el.attrib.get("code", "") or ""
                 txt = (el.text or "").strip()
                 ack_reasons.append(f"{code}:{txt}".strip(":") if code else txt)
-        return "; ".join(ack_reasons) or "Acknowledgement", {}
+        return "; ".join(ack_reasons) or "Acknowledgement", {}, ""
+
+    currency = _first_currency_name_from_root(root)
 
     by_pos: dict[int, float] = {}
     for el in root.iter():
@@ -88,33 +110,33 @@ def parse_entsoe_price_points_xml(content: bytes) -> tuple[Optional[str], dict[i
             by_pos[pos] = price
 
     if not by_pos:
-        return "No price points in document", {}
+        return "No price points in document", {}, currency
 
     max_pos = max(by_pos)
     if max_pos <= 24:
-        return None, {p: by_pos[p] for p in sorted(by_pos) if 1 <= p <= 24}
+        return None, {p: by_pos[p] for p in sorted(by_pos) if 1 <= p <= 24}, currency
     # 15-minute resolution: collapse 96 intervals to 24 hourly averages
     hourly: dict[int, float] = {}
     for h in range(1, 25):
         chunk = [by_pos[p] for p in range((h - 1) * 4 + 1, h * 4 + 1) if p in by_pos]
         if chunk:
             hourly[h] = sum(chunk) / len(chunk)
-    return None, hourly
+    return None, hourly, currency
 
 
 async def fetch_entsoe_day_ahead_points(
     domain_eic: str,
     delivery_day: date,
     delivery_tz: str,
-) -> tuple[dict[int, float], Optional[str]]:
+) -> tuple[dict[int, float], Optional[str], str]:
     """
     GET ENTSO-E web API (A44/A01). Uses document parameters only — current Transparency REST API
     rejects ``curveType`` (HTTP 400: Input parameter does not exist: curveType).
     Hourly vs 15-minute resolution is inferred from Point positions in the XML.
-    Returns (position -> EUR/MWh, error_message).
+    Returns (position -> price per MWh in document currency, error_message, currency_code_upper).
     """
     if not entsoe_dam_configured():
-        return {}, "ENTSOE_SECURITY_TOKEN not set"
+        return {}, "ENTSOE_SECURITY_TOKEN not set", ""
     ps, pe = period_start_end_utc(delivery_day, delivery_tz)
     base: dict[str, str] = {
         "securityToken": settings.ENTSOE_SECURITY_TOKEN.strip(),
@@ -134,13 +156,13 @@ async def fetch_entsoe_day_ahead_points(
     async with httpx.AsyncClient(timeout=60.0) as client:
         r = await client.get(url, headers=headers, params=base)
         if r.status_code >= 400:
-            return {}, f"HTTP {r.status_code}: {(r.text or '')[:800]}"
-        err, points = parse_entsoe_price_points_xml(r.content)
+            return {}, f"HTTP {r.status_code}: {(r.text or '')[:800]}", ""
+        err, points, currency = parse_entsoe_price_points_xml(r.content)
         if err:
-            return {}, err
+            return {}, err, currency or ""
         if points:
-            return points, None
-        return {}, "No <Point> price.amount in response"
+            return points, None, currency or ""
+        return {}, "No <Point> price.amount in response", currency or ""
 
 
 async def sync_entsoe_zone_to_db(
@@ -150,12 +172,36 @@ async def sync_entsoe_zone_to_db(
 ) -> int:
     """Fetch ENTSO-E DAM for one zone/day and upsert rows. Returns rows written."""
     tz_name = settings.ENTSOE_DOMAIN_TIMEZONE.get(zone_eic, "Europe/Madrid")
-    points, errmsg = await fetch_entsoe_day_ahead_points(zone_eic, delivery_day, tz_name)
+    points, errmsg, currency_raw = await fetch_entsoe_day_ahead_points(zone_eic, delivery_day, tz_name)
     if errmsg:
         logger.warning("ENTSO-E %s %s: %s", zone_eic, delivery_day, errmsg)
         return 0
     if not points:
         return 0
+
+    cur = (currency_raw or "").strip().upper()
+    if not cur and zone_eic == UKRAINE_ZONE_EIC:
+        cur = "UAH"
+    if not cur:
+        cur = "EUR"
+    if cur == "UAH":
+        rate = await fetch_eur_uah_rate_for_date(delivery_day)
+        if rate is None or rate <= 0:
+            logger.warning(
+                "ENTSO-E %s %s: prices in UAH/MWh but NBU EUR/UAH unavailable — skip upsert",
+                zone_eic,
+                delivery_day,
+            )
+            return 0
+        # Store EUR/MWh in entsoe_dam_price.price_eur_mwh (same as ES/PL).
+        points = {p: float(v) / rate for p, v in points.items()}
+    elif cur != "EUR":
+        logger.warning(
+            "ENTSO-E %s %s: unsupported currency %r — treating amounts as EUR/MWh",
+            zone_eic,
+            delivery_day,
+            cur,
+        )
 
     upsert_sql = text(
         """
