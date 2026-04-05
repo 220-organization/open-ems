@@ -50,6 +50,10 @@ services:
       OREE_API_DAM_PRICES_PATH: ${OREE_API_DAM_PRICES_PATH:-/damprices}
       OREE_API_KEY: ${OREE_API_KEY:-}
       OREE_COMPARE_ZONE_EIC: ${OREE_COMPARE_ZONE_EIC:-10Y1001C--000182}
+      # ENTSO-E ES/PL DAM overlay — must be passed via host .env (deploy workflow); no .env file inside the image
+      ENTSOE_API_BASE_URL: ${ENTSOE_API_BASE_URL:-https://web-api.tp.entsoe.eu/api}
+      ENTSOE_SECURITY_TOKEN: ${ENTSOE_SECURITY_TOKEN:-}
+      ENTSOE_DAM_ZONE_EICS: "${ENTSOE_DAM_ZONE_EICS:-10YES-REE------0,10YPL-AREA-----S}"
     depends_on:
       migrate:
         condition: service_completed_successfully

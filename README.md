@@ -74,9 +74,10 @@ Workflow: `.github/workflows/deploy.yml` (push to `main`, `master`, or `preprod`
 | `DEYE_EMAIL` | Same | Deye Cloud login email |
 | `DEYE_PASSWORD` | Same | Plain password; the API hashes it for Deye token requests |
 | `DEYE_COMPANY_ID` | Business accounts | Often `0` for personal accounts |
-| `OREE_API_KEY` | DAM price sync & chart data in DB | Header `X-API-KEY` for OREE API |
+| `OREE_API_KEY` | DAM price sync & chart data in DB | Header `X-API-KEY` for OREE API (Ukraine **UA** line) |
+| `ENTSOE_SECURITY_TOKEN` | ES / PL EUR overlay on DAM chart | [Transparency Platform](https://transparency.entsoe.eu/) REST token; see `docs/ENTSOE_TRANSPARENCY_DAM.md` |
 
-Optional: `DEYE_API_BASE_URL`, `DATABASE_URL` (only if not using the bundled `db` service), `B2B_API_BASE_URL`, and other keys documented in `.env.example`.
+Optional: `DEYE_API_BASE_URL`, `DATABASE_URL` (only if not using the bundled `db` service), `B2B_API_BASE_URL`, `ENTSOE_API_BASE_URL`, `ENTSOE_DAM_ZONE_EICS`, and other keys documented in `.env.example`.
 
 ### For CI / SSH deploy (GitHub Actions secrets)
 
@@ -85,6 +86,6 @@ Optional: `DEYE_API_BASE_URL`, `DATABASE_URL` (only if not using the bundled `db
 | `DEPLOY_HOST` | Ubuntu server **IP or DNS name** (SSH target) |
 | `PRIVATE_KEY` | **Private** SSH key (full file including `BEGIN` / `END` lines) for `root` (or match your workflow user) |
 
-Additional repository secrets (same names as in `.env`) are copied into the server `.env` by the deploy workflow — at minimum set **`DEYE_APP_ID`**, **`DEYE_APP_SECRET`**, **`DEYE_EMAIL`**, **`DEYE_PASSWORD`**, and **`OREE_API_KEY`** there if you deploy via Actions.
+Additional repository secrets (same names as in `.env`) are copied into the server `.env` by the deploy workflow — at minimum set **`DEYE_APP_ID`**, **`DEYE_APP_SECRET`**, **`DEYE_EMAIL`**, **`DEYE_PASSWORD`**, and **`OREE_API_KEY`** there if you deploy via Actions. For ENTSO-E **ES/PL** overlays, add **`ENTSOE_SECURITY_TOKEN`** (and optionally **`ENTSOE_API_BASE_URL`**, **`ENTSOE_DAM_ZONE_EICS`**). Without **`ENTSOE_SECURITY_TOKEN`** in secrets, each deploy overwrites the server `.env` and the API container will not receive the token (Compose passes env into `api`; there is no `.env` file inside the image).
 
 Do not commit real `.env` files; keep secrets on the server and in GitHub **Secrets** only.
