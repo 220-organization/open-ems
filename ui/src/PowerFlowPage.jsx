@@ -1416,48 +1416,11 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
         <div className="pf-top-bar">
           <header className="pf-header">
             <div className="pf-header-primary">
-              <div className="pf-header-trailing">
-                <div className="pf-header-trailing-row">
-                  <select
-                    id="pf-station"
-                    className="pf-inverter-select pf-header-select--port"
-                    aria-label={t('stationLabel')}
-                    title={t('stationPlaceholder')}
-                    value={stationFilter}
-                    onChange={onStationChange}
-                  >
-                    <option value="">{chargingPorts.loading ? '…' : t('stationPlaceholder')}</option>
-                    {portSelectOptions.map(row => {
-                      const num = String(row.number);
-                      return (
-                        <option key={num} value={num}>
-                          {num}
-                        </option>
-                      );
-                    })}
-                  </select>
-                  <select
-                    id="pf-lang"
-                    className="pf-lang-select pf-header-select--lang"
-                    aria-label={t('langSelectAria')}
-                    title={t('langSelectAria')}
-                    value={locale}
-                    onChange={onLangSelectChange}
-                  >
-                    {SUPPORTED.map(code => (
-                      <option key={code} value={code} title={LOCALE_NAMES[code] || code}>
-                        {LANG_HEADER_CODE[code] || String(code).toUpperCase().slice(0, 2)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
               <div className="pf-station-field pf-inverter-field">
                 <select
                   id="pf-inverter"
                   className="pf-inverter-select pf-header-select--inverter"
-                  aria-label={t('inverterSelectAria')}
-                  title={t('inverterSelectAria')}
+                  aria-label={t('inverterSelectLabel')}
                   value={inverterRows.loading ? '' : inverterValue}
                   onChange={onInverterChange}
                 >
@@ -1475,7 +1438,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                     </option>
                   ) : (
                     <>
-                      <option value="">{t('inverterOptionNone')}</option>
+                      <option value="">{'\u2014'}</option>
                       {inverterRows.items.map(row => {
                         const p = socBySn[row.deviceSn];
                         const socSuffix = p != null && Number.isFinite(p) ? ` · ${inverterSocFmt.format(p)}%` : '';
@@ -1512,6 +1475,22 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   onRoiCapexSaved={loadInverters}
                 />
               </div>
+            </div>
+            <div className="pf-header-lang">
+              <select
+                id="pf-lang"
+                className="pf-lang-select pf-header-select--lang"
+                aria-label={t('langSelectAria')}
+                title={t('langSelectAria')}
+                value={locale}
+                onChange={onLangSelectChange}
+              >
+                {SUPPORTED.map(code => (
+                  <option key={code} value={code} title={LOCALE_NAMES[code] || code}>
+                    {LANG_HEADER_CODE[code] || String(code).toUpperCase().slice(0, 2)}
+                  </option>
+                ))}
+              </select>
             </div>
           </header>
           {inverterRows.configured && !inverterRows.loading && !inverterRows.error ? (
@@ -2148,6 +2127,34 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
           </div>
           <div id="pf-error" className="pf-error" hidden={!loadError}>
             {loadError}
+          </div>
+        </div>
+
+        <div
+          className="pf-lang-port-bar"
+          style={{ '--pf-graph-anchor-pct': `${graphAnchorPct}%` }}
+        >
+          <div className="pf-lang-port-port-track">
+            <div className="pf-lang-port-port-align">
+              <select
+                id="pf-station"
+                className="pf-inverter-select pf-header-select--port"
+                aria-label={t('stationLabel')}
+                title={t('stationPlaceholder')}
+                value={stationFilter}
+                onChange={onStationChange}
+              >
+                <option value="">{chargingPorts.loading ? '…' : t('stationPlaceholder')}</option>
+                {portSelectOptions.map(row => {
+                  const num = String(row.number);
+                  return (
+                    <option key={num} value={num}>
+                      {num}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
           </div>
         </div>
 

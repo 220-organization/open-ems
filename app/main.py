@@ -13,10 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.models import Note
-from app.routers import b2b_proxy, dam, deye_proxy, server_metrics
+from app.routers import b2b_proxy, dam, deye_proxy, entsoe_dam, server_metrics
 from app.schemas import NoteCreate, NoteRead
 from app import settings
 from app.deye_api import deye_configured, deye_missing_env_names
+from app.entsoe_dam_scheduler import entsoe_dam_daily_sync_loop
+from app.entsoe_dam_service import entsoe_dam_configured
 from app.oree_dam_scheduler import dam_daily_sync_loop
 from app.oree_dam_service import oree_dam_configured
 from app.deye_soc_scheduler import deye_soc_snapshot_loop
@@ -48,6 +50,10 @@ async def lifespan(app: FastAPI):
         logger.info("OREE DAM: OREE_API_KEY set (base: %s)", settings.OREE_API_BASE_URL)
     else:
         logger.warning("OREE DAM: not configured — set OREE_API_KEY for DAM sync and chart line")
+    if entsoe_dam_configured():
+        logger.info("ENTSO-E DAM: ENTSOE_SECURITY_TOKEN set (base: %s)", settings.ENTSOE_API_BASE_URL)
+    else:
+        logger.warning("ENTSO-E DAM: not configured — set ENTSOE_SECURITY_TOKEN for ES/PL charts (see docs/ENTSOE_TRANSPARENCY_DAM.md)")
 
     if settings.RATE_LIMIT_ENABLED:
         logger.info(
@@ -64,6 +70,17 @@ async def lifespan(app: FastAPI):
             "OREE DAM: DB sync at Kyiv hours %s:%02d (skip if tomorrow complete; OREE_DAM_SYNC_HOURS_KYIV / disable with OREE_DAM_DAILY_SYNC_ENABLED=0)",
             ",".join(str(h) for h in settings.OREE_DAM_SYNC_HOURS_KYIV),
             settings.OREE_DAM_DAILY_SYNC_MINUTE_KYIV,
+        )
+
+    stop_entsoe_sched: Optional[asyncio.Event] = None
+    entsoe_sched_task: Optional[asyncio.Task[None]] = None
+    if settings.ENTSOE_DAM_DAILY_SYNC_ENABLED:
+        stop_entsoe_sched = asyncio.Event()
+        entsoe_sched_task = asyncio.create_task(entsoe_dam_daily_sync_loop(stop_entsoe_sched))
+        logger.info(
+            "ENTSO-E DAM: DB sync at Brussels hours %s:%02d (ENTSOE_DAM_SYNC_HOURS_BRUSSELS / disable with ENTSOE_DAM_DAILY_SYNC_ENABLED=0)",
+            ",".join(str(h) for h in settings.ENTSOE_DAM_SYNC_HOURS_BRUSSELS),
+            settings.ENTSOE_DAM_DAILY_SYNC_MINUTE_BRUSSELS,
         )
 
     stop_deye_soc: Optional[asyncio.Event] = None
@@ -114,6 +131,13 @@ async def lifespan(app: FastAPI):
         dam_sched_task.cancel()
         try:
             await dam_sched_task
+        except asyncio.CancelledError:
+            pass
+    if entsoe_sched_task is not None and stop_entsoe_sched is not None:
+        stop_entsoe_sched.set()
+        entsoe_sched_task.cancel()
+        try:
+            await entsoe_sched_task
         except asyncio.CancelledError:
             pass
     if deye_soc_task is not None and stop_deye_soc is not None:
@@ -179,6 +203,7 @@ app.add_middleware(
 app.include_router(b2b_proxy.router)
 app.include_router(deye_proxy.router)
 app.include_router(dam.router)
+app.include_router(entsoe_dam.router)
 app.include_router(server_metrics.router)
 
 # Production / `npm run build`: serve CRA output only (no legacy static HTML).

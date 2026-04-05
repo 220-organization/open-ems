@@ -125,7 +125,7 @@ body {
 .pf-header {
   display: flex;
   flex-wrap: nowrap;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
   width: 100%;
@@ -142,20 +142,48 @@ body {
   gap: 8px;
   flex: 1 1 auto;
   min-width: 0;
-  width: 100%;
   overflow-x: auto;
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
 }
 
-/* DOM: trailing first; order restores desktop row: inverter | port+lang */
-.pf-header-primary .pf-station-field.pf-inverter-field {
-  order: 1;
+.pf-header-lang {
+  flex: 0 0 auto;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  align-self: flex-start;
 }
 
-.pf-header-primary .pf-header-trailing {
-  order: 2;
+.pf-lang-port-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  max-width: 1100px;
+  margin: 12px auto 0;
+  padding: 0 4px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  /* Match .pf-graph width so port aligns with EV node (right-bottom anchor) */
+  --pf-side: min(calc((100vw - 8px) * 0.9), calc(100vmin * 0.9), 920px);
+}
+
+.pf-lang-port-port-track {
+  width: var(--pf-side);
+  max-width: 920px;
+  margin: 8px auto 0;
+  box-sizing: border-box;
+}
+
+/* Same horizontal rule as .pf-graph .pf-node[data-pos='right-bottom'] */
+.pf-lang-port-port-align {
+  position: relative;
+  left: calc(100% - var(--pf-graph-anchor-pct));
+  transform: translateX(-50%);
+  width: fit-content;
+  max-width: 100%;
 }
 
 .pf-header-trailing {
@@ -176,7 +204,7 @@ body {
   flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
+  gap: 12px;
   width: 100%;
   min-width: 0;
 }
@@ -229,7 +257,8 @@ body {
   line-height: 1;
 }
 
-.pf-header .pf-header-trailing .pf-lang-select {
+.pf-header .pf-header-trailing .pf-lang-select,
+.pf-header-lang .pf-lang-select {
   flex: 0 0 auto;
 }
 
@@ -247,6 +276,15 @@ body {
   max-width: 5.5rem;
   padding: 6px 8px;
   font-size: 13px;
+}
+
+/* Port under flow graph: compact, aligned with EV card — not full header width */
+.pf-lang-port-bar .pf-header-select--port {
+  min-width: 3rem;
+  max-width: 4.25rem;
+  padding: 4px 6px;
+  font-size: 12px;
+  line-height: 1.2;
 }
 
 .pf-header .pf-header-select--lang {
@@ -281,17 +319,16 @@ body {
   flex-direction: row;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   flex: 1 1 auto;
   min-width: 0;
 }
 
-.pf-header .pf-station-field.pf-inverter-field .pf-inverter-select.pf-header-select--inverter {
+.pf-header .pf-station-field.pf-inverter-field > .pf-inverter-select.pf-header-select--inverter {
   flex: 1 1 6.5rem;
-  width: auto;
-  max-width: none;
   min-width: 0;
   box-sizing: border-box;
+  width: auto;
 }
 
 .pf-header .pf-station-field.pf-inverter-field .pf-add-deye-btn {
@@ -1018,11 +1055,11 @@ a.pf-node {
   text-align: center;
 }
 
-/* QR below graph — scrolls with page (not viewport-fixed) */
+/* QR below graph — lang/port row sits directly above (see .pf-lang-port-bar) */
 .pf-ukraine-qr {
   position: relative;
   align-self: center;
-  margin: 20px auto max(20px, env(safe-area-inset-bottom));
+  margin: 8px auto max(20px, env(safe-area-inset-bottom));
   z-index: 1;
   display: flex;
   flex-direction: column;
@@ -1086,15 +1123,10 @@ a.pf-node {
     padding-bottom: 10px;
   }
 
-  /* Port/lang row above inverter + ROI (DOM order is trailing first) */
   .pf-header-primary {
     flex-direction: column;
     flex-wrap: nowrap;
     align-items: stretch;
-  }
-
-  .pf-header-primary .pf-header-trailing {
-    order: 1;
   }
 
   .pf-station-field {
@@ -1112,8 +1144,19 @@ a.pf-node {
     width: 100%;
     max-width: 100%;
     min-width: 0;
-    gap: 6px;
-    order: 2;
+    gap: 10px;
+  }
+
+  .pf-lang-port-bar {
+    margin-top: 10px;
+    margin-bottom: 0;
+    --pf-side: min(calc(100vw - 20px), calc(100vh - 240px), 920px);
+  }
+
+  @supports (height: 100dvh) {
+    .pf-lang-port-bar {
+      --pf-side: min(calc(100vw - 20px), calc(100dvh - 240px), 920px);
+    }
   }
 
   .pf-header .pf-station-field.pf-inverter-field .pf-roi-stack {
@@ -1166,7 +1209,11 @@ a.pf-node {
 
   .pf-header-trailing-row {
     justify-content: space-between;
-    gap: 6px;
+    gap: 12px;
+  }
+
+  .pf-lang-port-port-track {
+    margin-top: 6px;
   }
 
   .pf-graph-refresh {
@@ -1190,11 +1237,19 @@ a.pf-node {
     font-size: 16px;
   }
 
-  /* Header bar: stay one scrollable row; larger touch targets without full-width stacking */
+  /* Header + lang/port bar: larger touch targets */
   .pf-header .pf-inverter-select,
-  .pf-header .pf-lang-select {
+  .pf-header .pf-lang-select,
+  .pf-lang-port-bar .pf-inverter-select,
+  .pf-lang-port-bar .pf-lang-select {
     min-height: 40px;
     font-size: 14px;
+  }
+
+  .pf-lang-port-bar .pf-inverter-select.pf-header-select--port {
+    font-size: 13px;
+    padding: 6px 8px;
+    max-width: 4.75rem;
   }
 
   .pf-header .pf-station-field.pf-inverter-field .pf-add-deye-btn {
@@ -1279,7 +1334,7 @@ a.pf-node {
 
   .pf-ukraine-qr {
     max-width: min(200px, 72vw);
-    margin-top: 14px;
+    margin-top: 6px;
   }
 }
 
@@ -1499,6 +1554,7 @@ a.pf-node {
 .pf-header .pf-station-field.pf-inverter-field .pf-add-deye-btn {
   box-sizing: border-box;
   flex: 0 0 auto;
+  align-self: flex-end;
   padding: 6px 10px;
   font-size: 13px;
   font-weight: 600;

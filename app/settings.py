@@ -106,6 +106,70 @@ OREE_DAM_MANUAL_SYNC_ENABLED: bool = _env_bool("OREE_DAM_MANUAL_SYNC_ENABLED", F
 # Max on-demand OREE pulls via GET /api/dam/chart-day when DB empty for Kyiv tomorrow (0 = off; UI never triggers OREE).
 OREE_DAM_LAZY_FETCH_MAX: int = _env_int("OREE_DAM_LAZY_FETCH_MAX", 5, 0, 50)
 
+# ENTSO-E Transparency Platform REST API — day-ahead prices (DocumentType A44 / ProcessType A01).
+# Token: https://transparency.entsoe.eu/ → My Account → generate token; see docs/ENTSOE_TRANSPARENCY_DAM.md
+ENTSOE_API_BASE_URL: str = os.environ.get(
+    "ENTSOE_API_BASE_URL",
+    "https://web-api.tp.entsoe.eu/api",
+).rstrip("/")
+ENTSOE_SECURITY_TOKEN: str = (os.environ.get("ENTSOE_SECURITY_TOKEN") or "").strip()
+
+
+def _parse_entsoe_zone_eics() -> tuple[str, ...]:
+    raw = (os.environ.get("ENTSOE_DAM_ZONE_EICS") or "").strip()
+    if raw:
+        return tuple(x.strip() for x in raw.split(",") if x.strip())
+    return (
+        "10YES-REE------0",  # Spain (ES)
+        "10YPL-AREA-----S",  # Poland (PL)
+    )
+
+
+ENTSOE_DAM_ZONE_EICS: tuple[str, ...] = _parse_entsoe_zone_eics()
+
+# IANA zone for delivery-day midnight bounds (periodStart/periodEnd in UTC).
+ENTSOE_DOMAIN_TIMEZONE: dict[str, str] = {
+    "10YES-REE------0": "Europe/Madrid",
+    "10YPL-AREA-----S": "Europe/Warsaw",
+}
+
+ENTSOE_ZONE_ALIASES: dict[str, str] = {
+    "ES": "10YES-REE------0",
+    "PL": "10YPL-AREA-----S",
+}
+
+ENTSOE_DAM_DAILY_SYNC_ENABLED: bool = _env_bool("ENTSOE_DAM_DAILY_SYNC_ENABLED", True)
+
+# When True, skip a scheduled run if every ENTSOE_DAM_ZONE_EICS zone already has 24 hourly rows for the delivery day.
+# When False (default), always pull ES/PL (etc.) at each Brussels window so DB stays refreshed.
+ENTSOE_DAM_DAILY_SYNC_SKIP_IF_COMPLETE: bool = _env_bool("ENTSOE_DAM_DAILY_SYNC_SKIP_IF_COMPLETE", False)
+
+
+def _parse_entsoe_sync_hours_brussels() -> tuple[int, ...]:
+    raw = (os.environ.get("ENTSOE_DAM_SYNC_HOURS_BRUSSELS") or "").strip()
+    if raw:
+        hs: list[int] = []
+        for part in raw.split(","):
+            p = part.strip()
+            if not p:
+                continue
+            try:
+                h = int(p)
+                if 0 <= h <= 23:
+                    hs.append(h)
+            except ValueError:
+                pass
+        return tuple(sorted(set(hs))) if hs else (12, 13, 14, 15)
+    return (12, 13, 14, 15)
+
+
+ENTSOE_DAM_SYNC_HOURS_BRUSSELS: tuple[int, ...] = _parse_entsoe_sync_hours_brussels()
+ENTSOE_DAM_DAILY_SYNC_MINUTE_BRUSSELS: int = _env_int("ENTSOE_DAM_DAILY_SYNC_MINUTE_BRUSSELS", 0, 0, 59)
+ENTSOE_DAM_MANUAL_SYNC_ENABLED: bool = _env_bool("ENTSOE_DAM_MANUAL_SYNC_ENABLED", False)
+
+# GET /api/dam/entsoe/chart-day: if DB has no prices for the requested delivery day, fetch ENTSO-E once and upsert (backfill).
+ENTSOE_CHART_DAY_LAZY_FETCH: bool = _env_bool("ENTSOE_CHART_DAY_LAZY_FETCH", True)
+
 # Persist Deye SoC to DB on a fixed interval (all inverters from listWithDevice; UTC 5-min buckets).
 DEYE_SOC_SNAPSHOT_ENABLED: bool = _env_bool("DEYE_SOC_SNAPSHOT_ENABLED", True)
 DEYE_SOC_SNAPSHOT_INTERVAL_SEC: int = _env_int("DEYE_SOC_SNAPSHOT_INTERVAL_SEC", 300, 60, 3600)

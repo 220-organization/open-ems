@@ -1,0 +1,135 @@
+{
+  "info": {
+    "_postman_id": "a1b2c3d4-entsoe-open-ems",
+    "name": "Open EMS — ENTSO-E DAM",
+    "description": "Test Open EMS `/api/dam/entsoe/*` routes and the ENTSO-E Transparency REST API (DocumentType A44, ProcessType A01).\n\n**OREE DAM chart (Spain + Poland overlay):** use **GET chart-day-zones** with `zones=ES,PL` — same call as the Open EMS UI (`DamChartPanel.jsx` → `/api/dam/entsoe/chart-day-zones?date=…&zones=ES,PL`).\n\n**Single zone:** **GET chart-day** with `zone=ES` or `zone=PL` (aliases from `ENTSOE_ZONE_ALIASES`).\n\n**Setup:** copy `postman_environment` values — set `entsoeToken` to your portal token; adjust `baseUrl` if the API runs on another host/port.\n\n**Manual sync:** `POST /sync` and `POST /sync-zone` return 403 unless `ENTSOE_DAM_MANUAL_SYNC_ENABLED=1` on the server.\n\n**Direct Transparency:** `periodStart` / `periodEnd` are `YYYYMMDDHHmm` in **UTC** (delivery local midnight → next local midnight). Values differ for **ES** (`Europe/Madrid`) vs **PL** (`Europe/Warsaw`) — set `zoneEic` / `zoneEicPL` and matching period bounds.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:9220" },
+    { "key": "entsoeApiBaseUrl", "value": "https://web-api.tp.entsoe.eu/api" },
+    { "key": "entsoeToken", "value": "" },
+    { "key": "zoneAlias", "value": "ES" },
+    { "key": "zonesBatch", "value": "ES,PL" },
+    { "key": "zoneEic", "value": "10YES-REE------0" },
+    { "key": "zoneEicPL", "value": "10YPL-AREA-----S" },
+    { "key": "deliveryDate", "value": "2026-04-07" },
+    { "key": "periodStart", "value": "202604052200" },
+    { "key": "periodEnd", "value": "202604062200" },
+    { "key": "periodStartPL", "value": "202604062200" },
+    { "key": "periodEndPL", "value": "202604072200" }
+  ],
+  "item": [
+    {
+      "name": "Open EMS API",
+      "item": [
+        {
+          "name": "GET zones",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/dam/entsoe/zones",
+            "description": "Lists configured bidding zones (aliases, EIC, timezone) and whether `ENTSOE_SECURITY_TOKEN` is set on the server."
+          },
+          "response": []
+        },
+        {
+          "name": "GET chart-day",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dam/entsoe/chart-day?date={{deliveryDate}}&zone={{zoneAlias}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "dam", "entsoe", "chart-day"],
+              "query": [
+                { "key": "date", "value": "{{deliveryDate}}", "description": "Delivery day (YYYY-MM-DD). Defaults to Brussels today if omitted." },
+                { "key": "zone", "value": "{{zoneAlias}}", "description": "ES, PL, or full EIC." }
+              ]
+            },
+            "description": "Hourly DAM from DB; may lazy-fetch from ENTSO-E if empty (`ENTSOE_CHART_DAY_LAZY_FETCH`). Response includes `lazySyncTriggered`. Set collection variable `zoneAlias` to **PL** for Poland only."
+          },
+          "response": []
+        },
+        {
+          "name": "GET chart-day-zones (ES + PL)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dam/entsoe/chart-day-zones?date={{deliveryDate}}&zones={{zonesBatch}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "dam", "entsoe", "chart-day-zones"],
+              "query": [
+                { "key": "date", "value": "{{deliveryDate}}", "description": "Delivery day (YYYY-MM-DD)." },
+                { "key": "zones", "value": "{{zonesBatch}}", "description": "Comma-separated aliases, same as UI overlay: ES,PL" }
+              ]
+            },
+            "description": "Batch endpoint used by the **Ukraine (OREE)** DAM chart for ES/PL EUR overlay lines. Response shape: `zones.ES`, `zones.PL` with `hourlyPriceDamEurMwh` / `hourlyPriceDamEurPerKwh` each; `lazySyncTriggeredByZone` per alias. See `GET /api/dam/entsoe/chart-day-zones` in `app/routers/entsoe_dam.py`."
+          },
+          "response": []
+        },
+        {
+          "name": "POST sync (all zones)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dam/entsoe/sync?delivery={{deliveryDate}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "dam", "entsoe", "sync"],
+              "query": [
+                { "key": "delivery", "value": "{{deliveryDate}}", "description": "Optional; defaults to tomorrow (Brussels)." }
+              ]
+            },
+            "description": "Requires `ENTSOE_DAM_MANUAL_SYNC_ENABLED=1` and token. Upserts all `ENTSOE_DAM_ZONE_EICS`."
+          },
+          "response": []
+        },
+        {
+          "name": "POST sync-zone",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dam/entsoe/sync-zone?zone={{zoneAlias}}&delivery={{deliveryDate}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "dam", "entsoe", "sync-zone"],
+              "query": [
+                { "key": "zone", "value": "{{zoneAlias}}", "description": "Required." },
+                { "key": "delivery", "value": "{{deliveryDate}}", "description": "Optional; defaults to tomorrow (Brussels)." }
+              ]
+            },
+            "description": "Same manual gate as POST /sync. Single zone."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "ENTSO-E Transparency (direct)",
+      "item": [
+        {
+          "name": "GET A44 day-ahead — Spain (ES)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/xml" }],
+            "url": "{{entsoeApiBaseUrl}}?securityToken={{entsoeToken}}&documentType=A44&processType=A01&in_Domain={{zoneEic}}&out_Domain={{zoneEic}}&periodStart={{periodStart}}&periodEnd={{periodEnd}}",
+            "description": "Same query shape as `fetch_entsoe_day_ahead_points` (no `curveType`). Default `zoneEic` = `10YES-REE------0`. Set `periodStart` / `periodEnd` for the delivery window in UTC (Spain: `Europe/Madrid` local midnight → UTC)."
+          },
+          "response": []
+        },
+        {
+          "name": "GET A44 day-ahead — Poland (PL)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/xml" }],
+            "url": "{{entsoeApiBaseUrl}}?securityToken={{entsoeToken}}&documentType=A44&processType=A01&in_Domain={{zoneEicPL}}&out_Domain={{zoneEicPL}}&periodStart={{periodStartPL}}&periodEnd={{periodEndPL}}",
+            "description": "Poland bidding zone EIC `10YPL-AREA-----S`. Use `periodStartPL` / `periodEndPL` for the delivery day in UTC (`Europe/Warsaw` midnight boundaries differ from ES)."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

@@ -139,6 +139,23 @@ class OreeDamPrice(Base):
     )
 
 
+class EntsoeDamPrice(Base):
+    """Hourly DAM price from ENTSO-E Transparency (EUR/MWh); period 1..24."""
+
+    __tablename__ = "entsoe_dam_price"
+
+    trade_day: Mapped[datetime.date] = mapped_column(Date, primary_key=True)
+    zone_eic: Mapped[str] = mapped_column(String(64), primary_key=True)
+    period: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    price_eur_mwh: Mapped[float] = mapped_column(Double, nullable=False)
+    created_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
 class OreeDamIndex(Base):
     """OREE /damindexes band prices (UAH/MWh); UI shows UAH/kWh = MWh/1000."""
 
