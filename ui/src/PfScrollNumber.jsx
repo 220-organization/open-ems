@@ -16,7 +16,7 @@ export default function PfScrollNumber({
 }) {
   return (
     <div className={styles.container} {...props}>
-      <AnimatePresence>
+      <AnimatePresence mode="wait">
         <motion.span
           className={className}
           style={{
@@ -33,7 +33,7 @@ export default function PfScrollNumber({
             opacity: 0,
             position: 'absolute',
           }}
-          animate={{ y: 0, opacity: 1 }}
+          animate={{ y: 0, opacity: 1, position: 'relative' }}
           transition={{
             ease,
             duration,

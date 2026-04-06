@@ -70,7 +70,7 @@
   "langSelectAria": "Мова",
   "powerFlowLandingTotalsAria": "Підсумки парку",
   "powerFlowLandingExportLabel": "кВт·год продано в мережу на піку РДН",
-  "powerFlowLandingExportLabelInverter": "кВт·год продано в мережу (цей інвертор)",
+  "powerFlowLandingExportLabelInverter": "кВт·год продано в мережу на піку РДН",
   "powerFlowLandingTariffLineLead": "Тариф за {{month}} буде ~ {{rate}} грн/кВт·год з розподілом та ПДВ (",
   "powerFlowLandingTariffLineTail": " в порівнянні з {{prevMonth}})",
   "powerFlowLandingTariffPartial": "Тариф за {{month}} буде ~ {{rate}} грн/кВт·год з розподілом та ПДВ",

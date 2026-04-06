@@ -84,8 +84,8 @@ const UK_MONTH_INSTRUMENTAL = Object.freeze([
   'груднем',
 ]);
 
-/** UI retail tariff from DAM average: +2.5 UAH/kWh (distribution) then +20% (VAT). */
-const LANDING_TARIFF_DISTRIBUTION_UAH_PER_KWH = 2.5;
+/** UI retail tariff from DAM average: +3.5 UAH/kWh (distribution / rozpodil) then +20% (VAT). */
+const LANDING_TARIFF_DISTRIBUTION_UAH_PER_KWH = 3.5;
 const LANDING_TARIFF_VAT_MULTIPLIER = 1.2;
 
 function landingRetailUahPerKwh(damAvgUahPerKwh) {
@@ -1772,6 +1772,9 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                         t('powerFlowLandingTariffLoading')
                       )}
                     </p>
+                    {landingDataPending ? (
+                      <div className="pf-landing-totals__pending-overlay" aria-hidden="true" />
+                    ) : null}
                   </div>
                 </div>
               );

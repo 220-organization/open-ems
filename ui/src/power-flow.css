@@ -120,6 +120,7 @@ body {
 
 /* Fleet totals when no inverter selected — “Casino” counter theme (see B2bLanding.module.css user counter) */
 .pf-landing-totals {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -354,21 +355,29 @@ body {
   max-width: 100%;
 }
 
+/* Pending: blur via overlay (backdrop) — avoids GPU filter + border-radius ring artifacts on the pill */
 .pf-landing-totals--data-pending .pf-landing-totals__export,
 .pf-landing-totals--data-pending .pf-landing-totals__tariff {
-  filter: blur(7px);
-  opacity: 0.76;
   pointer-events: none;
-  transition:
-    filter 0.22s ease,
-    opacity 0.22s ease;
+}
+
+.pf-landing-totals__pending-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: 12px;
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  background: rgba(12, 10, 18, 0.16);
+  transition: opacity 0.22s ease;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pf-landing-totals--data-pending .pf-landing-totals__export,
-  .pf-landing-totals--data-pending .pf-landing-totals__tariff {
+  .pf-landing-totals__pending-overlay {
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
     transition: none;
-    filter: blur(4px);
   }
 }
 
