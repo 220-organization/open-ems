@@ -218,6 +218,7 @@ function MotionDot({ pathD }) {
 
 export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LOCALE_NAMES, onLangSelectChange }) {
   const graphRef = useRef(null);
+  const shareFeedbackTimerRef = useRef(null);
   const [graphWidth, setGraphWidth] = useState(400);
   const [stationFilter, setStationFilter] = useState(() => {
     try {
@@ -245,6 +246,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const [evStationPowerLoading, setEvStationPowerLoading] = useState(false);
   const [simTick, setSimTick] = useState(0);
   const [deyeMessengerOpen, setDeyeMessengerOpen] = useState(false);
+  const [shareFeedback, setShareFeedback] = useState(null);
 
   const closeDeyeMessenger = useCallback(() => {
     setDeyeMessengerOpen(false);
@@ -337,6 +339,12 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     document.title = t('pageTitle');
     document.documentElement.lang = locale === 'uk' ? 'uk' : locale;
   }, [t, locale]);
+
+  useEffect(() => {
+    return () => {
+      if (shareFeedbackTimerRef.current != null) window.clearTimeout(shareFeedbackTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     const el = graphRef.current;
@@ -1609,6 +1617,44 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       !inverterRows.error &&
       (deyeHydratedSn !== selInverterSn || toolbarPrefsLoading || solarForecast.loading));
 
+  const powerFlowShareUrl = useMemo(() => {
+    try {
+      const u = new URL(`${window.location.origin}/`);
+      const st = stationFilter.trim();
+      if (st) u.searchParams.set('station', st);
+      u.searchParams.set('lang', locale);
+      const inv = selInverterSn.trim();
+      if (inv) u.searchParams.set('inverter', inv);
+      return u.toString();
+    } catch {
+      return '';
+    }
+  }, [stationFilter, locale, selInverterSn]);
+
+  const handleSharePage = useCallback(async () => {
+    const url = powerFlowShareUrl;
+    if (!url) return;
+    const scheduleClear = key => {
+      setShareFeedback(key);
+      window.clearTimeout(shareFeedbackTimerRef.current);
+      shareFeedbackTimerRef.current = window.setTimeout(() => setShareFeedback(null), 2500);
+    };
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+      try {
+        await navigator.share({ url, title: document.title });
+        return;
+      } catch (e) {
+        if (e && e.name === 'AbortError') return;
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      scheduleClear('copied');
+    } catch {
+      scheduleClear('error');
+    }
+  }, [powerFlowShareUrl]);
+
   return (
     <div className="pf-body">
       <div className="pf-root">
@@ -1665,6 +1711,27 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
               </div>
             </div>
             <div className="pf-header-lang">
+              <button
+                type="button"
+                className="pf-share-btn"
+                onClick={() => void handleSharePage()}
+                aria-label={t('sharePageAria')}
+                title={t('sharePageAria')}
+              >
+                <svg
+                  className="pf-share-btn__icon"
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <path
+                    fill="currentColor"
+                    d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"
+                  />
+                </svg>
+              </button>
               <select
                 id="pf-lang"
                 className="pf-lang-select pf-header-select--lang"
@@ -2813,6 +2880,11 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
         ) : null}
       </div>
       <DeyeInverterMessengerModal open={deyeMessengerOpen} onClose={closeDeyeMessenger} t={t} />
+      {shareFeedback ? (
+        <div className="pf-share-toast" role="status" aria-live="polite">
+          {shareFeedback === 'copied' ? t('sharePageCopied') : t('sharePageFailed')}
+        </div>
+      ) : null}
     </div>
   );
 }
