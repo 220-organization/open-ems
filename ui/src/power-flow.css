@@ -88,6 +88,56 @@ body {
   -webkit-backdrop-filter: blur(10px);
   background: rgba(8, 4, 14, 0.14);
   transition: opacity 0.22s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.pf-page-rest-pending-loader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  pointer-events: none;
+}
+
+/* Full-viewport overlay on narrow screens — logo centered on the physical screen, not only the scroll column */
+@media (max-width: 600px) {
+  .pf-page-rest-pending-overlay {
+    position: fixed;
+    inset: 0;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 100%;
+    min-height: 100vh;
+    min-height: 100dvh;
+    padding: max(8px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px))
+      max(16px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px));
+  }
+}
+
+.pf-page-rest-pending-loader__logo {
+  display: block;
+  width: min(120px, 30vw);
+  height: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 0 24px rgba(200, 61, 197, 0.35));
+  opacity: 0.45;
+  animation: pf-page-rest-logo-fade 3.6s ease-in-out infinite;
+}
+
+@keyframes pf-page-rest-logo-fade {
+  0%,
+  100% {
+    opacity: 0.38;
+  }
+
+  50% {
+    opacity: 1;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -95,6 +145,11 @@ body {
     backdrop-filter: blur(5px);
     -webkit-backdrop-filter: blur(5px);
     transition: none;
+  }
+
+  .pf-page-rest-pending-loader__logo {
+    animation: none;
+    opacity: 0.88;
   }
 }
 
