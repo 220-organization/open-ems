@@ -1606,14 +1606,16 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const inverterListReady = inverterRows.configured && !inverterRows.loading && !inverterRows.error;
   const showPowerFlowSections = !inverterRows.error && (inverterRows.loading || inverterRows.configured);
   const dischargeFeedbackText = discharge2Feedback;
-  const graphRealtimePending = realtimePower === null && loadError === '';
-  const graphDeyePending =
-    Boolean(selInverterSn) &&
-    inverterRows.configured &&
-    !inverterRows.error &&
-    !inverterRows.loading &&
-    deyeHydratedSn !== selInverterSn;
-  const graphDataPending = graphRealtimePending || graphDeyePending;
+  /** One full-page (main column) blur until initial REST payloads needed for Power Flow are ready — no per-section blur. */
+  const pageRestHydrationPending =
+    inverterRows.loading ||
+    chargingPorts.loading ||
+    (realtimePower === null && loadError === '') ||
+    (inverterListReady && landingTotalsLoading) ||
+    (Boolean(selInverterSn) &&
+      inverterListReady &&
+      !inverterRows.error &&
+      (deyeHydratedSn !== selInverterSn || toolbarPrefsLoading || solarForecast.loading));
 
   return (
     <div className="pf-body">
@@ -1689,6 +1691,10 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
           </header>
         </div>
 
+        <div
+          className="pf-page-main"
+          aria-busy={pageRestHydrationPending ? 'true' : undefined}
+        >
         {showPowerFlowSections
           ? (() => {
               const ltd = inverterListReady ? formatLandingTotalsDisplay(landingTotals, bcp47, t) : null;
@@ -1696,7 +1702,6 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                 ? 'powerFlowLandingExportLabelInverter'
                 : 'powerFlowLandingExportLabel';
               const listPending = !inverterListReady;
-              const landingDataPending = inverterListReady && landingTotalsLoading;
 
               if (listPending) {
                 return (
@@ -1720,11 +1725,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
 
               return (
                 <div className="pf-landing-totals-slot">
-                  <div
-                    className={`pf-landing-totals${landingDataPending ? ' pf-landing-totals--data-pending' : ''}`}
-                    aria-busy={landingDataPending ? 'true' : undefined}
-                    aria-label={t('powerFlowLandingTotalsAria')}
-                  >
+                  <div className="pf-landing-totals" aria-label={t('powerFlowLandingTotalsAria')}>
                     <div className="pf-landing-totals__export">
                       <div className="pf-landing-totals__label">{t(exportLabelKey)}</div>
                       {ltd ? (
@@ -1772,9 +1773,6 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                         t('powerFlowLandingTariffLoading')
                       )}
                     </p>
-                    {landingDataPending ? (
-                      <div className="pf-landing-totals__pending-overlay" aria-hidden="true" />
-                    ) : null}
                   </div>
                 </div>
               );
@@ -1785,10 +1783,9 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
           <div
             id="pf-graph"
             ref={graphRef}
-            className={`pf-graph${graphDataPending ? ' pf-graph--data-pending' : ''}`}
+            className="pf-graph"
             style={{ '--pf-graph-anchor-pct': `${graphAnchorPct}%` }}
             aria-label={t('graphAriaLabel')}
-            aria-busy={graphDataPending}
           >
             <div className="pf-graph-sizer" aria-hidden="true" />
             <svg id="pf-svg" className="pf-flow-svg" viewBox="0 0 400 400" preserveAspectRatio="xMidYMid meet">
@@ -2169,7 +2166,6 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                 </div>
               )}
             </div>
-            {graphDataPending ? <div className="pf-graph__pending-overlay" aria-hidden="true" /> : null}
           </div>
           <div id="pf-error" className="pf-error" hidden={!loadError}>
             {loadError}
@@ -2241,9 +2237,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
               </div>
             ) : (
               <>
-                <div
-                  className={`pf-header-discharge-row${toolbarPrefsLoading ? ' pf-header-discharge-row--data-pending' : ''}`}
-                >
+                <div className="pf-header-discharge-row">
                   <div className="pf-discharge-toolbar pf-discharge-toolbar--combined">
                   <div className="pf-deye-command-stack">
                     <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header pf-deye-command-line">
@@ -2577,6 +2571,11 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
             <span className="pf-ukraine-qr-caption">{t('qrCaption')}</span>
           </a>
         </aside>
+
+        {pageRestHydrationPending ? (
+          <div className="pf-page-rest-pending-overlay" aria-hidden="true" />
+        ) : null}
+        </div>
 
         {dischargeConfirmOpen && essSocPercent != null && Number.isFinite(Number(essSocPercent)) ? (
           <div className="pf-modal-backdrop" role="presentation" onClick={cancelDischargeConfirm}>

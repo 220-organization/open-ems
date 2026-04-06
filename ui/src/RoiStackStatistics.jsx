@@ -575,9 +575,7 @@ export default function RoiStackStatistics({
       ) : null}
 
       {config ? (
-        <div
-          className={`pf-roi-card${roiStats.loading ? ' pf-roi-card--data-pending' : ''}`}
-        >
+        <div className="pf-roi-card">
           <div className="pf-roi-meta">
             <div className="pf-roi-meta-col">
               <span className="pf-roi-meta-line">

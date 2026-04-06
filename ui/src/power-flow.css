@@ -68,6 +68,36 @@ body {
   width: 100%;
 }
 
+/* Single REST hydration overlay over main column — no per-section blur */
+.pf-page-main {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-height: 0;
+  width: 100%;
+}
+
+.pf-page-rest-pending-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  pointer-events: auto;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  background: rgba(8, 4, 14, 0.14);
+  transition: opacity 0.22s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pf-page-rest-pending-overlay {
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    transition: none;
+  }
+}
+
 /* ROI + discharge: below power-flow + DAM charts (see .pf-post-charts-bar) */
 .pf-post-charts-bar {
   width: 100%;
@@ -355,32 +385,6 @@ body {
   max-width: 100%;
 }
 
-/* Pending: blur via overlay (backdrop) — avoids GPU filter + border-radius ring artifacts on the pill */
-.pf-landing-totals--data-pending .pf-landing-totals__export,
-.pf-landing-totals--data-pending .pf-landing-totals__tariff {
-  pointer-events: none;
-}
-
-.pf-landing-totals__pending-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  border-radius: 12px;
-  pointer-events: none;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  background: rgba(12, 10, 18, 0.16);
-  transition: opacity 0.22s ease;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .pf-landing-totals__pending-overlay {
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
-    transition: none;
-  }
-}
-
 .pf-header-discharge-row--skeleton {
   min-height: 120px;
 }
@@ -422,22 +426,6 @@ body {
   }
 }
 
-.pf-header-discharge-row--data-pending .pf-discharge-toolbar {
-  filter: blur(7px);
-  opacity: 0.78;
-  pointer-events: none;
-  transition:
-    filter 0.22s ease,
-    opacity 0.22s ease;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .pf-header-discharge-row--data-pending .pf-discharge-toolbar {
-    transition: none;
-    filter: blur(4px);
-  }
-}
-
 .pf-roi-card--skeleton {
   pointer-events: none;
 }
@@ -460,22 +448,6 @@ body {
   .pf-roi-stack-seg--skeleton {
     animation: none;
     background: rgba(0, 0, 0, 0.25);
-  }
-}
-
-.pf-roi-card--data-pending {
-  filter: blur(7px);
-  opacity: 0.78;
-  pointer-events: none;
-  transition:
-    filter 0.22s ease,
-    opacity 0.22s ease;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .pf-roi-card--data-pending {
-    transition: none;
-    filter: blur(4px);
   }
 }
 
@@ -883,34 +855,6 @@ body {
   max-width: 920px;
   margin: 0 auto;
   flex-shrink: 0;
-}
-
-.pf-graph--data-pending {
-  isolation: isolate;
-}
-
-.pf-graph__pending-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 5;
-  pointer-events: none;
-  border-radius: inherit;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  background: rgba(8, 4, 14, 0.2);
-  transition: opacity 0.22s ease;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .pf-graph__pending-overlay {
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
-    transition: none;
-  }
-}
-
-.pf-graph--data-pending .pf-graph-refresh[data-pos='top-center'] {
-  z-index: 10;
 }
 
 /* Padding-bottom % is relative to width — stable square height with only absolute children */
