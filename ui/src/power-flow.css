@@ -79,9 +79,17 @@ body {
   width: 100%;
 }
 
+/* Fixed to viewport on all breakpoints — logo centered on the visible screen (not only the main column). */
 .pf-page-rest-pending-overlay {
-  position: absolute;
+  position: fixed;
   inset: 0;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
   z-index: 40;
   pointer-events: auto;
   backdrop-filter: blur(10px);
@@ -92,6 +100,8 @@ body {
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
+  padding: max(8px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px))
+    max(16px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px));
 }
 
 .pf-page-rest-pending-loader {
@@ -100,23 +110,6 @@ body {
   justify-content: center;
   flex: 0 0 auto;
   pointer-events: none;
-}
-
-/* Full-viewport overlay on narrow screens — logo centered on the physical screen, not only the scroll column */
-@media (max-width: 600px) {
-  .pf-page-rest-pending-overlay {
-    position: fixed;
-    inset: 0;
-    left: 0;
-    right: 0;
-    top: 0;
-    bottom: 0;
-    width: 100%;
-    min-height: 100vh;
-    min-height: 100dvh;
-    padding: max(8px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px))
-      max(16px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px));
-  }
 }
 
 .pf-page-rest-pending-loader__logo {
