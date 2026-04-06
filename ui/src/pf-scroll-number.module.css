@@ -4,4 +4,10 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  overflow: visible;
+  flex-shrink: 0;
+  /* Reserve space for text-shadow glow so the parent does not clip digits */
+  padding: 0.2em 0.12em;
+  min-inline-size: max-content;
+  min-block-size: 1.2em;
 }

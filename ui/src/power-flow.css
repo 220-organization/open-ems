@@ -151,10 +151,10 @@ body {
   justify-content: center;
   flex-wrap: wrap;
   gap: 0.35em;
-  min-width: 0;
+  min-width: min(100%, max-content);
   max-width: 100%;
-  padding: 0.35em 0.65em;
-  overflow: hidden;
+  padding: 0.55em 0.75em;
+  overflow: visible;
   box-sizing: border-box;
   background: linear-gradient(145deg, rgba(0, 0, 0, 0.4), rgba(20, 10, 25, 0.5));
   border: 1px solid rgba(200, 61, 197, 0.35);
@@ -168,10 +168,13 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 10ch;
-  min-height: 48px;
-  overflow: hidden;
-  flex: 0 1 auto;
+  min-width: min(100%, max(10ch, max-content));
+  min-height: 1.25em;
+  padding-block: 0.2em;
+  padding-inline: 0.15em;
+  overflow: visible;
+  flex: 0 0 auto;
+  flex-shrink: 0;
 }
 
 .pf-landing-totals__counter-wrap--loading {
@@ -183,7 +186,7 @@ body {
   color: #e040e0;
   font-weight: 700;
   font-size: clamp(26px, 5.5vw, 36px);
-  line-height: 1.1;
+  line-height: 1.15;
   letter-spacing: 0.05em;
   font-variant-numeric: tabular-nums;
   text-shadow:
@@ -245,13 +248,14 @@ body {
   .pf-landing-totals__counter-wrap {
     width: 100%;
     max-width: 100%;
-    padding: 0.28em 0.5em;
+    padding: 0.48em 0.55em;
     border-radius: 16px;
   }
 
   .pf-landing-totals__counter-scroll {
-    min-width: 8ch;
-    min-height: 42px;
+    min-width: min(100%, max(8ch, max-content));
+    min-height: 1.3em;
+    padding-block: 0.22em;
   }
 
   .pf-landing-totals__counter {
@@ -267,8 +271,8 @@ body {
 
 @media (max-width: 380px) {
   .pf-landing-totals__counter-scroll {
-    min-width: 7ch;
-    min-height: 40px;
+    min-width: min(100%, max(7ch, max-content));
+    min-height: 1.35em;
   }
 
   .pf-landing-totals__counter {
