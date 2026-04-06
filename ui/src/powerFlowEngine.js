@@ -7,6 +7,8 @@ export const BINANCE_MINER_URL =
   'https://pool.binance.com/en/statistics?urlParams=k0L2WD9yFZlqcgCbBtRfiu040xT4UPvxRgFKVq0hr4k08962';
 export const SITE_220KM_HOME = 'https://220-km.com/';
 export const EV_LIST_URL = 'https://220-km.com/list';
+/** Deep link to start flow for a selected charging station (query `station` = port number). */
+export const EV_START_URL = 'https://220-km.com/start';
 
 const KYIV_PV_START_HOUR = [8, 7.5, 7, 6, 5.5, 5, 5, 5.5, 6, 6.5, 7.5, 8];
 const KYIV_PV_END_HOUR = [16, 17, 18.5, 19.5, 20.5, 21.5, 21, 20, 18.5, 17, 16, 15.5];

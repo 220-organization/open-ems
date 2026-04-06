@@ -1,0 +1,7 @@
+/* Same layout idea as shared/ui/scroll-number — inner value animates with absolute positioning */
+.container {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}

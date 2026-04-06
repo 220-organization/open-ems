@@ -432,7 +432,7 @@ async def assert_deye_write_pin(device_sn: str, pin: Optional[str]) -> None:
     row = next((r for r in rows if r.device_sn == sn), None)
     if row is None:
         return
-    assert_inverter_write_pin(pin, row.pin)
+    assert_inverter_write_pin(pin, row.pin, row.label)
 
 
 _SOC_KEYS = frozenset({"SOC", "BMS_SOC", "BATTERY_SOC"})

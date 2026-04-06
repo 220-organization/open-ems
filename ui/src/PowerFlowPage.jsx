@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   BINANCE_MINER_URL,
   EV_LIST_URL,
+  EV_START_URL,
   SITE_220KM_HOME,
   FLOW_DOT_MOTION_DUR,
   computeSimulatedSources,
@@ -18,6 +19,7 @@ import RoiStackStatistics from './RoiStackStatistics';
 import { DEYE_FLOW_BALANCE_PV_FACTOR, usesDeyeFlowBalance } from './deyeFlowBalanceSites';
 import { inverterSelectShortLabel, parseEvPortStationNumber } from './deyeInverterDisplay';
 import { clearInverterPinCache, readCachedInverterPin, rememberInverterPin } from './deyeInverterPinCache';
+import PfScrollNumber from './PfScrollNumber';
 import './power-flow.css';
 import './dam-chart.css';
 
@@ -32,7 +34,7 @@ const OPEN_EMS_GITHUB_URL = 'https://github.com/220-organization/open-ems';
 /** Short language codes in header (saves horizontal space). */
 const LANG_HEADER_CODE = {
   en: 'EN',
-  uk: 'UK',
+  uk: 'UA',
   pl: 'PL',
   cs: 'CS',
   nl: 'NL',
@@ -45,6 +47,105 @@ function apiUrl(path) {
   const base = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
   if (!base) return path;
   return `${base}${path}`;
+}
+
+/**
+ * Ukrainian month forms — `Intl` month: long is nominative only; tariff copy needs accusative (after «за») / instrumental.
+ * Index 1 = January … 12 = December.
+ */
+const UK_MONTH_ACCUSATIVE = Object.freeze([
+  '',
+  'січень',
+  'лютий',
+  'березень',
+  'квітень',
+  'травень',
+  'червень',
+  'липень',
+  'серпень',
+  'вересень',
+  'жовтень',
+  'листопад',
+  'грудень',
+]);
+const UK_MONTH_INSTRUMENTAL = Object.freeze([
+  '',
+  'січнем',
+  'лютим',
+  'березнем',
+  'квітнем',
+  'травнем',
+  'червнем',
+  'липнем',
+  'серпнем',
+  'вереснем',
+  'жовтнем',
+  'листопадом',
+  'груднем',
+]);
+
+/** UI retail tariff from DAM average: +2.5 UAH/kWh (distribution) then +20% (VAT). */
+const LANDING_TARIFF_DISTRIBUTION_UAH_PER_KWH = 2.5;
+const LANDING_TARIFF_VAT_MULTIPLIER = 1.2;
+
+function landingRetailUahPerKwh(damAvgUahPerKwh) {
+  const x = Number(damAvgUahPerKwh);
+  if (!Number.isFinite(x)) return null;
+  return (x + LANDING_TARIFF_DISTRIBUTION_UAH_PER_KWH) * LANDING_TARIFF_VAT_MULTIPLIER;
+}
+
+/** Fleet totals block: kWh exported + DAM tariff line (Kyiv current month vs previous month). */
+function formatLandingTotalsDisplay(landingTotals, bcp47, t) {
+  if (!landingTotals?.ok) return null;
+  const exp = landingTotals.totalExportKwh;
+  const fmtKwh = new Intl.NumberFormat(bcp47, { maximumFractionDigits: 1, minimumFractionDigits: 0 });
+  const fmtRate = new Intl.NumberFormat(bcp47, { maximumFractionDigits: 3, minimumFractionDigits: 2 });
+  const dam = landingTotals.dam;
+  if (dam?.configured && dam.currentAvgUahPerKwh != null && dam.currentMonthStart && dam.prevMonthStart) {
+    const monthFmt = new Intl.DateTimeFormat(bcp47, { month: 'long' });
+    const [cy, cm] = dam.currentMonthStart.split('-').map(Number);
+    const [py, pm] = dam.prevMonthStart.split('-').map(Number);
+    const bcp47Lower = String(bcp47 || '').toLowerCase();
+    const isUk = bcp47Lower === 'uk' || bcp47Lower.startsWith('uk-');
+    let curMonth;
+    let prevMonth;
+    if (isUk && cm >= 1 && cm <= 12 && pm >= 1 && pm <= 12) {
+      const acc = UK_MONTH_ACCUSATIVE[cm];
+      const ins = UK_MONTH_INSTRUMENTAL[pm];
+      curMonth = acc ? acc.charAt(0).toUpperCase() + acc.slice(1) : acc;
+      prevMonth = ins ? ins.charAt(0).toUpperCase() + ins.slice(1) : ins;
+    } else {
+      curMonth = monthFmt.format(new Date(cy, cm - 1, 15));
+      prevMonth = monthFmt.format(new Date(py, pm - 1, 15));
+    }
+    const retailCurrent = landingRetailUahPerKwh(dam.currentAvgUahPerKwh);
+    const retailPrev = landingRetailUahPerKwh(dam.prevAvgUahPerKwh);
+    const rate = retailCurrent != null ? fmtRate.format(retailCurrent) : '—';
+    if (dam.prevAvgUahPerKwh != null && retailCurrent != null && retailPrev != null && retailPrev > 0) {
+      const pct = ((retailCurrent - retailPrev) / retailPrev) * 100;
+      const deltaStr = `${pct > 0 ? '+' : ''}${pct.toFixed(1)}%`;
+      return {
+        exportText: exp != null ? fmtKwh.format(exp) : '—',
+        tariffLine: null,
+        tariffCompare: {
+          lead: t('powerFlowLandingTariffLineLead', { month: curMonth, rate }),
+          deltaPct: pct,
+          deltaStr,
+          tail: t('powerFlowLandingTariffLineTail', { prevMonth }),
+        },
+      };
+    }
+    return {
+      exportText: exp != null ? fmtKwh.format(exp) : '—',
+      tariffLine: t('powerFlowLandingTariffPartial', { month: curMonth, rate }),
+      tariffCompare: null,
+    };
+  }
+  return {
+    exportText: exp != null ? fmtKwh.format(exp) : '—',
+    tariffLine: t('powerFlowLandingTariffUnavailable'),
+    tariffCompare: null,
+  };
 }
 
 const DISCHARGE_SOC_DELTA_OPTIONS = Object.freeze([2, 10, 20]);
@@ -428,16 +529,42 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     return Boolean(row?.pinRequired);
   }, [selInverterSn, inverterRows.items]);
 
+  /** Composed list label for the selected inverter (includes evport<N> when bound). */
+  const selInverterLabel = useMemo(() => {
+    const sn = selInverterSn.trim();
+    if (!sn) return '';
+    const row = inverterRows.items.find(r => r.deviceSn === sn);
+    return row?.label != null ? String(row.label) : '';
+  }, [selInverterSn, inverterRows.items]);
+
+  /** EV port binding in Deye name — remote writes allowed without a trailing `` pin`` suffix (server-side). */
+  const selInverterEvportBound = useMemo(
+    () => Boolean(parseEvPortStationNumber(selInverterLabel)),
+    [selInverterLabel],
+  );
+
+  /** Deye Cloud encodes a PIN **or** label has evport<N> (same as backend assert). */
+  const remoteWriteConfigured = useMemo(
+    () => selInverterPinRequired || selInverterEvportBound,
+    [selInverterPinRequired, selInverterEvportBound],
+  );
+
   /** Bumps when PIN cache mutates (localStorage is outside React). */
   const [pinCacheBust, setPinCacheBust] = useState(0);
   /** Saved PIN for write actions (24h in localStorage); empty if none / expired. */
-  const cachedWritePin = useMemo(() => readCachedInverterPin(selInverterSn), [selInverterSn, pinCacheBust]);
+  const cachedWritePin = useMemo(
+    () => readCachedInverterPin(selInverterSn),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- pinCacheBust forces re-read when PIN cache updates
+    [selInverterSn, pinCacheBust],
+  );
 
   const [socBySn, setSocBySn] = useState({});
   const [socListLoading, setSocListLoading] = useState(false);
   /** Deye live metrics when an inverter is selected: battery, load, PV, grid. */
   const [deyeLive, setDeyeLive] = useState(null);
   const [deyeLiveLoading, setDeyeLiveLoading] = useState(false);
+  /** Matches `selInverterSn` after Deye ess-power has completed for that SN (avoids blur on 20s poll). */
+  const [deyeHydratedSn, setDeyeHydratedSn] = useState('');
   /** Today/tomorrow insolation % + today cloud icon hint (coordinates never exposed to browser). */
   const [solarForecast, setSolarForecast] = useState({
     loading: false,
@@ -455,6 +582,9 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const [lowDamChargeEnabled, setLowDamChargeEnabled] = useState(false);
   const [chargeSocDeltaPct, setChargeSocDeltaPct] = useState(10);
   const [toolbarPrefsLoading, setToolbarPrefsLoading] = useState(false);
+  /** Fleet or per-inverter totals from GET /api/power-flow/landing-totals. */
+  const [landingTotals, setLandingTotals] = useState(null);
+  const [landingTotalsLoading, setLandingTotalsLoading] = useState(false);
 
   /** No serial or prefs still loading — controls stay disabled (no click). Missing PIN in name: enabled, click opens modal. */
   const deyeWritesHardBlocked = !selInverterSn || toolbarPrefsLoading;
@@ -745,6 +875,23 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       clearInterval(id);
     };
   }, [selInverterSn, inverterRows.configured, inverterRows.error]);
+
+  useLayoutEffect(() => {
+    setDeyeHydratedSn('');
+    if (selInverterSn && inverterRows.configured && !inverterRows.error) {
+      setDeyeLiveLoading(true);
+    }
+  }, [selInverterSn, inverterRows.configured, inverterRows.error]);
+
+  useEffect(() => {
+    if (!selInverterSn || !inverterRows.configured || inverterRows.error) {
+      setDeyeHydratedSn('');
+      return;
+    }
+    if (!deyeLiveLoading) {
+      setDeyeHydratedSn(selInverterSn);
+    }
+  }, [selInverterSn, deyeLiveLoading, inverterRows.configured, inverterRows.error]);
 
   useEffect(() => {
     if (!selInverterSn || !inverterRows.configured || inverterRows.error) {
@@ -1165,7 +1312,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const requestDischarge2Pct = useCallback(() => {
     const deviceSn = selInverterSn?.trim();
     if (!deviceSn || discharge2BusyRef.current) return;
-    if (!selInverterPinRequired) {
+    if (!remoteWriteConfigured) {
       setRemoteWriteNeedsPinOpen(true);
       return;
     }
@@ -1188,12 +1335,12 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     setDischarge2Feedback('');
     setDischargeConfirmPin('');
     setDischargeConfirmOpen(true);
-  }, [selInverterSn, selInverterPinRequired, essSocHasKey, essSocPercent, dischargeSocDeltaPct, inverterSocFmt, t]);
+  }, [selInverterSn, remoteWriteConfigured, essSocHasKey, essSocPercent, dischargeSocDeltaPct, inverterSocFmt, t]);
 
   const requestCharge2Pct = useCallback(() => {
     const deviceSn = selInverterSn?.trim();
     if (!deviceSn || charge2BusyRef.current) return;
-    if (!selInverterPinRequired) {
+    if (!remoteWriteConfigured) {
       setRemoteWriteNeedsPinOpen(true);
       return;
     }
@@ -1210,7 +1357,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     setDischarge2Feedback('');
     setChargeConfirmPin('');
     setChargeConfirmOpen(true);
-  }, [selInverterSn, selInverterPinRequired, essSocHasKey, essSocPercent, chargeSocDeltaPct, t]);
+  }, [selInverterSn, remoteWriteConfigured, essSocHasKey, essSocPercent, chargeSocDeltaPct, t]);
 
   const cancelDischargeConfirm = useCallback(() => {
     setDischargeConfirmOpen(false);
@@ -1281,7 +1428,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const submitWritePinGate = useCallback(async () => {
     const pin = writePinValue.trim();
     if (!writePinGate) return;
-    if (!pin) {
+    if (!pin && !selInverterEvportBound) {
       setWritePinError(t('deyeWritePinMissing'));
       return;
     }
@@ -1335,7 +1482,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       const m = err instanceof Error ? err.message : String(err);
       setWritePinError(m);
     }
-  }, [writePinGate, writePinValue, t, savePeakAutoPref, saveLowDamChargePref]);
+  }, [writePinGate, writePinValue, t, savePeakAutoPref, saveLowDamChargePref, selInverterEvportBound]);
 
   const closeDeyeCommandModal = useCallback(() => {
     setDeyeCommandModal(null);
@@ -1410,6 +1557,64 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     return () => window.removeEventListener('hashchange', syncFromHash);
   }, []);
 
+  useEffect(() => {
+    setLandingTotals(null);
+  }, [selInverterSn]);
+
+  useEffect(() => {
+    if (!inverterRows.configured || inverterRows.loading || inverterRows.error) {
+      setLandingTotalsLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    const load = async () => {
+      setLandingTotalsLoading(true);
+      try {
+        const sn = selInverterSn.trim();
+        const q = sn ? `?deviceSn=${encodeURIComponent(sn)}` : '';
+        const r = await fetch(apiUrl(`/api/power-flow/landing-totals${q}`));
+        const data = await r.json();
+        if (!cancelled && data.ok) setLandingTotals(data);
+        else if (!cancelled) setLandingTotals(null);
+      } catch {
+        if (!cancelled) setLandingTotals(null);
+      } finally {
+        if (!cancelled) setLandingTotalsLoading(false);
+      }
+    };
+    const poll = async () => {
+      if (cancelled) return;
+      try {
+        const sn = selInverterSn.trim();
+        const q = sn ? `?deviceSn=${encodeURIComponent(sn)}` : '';
+        const r = await fetch(apiUrl(`/api/power-flow/landing-totals${q}`));
+        const data = await r.json();
+        if (!cancelled && data.ok) setLandingTotals(data);
+        else if (!cancelled) setLandingTotals(null);
+      } catch {
+        if (!cancelled) setLandingTotals(null);
+      }
+    };
+    void load();
+    const id = setInterval(() => void poll(), 300_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [selInverterSn, inverterRows.configured, inverterRows.loading, inverterRows.error]);
+
+  const inverterListReady = inverterRows.configured && !inverterRows.loading && !inverterRows.error;
+  const showPowerFlowSections = !inverterRows.error && (inverterRows.loading || inverterRows.configured);
+  const dischargeFeedbackText = discharge2Feedback;
+  const graphRealtimePending = realtimePower === null && loadError === '';
+  const graphDeyePending =
+    Boolean(selInverterSn) &&
+    inverterRows.configured &&
+    !inverterRows.error &&
+    !inverterRows.loading &&
+    deyeHydratedSn !== selInverterSn;
+  const graphDataPending = graphRealtimePending || graphDeyePending;
+
   return (
     <div className="pf-body">
       <div className="pf-root">
@@ -1438,7 +1643,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                     </option>
                   ) : (
                     <>
-                      <option value="">{'\u2014'}</option>
+                      <option value="">{t('inverterSelectLabel')}</option>
                       {inverterRows.items.map(row => {
                         const p = socBySn[row.deviceSn];
                         const socSuffix = p != null && Number.isFinite(p) ? ` · ${inverterSocFmt.format(p)}%` : '';
@@ -1463,17 +1668,6 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                 >
                   {t('addDeyeInverterButton')}
                 </button>
-                <RoiStackStatistics
-                  t={t}
-                  bcp47={bcp47}
-                  selInverterSn={selInverterSn}
-                  inverterHeaderOk={inverterRows.configured && !inverterRows.loading && !inverterRows.error}
-                  pinRequired={selInverterPinRequired}
-                  cachedPin={cachedWritePin}
-                  pinCacheBust={pinCacheBust}
-                  onPinRemembered={() => setPinCacheBust(x => x + 1)}
-                  onRoiCapexSaved={loadInverters}
-                />
               </div>
             </div>
             <div className="pf-header-lang">
@@ -1493,257 +1687,105 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
               </select>
             </div>
           </header>
-          {inverterRows.configured && !inverterRows.loading && !inverterRows.error ? (
-            <>
-              <div className="pf-header-discharge-row">
-                <div className="pf-discharge-toolbar pf-discharge-toolbar--combined">
-                  <div className="pf-deye-command-stack">
-                    <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header pf-deye-command-line">
-                      <div className="pf-discharge-delta-controls">
-                        <button
-                          type="button"
-                          className="pf-discharge-btn pf-discharge-go-btn"
-                          onClick={requestDischarge2Pct}
-                          disabled={deyeWritesHardBlocked}
-                          title={t('dischargeSoc2Hint')}
-                          aria-label={t('dischargeGoAria')}
-                        >
-                          {t('dischargeGoButton')}
-                        </button>
-                        <select
-                          id="pf-discharge-delta-select"
-                          className="pf-discharge-delta-select pf-discharge-delta-select--header"
-                          value={dischargeSocDeltaPct === FULL_DISCHARGE ? FULL_DISCHARGE : String(dischargeSocDeltaPct)}
-                          disabled={deyeWritesHardBlocked}
-                          aria-label={t('dischargeSocDeltaAria')}
-                          onChange={e => {
-                            if (!selInverterPinRequired) {
-                              setRemoteWriteNeedsPinOpen(true);
-                              return;
-                            }
-                            const raw = e.target.value;
-                            const n =
-                              raw === FULL_DISCHARGE ? FULL_DISCHARGE : normalizeDischargeSocDeltaPct(raw);
-                            const apiPct = peakPrefDischargePctForApi(n);
-                            const cached = readCachedInverterPin(selInverterSn?.trim() || '');
-                            if (cached) {
-                              void (async () => {
-                                try {
-                                  const data = await savePeakAutoPref(peakDamEnabledRef.current, apiPct, cached);
-                                  setDischargeSocDeltaPct(n);
-                                  if (data && typeof data.enabled === 'boolean') {
-                                    setPeakDamDischargeEnabled(data.enabled);
-                                  }
-                                  const p = data?.dischargeSocDeltaPct;
-                                  if (p != null && Number.isFinite(Number(p))) {
-                                    setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
-                                  }
-                                } catch (err) {
-                                  const m = err instanceof Error ? err.message : String(err);
-                                  setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
-                                }
-                              })();
-                              return;
-                            }
-                            setWritePinGate({ kind: 'peakPct', nextPct: apiPct });
-                          }}
-                        >
-                          {DISCHARGE_SOC_DELTA_OPTIONS.map(o => (
-                            <option key={o} value={o}>
-                              {t('dischargeSocDeltaValue', { pct: o })}
-                            </option>
-                          ))}
-                          <option value={FULL_DISCHARGE}>{t('dischargeSocDeltaValueFull')}</option>
-                        </select>
-                      </div>
-                      <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
-                        <input
-                          type="checkbox"
-                          checked={peakDamDischargeEnabled}
-                          disabled={deyeWritesHardBlocked}
-                          onChange={async e => {
-                            if (!selInverterPinRequired) {
-                              setRemoteWriteNeedsPinOpen(true);
-                              return;
-                            }
-                            const v = e.target.checked;
-                            const sn = selInverterSn?.trim();
-                            if (!sn) return;
-                            const prev = peakDamDischargeEnabled;
-                            const prevPct = dischargeSocDeltaPct;
-                            if (peakPrefSaveTimerRef.current != null) {
-                              clearTimeout(peakPrefSaveTimerRef.current);
-                              peakPrefSaveTimerRef.current = null;
-                            }
-                            if (chargePrefSaveTimerRef.current != null) {
-                              clearTimeout(chargePrefSaveTimerRef.current);
-                              chargePrefSaveTimerRef.current = null;
-                            }
-                            const cached = readCachedInverterPin(sn);
-                            if (cached) {
-                              setPeakDamDischargeEnabled(v);
-                              setDischarge2Feedback('');
-                              try {
-                                const data = await savePeakAutoPref(v, peakPrefDischargePctForApi(dischargeSocDeltaPct), cached);
-                                if (data && typeof data.enabled === 'boolean') {
-                                  setPeakDamDischargeEnabled(data.enabled);
-                                }
-                                const p = data?.dischargeSocDeltaPct;
-                                if (p != null && Number.isFinite(Number(p))) {
-                                  setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
-                                }
-                              } catch (err) {
-                                setPeakDamDischargeEnabled(prev);
-                                setDischargeSocDeltaPct(prevPct);
-                                const m = err instanceof Error ? err.message : String(err);
-                                setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
-                              }
-                              return;
-                            }
-                            setWritePinGate({
-                              kind: 'peak',
-                              nextEnabled: v,
-                              nextPct: peakPrefDischargePctForApi(dischargeSocDeltaPct),
-                            });
-                          }}
-                          aria-label={t('peakDamDischargeToggleAria')}
-                        />
-                        <span className="pf-peak-dam-toggle-label" title={t('peakDamDischargeToggleHint')}>
-                          {t('peakDamDischargeToggle')}
-                        </span>
-                      </label>
-                    </div>
-                    <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header pf-deye-command-line pf-deye-command-line--charge">
-                      <div className="pf-discharge-delta-controls">
-                        <button
-                          type="button"
-                          className="pf-discharge-btn pf-discharge-go-btn pf-charge-go-btn"
-                          onClick={requestCharge2Pct}
-                          disabled={deyeWritesHardBlocked}
-                          title={t('chargeSoc2Hint')}
-                          aria-label={t('chargeGoAria')}
-                        >
-                          {t('chargeGoButton')}
-                        </button>
-                        <select
-                          id="pf-charge-delta-select"
-                          className="pf-discharge-delta-select pf-discharge-delta-select--header"
-                          value={chargeSocDeltaPct}
-                          disabled={deyeWritesHardBlocked}
-                          aria-label={t('chargeSocDeltaAria')}
-                          onChange={e => {
-                            if (!selInverterPinRequired) {
-                              setRemoteWriteNeedsPinOpen(true);
-                              return;
-                            }
-                            const n = normalizeChargeSocDeltaPct(e.target.value);
-                            const cached = readCachedInverterPin(selInverterSn?.trim() || '');
-                            if (cached) {
-                              void (async () => {
-                                try {
-                                  const data = await saveLowDamChargePref(lowDamEnabledRef.current, n, cached);
-                                  setChargeSocDeltaPct(n);
-                                  if (data && typeof data.enabled === 'boolean') {
-                                    setLowDamChargeEnabled(data.enabled);
-                                  }
-                                  const p = data?.chargeSocDeltaPct;
-                                  if (p != null && Number.isFinite(Number(p))) {
-                                    setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
-                                  }
-                                } catch (err) {
-                                  const m = err instanceof Error ? err.message : String(err);
-                                  setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
-                                }
-                              })();
-                              return;
-                            }
-                            setWritePinGate({ kind: 'lowPct', nextPct: n });
-                          }}
-                        >
-                          {CHARGE_SOC_DELTA_OPTIONS.map(o => (
-                            <option key={o} value={o}>
-                              {t('chargeSocDeltaValue', { pct: o })}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
-                        <input
-                          type="checkbox"
-                          checked={lowDamChargeEnabled}
-                          disabled={deyeWritesHardBlocked}
-                          onChange={async e => {
-                            if (!selInverterPinRequired) {
-                              setRemoteWriteNeedsPinOpen(true);
-                              return;
-                            }
-                            const v = e.target.checked;
-                            const sn = selInverterSn?.trim();
-                            if (!sn) return;
-                            const prev = lowDamChargeEnabled;
-                            const prevPct = chargeSocDeltaPct;
-                            if (peakPrefSaveTimerRef.current != null) {
-                              clearTimeout(peakPrefSaveTimerRef.current);
-                              peakPrefSaveTimerRef.current = null;
-                            }
-                            if (chargePrefSaveTimerRef.current != null) {
-                              clearTimeout(chargePrefSaveTimerRef.current);
-                              chargePrefSaveTimerRef.current = null;
-                            }
-                            const cached = readCachedInverterPin(sn);
-                            if (cached) {
-                              setLowDamChargeEnabled(v);
-                              setDischarge2Feedback('');
-                              try {
-                                const data = await saveLowDamChargePref(v, chargeSocDeltaPct, cached);
-                                if (data && typeof data.enabled === 'boolean') {
-                                  setLowDamChargeEnabled(data.enabled);
-                                }
-                                const p = data?.chargeSocDeltaPct;
-                                if (p != null && Number.isFinite(Number(p))) {
-                                  setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
-                                }
-                              } catch (err) {
-                                setLowDamChargeEnabled(prev);
-                                setChargeSocDeltaPct(prevPct);
-                                const m = err instanceof Error ? err.message : String(err);
-                                setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
-                              }
-                              return;
-                            }
-                            setWritePinGate({
-                              kind: 'low',
-                              nextEnabled: v,
-                              nextPct: chargeSocDeltaPct,
-                            });
-                          }}
-                          aria-label={t('lowDamChargeToggleAria')}
-                        />
-                        <span className="pf-peak-dam-toggle-label" title={t('lowDamChargeToggleHint')}>
-                          {t('lowDamChargeToggle')}
-                        </span>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </>
-          ) : null}
         </div>
 
-        {discharge2Feedback ? (
-          <div className="pf-discharge-feedback" role="status">
-            <p>{discharge2Feedback}</p>
-          </div>
-        ) : null}
+        {showPowerFlowSections
+          ? (() => {
+              const ltd = inverterListReady ? formatLandingTotalsDisplay(landingTotals, bcp47, t) : null;
+              const exportLabelKey = selInverterSn.trim()
+                ? 'powerFlowLandingExportLabelInverter'
+                : 'powerFlowLandingExportLabel';
+              const listPending = !inverterListReady;
+              const landingDataPending = inverterListReady && landingTotalsLoading;
+
+              if (listPending) {
+                return (
+                  <div className="pf-landing-totals-slot">
+                    <div
+                      className="pf-landing-totals pf-landing-totals--skeleton"
+                      aria-busy="true"
+                      aria-label={t('powerFlowLandingTotalsAria')}
+                    >
+                      <div className="pf-landing-totals__export">
+                        <div className="pf-skeleton-line pf-skeleton-line--center pf-skeleton-line--label" />
+                        <div className="pf-landing-totals__counter-wrap pf-landing-totals__counter-wrap--skeleton">
+                          <span className="pf-skeleton-line pf-skeleton-line--counter" />
+                        </div>
+                      </div>
+                      <div className="pf-skeleton-line pf-skeleton-line--center pf-skeleton-line--tariff" />
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="pf-landing-totals-slot">
+                  <div
+                    className={`pf-landing-totals${landingDataPending ? ' pf-landing-totals--data-pending' : ''}`}
+                    aria-busy={landingDataPending ? 'true' : undefined}
+                    aria-label={t('powerFlowLandingTotalsAria')}
+                  >
+                    <div className="pf-landing-totals__export">
+                      <div className="pf-landing-totals__label">{t(exportLabelKey)}</div>
+                      {ltd ? (
+                        <div className="pf-landing-totals__counter-wrap">
+                          <div className="pf-landing-totals__counter-scroll">
+                            <PfScrollNumber
+                              direction="up"
+                              duration={0.32}
+                              ease={[0.33, 0, 0.2, 1]}
+                              className="pf-landing-totals__counter"
+                              numberStyle={{
+                                letterSpacing: '0.05em',
+                              }}
+                            >
+                              {ltd.exportText}
+                            </PfScrollNumber>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="pf-landing-totals__counter-wrap pf-landing-totals__counter-wrap--loading">
+                          <span className="pf-landing-totals__counter">…</span>
+                        </div>
+                      )}
+                    </div>
+                    <p className="pf-landing-totals__tariff">
+                      {ltd?.tariffCompare ? (
+                        <>
+                          {ltd.tariffCompare.lead}
+                          <span
+                            className={
+                              ltd.tariffCompare.deltaPct > 0
+                                ? 'pf-landing-totals__delta pf-landing-totals__delta--up'
+                                : ltd.tariffCompare.deltaPct < 0
+                                  ? 'pf-landing-totals__delta pf-landing-totals__delta--down'
+                                  : 'pf-landing-totals__delta pf-landing-totals__delta--flat'
+                            }
+                          >
+                            {ltd.tariffCompare.deltaStr}
+                          </span>
+                          {ltd.tariffCompare.tail}
+                        </>
+                      ) : ltd?.tariffLine != null ? (
+                        ltd.tariffLine
+                      ) : (
+                        t('powerFlowLandingTariffLoading')
+                      )}
+                    </p>
+                  </div>
+                </div>
+              );
+            })()
+          : null}
 
         <div className="pf-graph-wrap">
           <div
             id="pf-graph"
             ref={graphRef}
-            className="pf-graph"
+            className={`pf-graph${graphDataPending ? ' pf-graph--data-pending' : ''}`}
             style={{ '--pf-graph-anchor-pct': `${graphAnchorPct}%` }}
             aria-label={t('graphAriaLabel')}
+            aria-busy={graphDataPending}
           >
             <div className="pf-graph-sizer" aria-hidden="true" />
             <svg id="pf-svg" className="pf-flow-svg" viewBox="0 0 400 400" preserveAspectRatio="xMidYMid meet">
@@ -2090,7 +2132,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   className="pf-node"
                   data-pos="right-bottom"
                   id="pf-node-ev"
-                  href={EV_LIST_URL}
+                  href={`${EV_START_URL}?station=${encodeURIComponent(stationFilter.trim())}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   data-active={stationEvFlowActive ? 'true' : 'false'}
@@ -2124,6 +2166,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                 </div>
               )}
             </div>
+            {graphDataPending ? <div className="pf-graph__pending-overlay" aria-hidden="true" /> : null}
           </div>
           <div id="pf-error" className="pf-error" hidden={!loadError}>
             {loadError}
@@ -2158,6 +2201,366 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
           </div>
         </div>
 
+        <section className="pf-dam-section" aria-label={t('damChartHeading')}>
+          <DamChartPanel
+            variant="embedded"
+            inverterSn={selInverterSn || undefined}
+            t={t}
+            getBcp47Locale={getBcp47Locale}
+            chartHeight={320}
+          />
+        </section>
+
+        <div className="pf-post-charts-bar">
+          <div className="pf-roi-bar">
+            <RoiStackStatistics
+              t={t}
+              bcp47={bcp47}
+              selInverterSn={selInverterSn}
+              inverterHeaderOk={inverterListReady}
+              inverterListPending={inverterRows.loading && !inverterRows.error}
+              pinRequired={remoteWriteConfigured}
+              cachedPin={cachedWritePin}
+              pinCacheBust={pinCacheBust}
+              onPinRemembered={() => setPinCacheBust(x => x + 1)}
+              onRoiCapexSaved={loadInverters}
+            />
+          </div>
+          {showPowerFlowSections ? (
+            !inverterListReady ? (
+              <div className="pf-header-discharge-row pf-header-discharge-row--skeleton" aria-busy="true">
+                <div className="pf-discharge-toolbar pf-discharge-toolbar--combined pf-discharge-toolbar--skeleton">
+                  <div className="pf-discharge-skeleton-rows" aria-hidden>
+                    <div className="pf-discharge-skeleton-row" />
+                    <div className="pf-discharge-skeleton-row" />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div
+                  className={`pf-header-discharge-row${toolbarPrefsLoading ? ' pf-header-discharge-row--data-pending' : ''}`}
+                >
+                  <div className="pf-discharge-toolbar pf-discharge-toolbar--combined">
+                  <div className="pf-deye-command-stack">
+                    <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header pf-deye-command-line">
+                      <div className="pf-discharge-delta-controls">
+                        <button
+                          type="button"
+                          className="pf-discharge-btn pf-discharge-go-btn"
+                          onClick={requestDischarge2Pct}
+                          disabled={deyeWritesHardBlocked}
+                          title={t('dischargeSoc2Hint')}
+                          aria-label={t('dischargeGoAria')}
+                        >
+                          {t('dischargeGoButton')}
+                        </button>
+                        <select
+                          id="pf-discharge-delta-select"
+                          className="pf-discharge-delta-select pf-discharge-delta-select--header"
+                          value={dischargeSocDeltaPct === FULL_DISCHARGE ? FULL_DISCHARGE : String(dischargeSocDeltaPct)}
+                          disabled={deyeWritesHardBlocked}
+                          aria-label={t('dischargeSocDeltaAria')}
+                          onChange={e => {
+                            if (!remoteWriteConfigured) {
+                              setRemoteWriteNeedsPinOpen(true);
+                              return;
+                            }
+                            const raw = e.target.value;
+                            const n =
+                              raw === FULL_DISCHARGE ? FULL_DISCHARGE : normalizeDischargeSocDeltaPct(raw);
+                            const apiPct = peakPrefDischargePctForApi(n);
+                            const cached = readCachedInverterPin(selInverterSn?.trim() || '');
+                            if (cached) {
+                              void (async () => {
+                                try {
+                                  const data = await savePeakAutoPref(peakDamEnabledRef.current, apiPct, cached);
+                                  setDischargeSocDeltaPct(n);
+                                  if (data && typeof data.enabled === 'boolean') {
+                                    setPeakDamDischargeEnabled(data.enabled);
+                                  }
+                                  const p = data?.dischargeSocDeltaPct;
+                                  if (p != null && Number.isFinite(Number(p))) {
+                                    setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
+                                  }
+                                } catch (err) {
+                                  const m = err instanceof Error ? err.message : String(err);
+                                  setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
+                                }
+                              })();
+                              return;
+                            }
+                            if (selInverterEvportBound) {
+                              void (async () => {
+                                try {
+                                  const data = await savePeakAutoPref(peakDamEnabledRef.current, apiPct, '');
+                                  setDischargeSocDeltaPct(n);
+                                  if (data && typeof data.enabled === 'boolean') {
+                                    setPeakDamDischargeEnabled(data.enabled);
+                                  }
+                                  const p = data?.dischargeSocDeltaPct;
+                                  if (p != null && Number.isFinite(Number(p))) {
+                                    setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
+                                  }
+                                } catch (err) {
+                                  const m = err instanceof Error ? err.message : String(err);
+                                  setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
+                                }
+                              })();
+                              return;
+                            }
+                            setWritePinGate({ kind: 'peakPct', nextPct: apiPct });
+                          }}
+                        >
+                          {DISCHARGE_SOC_DELTA_OPTIONS.map(o => (
+                            <option key={o} value={o}>
+                              {t('dischargeSocDeltaValue', { pct: o })}
+                            </option>
+                          ))}
+                          <option value={FULL_DISCHARGE}>{t('dischargeSocDeltaValueFull')}</option>
+                        </select>
+                      </div>
+                      <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
+                        <input
+                          type="checkbox"
+                          checked={peakDamDischargeEnabled}
+                          disabled={deyeWritesHardBlocked}
+                          onChange={async e => {
+                            if (!remoteWriteConfigured) {
+                              setRemoteWriteNeedsPinOpen(true);
+                              return;
+                            }
+                            const v = e.target.checked;
+                            const sn = selInverterSn?.trim();
+                            if (!sn) return;
+                            const prev = peakDamDischargeEnabled;
+                            const prevPct = dischargeSocDeltaPct;
+                            if (peakPrefSaveTimerRef.current != null) {
+                              clearTimeout(peakPrefSaveTimerRef.current);
+                              peakPrefSaveTimerRef.current = null;
+                            }
+                            if (chargePrefSaveTimerRef.current != null) {
+                              clearTimeout(chargePrefSaveTimerRef.current);
+                              chargePrefSaveTimerRef.current = null;
+                            }
+                            const cached = readCachedInverterPin(sn);
+                            if (cached) {
+                              setPeakDamDischargeEnabled(v);
+                              setDischarge2Feedback('');
+                              try {
+                                const data = await savePeakAutoPref(v, peakPrefDischargePctForApi(dischargeSocDeltaPct), cached);
+                                if (data && typeof data.enabled === 'boolean') {
+                                  setPeakDamDischargeEnabled(data.enabled);
+                                }
+                                const p = data?.dischargeSocDeltaPct;
+                                if (p != null && Number.isFinite(Number(p))) {
+                                  setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
+                                }
+                              } catch (err) {
+                                setPeakDamDischargeEnabled(prev);
+                                setDischargeSocDeltaPct(prevPct);
+                                const m = err instanceof Error ? err.message : String(err);
+                                setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
+                              }
+                              return;
+                            }
+                            if (selInverterEvportBound) {
+                              setPeakDamDischargeEnabled(v);
+                              setDischarge2Feedback('');
+                              try {
+                                const data = await savePeakAutoPref(v, peakPrefDischargePctForApi(dischargeSocDeltaPct), '');
+                                if (data && typeof data.enabled === 'boolean') {
+                                  setPeakDamDischargeEnabled(data.enabled);
+                                }
+                                const p = data?.dischargeSocDeltaPct;
+                                if (p != null && Number.isFinite(Number(p))) {
+                                  setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
+                                }
+                              } catch (err) {
+                                setPeakDamDischargeEnabled(prev);
+                                setDischargeSocDeltaPct(prevPct);
+                                const m = err instanceof Error ? err.message : String(err);
+                                setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
+                              }
+                              return;
+                            }
+                            setWritePinGate({
+                              kind: 'peak',
+                              nextEnabled: v,
+                              nextPct: peakPrefDischargePctForApi(dischargeSocDeltaPct),
+                            });
+                          }}
+                          aria-label={t('peakDamDischargeToggleAria')}
+                        />
+                        <span className="pf-peak-dam-toggle-label" title={t('peakDamDischargeToggleHint')}>
+                          {t('peakDamDischargeToggle')}
+                        </span>
+                      </label>
+                    </div>
+                    <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header pf-deye-command-line pf-deye-command-line--charge">
+                      <div className="pf-discharge-delta-controls">
+                        <button
+                          type="button"
+                          className="pf-discharge-btn pf-discharge-go-btn pf-charge-go-btn"
+                          onClick={requestCharge2Pct}
+                          disabled={deyeWritesHardBlocked}
+                          title={t('chargeSoc2Hint')}
+                          aria-label={t('chargeGoAria')}
+                        >
+                          {t('chargeGoButton')}
+                        </button>
+                        <select
+                          id="pf-charge-delta-select"
+                          className="pf-discharge-delta-select pf-discharge-delta-select--header"
+                          value={chargeSocDeltaPct}
+                          disabled={deyeWritesHardBlocked}
+                          aria-label={t('chargeSocDeltaAria')}
+                          onChange={e => {
+                            if (!remoteWriteConfigured) {
+                              setRemoteWriteNeedsPinOpen(true);
+                              return;
+                            }
+                            const n = normalizeChargeSocDeltaPct(e.target.value);
+                            const cached = readCachedInverterPin(selInverterSn?.trim() || '');
+                            if (cached) {
+                              void (async () => {
+                                try {
+                                  const data = await saveLowDamChargePref(lowDamEnabledRef.current, n, cached);
+                                  setChargeSocDeltaPct(n);
+                                  if (data && typeof data.enabled === 'boolean') {
+                                    setLowDamChargeEnabled(data.enabled);
+                                  }
+                                  const p = data?.chargeSocDeltaPct;
+                                  if (p != null && Number.isFinite(Number(p))) {
+                                    setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
+                                  }
+                                } catch (err) {
+                                  const m = err instanceof Error ? err.message : String(err);
+                                  setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
+                                }
+                              })();
+                              return;
+                            }
+                            if (selInverterEvportBound) {
+                              void (async () => {
+                                try {
+                                  const data = await saveLowDamChargePref(lowDamEnabledRef.current, n, '');
+                                  setChargeSocDeltaPct(n);
+                                  if (data && typeof data.enabled === 'boolean') {
+                                    setLowDamChargeEnabled(data.enabled);
+                                  }
+                                  const p = data?.chargeSocDeltaPct;
+                                  if (p != null && Number.isFinite(Number(p))) {
+                                    setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
+                                  }
+                                } catch (err) {
+                                  const m = err instanceof Error ? err.message : String(err);
+                                  setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
+                                }
+                              })();
+                              return;
+                            }
+                            setWritePinGate({ kind: 'lowPct', nextPct: n });
+                          }}
+                        >
+                          {CHARGE_SOC_DELTA_OPTIONS.map(o => (
+                            <option key={o} value={o}>
+                              {t('chargeSocDeltaValue', { pct: o })}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
+                        <input
+                          type="checkbox"
+                          checked={lowDamChargeEnabled}
+                          disabled={deyeWritesHardBlocked}
+                          onChange={async e => {
+                            if (!remoteWriteConfigured) {
+                              setRemoteWriteNeedsPinOpen(true);
+                              return;
+                            }
+                            const v = e.target.checked;
+                            const sn = selInverterSn?.trim();
+                            if (!sn) return;
+                            const prev = lowDamChargeEnabled;
+                            const prevPct = chargeSocDeltaPct;
+                            if (peakPrefSaveTimerRef.current != null) {
+                              clearTimeout(peakPrefSaveTimerRef.current);
+                              peakPrefSaveTimerRef.current = null;
+                            }
+                            if (chargePrefSaveTimerRef.current != null) {
+                              clearTimeout(chargePrefSaveTimerRef.current);
+                              chargePrefSaveTimerRef.current = null;
+                            }
+                            const cached = readCachedInverterPin(sn);
+                            if (cached) {
+                              setLowDamChargeEnabled(v);
+                              setDischarge2Feedback('');
+                              try {
+                                const data = await saveLowDamChargePref(v, chargeSocDeltaPct, cached);
+                                if (data && typeof data.enabled === 'boolean') {
+                                  setLowDamChargeEnabled(data.enabled);
+                                }
+                                const p = data?.chargeSocDeltaPct;
+                                if (p != null && Number.isFinite(Number(p))) {
+                                  setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
+                                }
+                              } catch (err) {
+                                setLowDamChargeEnabled(prev);
+                                setChargeSocDeltaPct(prevPct);
+                                const m = err instanceof Error ? err.message : String(err);
+                                setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
+                              }
+                              return;
+                            }
+                            if (selInverterEvportBound) {
+                              setLowDamChargeEnabled(v);
+                              setDischarge2Feedback('');
+                              try {
+                                const data = await saveLowDamChargePref(v, chargeSocDeltaPct, '');
+                                if (data && typeof data.enabled === 'boolean') {
+                                  setLowDamChargeEnabled(data.enabled);
+                                }
+                                const p = data?.chargeSocDeltaPct;
+                                if (p != null && Number.isFinite(Number(p))) {
+                                  setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
+                                }
+                              } catch (err) {
+                                setLowDamChargeEnabled(prev);
+                                setChargeSocDeltaPct(prevPct);
+                                const m = err instanceof Error ? err.message : String(err);
+                                setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
+                              }
+                              return;
+                            }
+                            setWritePinGate({
+                              kind: 'low',
+                              nextEnabled: v,
+                              nextPct: chargeSocDeltaPct,
+                            });
+                          }}
+                          aria-label={t('lowDamChargeToggleAria')}
+                        />
+                        <span className="pf-peak-dam-toggle-label" title={t('lowDamChargeToggleHint')}>
+                          {t('lowDamChargeToggle')}
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+            )
+          ) : null}
+        </div>
+
+        {dischargeFeedbackText ? (
+          <div className="pf-discharge-feedback" role="status">
+            <p>{dischargeFeedbackText}</p>
+          </div>
+        ) : null}
+
         <aside className="pf-ukraine-qr" aria-label={t('qrAsideAria')}>
           <a className="pf-ukraine-qr-link" href={QR_SUPPORT_URL} target="_blank" rel="noopener noreferrer">
             <img
@@ -2171,16 +2574,6 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
             <span className="pf-ukraine-qr-caption">{t('qrCaption')}</span>
           </a>
         </aside>
-
-        <section className="pf-dam-section" aria-label={t('damChartHeading')}>
-          <DamChartPanel
-            variant="embedded"
-            inverterSn={selInverterSn || undefined}
-            t={t}
-            getBcp47Locale={getBcp47Locale}
-            chartHeight={320}
-          />
-        </section>
 
         {dischargeConfirmOpen && essSocPercent != null && Number.isFinite(Number(essSocPercent)) ? (
           <div className="pf-modal-backdrop" role="presentation" onClick={cancelDischargeConfirm}>

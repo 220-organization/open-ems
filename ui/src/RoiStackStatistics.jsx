@@ -93,6 +93,7 @@ export default function RoiStackStatistics({
   bcp47,
   selInverterSn,
   inverterHeaderOk,
+  inverterListPending = false,
   pinRequired,
   cachedPin,
   pinCacheBust,
@@ -190,7 +191,7 @@ export default function RoiStackStatistics({
     } catch {
       setConfig(null);
     }
-  }, [sn, pinRequired, tryMigrateRoiFromLocalStorage]);
+  }, [sn, tryMigrateRoiFromLocalStorage]);
 
   useEffect(() => {
     void loadConfigFromServer();
@@ -530,6 +531,31 @@ export default function RoiStackStatistics({
     }
   };
 
+  if (inverterListPending) {
+    return (
+      <div className="pf-roi-stack pf-roi-stack--list-pending" aria-busy="true">
+        <div className="pf-roi-card pf-roi-card--skeleton" aria-hidden>
+          <div className="pf-roi-meta">
+            <div className="pf-roi-meta-col">
+              <span className="pf-skeleton-line pf-skeleton-line--long" />
+              <span className="pf-skeleton-line pf-skeleton-line--medium" />
+            </div>
+            <div className="pf-roi-meta-col pf-roi-meta-right">
+              <span className="pf-skeleton-line pf-skeleton-line--long" />
+              <span className="pf-skeleton-line pf-skeleton-line--medium" />
+            </div>
+          </div>
+          <div className="pf-roi-stack-bar">
+            <div className="pf-roi-stack-seg pf-roi-stack-seg--skeleton" />
+            <div className="pf-roi-stack-seg pf-roi-stack-seg--skeleton" />
+            <div className="pf-roi-stack-seg pf-roi-stack-seg--skeleton" />
+            <div className="pf-roi-stack-seg pf-roi-stack-seg--skeleton" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const showPanel = inverterHeaderOk && sn && (pinRequired || config);
   if (!showPanel) return null;
 
@@ -549,7 +575,9 @@ export default function RoiStackStatistics({
       ) : null}
 
       {config ? (
-        <div className="pf-roi-card">
+        <div
+          className={`pf-roi-card${roiStats.loading ? ' pf-roi-card--data-pending' : ''}`}
+        >
           <div className="pf-roi-meta">
             <div className="pf-roi-meta-col">
               <span className="pf-roi-meta-line">
@@ -561,34 +589,33 @@ export default function RoiStackStatistics({
             </div>
             <div className="pf-roi-meta-col pf-roi-meta-right">
               <span className="pf-roi-meta-line">
-                {t('roiYearsLabel')}:{' '}
-                {roiStats.loading ? (
-                  '…'
-                ) : (
-                  <>
-                    {roiYears != null && Number.isFinite(roiYears) ? (
-                      <>
-                        {fmtRoi.format(roiYears)} {t('roiYearsUnit')}
-                      </>
-                    ) : (
-                      '—'
-                    )}
-                    {roiPrevMonthDeltaPct != null &&
-                    Number.isFinite(roiPrevMonthDeltaPct) &&
-                    roiYearsPrevMonth != null &&
-                    !roiStats.error ? (
-                      <>
-                        {' '}
-                        {t('roiPrevMonthDeltaPct', {
-                          delta:
-                            roiPrevMonthDeltaPct >= 0
-                              ? `+${fmtDeltaPct.format(roiPrevMonthDeltaPct)}`
-                              : fmtDeltaPct.format(roiPrevMonthDeltaPct),
-                        })}
-                      </>
-                    ) : null}
-                  </>
-                )}
+                <span className="pf-roi-years-neon">
+                  {t('roiYearsLabel')}:{' '}
+                  {roiStats.loading
+                    ? '…'
+                    : roiYears != null && Number.isFinite(roiYears)
+                      ? (
+                          <>
+                            {fmtRoi.format(roiYears)} {t('roiYearsUnit')}
+                          </>
+                        )
+                      : '—'}
+                </span>
+                {!roiStats.loading &&
+                roiPrevMonthDeltaPct != null &&
+                Number.isFinite(roiPrevMonthDeltaPct) &&
+                roiYearsPrevMonth != null &&
+                !roiStats.error ? (
+                  <span className="pf-roi-prev-month-delta">
+                    {' '}
+                    {t('roiPrevMonthDeltaPct', {
+                      delta:
+                        roiPrevMonthDeltaPct >= 0
+                          ? `+${fmtDeltaPct.format(roiPrevMonthDeltaPct)}`
+                          : fmtDeltaPct.format(roiPrevMonthDeltaPct),
+                    })}
+                  </span>
+                ) : null}
               </span>
               <span className="pf-roi-meta-line pf-roi-meta-muted">
                 {roiStats.loading

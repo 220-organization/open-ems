@@ -41,25 +41,26 @@
 
 .dam-compare-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
+  justify-content: flex-start;
   gap: 10px 14px;
+  width: 100%;
+  min-width: 0;
 }
 
 .dam-compare-select {
-  min-width: min(100%, 220px);
-  max-width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: min(100%, 280px);
 }
 
 .dam-trend-line {
+  flex: 0 0 auto;
   font-size: 0.92rem;
   font-weight: 600;
   line-height: 1.35;
-}
-
-.dam-trend-line-caption {
-  font-weight: 500;
-  color: rgba(255, 248, 252, 0.72);
+  white-space: nowrap;
 }
 
 .dam-trend-line--up {

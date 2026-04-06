@@ -1411,9 +1411,6 @@ export default function DamChartPanel({
     return null;
   }, [payload, extraByDate, tradeDay, damCompareMode, compareLoading]);
 
-  const damTrendCaptionKey =
-    damCompareMode === DAM_COMPARE_MONTH ? 'damTrendCaptionMonth' : 'damTrendCaptionDay';
-
   const damIndexChart = useMemo(() => {
     if (!indexesPayload?.ok || !indexesPayload?.data) return { tradeDay: '', rows: [] };
     const zone = pickDamIndexesZone(indexesPayload.data);
@@ -1456,9 +1453,6 @@ export default function DamChartPanel({
     baseIndexCompareLoading,
     indexesLoading,
   ]);
-
-  const baseIndexTrendCaptionKey =
-    baseIndexCompareMode === DAM_COMPARE_MONTH ? 'damTrendCaptionMonth' : 'damTrendCaptionDay';
 
   const marketControls = (
     <div className="dam-market-toolbar" role="group" aria-label={t('damMarketLabel')}>
@@ -1535,12 +1529,9 @@ export default function DamChartPanel({
         ) : damTrendPct == null ? (
           <span className="dam-trend-line--muted">—</span>
         ) : (
-          <>
-            <span className={damTrendPct >= 0 ? 'dam-trend-line--up' : 'dam-trend-line--down'}>
-              {fmtPct.format(damTrendPct)}%
-            </span>
-            <span className="dam-trend-line-caption"> {t(damTrendCaptionKey)}</span>
-          </>
+          <span className={damTrendPct >= 0 ? 'dam-trend-line--up' : 'dam-trend-line--down'}>
+            {fmtPct.format(damTrendPct)}%
+          </span>
         )}
       </div>
     </div>
@@ -2335,14 +2326,11 @@ export default function DamChartPanel({
                   ) : baseIndexTrendPct == null ? (
                     <span className="dam-trend-line--muted">—</span>
                   ) : (
-                    <>
-                      <span
-                        className={baseIndexTrendPct >= 0 ? 'dam-trend-line--up' : 'dam-trend-line--down'}
-                      >
-                        {fmtPct.format(baseIndexTrendPct)}%
-                      </span>
-                      <span className="dam-trend-line-caption"> {t(baseIndexTrendCaptionKey)}</span>
-                    </>
+                    <span
+                      className={baseIndexTrendPct >= 0 ? 'dam-trend-line--up' : 'dam-trend-line--down'}
+                    >
+                      {fmtPct.format(baseIndexTrendPct)}%
+                    </span>
                   )}
                 </div>
               </div>
