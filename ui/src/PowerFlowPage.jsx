@@ -279,6 +279,10 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
 
   const geoForPortsRef = useRef(null);
   const geoRequestedRef = useRef(false);
+  /** Only the first charging-ports fetch toggles `loading` so the page overlay does not flash on 60s refresh. */
+  const chargingPortsInitialFetchRef = useRef(true);
+  /** First solar-insolation fetch per inverter sets `loading` (page overlay); hourly refresh does not. */
+  const solarInsolationInitialFetchRef = useRef(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -296,7 +300,9 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       });
 
     const load = async () => {
-      setChargingPorts(s => ({ ...s, loading: true }));
+      if (chargingPortsInitialFetchRef.current) {
+        setChargingPorts(s => ({ ...s, loading: true }));
+      }
       try {
         if (!geoRequestedRef.current) {
           geoRequestedRef.current = true;
@@ -324,6 +330,8 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
         if (!cancelled) {
           setChargingPorts({ loading: false, ok: false, items: [] });
         }
+      } finally {
+        chargingPortsInitialFetchRef.current = false;
       }
     };
 
@@ -900,6 +908,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
 
   useEffect(() => {
     if (!selInverterSn || !inverterRows.configured || inverterRows.error) {
+      solarInsolationInitialFetchRef.current = true;
       setSolarForecast({
         loading: false,
         todayPct: null,
@@ -909,15 +918,18 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       });
       return undefined;
     }
+    solarInsolationInitialFetchRef.current = true;
     let cancelled = false;
     const load = async () => {
-      setSolarForecast({
-        loading: true,
-        todayPct: null,
-        todayCloudy: null,
-        tomorrowPct: null,
-        hintKey: null,
-      });
+      if (solarInsolationInitialFetchRef.current) {
+        setSolarForecast({
+          loading: true,
+          todayPct: null,
+          todayCloudy: null,
+          tomorrowPct: null,
+          hintKey: null,
+        });
+      }
       try {
         const q = new URLSearchParams({ deviceSn: selInverterSn });
         const r = await fetch(`${apiUrl('/api/deye/solar-insolation')}?${q}`, {
@@ -988,6 +1000,8 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
             hintKey: 'solarInsolationUnavailable',
           });
         }
+      } finally {
+        solarInsolationInitialFetchRef.current = false;
       }
     };
     void load();
