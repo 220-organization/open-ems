@@ -2679,3 +2679,28 @@ a.pf-node {
   font-weight: 600;
   margin-bottom: 6px;
 }
+
+@media (max-width: 640px) {
+  .pf-peak-hourly-chart-dialog.pf-messenger-dialog {
+    width: calc(100vw - max(12px, env(safe-area-inset-left, 0px) + env(safe-area-inset-right, 0px)));
+    max-width: calc(100vw - max(12px, env(safe-area-inset-left, 0px) + env(safe-area-inset-right, 0px)));
+  }
+
+  .pf-peak-hourly-chart-panel {
+    padding: 18px max(18px, env(safe-area-inset-right, 0px)) 22px max(18px, env(safe-area-inset-left, 0px));
+  }
+
+  .pf-peak-hourly-chart-head {
+    margin-bottom: 16px;
+  }
+
+  .pf-peak-hourly-chart-title {
+    font-size: 0.95rem;
+    line-height: 1.32;
+  }
+
+  .pf-peak-hourly-chart-inner {
+    padding: 10px 12px;
+    box-sizing: border-box;
+  }
+}

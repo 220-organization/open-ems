@@ -91,9 +91,13 @@ export default function PeakExportHourlyChartModal({
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
-  const chartWidth = useMemo(() => Math.max(480, rows.length * 14), [rows.length]);
   /** Avoid unreadable overlap when many bars; DAM stays in tooltip. */
   const showDamBarLabels = rows.length <= 40;
+  /** Enough px per category so top labels (DAM / revenue) do not overlap on narrow viewports. */
+  const chartWidth = useMemo(() => {
+    const pxPerCategory = showDamBarLabels ? 38 : 22;
+    return Math.max(560, rows.length * pxPerCategory);
+  }, [rows.length, showDamBarLabels]);
   /** Stable SVG id for bar fill gradient (matches --km220-primary-gradient: #6e00d4 → #c100b9). */
   const barExportGradId = useId().replace(/:/g, '_');
 
@@ -148,10 +152,12 @@ export default function PeakExportHourlyChartModal({
                 <ResponsiveContainer width="100%" height={420}>
                   <BarChart
                     data={rows}
+                    barCategoryGap="5%"
+                    barGap="2%"
                     margin={{
-                      top: showDamBarLabels ? 36 : 14,
-                      right: 8,
-                      left: 8,
+                      top: showDamBarLabels ? 42 : 14,
+                      right: 12,
+                      left: 14,
                       bottom: 64,
                     }}
                   >
@@ -248,6 +254,7 @@ export default function PeakExportHourlyChartModal({
                         <LabelList
                           dataKey={exportRevenueUah ? 'revenueTop' : 'damTop'}
                           position="top"
+                          offset={6}
                           fill="#fafafa"
                           fontSize={10}
                         />
