@@ -104,7 +104,7 @@ const UK_MONTH_SHORT = Object.freeze([
 const LANDING_TARIFF_DISTRIBUTION_UAH_PER_KWH = 3.5;
 const LANDING_TARIFF_VAT_MULTIPLIER = 1.2;
 
-/** Landing export block: metric dropdown + counter (fleet or one inverter; default: peak session). */
+/** Landing export block: metric dropdown + counter (fleet or one inverter; default: total export). */
 const LANDING_EXPORT_METRIC = Object.freeze({
   PEAK: 'peak',
   MANUAL: 'manual',
@@ -126,7 +126,7 @@ function readStoredLandingExportMetric(inverterSn) {
   } catch {
     /* ignore */
   }
-  return LANDING_EXPORT_METRIC.PEAK;
+  return LANDING_EXPORT_METRIC.TOTAL;
 }
 
 function writeStoredLandingExportMetric(inverterSn, value) {
@@ -746,7 +746,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   /** Fleet or per-inverter totals from GET /api/power-flow/landing-totals. */
   const [landingTotals, setLandingTotals] = useState(null);
   const [landingTotalsLoading, setLandingTotalsLoading] = useState(false);
-  const [landingExportMetric, setLandingExportMetric] = useState(LANDING_EXPORT_METRIC.PEAK);
+  const [landingExportMetric, setLandingExportMetric] = useState(LANDING_EXPORT_METRIC.TOTAL);
 
   useEffect(() => {
     setLandingExportMetric(readStoredLandingExportMetric(selInverterSn));
