@@ -17,15 +17,15 @@ function formatXLabel(dayIso, hour) {
   return `${tail} ${String(hour).padStart(2, '0')}:00`;
 }
 
-/** Compact UAH label above bars (DAM × kWh). */
-function formatRevenueBarLabel(revenueUah) {
-  if (revenueUah == null || !Number.isFinite(revenueUah)) return '—';
-  if (revenueUah >= 100) return revenueUah.toFixed(0);
-  if (revenueUah >= 10) return revenueUah.toFixed(1);
-  return revenueUah.toFixed(2);
-}
-
-export default function PeakExportHourlyChartModal({ open, onClose, fetchUrl, t, hourlyScope = 'total' }) {
+// When exportRevenueUah, bars use export kWh × DAM (same hourly series as total export).
+export default function PeakExportHourlyChartModal({
+  open,
+  onClose,
+  fetchUrl,
+  t,
+  hourlyScope = 'total',
+  exportRevenueUah = false,
+}) {
   const [status, setStatus] = useState('idle');
   const [rows, setRows] = useState([]);
   const [rangeDays, setRangeDays] = useState(7);
@@ -54,18 +54,21 @@ export default function PeakExportHourlyChartModal({ open, onClose, fetchUrl, t,
         setRangeDays(d);
         const chart = bars.map((b, i) => {
           const dam = b.damUahPerKwh;
-          const ek =
-            typeof b.exportKwh === 'number' && Number.isFinite(b.exportKwh) ? b.exportKwh : 0;
-          const revenueUah =
-            dam != null && Number.isFinite(dam) ? ek * dam : null;
-          const revenueBar = revenueUah != null && Number.isFinite(revenueUah) ? revenueUah : 0;
+          const ek = typeof b.exportKwh === 'number' ? b.exportKwh : Number(b.exportKwh);
+          const damStr =
+            dam != null && Number.isFinite(dam) ? dam.toFixed(2) : '—';
+          const rev =
+            dam != null && Number.isFinite(dam) && Number.isFinite(ek) ? ek * dam : null;
+          const revenueTop =
+            rev != null && Number.isFinite(rev) ? rev.toFixed(1) : '—';
           return {
             barKey: `${b.dayIso}-${b.hour}-${i}`,
             xLabel: formatXLabel(b.dayIso, b.hour),
-            exportKwh: ek,
+            exportKwh: b.exportKwh,
+            exportRevenueUah: rev != null && Number.isFinite(rev) ? rev : 0,
             damUahPerKwh: dam,
-            revenueUah: revenueBar,
-            revenueTop: formatRevenueBarLabel(revenueUah),
+            damTop: damStr,
+            revenueTop,
           };
         });
         setRows(chart);
@@ -90,14 +93,15 @@ export default function PeakExportHourlyChartModal({ open, onClose, fetchUrl, t,
 
   const chartWidth = useMemo(() => Math.max(480, rows.length * 14), [rows.length]);
   /** Avoid unreadable overlap when many bars; DAM stays in tooltip. */
-  const showRevenueBarLabels = rows.length <= 40;
+  const showDamBarLabels = rows.length <= 40;
   /** Stable SVG id for bar fill gradient (matches --km220-primary-gradient: #6e00d4 → #c100b9). */
   const barExportGradId = useId().replace(/:/g, '_');
 
   if (!open || typeof document === 'undefined') return null;
 
-  const titleKey =
-    hourlyScope === 'peak'
+  const titleKey = exportRevenueUah
+    ? 'powerFlowExportHourlyChartTitleArbitrage'
+    : hourlyScope === 'peak'
       ? 'powerFlowExportHourlyChartTitlePeak'
       : hourlyScope === 'manual'
         ? 'powerFlowExportHourlyChartTitleManual'
@@ -145,7 +149,7 @@ export default function PeakExportHourlyChartModal({ open, onClose, fetchUrl, t,
                   <BarChart
                     data={rows}
                     margin={{
-                      top: showRevenueBarLabels ? 36 : 14,
+                      top: showDamBarLabels ? 36 : 14,
                       right: 8,
                       left: 8,
                       bottom: 64,
@@ -169,16 +173,24 @@ export default function PeakExportHourlyChartModal({ open, onClose, fetchUrl, t,
                     <YAxis
                       domain={[0, 'auto']}
                       tick={{ fill: '#a0a0a0', fontSize: 11 }}
+                      tickFormatter={
+                        exportRevenueUah
+                          ? v => {
+                              const n = Number(v);
+                              if (!Number.isFinite(n)) return String(v);
+                              return n >= 100 ? String(Math.round(n)) : n.toFixed(1);
+                            }
+                          : undefined
+                      }
                       label={{
-                        value: t('powerFlowPeakHourlyChartYAxis'),
+                        value: exportRevenueUah
+                          ? t('powerFlowPeakHourlyChartYAxisUah')
+                          : t('powerFlowPeakHourlyChartYAxis'),
                         angle: -90,
                         position: 'insideLeft',
                         fill: '#fafafa',
                         fontSize: 12,
                       }}
-                      tickFormatter={v =>
-                        typeof v === 'number' && Number.isFinite(v) ? v.toFixed(2) : String(v)
-                      }
                     />
                     <Tooltip
                       wrapperStyle={{ outline: 'none' }}
@@ -191,10 +203,6 @@ export default function PeakExportHourlyChartModal({ open, onClose, fetchUrl, t,
                       content={({ active, payload: tipPayload }) => {
                         if (!active || !tipPayload?.length) return null;
                         const p = tipPayload[0].payload;
-                        const rev =
-                          typeof p.revenueUah === 'number' && Number.isFinite(p.revenueUah)
-                            ? p.revenueUah.toFixed(2)
-                            : '—';
                         const kwh =
                           typeof p.exportKwh === 'number'
                             ? p.exportKwh.toFixed(3)
@@ -203,13 +211,21 @@ export default function PeakExportHourlyChartModal({ open, onClose, fetchUrl, t,
                           p.damUahPerKwh != null && Number.isFinite(p.damUahPerKwh)
                             ? p.damUahPerKwh.toFixed(3)
                             : '—';
+                        const rev =
+                          typeof p.exportRevenueUah === 'number' && Number.isFinite(p.exportRevenueUah)
+                            ? p.exportRevenueUah.toFixed(2)
+                            : null;
                         return (
                           <div className="pf-peak-hourly-chart-tooltip">
                             <div className="pf-peak-hourly-chart-tooltip__line">{p.xLabel}</div>
-                            <div className="pf-peak-hourly-chart-tooltip__line">
-                              {t('powerFlowPeakHourlyChartTooltipRevenue')}: {rev}{' '}
-                              {t('powerFlowPeakHourlyChartCurrencySuffix')}
-                            </div>
+                            {exportRevenueUah ? (
+                              <div className="pf-peak-hourly-chart-tooltip__line">
+                                {t('powerFlowPeakHourlyChartTooltipRevenueUah')}:{' '}
+                                {rev != null
+                                  ? `${rev} ${t('roiValueUahUnit')}`
+                                  : '—'}
+                              </div>
+                            ) : null}
                             <div className="pf-peak-hourly-chart-tooltip__line">
                               {t('powerFlowPeakHourlyChartTooltipKwh')}: {kwh}
                             </div>
@@ -221,16 +237,16 @@ export default function PeakExportHourlyChartModal({ open, onClose, fetchUrl, t,
                       }}
                     />
                     <Bar
-                      dataKey="revenueUah"
+                      dataKey={exportRevenueUah ? 'exportRevenueUah' : 'exportKwh'}
                       fill={`url(#${barExportGradId})`}
                       radius={[18, 18, 0, 0]}
                       stroke="rgba(255, 255, 255, 0.14)"
                       strokeWidth={0.5}
                       isAnimationActive={false}
                     >
-                      {showRevenueBarLabels ? (
+                      {showDamBarLabels ? (
                         <LabelList
-                          dataKey="revenueTop"
+                          dataKey={exportRevenueUah ? 'revenueTop' : 'damTop'}
                           position="top"
                           fill="#fafafa"
                           fontSize={10}

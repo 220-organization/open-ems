@@ -615,8 +615,7 @@ async def export_hourly_bars(
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """
-    Hourly grid export (kWh) and DAM UAH/kWh for the last ``days`` Kyiv days: one bar per hour
-    with export > 0. The UI charts revenue (kWh × DAM) per hour.
+    Hourly grid export (kWh) for the last ``days`` Kyiv days: one bar per hour with export > 0.
 
     ``hourlyScope`` selects which ``deye_soc_sample`` buckets to sum: all export, only peak-DAM
     auto-discharge sessions, or only manual discharge sessions.

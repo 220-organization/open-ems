@@ -3189,6 +3189,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
         onClose={() => setExportHourlyChartOpen(false)}
         fetchUrl={exportHourlyBarsUrl}
         hourlyScope={exportHourlyScope}
+        exportRevenueUah={landingExportMetric === LANDING_EXPORT_METRIC.ARBITRAGE}
         t={t}
       />
       {shareFeedback ? (
