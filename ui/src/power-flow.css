@@ -1,4 +1,7 @@
 /* Power flow kiosk layout — aligned with B2B graphView=1 (neon pink #FC019B) */
+/* 220-km.com brand tokens (same as config/keycloak/.../login.css) — used by export hourly chart modal */
+
+@import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600;700&display=swap');
 
 /* Remove default UA margin + white canvas so the dark UI fills the viewport (no outer “white frame”). */
 html,
@@ -26,6 +29,19 @@ body {
   --pf-label: rgba(255, 248, 252, 0.98);
   --pf-value: #f9a8ef;
   --pf-icon: #ff4db8;
+
+  /* 220-km.com dark theme */
+  --km220-bg: #292929;
+  --km220-card: #2e2e2e;
+  --km220-text: #fafafa;
+  --km220-text-muted: #a0a0a0;
+  --km220-primary: #8f00ff;
+  --km220-primary-gradient: linear-gradient(-16deg, #6e00d4 0%, #c100b9 100%);
+  --km220-border-gradient: linear-gradient(-16deg, #c100b9 0%, #6e00d4 100%);
+  --km220-radius: 20px;
+  --km220-radius-sm: 12px;
+  --km220-input-bg: #1a1a1a;
+  --km220-input-border: #3d3d3d;
 }
 
 * {
@@ -2526,4 +2542,140 @@ a.pf-node {
 .pf-messenger-icon-btn--whatsapp {
   background: linear-gradient(145deg, #3fe27c 0%, #25d366 55%, #128c7e 100%);
   border-color: #1da851;
+}
+
+.pf-landing-totals__counter-wrap--export-chart-trigger {
+  appearance: none;
+  border: none;
+  margin: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  text-align: inherit;
+  width: 100%;
+  display: block;
+}
+
+.pf-landing-totals__counter-wrap--export-chart-trigger:focus-visible {
+  outline: 2px solid rgba(192, 132, 252, 0.95);
+  outline-offset: 2px;
+  border-radius: 12px;
+}
+
+.pf-messenger-scrim.pf-messenger-scrim--220km {
+  background: rgba(0, 0, 0, 0.65);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+
+.pf-peak-hourly-chart-dialog.pf-messenger-dialog {
+  max-width: min(96vw, 1100px);
+  width: min(96vw, 1100px);
+}
+
+.pf-peak-hourly-chart-panel {
+  padding: 20px 20px 24px;
+  text-align: left;
+  font-family:
+    'Open Sans',
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  color: var(--km220-text);
+  background:
+    linear-gradient(var(--km220-card) 0%, var(--km220-card) 100%) padding-box,
+    var(--km220-border-gradient) border-box;
+  border: 3px solid transparent;
+  border-radius: var(--km220-radius);
+  box-shadow: 2px 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+.pf-peak-hourly-chart-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.pf-peak-hourly-chart-title {
+  margin: 0;
+  font-size: calc(1rem + 0.35vw);
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--km220-text);
+}
+
+.pf-peak-hourly-chart-close {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 10px 18px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  color: #fff;
+  border: 3px solid transparent;
+  border-radius: var(--km220-radius-sm);
+  background:
+    var(--km220-primary-gradient) padding-box,
+    var(--km220-border-gradient) border-box;
+  box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.3);
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.pf-peak-hourly-chart-close:hover {
+  transform: translateY(-1px);
+  box-shadow: 2px 4px 12px rgba(143, 0, 255, 0.35);
+}
+
+.pf-peak-hourly-chart-close:focus-visible {
+  outline: 2px solid rgba(143, 0, 255, 0.45);
+  outline-offset: 2px;
+}
+
+.pf-peak-hourly-chart-status {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: var(--km220-text-muted);
+}
+
+.pf-peak-hourly-chart-status--error {
+  color: #f87171;
+}
+
+.pf-peak-hourly-chart-scroll {
+  overflow-x: auto;
+  width: 100%;
+  -webkit-overflow-scrolling: touch;
+}
+
+.pf-peak-hourly-chart-inner {
+  min-height: 420px;
+  background: var(--km220-input-bg);
+  border-radius: var(--km220-radius-sm);
+}
+
+.pf-peak-hourly-chart-tooltip {
+  padding: 10px 12px;
+  border-radius: var(--km220-radius-sm);
+  background: var(--km220-input-bg);
+  border: 2px solid var(--km220-input-border);
+  color: var(--km220-text);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+.pf-peak-hourly-chart-tooltip__line {
+  margin: 2px 0;
+  font-size: 13px;
+}
+
+.pf-peak-hourly-chart-tooltip__line:first-child {
+  font-weight: 600;
+  margin-bottom: 6px;
 }

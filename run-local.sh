@@ -29,6 +29,9 @@ Usage: ./run-local.sh [options]
 
 Environment: UI_PORT, API_PORT, DATABASE_URL, UVICORN_RELOAD, REACT_APP_API_BASE_URL, ...
 
+  OPENEMS_OPEN_SWAGGER=0 (default) — set to 1 to also open API Swagger /docs in the default browser after startup.
+  The UI does not auto-open a browser; the URL is printed when CRA is ready.
+
   ROI dev seed: after Flyway migrations runs ./scripts/seed_roi_dev_data.sh for DEVICE_SN=2512291445
   (3 months of PV samples + DAM rows + deye_roi_capex, period start 3 months ago). Change DEVICE_SN in this script if needed.
   Optional: ZONE_EIC (default 10Y1001C--000182). Requires psql or Docker db container.
@@ -61,6 +64,8 @@ POWER_FLOW_DEMO_SN="${POWER_FLOW_DEMO_SN:-2410102121}"
 UI_PORT="${UI_PORT:-9220}"
 API_PORT="${API_PORT:-9221}"
 export PORT="${API_PORT}"
+
+OPENEMS_OPEN_SWAGGER="${OPENEMS_OPEN_SWAGGER:-0}"
 
 # API process does not serve legacy / built HTML; UI is only from the CRA dev server.
 export OPEN_EMS_SERVE_SPA=0
@@ -198,6 +203,25 @@ _open_swagger_ui() {
   esac
 }
 
+# CRA dev server — wait until it answers before printing the UI URL.
+_wait_for_ui() {
+  local url="http://127.0.0.1:${UI_PORT}/"
+  local i
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "Note: curl not found — sleeping 8s before opening UI URL…" >&2
+    sleep 8
+    return 0
+  fi
+  for i in $(seq 1 240); do
+    if curl -sf --connect-timeout 1 --max-time 3 "$url" >/dev/null; then
+      return 0
+    fi
+    sleep 0.5
+  done
+  echo "Timed out waiting for UI at $url — open it manually if npm start is still compiling." >&2
+  return 1
+}
+
 _wait_for_openapi() {
   local url="http://127.0.0.1:${API_PORT}/openapi.json"
   local i
@@ -255,7 +279,14 @@ fi
 UI_PID=$!
 
 _wait_for_openapi || true
-echo "Opening Swagger UI in the default browser…"
-_open_swagger_ui || true
+
+echo "Waiting for CRA dev server on port ${UI_PORT}…" >&2
+_wait_for_ui || true
+echo "Open EMS UI: http://127.0.0.1:${UI_PORT}/" >&2
+
+if [[ "${OPENEMS_OPEN_SWAGGER}" == "1" ]]; then
+  echo "Opening Swagger UI in the default browser…" >&2
+  _open_swagger_ui || true
+fi
 
 wait "${UVICORN_PID}"

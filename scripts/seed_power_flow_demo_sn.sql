@@ -91,7 +91,8 @@ SELECT
     now(),
     w.peak_start,
     w.peak_end + interval '5 minutes',
-    1.2,
+    -- Must not exceed sum(|W|/12000) over peak buckets (5×5 min at −2400 W → 1.0 kWh); stays < total with manual export.
+    1.0,
     true
 FROM windows w
 ON CONFLICT (trade_day, device_sn, peak_hour) DO UPDATE SET

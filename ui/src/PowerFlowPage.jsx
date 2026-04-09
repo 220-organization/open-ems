@@ -15,6 +15,7 @@ import {
 } from './powerFlowEngine';
 import DamChartPanel from './DamChartPanel';
 import DeyeInverterMessengerModal from './DeyeInverterMessengerModal';
+import PeakExportHourlyChartModal from './PeakExportHourlyChartModal';
 import RoiStackStatistics from './RoiStackStatistics';
 import { DEYE_FLOW_BALANCE_PV_FACTOR, usesDeyeFlowBalance } from './deyeFlowBalanceSites';
 import { inverterSelectShortLabel, parseEvPortStationNumber } from './deyeInverterDisplay';
@@ -751,6 +752,19 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   useEffect(() => {
     setLandingExportMetric(readStoredLandingExportMetric(selInverterSn));
   }, [selInverterSn]);
+
+  const [exportHourlyChartOpen, setExportHourlyChartOpen] = useState(false);
+  const exportHourlyScope = useMemo(() => {
+    if (landingExportMetric === LANDING_EXPORT_METRIC.PEAK) return 'peak';
+    if (landingExportMetric === LANDING_EXPORT_METRIC.MANUAL) return 'manual';
+    return 'total';
+  }, [landingExportMetric]);
+  const exportHourlyBarsUrl = useMemo(() => {
+    const q = new URLSearchParams({ days: '7', hourlyScope: exportHourlyScope });
+    const sn = selInverterSn?.trim();
+    if (sn) q.set('deviceSn', sn);
+    return apiUrl(`/api/power-flow/export-hourly-bars?${q}`);
+  }, [selInverterSn, exportHourlyScope]);
 
   /** No serial or prefs still loading — controls stay disabled (no click). Missing PIN in name: enabled, click opens modal. */
   const deyeWritesHardBlocked = !selInverterSn || toolbarPrefsLoading;
@@ -2048,7 +2062,12 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                                   : 'pf-landing-totals__export-value'
                               }
                             >
-                              <div className={inverterMetricDisplay.wrapClass}>
+                              <button
+                                type="button"
+                                className={`${inverterMetricDisplay.wrapClass} pf-landing-totals__counter-wrap--export-chart-trigger`}
+                                aria-label={t('powerFlowPeakHourlyChartOpenAria')}
+                                onClick={() => setExportHourlyChartOpen(true)}
+                              >
                                 <div className="pf-landing-totals__counter-scroll">
                                   <PfScrollNumber
                                     direction="up"
@@ -2066,7 +2085,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                                     )}
                                   </PfScrollNumber>
                                 </div>
-                              </div>
+                              </button>
                               {inverterMetricDisplay.arbitrageMom ? (
                                 <span
                                   className={
@@ -3165,6 +3184,13 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
         ) : null}
       </div>
       <DeyeInverterMessengerModal open={deyeMessengerOpen} onClose={closeDeyeMessenger} t={t} />
+      <PeakExportHourlyChartModal
+        open={exportHourlyChartOpen}
+        onClose={() => setExportHourlyChartOpen(false)}
+        fetchUrl={exportHourlyBarsUrl}
+        hourlyScope={exportHourlyScope}
+        t={t}
+      />
       {shareFeedback ? (
         <div className="pf-share-toast" role="status" aria-live="polite">
           {shareFeedback === 'copied' ? t('sharePageCopied') : t('sharePageFailed')}
