@@ -19,6 +19,8 @@ from app.deye_api import (
     discharge_soc_delta_then_zero_export_ct,
     fetch_soc_map_refresh,
 )
+from app.deye_discharge_export_parse import parse_discharge_export_session_times
+from app.deye_sample_metrics import sum_grid_export_kwh_between
 from app.models import DeyePeakAutoDischargeFired, DeyePeakAutoDischargePref
 from app.oree_dam_service import KYIV, get_hourly_dam_uah_mwh
 
@@ -196,10 +198,19 @@ async def run_peak_auto_discharge_tick() -> None:
         )
         try:
             actual_delta = await resolve_stored_discharge_delta_points(sn, delta_pct)
-            await discharge_soc_delta_then_zero_export_ct(sn, actual_delta)
+            discharge_result = await discharge_soc_delta_then_zero_export_ct(sn, actual_delta)
         except Exception:
             logger.exception("Peak DAM auto: discharge failed device_sn=%s", sn)
             continue
+
+        t_start, t_end, hit_target = parse_discharge_export_session_times(discharge_result)
+        export_kwh: Optional[float] = None
+        if t_start is not None and t_end is not None:
+            try:
+                async with async_session_factory() as session:
+                    export_kwh = await sum_grid_export_kwh_between(session, sn, t_start, t_end)
+            except Exception:
+                logger.exception("Peak DAM auto: export kWh sum failed device_sn=%s", sn)
 
         async with async_session_factory() as session:
             session.add(
@@ -207,6 +218,10 @@ async def run_peak_auto_discharge_tick() -> None:
                     trade_day=today,
                     device_sn=sn,
                     peak_hour=peak_idx,
+                    export_session_start_at=t_start,
+                    export_session_end_at=t_end,
+                    export_session_kwh=export_kwh,
+                    peak_discharge_hit_target=hit_target,
                 )
             )
             try:

@@ -1,16 +1,17 @@
-"""ROI helpers: consumption (load) kWh from deye_soc_sample + DAM at consumption hour (UAH).
+"""ROI helpers: PV/load reference from deye_soc_sample; monetary ROI uses grid arbitrage UAH only.
 
-PV generation is tracked separately; monetary ROI uses energy avoided on the grid at load time
-(solar/battery shifts day production to night consumption).
+Arbitrage revenue per sample: import kWh × DAM hourly UAH/kWh − export kWh × same price (Kyiv day/hour),
+same SQL model as landing totals, restricted to the ROI time window.
 """
 
 from __future__ import annotations
 
 import calendar
+import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import settings
@@ -18,6 +19,8 @@ from app.deye_flow_balance import effective_pv_generation_watts
 from app.deye_soc_service import deye_soc_balance_input_columns_ready
 from app.models import DeyeSocSample
 from app.oree_dam_service import KYIV, get_hourly_dam_uah_mwh
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_start_utc(start_iso: str) -> Optional[datetime]:
@@ -93,6 +96,52 @@ def _accumulate_segment_value_uah(
             missing_slices += 1
         t = t_hour_end
     return total_kwh, total_uah, missing_slices
+
+
+async def _sum_arbitrage_revenue_uah_window(
+    session: AsyncSession,
+    device_sn: str,
+    win_start_utc: datetime,
+    win_end_utc: datetime,
+    *,
+    end_exclusive: bool,
+) -> float:
+    """
+    Sum (import_kwh − export_kwh) × DAM UAH/kWh for samples in the UTC window; Kyiv hour indexing
+    matches ``oree_dam_price.period`` (period = hour + 1). Rows without DAM for that slot are omitted.
+    """
+    sn = (device_sn or "").strip()
+    if not sn:
+        return 0.0
+    zone = settings.OREE_COMPARE_ZONE_EIC
+    end_sql = "s.bucket_start < :t1" if end_exclusive else "s.bucket_start <= :t1"
+    base_from = f"""
+        FROM deye_soc_sample s
+        INNER JOIN oree_dam_price p ON p.trade_day = ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date)
+            AND p.zone_eic = :zone
+            AND p.period = (EXTRACT(HOUR FROM (s.bucket_start AT TIME ZONE 'Europe/Kiev'))::int + 1)
+        WHERE s.grid_power_w IS NOT NULL
+          AND s.grid_power_w <> 0
+          AND s.device_sn = :sn
+          AND s.bucket_start >= :t0
+          AND {end_sql}
+    """
+    sql = (
+        """
+        SELECT COALESCE(SUM(
+            (
+                CASE WHEN s.grid_power_w > 0 THEN s.grid_power_w::double precision / 12000.0 ELSE 0 END
+                - CASE WHEN s.grid_power_w < 0 THEN ABS(s.grid_power_w)::double precision / 12000.0 ELSE 0 END
+            ) * (p.price_uah_mwh / 1000.0)
+        ), 0)::double precision
+        """
+        + base_from
+    )
+    r = await session.execute(
+        text(sql),
+        {"sn": sn, "zone": zone, "t0": win_start_utc, "t1": win_end_utc},
+    )
+    return float(r.scalar_one() or 0.0)
 
 
 async def _preload_dam_uah_kwh(
@@ -369,10 +418,9 @@ async def compute_roi_pv_kwh_and_value_uah(
     start_iso: str,
 ) -> dict[str, Any]:
     """
-    Consumption kWh (load_power_w) and UAH = kWh × DAM at consumption hour (Kyiv).
-    PV generation kWh is returned separately (solar production reference).
+    ``totalValueUah`` = grid arbitrage UAH in [ROI start, now] (DAM at Kyiv hour per 5‑min sample).
 
-    Time range: ROI start .. now (same window for both series).
+    Load kWh and PV kWh remain in the payload for the stack reference bars; they do not set ROI money.
     """
     sn = (device_sn or "").strip()
     start_utc = _parse_start_utc(start_iso)
@@ -389,7 +437,20 @@ async def compute_roi_pv_kwh_and_value_uah(
     pv_data = await _compute_roi_pv_kwh_value_uah_window(
         session, sn, start_utc, now_utc, end_exclusive=False
     )
-    return _merge_load_and_pv_roi(load_data, pv_data)
+    merged = _merge_load_and_pv_roi(load_data, pv_data)
+    try:
+        arb = await _sum_arbitrage_revenue_uah_window(
+            session, sn, start_utc, now_utc, end_exclusive=False
+        )
+    except Exception as exc:
+        logger.exception("ROI arbitrage sum (full window): %s", exc)
+        arb = 0.0
+    merged["totalValueUah"] = arb
+    merged["effectiveRateUahPerKwh"] = None
+    merged["missingDamSlices"] = 0
+    if load_data.get("detail") == "insufficient_load_samples":
+        merged["detail"] = None
+    return merged
 
 
 async def compute_roi_pv_kwh_and_value_uah_previous_kyiv_month(
@@ -445,6 +506,18 @@ async def compute_roi_pv_kwh_and_value_uah_previous_kyiv_month(
         session, sn, eff_start, eff_end, end_exclusive=True
     )
     data = _merge_load_and_pv_roi(load_data, pv_data)
+    try:
+        arb = await _sum_arbitrage_revenue_uah_window(
+            session, sn, eff_start, eff_end, end_exclusive=True
+        )
+    except Exception as exc:
+        logger.exception("ROI arbitrage sum (prev month): %s", exc)
+        arb = 0.0
+    data["totalValueUah"] = arb
+    data["effectiveRateUahPerKwh"] = None
+    data["missingDamSlices"] = 0
+    if load_data.get("detail") == "insufficient_load_samples":
+        data["detail"] = None
     data["year"] = y
     data["month"] = m
     data["daysInMonth"] = days_in_month

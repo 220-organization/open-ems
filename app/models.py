@@ -1,7 +1,7 @@
 import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, Date, DateTime, Double, Integer, SmallInteger, String, Text, func
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, Double, Integer, SmallInteger, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -94,6 +94,34 @@ class DeyePeakAutoDischargeFired(Base):
     success_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    export_session_start_at: Mapped[Optional[datetime.datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    export_session_end_at: Mapped[Optional[datetime.datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    export_session_kwh: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    peak_discharge_hit_target: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+
+
+class DeyeManualDischargeSession(Base):
+    """Manual discharge from UI/API: export kWh for one completed SELLING_FIRST session."""
+
+    __tablename__ = "deye_manual_discharge_session"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    device_sn: Mapped[str] = mapped_column(String(64), nullable=False)
+    success_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    export_session_start_at: Mapped[Optional[datetime.datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    export_session_end_at: Mapped[Optional[datetime.datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    export_session_kwh: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    discharge_hit_target: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
 
 
 class DeyeLowDamChargePref(Base):

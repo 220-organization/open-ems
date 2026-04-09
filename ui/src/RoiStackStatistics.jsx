@@ -334,15 +334,6 @@ export default function RoiStackStatistics({
     [bcp47]
   );
 
-  const fmtRateUahPerKwh = useMemo(
-    () =>
-      new Intl.NumberFormat(bcp47, {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }),
-    [bcp47]
-  );
-
   const fmtUah = useMemo(
     () =>
       new Intl.NumberFormat(bcp47, {
@@ -388,23 +379,6 @@ export default function RoiStackStatistics({
         ? Number(roiStats.totalPvKwh)
         : 0;
 
-  const noSolarEssRateUahPerKwh = useMemo(() => {
-    const r = roiStats.effectiveRateUahPerKwh;
-    if (r != null && Number.isFinite(r) && r > 0) return r;
-    const tc = roiStats.totalConsumptionKwh;
-    const tv = roiStats.totalValueUah;
-    if (
-      tc != null &&
-      tv != null &&
-      Number.isFinite(Number(tc)) &&
-      Number.isFinite(Number(tv)) &&
-      Number(tc) > 0 &&
-      Number(tv) >= 0
-    ) {
-      return Number(tv) / Number(tc);
-    }
-    return null;
-  }, [roiStats.effectiveRateUahPerKwh, roiStats.totalConsumptionKwh, roiStats.totalValueUah]);
   const totalValueUah = roiStats.totalValueUah != null ? roiStats.totalValueUah : 0;
 
   const annualValueUah = elapsedYears > 0 ? totalValueUah / elapsedYears : 0;
@@ -620,13 +594,9 @@ export default function RoiStackStatistics({
                   ? '…'
                   : roiStats.error
                     ? '—'
-                    : t('roiDamTotalLine', {
+                    : t('roiArbitrageTotalLine', {
                         total: fmtUah.format(totalValueUah),
                         unit: t('roiValueUahUnit'),
-                        avg:
-                          noSolarEssRateUahPerKwh != null && Number.isFinite(noSolarEssRateUahPerKwh)
-                            ? fmtRateUahPerKwh.format(noSolarEssRateUahPerKwh)
-                            : '—',
                       })}
               </span>
             </div>

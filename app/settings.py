@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-
 from dotenv import load_dotenv
 
 # Load open-ems/.env into the process environment (local dev; Docker/k8s can still inject vars).
@@ -38,6 +37,25 @@ DEYE_APP_SECRET: str = (os.environ.get("DEYE_APP_SECRET") or "").strip()
 DEYE_EMAIL: str = (os.environ.get("DEYE_EMAIL") or "").strip()
 DEYE_PASSWORD: str = os.environ.get("DEYE_PASSWORD") or ""
 DEYE_COMPANY_ID: str = (os.environ.get("DEYE_COMPANY_ID") or "0").strip()
+
+
+def _parse_dev_mock_device_sns() -> tuple[str, ...]:
+    """
+    Comma-separated Deye serials (digits) for local UI when DEYE_* is unset.
+    Power flow + DB-backed charts work; cloud writes (discharge) still require real DEYE_*.
+    """
+    raw = (os.environ.get("DEYE_DEV_MOCK_DEVICE_SNS") or "").strip()
+    if not raw:
+        return tuple()
+    out: list[str] = []
+    for part in raw.split(","):
+        s = part.strip()
+        if s.isdigit() and len(s) >= 6:
+            out.append(s)
+    return tuple(dict.fromkeys(out))
+
+
+DEYE_DEV_MOCK_DEVICE_SNS: tuple[str, ...] = _parse_dev_mock_device_sns()
 
 # OREE / DAM API (same as Java OreeDamPriceSyncService — api.oree.com.ua).
 OREE_API_BASE_URL: str = os.environ.get(
@@ -223,3 +241,26 @@ DEYE_EV_PORT_EXPORT_TOU_SOC_PCT: int = _env_int("DEYE_EV_PORT_EXPORT_TOU_SOC_PCT
 # Per-client IP HTTP rate limit (sliding 60s window, in-process memory). Trust X-Forwarded-For only behind a trusted proxy.
 RATE_LIMIT_ENABLED: bool = _env_bool("RATE_LIMIT_ENABLED", True)
 RATE_LIMIT_PER_IP_PER_MINUTE: int = _env_int("RATE_LIMIT_PER_IP_PER_MINUTE", 200, 1, 10_000)
+
+
+def _parse_csv_env(name: str) -> list[str]:
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return []
+    return [x.strip() for x in raw.split(",") if x.strip()]
+
+
+# CORS: ``allow_origins=["*"]`` with ``allow_credentials=True`` is invalid — browsers get no usable
+# Access-Control-Allow-Origin. Defaults: production UI origins + regex for localhost / 127.0.0.1 (any port).
+_cors_origins_explicit = _parse_csv_env("CORS_ALLOW_ORIGINS")
+_default_cors_origins = (
+    "https://220-km.com",
+    "https://220-km.com:9220",
+)
+CORS_ALLOW_ORIGINS: tuple[str, ...] = (
+    tuple(_cors_origins_explicit) if _cors_origins_explicit else tuple(_default_cors_origins)
+)
+_cors_regex_explicit = (os.environ.get("CORS_ALLOW_ORIGIN_REGEX") or "").strip()
+CORS_ALLOW_ORIGIN_REGEX: str = (
+    _cors_regex_explicit if _cors_regex_explicit else r"https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+)

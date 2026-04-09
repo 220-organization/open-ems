@@ -1,4 +1,5 @@
--- Local dev: seed deye_soc_sample (5-min PV) for the last 3 months + DAM rows + ROI CAPEX start (Kyiv midnight, 3 months ago).
+-- Local dev: seed deye_soc_sample (5-min PV + grid pattern) for the last 3 months + DAM rows + ROI CAPEX start (Kyiv midnight, 3 months ago).
+-- Grid power varies by Kyiv calendar month (stronger peak import / dip export in current month vs previous) so landing «Arbitrage revenue» MoM % is non-trivial.
 -- Enables ROI stack (needs: start in past, >=2 PV samples, >=6h elapsed — see RoiStackStatistics MIN_ELAPSED_MS_FOR_ROI).
 --
 -- Usage:
@@ -20,6 +21,7 @@ DELETE FROM deye_soc_sample WHERE device_sn = :'device_sn';
 
 -- Kyiv hour kh: ~30 kWh/day PV during 08–18 (flat ~3000 W); ~35 kWh/day load at night 22–06 with
 -- pseudo-random active buckets (~70% of night intervals) at ~6300 W so trapezoids match targets.
+-- grid_power_w: month-aware arbitrage-shaped signal (import in high-DAM evening hours, export in low-DAM midday).
 INSERT INTO deye_soc_sample (
     device_sn,
     bucket_start,
@@ -34,7 +36,28 @@ SELECT
     :'device_sn'::varchar(64),
     g,
     65.0 + (random() * 20.0),
-    100.0,
+    CASE
+      WHEN to_char(timezone('Europe/Kiev', g), 'YYYY-MM')
+        = to_char(timezone('Europe/Kiev', now()), 'YYYY-MM') THEN
+        CASE
+          WHEN kh >= 19 AND kh <= 22 THEN 3200.0
+          WHEN kh >= 13 AND kh <= 15 THEN -2800.0
+          ELSE 150.0
+        END
+      WHEN to_char(timezone('Europe/Kiev', g), 'YYYY-MM')
+        = to_char(timezone('Europe/Kiev', now()) - interval '1 month', 'YYYY-MM') THEN
+        CASE
+          WHEN kh >= 19 AND kh <= 22 THEN 1600.0
+          WHEN kh >= 13 AND kh <= 15 THEN -1400.0
+          ELSE 80.0
+        END
+      ELSE
+        CASE
+          WHEN kh >= 19 AND kh <= 22 THEN 2200.0
+          WHEN kh >= 13 AND kh <= 15 THEN -2000.0
+          ELSE 100.0
+        END
+    END,
     CASE
         WHEN kh >= 8 AND kh < 18 THEN 300.0
         WHEN (kh >= 22 OR kh < 7) AND mod(abs(hashtext(g::text)), 10) < 7 THEN

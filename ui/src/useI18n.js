@@ -63,8 +63,7 @@ function resolveInitialLang() {
   } catch {
     /* ignore */
   }
-  const nav = normalizeLang(navigator.language || navigator.userLanguage);
-  if (nav) return nav;
+  // Default to Ukrainian on first open; URL ?lang= and localStorage still override.
   return 'uk';
 }
 

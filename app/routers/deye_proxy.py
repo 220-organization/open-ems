@@ -2,14 +2,15 @@
 
 import logging
 from datetime import date as date_cls
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import get_db
+from app.db import async_session_factory, get_db
+from app.deye_manual_discharge_store import persist_manual_discharge_session_from_api_result
 from app.deye_api import (
     assert_deye_write_pin,
     assert_inverter_owned,
@@ -52,6 +53,13 @@ from app.solar_forecast_open_meteo import (
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+
+async def _persist_manual_discharge_session(payload: dict[str, Any]) -> None:
+    async with async_session_factory() as session:
+        await persist_manual_discharge_session_from_api_result(session, payload)
+        await session.commit()
+
 
 router = APIRouter(prefix="/api/deye", tags=["deye"])
 
@@ -285,14 +293,13 @@ async def get_roi_stats(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Consumption kWh from ``load_power_w`` (DB) and UAH = kWh × DAM at each consumption hour (Kyiv).
+    ``totalValueUah`` is grid **arbitrage** UAH in the ROI window (import−export kWh per sample × DAM hourly
+    UAH/kWh, Kyiv day/hour), not load-weighted DAM value.
 
-    ``totalPvKwh`` is PV generation (reference). ``totalConsumptionKwh`` and ``totalValueUah`` use load.
-    ``dailyConsumptionKwh`` lists Kyiv-calendar days with per-day kWh and UAH (1-day aggregation).
+    ``totalConsumptionKwh`` / ``totalPvKwh`` / ``dailyConsumptionKwh`` still describe load and PV (reference).
 
-    ``effectiveRateUahPerKwh`` is ``totalValueUah / totalConsumptionKwh`` (DAM-weighted by when load ran).
-
-    ``previousMonth`` is the same for the previous calendar month (Europe/Kyiv), intersected with the ROI window.
+    ``previousMonth`` uses the same arbitrage formula for the previous Kyiv calendar month, intersected
+    with [ROI start, now).
     """
     if not deye_configured():
         return JSONResponse(
@@ -730,7 +737,10 @@ async def post_discharge_2pct(
         else:
             delta = float(delta)
         result = await discharge_soc_delta_then_zero_export_ct(
-            sn, float(delta), return_after_start=body.respondAfterStart
+            sn,
+            float(delta),
+            return_after_start=body.respondAfterStart,
+            on_export_session_complete=_persist_manual_discharge_session,
         )
         return JSONResponse(
             content={"ok": True, "configured": True, **result},

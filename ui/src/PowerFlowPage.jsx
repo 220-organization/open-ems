@@ -83,10 +83,89 @@ const UK_MONTH_INSTRUMENTAL = Object.freeze([
   'листопадом',
   'груднем',
 ]);
+/** Short month labels for arbitrage MoM (after «за»). Index 1 = January … 12 = December. */
+const UK_MONTH_SHORT = Object.freeze([
+  '',
+  'січ.',
+  'лют.',
+  'бер.',
+  'квіт.',
+  'трав.',
+  'черв.',
+  'лип.',
+  'серп.',
+  'вер.',
+  'жовт.',
+  'лист.',
+  'груд.',
+]);
 
 /** UI retail tariff from DAM average: +3.5 UAH/kWh (distribution / rozpodil) then +20% (VAT). */
 const LANDING_TARIFF_DISTRIBUTION_UAH_PER_KWH = 3.5;
 const LANDING_TARIFF_VAT_MULTIPLIER = 1.2;
+
+/** Landing export block: metric dropdown + counter (fleet or one inverter; default: peak session). */
+const LANDING_EXPORT_METRIC = Object.freeze({
+  PEAK: 'peak',
+  MANUAL: 'manual',
+  TOTAL: 'total',
+  ARBITRAGE: 'arbitrage',
+});
+
+const LANDING_EXPORT_METRIC_VALUES = new Set(Object.values(LANDING_EXPORT_METRIC));
+
+function landingExportMetricStorageKey(inverterSn) {
+  const s = String(inverterSn || '').trim();
+  return `pf-landing-export-metric-v1-${s || 'fleet'}`;
+}
+
+function readStoredLandingExportMetric(inverterSn) {
+  try {
+    const raw = localStorage.getItem(landingExportMetricStorageKey(inverterSn));
+    if (raw && LANDING_EXPORT_METRIC_VALUES.has(raw)) return raw;
+  } catch {
+    /* ignore */
+  }
+  return LANDING_EXPORT_METRIC.PEAK;
+}
+
+function writeStoredLandingExportMetric(inverterSn, value) {
+  if (!LANDING_EXPORT_METRIC_VALUES.has(value)) return;
+  try {
+    localStorage.setItem(landingExportMetricStorageKey(inverterSn), value);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Append localized unit for landing export counters (skip placeholders). */
+function formatLandingKwhCounterText(displayText, t) {
+  const s = displayText == null ? '' : String(displayText).trim();
+  if (!s || s === '—' || s === '…') return s || '—';
+  return `${s} ${t('powerFlowLandingKwhUnit')}`;
+}
+
+/**
+ * Total export counter: plain sum from API ``totalExportKwh`` (all 5‑min samples with grid export).
+ * Not derived from peak-DAM or manual-discharge session rows.
+ */
+function formatLandingTotalExportSamplesKwh(totalExportKwh, bcp47) {
+  const fmtKwh = new Intl.NumberFormat(bcp47, { maximumFractionDigits: 1, minimumFractionDigits: 0 });
+  if (totalExportKwh != null && Number.isFinite(Number(totalExportKwh))) {
+    return fmtKwh.format(Number(totalExportKwh));
+  }
+  return '—';
+}
+
+/** kWh suffix for export metrics; currency values are already formatted via Intl. */
+function formatLandingMetricCounterText(displayText, t, valueIsCurrency) {
+  if (valueIsCurrency) {
+    const s = displayText == null ? '' : String(displayText).trim();
+    if (!s || s === '—' || s === '…') return s || '—';
+    return s;
+  }
+  return formatLandingKwhCounterText(displayText, t);
+}
 
 function landingRetailUahPerKwh(damAvgUahPerKwh) {
   const x = Number(damAvgUahPerKwh);
@@ -97,9 +176,72 @@ function landingRetailUahPerKwh(damAvgUahPerKwh) {
 /** Fleet totals block: kWh exported + DAM tariff line (Kyiv current month vs previous month). */
 function formatLandingTotalsDisplay(landingTotals, bcp47, t) {
   if (!landingTotals?.ok) return null;
-  const exp = landingTotals.totalExportKwh;
   const fmtKwh = new Intl.NumberFormat(bcp47, { maximumFractionDigits: 1, minimumFractionDigits: 0 });
+  const fmtUah = new Intl.NumberFormat(bcp47, {
+    style: 'currency',
+    currency: 'UAH',
+    maximumFractionDigits: 0,
+    minimumFractionDigits: 0,
+  });
   const fmtRate = new Intl.NumberFormat(bcp47, { maximumFractionDigits: 3, minimumFractionDigits: 2 });
+  const arbRaw = landingTotals.arbitrageRevenueUah;
+  let arbitrage = null;
+  if (typeof arbRaw === 'number' && Number.isFinite(arbRaw)) {
+    const amPct = landingTotals.arbitrageKyivMonthMomPct;
+    const amY = landingTotals.arbitrageKyivMonthMomYear;
+    const amM = landingTotals.arbitrageKyivMonthMomMonth;
+    let mom = null;
+    if (
+      typeof amPct === 'number' &&
+      Number.isFinite(amPct) &&
+      typeof amY === 'number' &&
+      typeof amM === 'number' &&
+      amY >= 2000 &&
+      amM >= 1 &&
+      amM <= 12
+    ) {
+      const fmtPct = new Intl.NumberFormat(bcp47, { maximumFractionDigits: 1, minimumFractionDigits: 1 });
+      const deltaStr = `${amPct > 0 ? '+' : ''}${fmtPct.format(amPct)}%`;
+      const bcp47Lower = String(bcp47 || '').toLowerCase();
+      const isUk = bcp47Lower === 'uk' || bcp47Lower.startsWith('uk-');
+      let monthLabel;
+      if (isUk && amM >= 1 && amM <= 12) {
+        const sh = UK_MONTH_SHORT[amM];
+        monthLabel = sh ? sh.charAt(0).toUpperCase() + sh.slice(1) : String(amM);
+      } else {
+        monthLabel = new Intl.DateTimeFormat(bcp47, { month: 'short', timeZone: 'Europe/Kyiv' }).format(
+          new Date(Date.UTC(amY, amM - 1, 15, 12, 0, 0)),
+        );
+        if (monthLabel.length > 0) {
+          monthLabel = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1);
+        }
+      }
+      mom = { deltaPct: amPct, deltaStr, monthLabel };
+    }
+    arbitrage = { revenueText: fmtUah.format(arbRaw), mom };
+  }
+  const pds = landingTotals.peakDamLastSession;
+  let peakDam = null;
+  if (
+    pds &&
+    typeof pds.exportSessionKwh === 'number' &&
+    Number.isFinite(pds.exportSessionKwh)
+  ) {
+    peakDam = {
+      exportText: fmtKwh.format(pds.exportSessionKwh),
+    };
+  }
+  const mds = landingTotals.manualDischargeLastSession;
+  let manualDischarge = null;
+  if (
+    mds &&
+    typeof mds.exportSessionKwh === 'number' &&
+    Number.isFinite(mds.exportSessionKwh)
+  ) {
+    manualDischarge = {
+      exportText: fmtKwh.format(mds.exportSessionKwh),
+    };
+  }
   const dam = landingTotals.dam;
   if (dam?.configured && dam.currentAvgUahPerKwh != null && dam.currentMonthStart && dam.prevMonthStart) {
     const monthFmt = new Intl.DateTimeFormat(bcp47, { month: 'long' });
@@ -125,7 +267,6 @@ function formatLandingTotalsDisplay(landingTotals, bcp47, t) {
       const pct = ((retailCurrent - retailPrev) / retailPrev) * 100;
       const deltaStr = `${pct > 0 ? '+' : ''}${pct.toFixed(1)}%`;
       return {
-        exportText: exp != null ? fmtKwh.format(exp) : '—',
         tariffLine: null,
         tariffCompare: {
           lead: t('powerFlowLandingTariffLineLead', { month: curMonth, rate }),
@@ -133,18 +274,25 @@ function formatLandingTotalsDisplay(landingTotals, bcp47, t) {
           deltaStr,
           tail: t('powerFlowLandingTariffLineTail', { prevMonth }),
         },
+        peakDam,
+        manualDischarge,
+        arbitrage,
       };
     }
     return {
-      exportText: exp != null ? fmtKwh.format(exp) : '—',
       tariffLine: t('powerFlowLandingTariffPartial', { month: curMonth, rate }),
       tariffCompare: null,
+      peakDam,
+      manualDischarge,
+      arbitrage,
     };
   }
   return {
-    exportText: exp != null ? fmtKwh.format(exp) : '—',
     tariffLine: t('powerFlowLandingTariffUnavailable'),
     tariffCompare: null,
+    peakDam,
+    manualDischarge,
+    arbitrage,
   };
 }
 
@@ -598,6 +746,11 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   /** Fleet or per-inverter totals from GET /api/power-flow/landing-totals. */
   const [landingTotals, setLandingTotals] = useState(null);
   const [landingTotalsLoading, setLandingTotalsLoading] = useState(false);
+  const [landingExportMetric, setLandingExportMetric] = useState(LANDING_EXPORT_METRIC.PEAK);
+
+  useEffect(() => {
+    setLandingExportMetric(readStoredLandingExportMetric(selInverterSn));
+  }, [selInverterSn]);
 
   /** No serial or prefs still loading — controls stay disabled (no click). Missing PIN in name: enabled, click opens modal. */
   const deyeWritesHardBlocked = !selInverterSn || toolbarPrefsLoading;
@@ -1768,10 +1921,70 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
           {showPowerFlowSections
             ? (() => {
                 const ltd = inverterListReady ? formatLandingTotalsDisplay(landingTotals, bcp47, t) : null;
-                const exportLabelKey = selInverterSn.trim()
-                  ? 'powerFlowLandingExportLabelInverter'
-                  : 'powerFlowLandingExportLabel';
+                const landingTotalsFleet = landingTotals?.exportScope === 'fleet';
                 const listPending = !inverterListReady;
+
+                const inverterMetricDisplay = ltd
+                  ? (() => {
+                      if (landingExportMetric === LANDING_EXPORT_METRIC.TOTAL) {
+                        return {
+                          text: formatLandingTotalExportSamplesKwh(landingTotals.totalExportKwh, bcp47),
+                          title: landingTotalsFleet
+                            ? t('powerFlowLandingExportTotalHintFleet')
+                            : t('powerFlowLandingExportTotalHint'),
+                          wrapClass: 'pf-landing-totals__counter-wrap',
+                          counterClass: 'pf-landing-totals__counter',
+                          valueIsCurrency: false,
+                        };
+                      }
+                      if (landingExportMetric === LANDING_EXPORT_METRIC.PEAK) {
+                        const p = ltd.peakDam;
+                        return {
+                          text: p ? p.exportText : '—',
+                          title: landingTotalsFleet
+                            ? t('powerFlowLandingPeakDamSessionHintFleet')
+                            : t('powerFlowLandingPeakDamSessionHint'),
+                          wrapClass: `pf-landing-totals__counter-wrap${p ? ' pf-landing-totals__counter-wrap--peak-dam' : ''}`,
+                          counterClass: `pf-landing-totals__counter${p ? ' pf-landing-totals__counter--peak-dam' : ''}`,
+                          valueIsCurrency: false,
+                        };
+                      }
+                      if (landingExportMetric === LANDING_EXPORT_METRIC.MANUAL) {
+                        const m = ltd.manualDischarge;
+                        return {
+                          text: m ? m.exportText : '—',
+                          title: landingTotalsFleet
+                            ? t('powerFlowLandingManualDischargeHintFleet')
+                            : t('powerFlowLandingManualDischargeHint'),
+                          wrapClass: `pf-landing-totals__counter-wrap${m ? ' pf-landing-totals__counter-wrap--manual-discharge' : ''}`,
+                          counterClass: `pf-landing-totals__counter${m ? ' pf-landing-totals__counter--manual-discharge' : ''}`,
+                          valueIsCurrency: false,
+                        };
+                      }
+                      if (landingExportMetric === LANDING_EXPORT_METRIC.ARBITRAGE) {
+                        const a = ltd.arbitrage;
+                        return {
+                          text: a ? a.revenueText : '—',
+                          title: landingTotalsFleet
+                            ? t('powerFlowLandingArbitrageHintFleet')
+                            : t('powerFlowLandingArbitrageHint'),
+                          wrapClass: `pf-landing-totals__counter-wrap${a ? ' pf-landing-totals__counter-wrap--arbitrage' : ''}`,
+                          counterClass: `pf-landing-totals__counter${a ? ' pf-landing-totals__counter--arbitrage' : ''}`,
+                          valueIsCurrency: true,
+                          arbitrageMom: a?.mom ?? null,
+                        };
+                      }
+                      return {
+                        text: formatLandingTotalExportSamplesKwh(landingTotals.totalExportKwh, bcp47),
+                        title: landingTotalsFleet
+                          ? t('powerFlowLandingExportTotalHintFleet')
+                          : t('powerFlowLandingExportTotalHint'),
+                        wrapClass: 'pf-landing-totals__counter-wrap',
+                        counterClass: 'pf-landing-totals__counter',
+                        valueIsCurrency: false,
+                      };
+                    })()
+                  : null;
 
                 if (listPending) {
                   return (
@@ -1782,9 +1995,11 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                         aria-label={t('powerFlowLandingTotalsAria')}
                       >
                         <div className="pf-landing-totals__export">
-                          <div className="pf-skeleton-line pf-skeleton-line--center pf-skeleton-line--label" />
-                          <div className="pf-landing-totals__counter-wrap pf-landing-totals__counter-wrap--skeleton">
-                            <span className="pf-skeleton-line pf-skeleton-line--counter" />
+                          <div className="pf-landing-totals__metric-row">
+                            <div className="pf-skeleton-line pf-skeleton-line--metric-select" />
+                            <div className="pf-landing-totals__counter-wrap pf-landing-totals__counter-wrap--skeleton">
+                              <span className="pf-skeleton-line pf-skeleton-line--counter" />
+                            </div>
                           </div>
                         </div>
                         <div className="pf-skeleton-line pf-skeleton-line--center pf-skeleton-line--tariff" />
@@ -1796,29 +2011,85 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                 return (
                   <div className="pf-landing-totals-slot">
                     <div className="pf-landing-totals" aria-label={t('powerFlowLandingTotalsAria')}>
-                      <div className="pf-landing-totals__export">
-                        <div className="pf-landing-totals__label">{t(exportLabelKey)}</div>
-                        {ltd ? (
-                          <div className="pf-landing-totals__counter-wrap">
-                            <div className="pf-landing-totals__counter-scroll">
-                              <PfScrollNumber
-                                direction="up"
-                                duration={0.32}
-                                ease={[0.33, 0, 0.2, 1]}
-                                className="pf-landing-totals__counter"
-                                numberStyle={{
-                                  letterSpacing: '0.05em',
-                                }}
-                              >
-                                {ltd.exportText}
-                              </PfScrollNumber>
+                      <div className="pf-landing-totals__export pf-landing-totals__export--inverter-metric">
+                        <div
+                          className="pf-landing-totals__metric-row"
+                          title={inverterMetricDisplay?.title ?? undefined}
+                        >
+                          <select
+                            id="pf-landing-export-metric"
+                            className="pf-lang-select pf-landing-totals__metric-select"
+                            aria-label={t('powerFlowLandingExportMetricAria')}
+                            value={landingExportMetric}
+                            onChange={e => {
+                              const v = e.target.value;
+                              setLandingExportMetric(v);
+                              writeStoredLandingExportMetric(selInverterSn, v);
+                            }}
+                          >
+                            <option value={LANDING_EXPORT_METRIC.PEAK}>
+                              {t('powerFlowLandingExportMetricPeak')}
+                            </option>
+                            <option value={LANDING_EXPORT_METRIC.MANUAL}>
+                              {t('powerFlowLandingExportMetricManual')}
+                            </option>
+                            <option value={LANDING_EXPORT_METRIC.TOTAL}>
+                              {t('powerFlowLandingExportMetricTotal')}
+                            </option>
+                            <option value={LANDING_EXPORT_METRIC.ARBITRAGE}>
+                              {t('powerFlowLandingExportMetricArbitrage')}
+                            </option>
+                          </select>
+                          {ltd && inverterMetricDisplay ? (
+                            <div
+                              className={
+                                inverterMetricDisplay.arbitrageMom
+                                  ? 'pf-landing-totals__export-value pf-landing-totals__export-value--with-arbitrage-mom'
+                                  : 'pf-landing-totals__export-value'
+                              }
+                            >
+                              <div className={inverterMetricDisplay.wrapClass}>
+                                <div className="pf-landing-totals__counter-scroll">
+                                  <PfScrollNumber
+                                    direction="up"
+                                    duration={0.32}
+                                    ease={[0.33, 0, 0.2, 1]}
+                                    className={inverterMetricDisplay.counterClass}
+                                    numberStyle={{
+                                      letterSpacing: '0.05em',
+                                    }}
+                                  >
+                                    {formatLandingMetricCounterText(
+                                      inverterMetricDisplay.text,
+                                      t,
+                                      inverterMetricDisplay.valueIsCurrency,
+                                    )}
+                                  </PfScrollNumber>
+                                </div>
+                              </div>
+                              {inverterMetricDisplay.arbitrageMom ? (
+                                <span
+                                  className={
+                                    inverterMetricDisplay.arbitrageMom.deltaPct > 0
+                                      ? 'pf-landing-totals__arbitrage-mom-out pf-landing-totals__arbitrage-mom-out--up'
+                                      : inverterMetricDisplay.arbitrageMom.deltaPct < 0
+                                        ? 'pf-landing-totals__arbitrage-mom-out pf-landing-totals__arbitrage-mom-out--down'
+                                        : 'pf-landing-totals__arbitrage-mom-out pf-landing-totals__arbitrage-mom-out--flat'
+                                  }
+                                >
+                                  {t('powerFlowLandingArbitrageMomDelta', {
+                                    delta: inverterMetricDisplay.arbitrageMom.deltaStr,
+                                    month: inverterMetricDisplay.arbitrageMom.monthLabel,
+                                  })}
+                                </span>
+                              ) : null}
                             </div>
-                          </div>
-                        ) : (
-                          <div className="pf-landing-totals__counter-wrap pf-landing-totals__counter-wrap--loading">
-                            <span className="pf-landing-totals__counter">…</span>
-                          </div>
-                        )}
+                          ) : (
+                            <div className="pf-landing-totals__counter-wrap pf-landing-totals__counter-wrap--loading">
+                              <span className="pf-landing-totals__counter">…</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
                       <p className="pf-landing-totals__tariff">
                         {ltd?.tariffCompare ? (

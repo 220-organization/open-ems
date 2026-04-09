@@ -10,7 +10,8 @@ import math
 import re
 import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from datetime import datetime, timezone
+from typing import Any, Awaitable, Callable, Optional
 
 import httpx
 
@@ -1242,11 +1243,12 @@ async def _discharge_soc_delta_poll_loop_and_restore(
     poll: float,
     timeout: float,
     rated: int,
-) -> tuple[bool, float, Optional[str]]:
+) -> tuple[bool, float, Optional[str], datetime]:
     """Poll until SoC at target; then ZERO_EXPORT_TO_CT with TOU SoC = max(15%, discharge target)."""
     hit_target = False
     last_soc: float = float(soc0_f)
     restore_error: Optional[str] = None
+    export_ended_at = datetime.now(timezone.utc)
     try:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -1268,8 +1270,10 @@ async def _discharge_soc_delta_poll_loop_and_restore(
         except Exception as exc:
             restore_error = str(exc)
             logger.exception("Deye: ZERO_EXPORT_TO_CT restore failed sn=%s", sn)
+        finally:
+            export_ended_at = datetime.now(timezone.utc)
 
-    return hit_target, last_soc, restore_error
+    return hit_target, last_soc, restore_error, export_ended_at
 
 
 async def discharge_soc_delta_then_zero_export_ct(
@@ -1277,6 +1281,7 @@ async def discharge_soc_delta_then_zero_export_ct(
     soc_delta_pct: float,
     *,
     return_after_start: bool = False,
+    on_export_session_complete: Optional[Callable[[dict[str, Any]], Awaitable[None]]] = None,
 ) -> dict[str, Any]:
     """
     1) Set workMode SELLING_FIRST via dynamicControl (discharge-friendly TOU template).
@@ -1287,6 +1292,9 @@ async def discharge_soc_delta_then_zero_export_ct(
 
     When return_after_start is True, step 1 is awaited and the HTTP handler can return
     immediately; steps 2–3 continue in a background task (for UI loaders).
+
+    ``on_export_session_complete`` receives the same shape as the sync return payload (including
+    ``exportSession`` with ``endedAt``) after the session finishes; errors are logged, not raised.
 
     Warning: replaces the device's TOU schedule with the template (Deye API limitation).
     """
@@ -1316,14 +1324,36 @@ async def discharge_soc_delta_then_zero_export_ct(
     tou_soc_discharge = round(target, 2)
 
     await _post_strategy_dynamic_control(_body_selling_first(sn, tou_soc_discharge, rated))
+    export_started_at = datetime.now(timezone.utc)
 
     if return_after_start:
 
         async def _bg_discharge() -> None:
             try:
-                _, _, restore_error = await _discharge_soc_delta_poll_loop_and_restore(
+                hit_target, last_soc, restore_error, export_ended_at = await _discharge_soc_delta_poll_loop_and_restore(
                     sn, soc0_f, target, poll, timeout, rated
                 )
+                completion: dict[str, Any] = {
+                    "deviceSn": sn,
+                    "socDeltaPercent": round(delta, 2),
+                    "startSoc": soc0_f,
+                    "targetSoc": float(target),
+                    "lastSoc": last_soc,
+                    "hitTarget": hit_target,
+                    "workModeRestored": "ZERO_EXPORT_TO_CT" if not restore_error else None,
+                    "respondAfterStart": False,
+                    "exportSession": {
+                        "startedAt": export_started_at.isoformat(),
+                        "endedAt": export_ended_at.isoformat(),
+                        "hitTarget": hit_target,
+                        "pending": False,
+                    },
+                }
+                if on_export_session_complete:
+                    try:
+                        await on_export_session_complete(completion)
+                    except Exception:
+                        logger.exception("Deye: on_export_session_complete failed sn=%s", sn)
                 if restore_error:
                     logger.error(
                         "Deye: background discharge finished with restore error sn=%s err=%s",
@@ -1343,16 +1373,22 @@ async def discharge_soc_delta_then_zero_export_ct(
             "hitTarget": False,
             "workModeRestored": None,
             "respondAfterStart": True,
+            "exportSession": {
+                "startedAt": export_started_at.isoformat(),
+                "endedAt": None,
+                "hitTarget": False,
+                "pending": True,
+            },
         }
 
-    hit_target, last_soc, restore_error = await _discharge_soc_delta_poll_loop_and_restore(
+    hit_target, last_soc, restore_error, export_ended_at = await _discharge_soc_delta_poll_loop_and_restore(
         sn, soc0_f, target, poll, timeout, rated
     )
 
     if restore_error:
         raise RuntimeError(f"Failed to restore ZERO_EXPORT_TO_CT: {restore_error}")
 
-    return {
+    result: dict[str, Any] = {
         "deviceSn": sn,
         "socDeltaPercent": round(delta, 2),
         "startSoc": soc0_f,
@@ -1361,7 +1397,19 @@ async def discharge_soc_delta_then_zero_export_ct(
         "hitTarget": hit_target,
         "workModeRestored": "ZERO_EXPORT_TO_CT",
         "respondAfterStart": False,
+        "exportSession": {
+            "startedAt": export_started_at.isoformat(),
+            "endedAt": export_ended_at.isoformat(),
+            "hitTarget": hit_target,
+            "pending": False,
+        },
     }
+    if on_export_session_complete:
+        try:
+            await on_export_session_complete(result)
+        except Exception:
+            logger.exception("Deye: on_export_session_complete failed sn=%s", sn)
+    return result
 
 
 async def discharge_two_percent_then_zero_export_ct(device_sn: str) -> dict[str, Any]:

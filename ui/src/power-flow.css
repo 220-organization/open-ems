@@ -216,6 +216,129 @@ body {
   text-align: center;
 }
 
+.pf-landing-totals__export--inverter-metric {
+  gap: 8px;
+  width: 100%;
+}
+
+.pf-landing-totals__metric-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px 16px;
+  width: 100%;
+}
+
+.pf-landing-totals__metric-select {
+  flex: 0 0 auto;
+  min-width: min(168px, 46vw);
+  max-width: min(220px, 88vw);
+  text-align: left;
+}
+
+.pf-landing-totals__metric-row .pf-landing-totals__counter-wrap {
+  flex: 1 1 auto;
+  min-width: min(100%, max(10ch, 140px));
+  max-width: 100%;
+}
+
+.pf-landing-totals__export-value {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 12px 18px;
+  flex-wrap: wrap;
+  min-width: min(100%, max(10ch, 140px));
+  max-width: 100%;
+}
+
+.pf-landing-totals__export-value--with-arbitrage-mom {
+  justify-content: flex-end;
+}
+
+.pf-landing-totals__metric-row > .pf-landing-totals__export-value .pf-landing-totals__counter-wrap {
+  flex: 0 1 auto;
+  min-width: min(100%, max(10ch, 120px));
+  max-width: min(100%, 22rem);
+}
+
+.pf-landing-totals__counter-wrap--peak-dam {
+  border-color: rgba(129, 140, 248, 0.45);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 0 22px rgba(129, 140, 248, 0.28);
+}
+
+.pf-landing-totals__counter--peak-dam {
+  color: #a78bfa;
+  text-shadow:
+    0 0 14px rgba(167, 139, 250, 0.65),
+    0 0 28px rgba(129, 140, 248, 0.35),
+    0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.pf-landing-totals__counter-wrap--manual-discharge {
+  border-color: rgba(45, 212, 191, 0.45);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 0 22px rgba(45, 212, 191, 0.22);
+}
+
+.pf-landing-totals__counter--manual-discharge {
+  color: #5eead4;
+  text-shadow:
+    0 0 14px rgba(94, 234, 212, 0.55),
+    0 0 28px rgba(45, 212, 191, 0.28),
+    0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.pf-landing-totals__counter-wrap--arbitrage {
+  border-color: rgba(251, 191, 36, 0.45);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 0 22px rgba(251, 191, 36, 0.22);
+}
+
+.pf-landing-totals__counter--arbitrage {
+  color: #fcd34d;
+  text-shadow:
+    0 0 14px rgba(252, 211, 77, 0.55),
+    0 0 28px rgba(251, 191, 36, 0.28),
+    0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+/* Arbitrage MoM: outside the counter box, to the right of the neon frame */
+.pf-landing-totals__arbitrage-mom-out {
+  flex: 0 0 auto;
+  font-size: clamp(0.75rem, 2.8vw, 0.92rem);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+  white-space: nowrap;
+  padding: 0;
+  margin: 0;
+  background: none;
+  border: none;
+  box-shadow: none;
+}
+
+.pf-landing-totals__arbitrage-mom-out--up {
+  color: #86efac;
+  text-shadow: 0 0 12px rgba(134, 239, 172, 0.5);
+}
+
+.pf-landing-totals__arbitrage-mom-out--down {
+  color: #fca5a5;
+  text-shadow: 0 0 12px rgba(252, 165, 165, 0.45);
+}
+
+.pf-landing-totals__arbitrage-mom-out--flat {
+  color: rgba(255, 255, 255, 0.65);
+}
+
 .pf-landing-totals__label {
   margin: 0;
   font-size: 14px;
@@ -317,6 +440,20 @@ body {
     gap: 5px;
   }
 
+  .pf-landing-totals__metric-row {
+    gap: 10px 12px;
+  }
+
+  .pf-landing-totals__export-value--with-arbitrage-mom {
+    justify-content: center;
+  }
+
+  .pf-landing-totals__metric-select {
+    min-width: min(152px, 52vw);
+    font-size: clamp(12px, 3.4vw, 14px);
+    padding: 7px 10px;
+  }
+
   .pf-landing-totals__label {
     font-size: clamp(11px, 3.5vw, 14px);
     line-height: 1.35;
@@ -409,6 +546,13 @@ body {
 
 .pf-skeleton-line--label {
   margin-bottom: 4px;
+}
+
+.pf-skeleton-line--metric-select {
+  width: min(168px, 46vw);
+  height: 40px;
+  border-radius: 10px;
+  flex-shrink: 0;
 }
 
 .pf-skeleton-line--counter {

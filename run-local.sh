@@ -34,6 +34,12 @@ Environment: UI_PORT, API_PORT, DATABASE_URL, UVICORN_RELOAD, REACT_APP_API_BASE
   Optional: ZONE_EIC (default 10Y1001C--000182). Requires psql or Docker db container.
 
   Lost-solar test seed: upserts 5-min SoC 100% + PV for Kyiv hours 12–16 (five hours) today (same DEVICE_SN), non-fatal if it fails.
+
+  Power-flow demo seed: POWER_FLOW_DEMO_SN (default 2410102121) — export samples + peak DAM + manual discharge
+  rows for landing totals (http://localhost:9220/?inverter=<SN>); non-fatal if it fails.
+
+  When POWER_FLOW_DEMO_SN differs from DEVICE_SN, ROI stack seed (./scripts/seed_roi_dev_data.sh) also runs for
+  POWER_FLOW_DEMO_SN (3 months PV/load samples + deye_roi_capex + DAM rows) before the power-flow demo overlay.
 EOF
       exit 0
       ;;
@@ -48,6 +54,9 @@ export DATABASE_URL="${DATABASE_URL:-postgresql+asyncpg://openems:openems@127.0.
 
 # ROI dev DB seed target (scripts/seed_roi_dev_data.sh)
 export DEVICE_SN="2512291445"
+
+# Landing totals demo: peak DAM + manual discharge counters (scripts/seed_power_flow_demo_sn.sql)
+POWER_FLOW_DEMO_SN="${POWER_FLOW_DEMO_SN:-2410102121}"
 
 UI_PORT="${UI_PORT:-9220}"
 API_PORT="${API_PORT:-9221}"
@@ -138,6 +147,22 @@ ON CONFLICT (device_sn, bucket_start) DO UPDATE SET
 EOSQL
 then
   echo "WARN: Lost-solar SoC seed failed (non-fatal)." >&2
+fi
+
+if [[ "${POWER_FLOW_DEMO_SN}" != "${DEVICE_SN}" ]]; then
+  echo "Running ROI dev DB seed for POWER_FLOW_DEMO_SN=${POWER_FLOW_DEMO_SN} (./scripts/seed_roi_dev_data.sh)…" >&2
+  if ! DEVICE_SN="${POWER_FLOW_DEMO_SN}" ./scripts/seed_roi_dev_data.sh; then
+    echo "WARN: ROI dev seed for POWER_FLOW_DEMO_SN failed (non-fatal). Run: DEVICE_SN=${POWER_FLOW_DEMO_SN} ./scripts/seed_roi_dev_data.sh" >&2
+  fi
+fi
+
+echo "Seeding power-flow demo (export samples + peak + manual discharge) for POWER_FLOW_DEMO_SN=${POWER_FLOW_DEMO_SN}…" >&2
+if [[ -f ./scripts/seed_power_flow_demo_sn.sql ]]; then
+  if ! docker compose exec -T db psql -U openems -d openems -v "demo_sn=${POWER_FLOW_DEMO_SN}" < ./scripts/seed_power_flow_demo_sn.sql; then
+    echo "WARN: Power-flow demo seed failed (non-fatal). Run manually: docker compose exec -T db psql -U openems -d openems -v demo_sn=${POWER_FLOW_DEMO_SN} < ./scripts/seed_power_flow_demo_sn.sql" >&2
+  fi
+else
+  echo "WARN: scripts/seed_power_flow_demo_sn.sql missing — skip power-flow demo seed." >&2
 fi
 
 if [[ ! -d .venv ]]; then
