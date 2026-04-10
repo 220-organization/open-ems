@@ -428,6 +428,11 @@ body {
   -webkit-hyphens: auto;
 }
 
+.pf-landing-totals__tariff--dam {
+  margin-top: 0.35em;
+  opacity: 0.82;
+}
+
 /* Retail tariff MoM %: higher retail = red, lower = green */
 .pf-landing-totals__delta {
   font-weight: 700;

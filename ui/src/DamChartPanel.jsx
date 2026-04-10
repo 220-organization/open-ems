@@ -28,8 +28,8 @@ function apiUrl(path) {
 const DAM_CHART_MOBILE_MAX_PX = 600;
 
 function useDamChartMobileLayout() {
-  const [isMobile, setIsMobile] = useState(() =>
-    typeof window !== 'undefined' && window.matchMedia(`(max-width: ${DAM_CHART_MOBILE_MAX_PX}px)`).matches
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(`(max-width: ${DAM_CHART_MOBILE_MAX_PX}px)`).matches
   );
   useEffect(() => {
     const mq = window.matchMedia(`(max-width: ${DAM_CHART_MOBILE_MAX_PX}px)`);
@@ -82,6 +82,47 @@ function getHourlyDamPerKwhFromPayload(p) {
     return p.hourlyPriceDamUahPerKwh;
   }
   return null;
+}
+
+/** DAM price in UAH/kWh for billing; primary ENTSO-E series is EUR/kWh until scaled by NBU rate. */
+function hourlyDamPriceUahPerKwhFromRow(row, damMarket, eurUahRate) {
+  if (row.damPriceKwh == null || !Number.isFinite(row.damPriceKwh)) return null;
+  if (damMarket === 'oree') return row.damPriceKwh;
+  if (eurUahRate != null && eurUahRate > 0) return row.damPriceKwh * eurUahRate;
+  return null;
+}
+
+/**
+ * Hourly Σ (kWh_h × DAM_UAH_h) and volume-weighted average DAM (UAH/kWh) for grid import / export.
+ * Only hours with both grid energy and DAM price contribute.
+ */
+function computeDamWeightedGridMoneyUah(rows, damMarket, eurUahRate) {
+  let importKwh = 0;
+  let exportKwh = 0;
+  let importUah = 0;
+  let exportUah = 0;
+  for (const r of rows) {
+    const g = r.gridKw;
+    if (g == null || !Number.isFinite(g)) continue;
+    const pUah = hourlyDamPriceUahPerKwhFromRow(r, damMarket, eurUahRate);
+    if (pUah == null) continue;
+    if (g > 0) {
+      importKwh += g;
+      importUah += g * pUah;
+    } else if (g < 0) {
+      const ex = -g;
+      exportKwh += ex;
+      exportUah += ex * pUah;
+    }
+  }
+  return {
+    importKwhWeighted: importKwh,
+    exportKwhWeighted: exportKwh,
+    importCostUah: importKwh > 0 ? importUah : null,
+    exportValueUah: exportKwh > 0 ? exportUah : null,
+    importAvgUahPerKwh: importKwh > 0 ? importUah / importKwh : null,
+    exportAvgUahPerKwh: exportKwh > 0 ? exportUah / exportKwh : null,
+  };
 }
 
 function getInitialDamChartState(variant) {
@@ -379,8 +420,7 @@ function formatDamLineTooltipItem(
   const entsoeTipLabel = () => t('damTooltipDamEntsoeLabel', { zone: entsoeZone });
   if (damEntsoeOverlaySeriesNames?.length && damEntsoeOverlaySeriesNames.includes(name)) {
     const n = Number(value);
-    if (!Number.isFinite(n))
-      return { display: '—', label: t('damTooltipDamEntsoeLabel', { zone: name }) };
+    if (!Number.isFinite(n)) return { display: '—', label: t('damTooltipDamEntsoeLabel', { zone: name }) };
     if (entsoeOverlayUahMode && row) {
       let eurRaw = null;
       if (name === damEntsoeOverlaySeriesNameEs) eurRaw = row.damEntsoeEsEurKwh;
@@ -406,8 +446,7 @@ function formatDamLineTooltipItem(
   }
   if (name === damLineSeriesName) {
     const n = Number(value);
-    const primaryLabel =
-      damMarket === 'entsoe' ? entsoeTipLabel() : t('damTooltipDamUaLabel');
+    const primaryLabel = damMarket === 'entsoe' ? entsoeTipLabel() : t('damTooltipDamUaLabel');
     if (!Number.isFinite(n)) return { display: '—', label: primaryLabel };
     const fmtPrimary = damMarket === 'entsoe' ? fmtEur : fmtDamTooltip;
     return {
@@ -456,19 +495,14 @@ function DamLineChartTooltip({
   const labelStyle = { color: 'rgba(255, 248, 252, 0.95)' };
   const itemStyle = { color: 'rgba(255, 248, 252, 0.95)' };
   const showLostSolar =
-    lostSolarIncomeMoney != null &&
-    Number.isFinite(lostSolarIncomeMoney) &&
-    isSocFullPercent(row?.socPercent);
+    lostSolarIncomeMoney != null && Number.isFinite(lostSolarIncomeMoney) && isSocFullPercent(row?.socPercent);
 
   return (
     <div className="recharts-default-tooltip" style={tooltipContentStyle}>
       <p className="recharts-tooltip-label" style={labelStyle}>
         {`${t('damHourTooltip')} ${label}`}
       </p>
-      <ul
-        className="recharts-tooltip-item-list"
-        style={{ margin: '4px 0 0', padding: 0, listStyle: 'none' }}
-      >
+      <ul className="recharts-tooltip-item-list" style={{ margin: '4px 0 0', padding: 0, listStyle: 'none' }}>
         {payload.map((entry, i) => {
           const { display, label: itemLabel } = formatDamLineTooltipItem(
             entry,
@@ -674,10 +708,7 @@ export default function DamChartPanel({
   const damUnitLabel = damMarket === 'entsoe' ? t('damTooltipDamUnitEur') : t('damTooltipDamUnit');
 
   const damLineSeriesName = useMemo(
-    () =>
-      damMarket === 'oree'
-        ? t('damSeriesDamUa')
-        : t('damSeriesDamEntsoe', { zone: entsoeZone }),
+    () => (damMarket === 'oree' ? t('damSeriesDamUa') : t('damSeriesDamEntsoe', { zone: entsoeZone })),
     [damMarket, entsoeZone, t]
   );
 
@@ -702,11 +733,6 @@ export default function DamChartPanel({
   );
 
   useEffect(() => {
-    if (damMarket !== 'oree') {
-      setEurUahRate(null);
-      setEurUahRateLabel(null);
-      return;
-    }
     let cancelled = false;
     setEurUahRate(null);
     setEurUahRateLabel(null);
@@ -731,7 +757,7 @@ export default function DamChartPanel({
     return () => {
       cancelled = true;
     };
-  }, [tradeDay, damMarket]);
+  }, [tradeDay]);
 
   useEffect(() => {
     if (damMarket !== 'oree') {
@@ -1043,13 +1069,9 @@ export default function DamChartPanel({
     const plPayload = damMarket === 'oree' ? entsoeOverlayByZone.PL : null;
     const uaEntsoPayload = damMarket === 'oree' ? entsoeOverlayByZone.UA_ENTSO : null;
     const entsoeEsEurArr =
-      esPayload?.ok && Array.isArray(esPayload.hourlyPriceDamEurPerKwh)
-        ? esPayload.hourlyPriceDamEurPerKwh
-        : null;
+      esPayload?.ok && Array.isArray(esPayload.hourlyPriceDamEurPerKwh) ? esPayload.hourlyPriceDamEurPerKwh : null;
     const entsoePlEurArr =
-      plPayload?.ok && Array.isArray(plPayload.hourlyPriceDamEurPerKwh)
-        ? plPayload.hourlyPriceDamEurPerKwh
-        : null;
+      plPayload?.ok && Array.isArray(plPayload.hourlyPriceDamEurPerKwh) ? plPayload.hourlyPriceDamEurPerKwh : null;
     const entsoeUaEntsoeEurArr =
       uaEntsoPayload?.ok && Array.isArray(uaEntsoPayload.hourlyPriceDamEurPerKwh)
         ? uaEntsoPayload.hourlyPriceDamEurPerKwh
@@ -1068,9 +1090,7 @@ export default function DamChartPanel({
         ? socPayload.hourlyGridFrequencyHz
         : null;
     const pvKwhArr =
-      socPayload?.ok && socPayload?.configured && Array.isArray(socPayload.hourlyPvKwh)
-        ? socPayload.hourlyPvKwh
-        : null;
+      socPayload?.ok && socPayload?.configured && Array.isArray(socPayload.hourlyPvKwh) ? socPayload.hourlyPvKwh : null;
     const loadKwhArr =
       socPayload?.ok && socPayload?.configured && Array.isArray(socPayload.hourlyLoadKwh)
         ? socPayload.hourlyLoadKwh
@@ -1124,9 +1144,7 @@ export default function DamChartPanel({
             ? Number(entsoePlEurArr[i]) * fx
             : null,
         damEntsoeUaEntsoeEurKwh:
-          entsoeUaEntsoeEurArr &&
-          entsoeUaEntsoeEurArr[i] != null &&
-          Number.isFinite(Number(entsoeUaEntsoeEurArr[i]))
+          entsoeUaEntsoeEurArr && entsoeUaEntsoeEurArr[i] != null && Number.isFinite(Number(entsoeUaEntsoeEurArr[i]))
             ? Number(entsoeUaEntsoeEurArr[i])
             : null,
         damEntsoeUaEntsoeUahKwh:
@@ -1193,22 +1211,12 @@ export default function DamChartPanel({
       const slot = out[hi];
       let pvK = slot.pvKwh;
       let cNeg = slot.consKwhNeg;
-      if (
-        livePvPowerW != null &&
-        Number.isFinite(Number(livePvPowerW)) &&
-        (pvK == null || !hasAnyPv)
-      ) {
+      if (livePvPowerW != null && Number.isFinite(Number(livePvPowerW)) && (pvK == null || !hasAnyPv)) {
         const raw = Number(livePvPowerW);
-        const eff = usesDeyeFlowBalance(effectiveInverterSn)
-          ? raw * DEYE_FLOW_BALANCE_PV_FACTOR
-          : raw;
+        const eff = usesDeyeFlowBalance(effectiveInverterSn) ? raw * DEYE_FLOW_BALANCE_PV_FACTOR : raw;
         pvK = eff / 1000;
       }
-      if (
-        liveLoadPowerW != null &&
-        Number.isFinite(Number(liveLoadPowerW)) &&
-        (cNeg == null || !hasAnyLoad)
-      ) {
+      if (liveLoadPowerW != null && Number.isFinite(Number(liveLoadPowerW)) && (cNeg == null || !hasAnyLoad)) {
         cNeg = -Math.abs(Number(liveLoadPowerW)) / 1000;
       }
       if (pvK !== slot.pvKwh || cNeg !== slot.consKwhNeg) {
@@ -1259,10 +1267,7 @@ export default function DamChartPanel({
     return [-cap, cap];
   }, [rows]);
 
-  const pvLoadYTicks = useMemo(
-    () => fiveSymmetricTicks(pvLoadDomain[0], pvLoadDomain[1]),
-    [pvLoadDomain]
-  );
+  const pvLoadYTicks = useMemo(() => fiveSymmetricTicks(pvLoadDomain[0], pvLoadDomain[1]), [pvLoadDomain]);
 
   /** Approximate kWh for the selected Kyiv calendar day from hourly series (kW·h for grid; kWh per hour for PV/load). */
   const damDayEnergyTotals = useMemo(() => {
@@ -1314,6 +1319,22 @@ export default function DamChartPanel({
       lostSolarKwh,
     };
   }, [rows]);
+
+  const damGridWeightedMoneyUah = useMemo(() => {
+    if (!effectiveInverterSn || !rows.length) return null;
+    return computeDamWeightedGridMoneyUah(rows, damMarket, eurUahRate);
+  }, [rows, damMarket, eurUahRate, effectiveInverterSn]);
+
+  const damGridMoneyPartialNote = useMemo(() => {
+    if (!damGridWeightedMoneyUah) return false;
+    const imp =
+      damDayEnergyTotals.importKwh != null &&
+      damDayEnergyTotals.importKwh - damGridWeightedMoneyUah.importKwhWeighted > 0.05;
+    const exp =
+      damDayEnergyTotals.exportKwh != null &&
+      damDayEnergyTotals.exportKwh - damGridWeightedMoneyUah.exportKwhWeighted > 0.05;
+    return Boolean(imp || exp);
+  }, [damGridWeightedMoneyUah, damDayEnergyTotals.importKwh, damDayEnergyTotals.exportKwh]);
 
   const hzDomain = useMemo(() => {
     const vals = rows.map(r => r.gridFreqHz).filter(v => v != null && Number.isFinite(v));
@@ -1424,9 +1445,7 @@ export default function DamChartPanel({
 
     if (baseIndexCompareMode === DAM_COMPARE_DAY) {
       const a = basePriceUahMwhFromDamindexesPayload(indexesPayload);
-      const b = basePriceUahMwhFromDamindexesPayload(
-        baseIndexExtraByDate[addCalendarDays(tradeDay, -1)]
-      );
+      const b = basePriceUahMwhFromDamindexesPayload(baseIndexExtraByDate[addCalendarDays(tradeDay, -1)]);
       if (a == null || b == null || b === 0) return null;
       return ((a - b) / b) * 100;
     }
@@ -1445,14 +1464,7 @@ export default function DamChartPanel({
     }
 
     return null;
-  }, [
-    indexesPayload,
-    baseIndexExtraByDate,
-    tradeDay,
-    baseIndexCompareMode,
-    baseIndexCompareLoading,
-    indexesLoading,
-  ]);
+  }, [indexesPayload, baseIndexExtraByDate, tradeDay, baseIndexCompareMode, baseIndexCompareLoading, indexesLoading]);
 
   const marketControls = (
     <div className="dam-market-toolbar" role="group" aria-label={t('damMarketLabel')}>
@@ -1664,9 +1676,7 @@ export default function DamChartPanel({
                     hide={damChartMobile}
                     tick={{ fill: 'rgba(255,248,252,0.75)', fontSize: 11 }}
                     tickLine={false}
-                    tickFormatter={v =>
-                      damMarket === 'entsoe' ? fmtEur.format(v) : fmt1.format(v)
-                    }
+                    tickFormatter={v => (damMarket === 'entsoe' ? fmtEur.format(v) : fmt1.format(v))}
                     axisLine={{ stroke: 'rgba(252, 1, 155, 0.25)' }}
                     label={{
                       value: damMarket === 'entsoe' ? t('damTariffAxisEur') : t('damTariffAxis'),
@@ -1979,23 +1989,62 @@ export default function DamChartPanel({
             <ul className="dam-day-energy-totals dam-day-energy-totals--grid" aria-label={t('damEnergyTotalsGridAria')}>
               <li className="dam-day-energy-totals__item">
                 <span className="dam-day-energy-totals__swatch" style={{ background: '#f59e0b' }} aria-hidden />
-                <span className="dam-day-energy-totals__text">
-                  {t('damEnergyTotalImport')}:{` `}
-                  <span className="dam-day-energy-totals__value">
-                    {damDayEnergyTotals.importKwh != null ? `${fmt1.format(damDayEnergyTotals.importKwh)} ${t('damEnergyKwhUnit')}` : '—'}
+                <div className="dam-day-energy-totals__stack">
+                  <span className="dam-day-energy-totals__text">
+                    {t('damEnergyTotalImport')}:{` `}
+                    <span className="dam-day-energy-totals__value">
+                      {damDayEnergyTotals.importKwh != null
+                        ? `${fmt1.format(damDayEnergyTotals.importKwh)} ${t('damEnergyKwhUnit')}`
+                        : '—'}
+                    </span>
                   </span>
-                </span>
+                  {damDayEnergyTotals.importKwh != null && damGridWeightedMoneyUah?.importCostUah != null ? (
+                    <span className="dam-day-energy-totals__dam-sub">
+                      {t('damEnergyGridImportDamLine', {
+                        uah: fmtUah.format(damGridWeightedMoneyUah.importCostUah),
+                        avg: fmtUah.format(damGridWeightedMoneyUah.importAvgUahPerKwh),
+                      })}
+                    </span>
+                  ) : null}
+                  {damDayEnergyTotals.importKwh != null &&
+                  damGridWeightedMoneyUah &&
+                  damGridWeightedMoneyUah.importCostUah == null ? (
+                    <span className="dam-day-energy-totals__dam-sub">{t('damEnergyDamUahUnavailable')}</span>
+                  ) : null}
+                </div>
               </li>
               <li className="dam-day-energy-totals__item">
                 <span className="dam-day-energy-totals__swatch" style={{ background: '#38bdf8' }} aria-hidden />
-                <span className="dam-day-energy-totals__text">
-                  {t('damEnergyTotalExport')}:{` `}
-                  <span className="dam-day-energy-totals__value">
-                    {damDayEnergyTotals.exportKwh != null ? `${fmt1.format(damDayEnergyTotals.exportKwh)} ${t('damEnergyKwhUnit')}` : '—'}
+                <div className="dam-day-energy-totals__stack">
+                  <span className="dam-day-energy-totals__text">
+                    {t('damEnergyTotalExport')}:{` `}
+                    <span className="dam-day-energy-totals__value">
+                      {damDayEnergyTotals.exportKwh != null
+                        ? `${fmt1.format(damDayEnergyTotals.exportKwh)} ${t('damEnergyKwhUnit')}`
+                        : '—'}
+                    </span>
                   </span>
-                </span>
+                  {damDayEnergyTotals.exportKwh != null && damGridWeightedMoneyUah?.exportValueUah != null ? (
+                    <span className="dam-day-energy-totals__dam-sub">
+                      {t('damEnergyGridExportDamLine', {
+                        uah: fmtUah.format(damGridWeightedMoneyUah.exportValueUah),
+                        avg: fmtUah.format(damGridWeightedMoneyUah.exportAvgUahPerKwh),
+                      })}
+                    </span>
+                  ) : null}
+                  {damDayEnergyTotals.exportKwh != null &&
+                  damGridWeightedMoneyUah &&
+                  damGridWeightedMoneyUah.exportValueUah == null ? (
+                    <span className="dam-day-energy-totals__dam-sub">{t('damEnergyDamUahUnavailable')}</span>
+                  ) : null}
+                </div>
               </li>
             </ul>
+            {damGridMoneyPartialNote ? (
+              <p className="dam-grid-dam-money-footnote" role="note">
+                {t('damEnergyDamPartialHoursNote')}
+              </p>
+            ) : null}
             <ResponsiveContainer width="100%" height={gridBarH}>
               <ComposedChart data={rows} syncId="dam-day" margin={damComposedChartMargin} isAnimationActive={false}>
                 <CartesianGrid stroke="rgba(252, 1, 155, 0.08)" strokeDasharray="3 3" vertical={false} />
@@ -2081,7 +2130,13 @@ export default function DamChartPanel({
                   }}
                   labelFormatter={hour => `${t('damHourTooltip')} ${hour}`}
                 />
-                <Bar dataKey="gridKw" name={t('damSeriesGrid')} maxBarSize={26} minPointSize={8} isAnimationActive={false}>
+                <Bar
+                  dataKey="gridKw"
+                  name={t('damSeriesGrid')}
+                  maxBarSize={26}
+                  minPointSize={8}
+                  isAnimationActive={false}
+                >
                   {rows.map((e, i) => (
                     <Cell
                       key={`grid-${i}`}
@@ -2118,7 +2173,10 @@ export default function DamChartPanel({
         {!loading && hasChart && effectiveInverterSn ? (
           <div className="dam-pv-load-bars-wrap">
             <p className="dam-grid-bars-caption">{t('damPvLoadBarsCaption')}</p>
-            <ul className="dam-day-energy-totals dam-day-energy-totals--pv-load" aria-label={t('damEnergyTotalsPvLoadAria')}>
+            <ul
+              className="dam-day-energy-totals dam-day-energy-totals--pv-load"
+              aria-label={t('damEnergyTotalsPvLoadAria')}
+            >
               <li className="dam-day-energy-totals__item">
                 <span className="dam-day-energy-totals__swatch" style={{ background: '#22c55e' }} aria-hidden />
                 <span className="dam-day-energy-totals__text">
@@ -2233,35 +2291,38 @@ export default function DamChartPanel({
                     }
                     if (name === t('damSeriesLoadKwh')) {
                       const mag = Number.isFinite(num) ? Math.abs(num) : null;
-                      return [
-                        mag != null ? `${fmt1.format(mag)} kWh${live}` : '—',
-                        name,
-                      ];
+                      return [mag != null ? `${fmt1.format(mag)} kWh${live}` : '—', name];
                     }
                     return [`${fmt1.format(num)}`, name];
                   }}
                   labelFormatter={hour => `${t('damHourTooltip')} ${hour}`}
                 />
-                <Bar dataKey="pvKwh" name={t('damSeriesPvKwh')} maxBarSize={22} minPointSize={6} isAnimationActive={false}>
+                <Bar
+                  dataKey="pvKwh"
+                  name={t('damSeriesPvKwh')}
+                  maxBarSize={22}
+                  minPointSize={6}
+                  isAnimationActive={false}
+                >
                   {rows.map((e, i) => (
                     <Cell
                       key={`pv-${i}`}
-                      fill={
-                        e.pvKwh == null || !Number.isFinite(e.pvKwh)
-                          ? 'rgba(90, 90, 110, 0.2)'
-                          : '#22c55e'
-                      }
+                      fill={e.pvKwh == null || !Number.isFinite(e.pvKwh) ? 'rgba(90, 90, 110, 0.2)' : '#22c55e'}
                     />
                   ))}
                 </Bar>
-                <Bar dataKey="consKwhNeg" name={t('damSeriesLoadKwh')} maxBarSize={22} minPointSize={6} isAnimationActive={false}>
+                <Bar
+                  dataKey="consKwhNeg"
+                  name={t('damSeriesLoadKwh')}
+                  maxBarSize={22}
+                  minPointSize={6}
+                  isAnimationActive={false}
+                >
                   {rows.map((e, i) => (
                     <Cell
                       key={`load-${i}`}
                       fill={
-                        e.consKwhNeg == null || !Number.isFinite(e.consKwhNeg)
-                          ? 'rgba(90, 90, 110, 0.2)'
-                          : '#fb923c'
+                        e.consKwhNeg == null || !Number.isFinite(e.consKwhNeg) ? 'rgba(90, 90, 110, 0.2)' : '#fb923c'
                       }
                     />
                   ))}
@@ -2326,18 +2387,14 @@ export default function DamChartPanel({
                   ) : baseIndexTrendPct == null ? (
                     <span className="dam-trend-line--muted">—</span>
                   ) : (
-                    <span
-                      className={baseIndexTrendPct >= 0 ? 'dam-trend-line--up' : 'dam-trend-line--down'}
-                    >
+                    <span className={baseIndexTrendPct >= 0 ? 'dam-trend-line--up' : 'dam-trend-line--down'}>
                       {fmtPct.format(baseIndexTrendPct)}%
                     </span>
                   )}
                 </div>
               </div>
             </div>
-            {indexesLoading ? (
-              <p className="dam-loading dam-indexes-loading">{t('damIndexesLoading')}</p>
-            ) : null}
+            {indexesLoading ? <p className="dam-loading dam-indexes-loading">{t('damIndexesLoading')}</p> : null}
             {indexesError ? (
               <p className="dam-error dam-indexes-error" role="alert">
                 {t('damIndexesError')}: {indexesError}
@@ -2414,21 +2471,21 @@ export default function DamChartPanel({
         ) : null}
 
         {damMarket === 'oree' ? (
-        <section className="dam-oree-embed" aria-labelledby="dam-oree-embed-title">
-          <div className="dam-oree-embed-header">
-            <h3 id="dam-oree-embed-title" className="dam-oree-embed-title">
-              {t('damOreeWebsiteLink')}
-            </h3>
-          </div>
-          <div className="dam-oree-embed-frame-wrap">
-            <iframe
-              title={t('damOreeEmbedIframeTitle')}
-              src={OREE_DAM_CHART_URL}
-              className="dam-oree-embed-iframe"
-              referrerPolicy="no-referrer-when-downgrade"
-            />
-          </div>
-        </section>
+          <section className="dam-oree-embed" aria-labelledby="dam-oree-embed-title">
+            <div className="dam-oree-embed-header">
+              <h3 id="dam-oree-embed-title" className="dam-oree-embed-title">
+                {t('damOreeWebsiteLink')}
+              </h3>
+            </div>
+            <div className="dam-oree-embed-frame-wrap">
+              <iframe
+                title={t('damOreeEmbedIframeTitle')}
+                src={OREE_DAM_CHART_URL}
+                className="dam-oree-embed-iframe"
+                referrerPolicy="no-referrer-when-downgrade"
+              />
+            </div>
+          </section>
         ) : null}
       </div>
     </>

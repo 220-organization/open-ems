@@ -264,6 +264,22 @@ function formatLandingTotalsDisplay(landingTotals, bcp47, t) {
     const retailCurrent = landingRetailUahPerKwh(dam.currentAvgUahPerKwh);
     const retailPrev = landingRetailUahPerKwh(dam.prevAvgUahPerKwh);
     const rate = retailCurrent != null ? fmtRate.format(retailCurrent) : '—';
+    const isDeviceScope = landingTotals.exportScope === 'device';
+    const personalDamWavg = dam.currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd;
+    let damTariffLine = null;
+    if (
+      isDeviceScope &&
+      personalDamWavg != null &&
+      Number.isFinite(Number(personalDamWavg))
+    ) {
+      const retailPersonal = landingRetailUahPerKwh(Number(personalDamWavg));
+      if (retailPersonal != null) {
+        damTariffLine = t('powerFlowLandingDamTariffLine', {
+          month: curMonth,
+          rate: fmtRate.format(retailPersonal),
+        });
+      }
+    }
     if (dam.prevAvgUahPerKwh != null && retailCurrent != null && retailPrev != null && retailPrev > 0) {
       const pct = ((retailCurrent - retailPrev) / retailPrev) * 100;
       const deltaStr = `${pct > 0 ? '+' : ''}${pct.toFixed(1)}%`;
@@ -275,6 +291,7 @@ function formatLandingTotalsDisplay(landingTotals, bcp47, t) {
           deltaStr,
           tail: t('powerFlowLandingTariffLineTail', { prevMonth }),
         },
+        damTariffLine,
         peakDam,
         manualDischarge,
         arbitrage,
@@ -283,6 +300,7 @@ function formatLandingTotalsDisplay(landingTotals, bcp47, t) {
     return {
       tariffLine: t('powerFlowLandingTariffPartial', { month: curMonth, rate }),
       tariffCompare: null,
+      damTariffLine,
       peakDam,
       manualDischarge,
       arbitrage,
@@ -291,6 +309,7 @@ function formatLandingTotalsDisplay(landingTotals, bcp47, t) {
   return {
     tariffLine: t('powerFlowLandingTariffUnavailable'),
     tariffCompare: null,
+    damTariffLine: null,
     peakDam,
     manualDischarge,
     arbitrage,
@@ -2110,29 +2129,34 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                           )}
                         </div>
                       </div>
-                      <p className="pf-landing-totals__tariff">
-                        {ltd?.tariffCompare ? (
-                          <>
-                            {ltd.tariffCompare.lead}
-                            <span
-                              className={
-                                ltd.tariffCompare.deltaPct > 0
-                                  ? 'pf-landing-totals__delta pf-landing-totals__delta--up'
-                                  : ltd.tariffCompare.deltaPct < 0
-                                    ? 'pf-landing-totals__delta pf-landing-totals__delta--down'
-                                    : 'pf-landing-totals__delta pf-landing-totals__delta--flat'
-                              }
-                            >
-                              {ltd.tariffCompare.deltaStr}
-                            </span>
-                            {ltd.tariffCompare.tail}
-                          </>
-                        ) : ltd?.tariffLine != null ? (
-                          ltd.tariffLine
-                        ) : (
-                          t('powerFlowLandingTariffLoading')
-                        )}
-                      </p>
+                      <>
+                        <p className="pf-landing-totals__tariff">
+                          {ltd?.tariffCompare ? (
+                            <>
+                              {ltd.tariffCompare.lead}
+                              <span
+                                className={
+                                  ltd.tariffCompare.deltaPct > 0
+                                    ? 'pf-landing-totals__delta pf-landing-totals__delta--up'
+                                    : ltd.tariffCompare.deltaPct < 0
+                                      ? 'pf-landing-totals__delta pf-landing-totals__delta--down'
+                                      : 'pf-landing-totals__delta pf-landing-totals__delta--flat'
+                                }
+                              >
+                                {ltd.tariffCompare.deltaStr}
+                              </span>
+                              {ltd.tariffCompare.tail}
+                            </>
+                          ) : ltd?.tariffLine != null ? (
+                            ltd.tariffLine
+                          ) : (
+                            t('powerFlowLandingTariffLoading')
+                          )}
+                        </p>
+                        {ltd?.damTariffLine ? (
+                          <p className="pf-landing-totals__tariff pf-landing-totals__tariff--dam">{ltd.damTariffLine}</p>
+                        ) : null}
+                      </>
                     </div>
                   </div>
                 );

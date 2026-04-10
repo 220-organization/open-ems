@@ -286,6 +286,50 @@ async def _avg_dam_uah_per_kwh(
     return float(avg_mwh) / 1000.0
 
 
+async def _device_import_weighted_dam_mtd_kyiv(
+    session: AsyncSession, device_sn: str
+) -> tuple[float, Optional[float]]:
+    """
+    Kyiv calendar month-to-date: grid import kWh from 5‑min samples (grid_power_w > 0, W/12000)
+    joined to OREE DAM UAH/kWh for that sample's Kyiv day and hour.
+
+    Returns (import_kwh_matched, weighted_avg_dam_uah_per_kwh). Averages only buckets with a DAM row
+    (INNER JOIN). Weighted avg is None when import_kwh_matched is negligible.
+    """
+    sn = (device_sn or "").strip()
+    if not sn:
+        return 0.0, None
+    today = _kyiv_today()
+    first_mtd = _month_first(today)
+    zone = settings.OREE_COMPARE_ZONE_EIC
+    sql = """
+        SELECT
+            COALESCE(SUM(
+                CASE WHEN s.grid_power_w > 0 THEN s.grid_power_w::double precision / 12000.0 ELSE 0 END
+            ), 0)::double precision AS import_kwh,
+            COALESCE(SUM(
+                (CASE WHEN s.grid_power_w > 0 THEN s.grid_power_w::double precision / 12000.0 ELSE 0 END)
+                * (p.price_uah_mwh / 1000.0)
+            ), 0)::double precision AS cost_uah
+        FROM deye_soc_sample s
+        INNER JOIN oree_dam_price p ON p.trade_day = ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date)
+            AND p.zone_eic = :zone
+            AND p.period = (EXTRACT(HOUR FROM (s.bucket_start AT TIME ZONE 'Europe/Kiev'))::int + 1)
+        WHERE s.device_sn = :sn
+          AND s.grid_power_w IS NOT NULL
+          AND s.grid_power_w > 0
+          AND ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date) >= :d0
+          AND ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date) <= :d1
+    """
+    r = await session.execute(text(sql), {"sn": sn, "zone": zone, "d0": first_mtd, "d1": today})
+    row = r.one()
+    import_kwh = float(row[0] or 0.0)
+    cost_uah = float(row[1] or 0.0)
+    if import_kwh <= 1e-12:
+        return import_kwh, None
+    return import_kwh, cost_uah / import_kwh
+
+
 @router.get("/landing-totals")
 async def landing_totals(
     device_sn: Optional[str] = Query(
@@ -302,6 +346,9 @@ async def landing_totals(
     ``totalExportKwh`` is the plain sum of grid export energy from 5‑min ``deye_soc_sample`` rows (all inverters,
     or one device when ``deviceSn`` is set). It does **not** use peak-DAM or manual-discharge session aggregates.
     Also DAM average UAH/kWh for Kyiv current month MTD vs previous full calendar month (OREE_COMPARE_ZONE_EIC).
+    When ``deviceSn`` is set, ``dam.currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd`` is the volume-weighted
+    OREE DAM UAH/kWh over **grid import** 5‑min samples (``grid_power_w > 0``) for Kyiv MTD, joined to hourly DAM
+    (same join as arbitrage). ``dam.currentMonthDeviceGridImportKwhMtd`` is the matched import kWh sum.
     ``arbitrageRevenueUah`` uses the same DAM hourly prices joined on Kyiv day/hour per sample.
     ``arbitrageKyivMonthMomPct`` compares current Kyiv month MTD arbitrage to the same calendar-day span
     in the previous Kyiv month (``arbitrageKyivMonthMomYear`` / ``arbitrageKyivMonthMomMonth`` label the month).
@@ -413,6 +460,17 @@ async def landing_totals(
     except Exception as exc:
         logger.exception("landing-totals DAM averages: %s", exc)
         dam["detail"] = "dam_avg_failed"
+
+    if device_sn and oree_dam_configured():
+        try:
+            imp_kwh, wavg = await _device_import_weighted_dam_mtd_kyiv(db, device_sn)
+            dam["currentMonthDeviceGridImportKwhMtd"] = imp_kwh
+            dam["currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd"] = wavg
+        except Exception as exc:
+            logger.exception("landing-totals device import weighted DAM: %s", exc)
+            dam["currentMonthDeviceGridImportKwhMtd"] = None
+            dam["currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd"] = None
+            dam["deviceImportDamDetail"] = "device_import_dam_failed"
 
     return JSONResponse(content=payload, headers=_NO_STORE)
 
