@@ -235,8 +235,8 @@ DEYE_LOW_DAM_CHARGE_INTERVAL_SEC: int = _env_int("DEYE_LOW_DAM_CHARGE_INTERVAL_S
 DEYE_EV_PORT_EXPORT_INTERVAL_SEC: int = _env_int("DEYE_EV_PORT_EXPORT_INTERVAL_SEC", 30, 15, 300)
 # GET /api/device/v2/station/status — public clientUiId (override with ``clientui<token>`` in the inverter label).
 EV_PORT_DEVICE_CLIENT_UI_ID: str = (os.environ.get("EV_PORT_DEVICE_CLIENT_UI_ID") or "dtbhrny").strip() or "dtbhrny"
-# TOU SoC floor while SELLING_FIRST tracks an active EV job (low value allows discharge / export).
-DEYE_EV_PORT_EXPORT_TOU_SOC_PCT: int = _env_int("DEYE_EV_PORT_EXPORT_TOU_SOC_PCT", 15, 1, 100)
+# TOU SoC floor while SELLING_FIRST tracks an active EV job (low value allows discharge / export). Hardcoded — not env-overridable.
+DEYE_EV_PORT_EXPORT_TOU_SOC_PCT: int = 5
 
 # Per-client IP HTTP rate limit (sliding 60s window, in-process memory). Trust X-Forwarded-For only behind a trusted proxy.
 RATE_LIMIT_ENABLED: bool = _env_bool("RATE_LIMIT_ENABLED", True)

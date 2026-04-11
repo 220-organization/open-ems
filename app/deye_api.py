@@ -1114,8 +1114,8 @@ _TOU_DAYS: list[str] = [
 ]
 _TOU_TIMES: tuple[str, ...] = ("02:30", "06:30", "20:30", "21:30", "22:30", "23:30")
 
-# Minimum TOU SoC % when restoring ZERO_EXPORT_TO_CT after discharge (Deye self-consumption samples use ~15).
-_ZERO_EXPORT_CT_DEFAULT_TOU_SOC_PCT = 15.0
+# Minimum TOU SoC % when restoring ZERO_EXPORT_TO_CT after discharge / when SoC read is missing.
+_ZERO_EXPORT_CT_DEFAULT_TOU_SOC_PCT = 5.0
 
 
 def _tou_setting_items(soc: float, power: int) -> list[dict[str, Any]]:
@@ -1211,7 +1211,7 @@ async def apply_selling_first_max_power_w(
 
 
 async def restore_zero_export_ct_current_soc(device_sn: str) -> None:
-    """ZERO_EXPORT_TO_CT with TOU SoC = max(15%, current SoC) — template power from DEYE_DYNAMIC_CONTROL_RATED_POWER_W."""
+    """ZERO_EXPORT_TO_CT with TOU SoC = max(5%, current SoC) — template power from DEYE_DYNAMIC_CONTROL_RATED_POWER_W."""
     await assert_inverter_owned(device_sn)
     sn = device_sn.strip()
     rated = settings.DEYE_DYNAMIC_CONTROL_RATED_POWER_W
@@ -1244,7 +1244,7 @@ async def _discharge_soc_delta_poll_loop_and_restore(
     timeout: float,
     rated: int,
 ) -> tuple[bool, float, Optional[str], datetime]:
-    """Poll until SoC at target; then ZERO_EXPORT_TO_CT with TOU SoC = max(15%, discharge target)."""
+    """Poll until SoC at target; then ZERO_EXPORT_TO_CT with TOU SoC = max(5%, discharge target)."""
     hit_target = False
     last_soc: float = float(soc0_f)
     restore_error: Optional[str] = None
@@ -1286,7 +1286,7 @@ async def discharge_soc_delta_then_zero_export_ct(
     """
     1) Set workMode SELLING_FIRST via dynamicControl (discharge-friendly TOU template).
     2) Poll SoC until it drops by soc_delta_pct points or timeout.
-    3) Set ZERO_EXPORT_TO_CT with TOU SoC = max(15%, discharge target SoC).
+    3) Set ZERO_EXPORT_TO_CT with TOU SoC = max(5%, discharge target SoC).
 
     soc_delta_pct: 1..100 (percentage points of SoC to shed; use ~100% of current SoC for full discharge).
 
@@ -1428,7 +1428,7 @@ async def _charge_soc_delta_poll_loop_and_restore(
     timeout: float,
     rated: int,
 ) -> tuple[bool, float, Optional[str]]:
-    """Poll until SoC reaches charge target; then set ZERO_EXPORT_TO_CT TOU SoC to that target (not 15%)."""
+    """Poll until SoC reaches charge target; then set ZERO_EXPORT_TO_CT TOU SoC to that target (no min-TOU clamp)."""
     hit_target = False
     last_soc: float = float(soc0_f)
     restore_error: Optional[str] = None
