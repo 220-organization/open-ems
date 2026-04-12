@@ -217,7 +217,7 @@
   "addDeyeInverterButton": "+",
   "addDeyeInverterAria": "Dodaj falownik",
   "addDeyeMessengerTitle": "Skontaktuj się przez Telegram lub WhatsApp",
-  "addDeyeMessengerPrefill": "Dzień dobry! Chcę dodać falownik Deye do Open EMS.\n\n#addDeyeInverter",
+  "addDeyeMessengerPrefill": "Dzień dobry! Chcę dodać falownik do Open EMS.\n\n#addInverterToOpenEms",
   "addDeyeMessengerTelegramAria": "Telegram (nowa karta)",
   "addDeyeMessengerWhatsAppAria": "WhatsApp (nowa karta)",
   "damLoading": "Loading…",

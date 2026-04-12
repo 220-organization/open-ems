@@ -419,7 +419,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const closeDeyeMessenger = useCallback(() => {
     setDeyeMessengerOpen(false);
     try {
-      if (window.location.hash === '#addDeyeInverter') {
+      if (window.location.hash === '#addInverterToOpenEms') {
         const { pathname, search } = window.location;
         window.history.replaceState(null, '', pathname + (search || ''));
       }
@@ -1740,10 +1740,10 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
 
   useEffect(() => {
     const syncFromHash = () => {
-      if (window.location.hash === '#addDeyeInverter') {
+      if (window.location.hash === '#addInverterToOpenEms') {
         setDeyeMessengerOpen(true);
         requestAnimationFrame(() => {
-          document.getElementById('addDeyeInverter')?.scrollIntoView({
+          document.getElementById('addInverterToOpenEms')?.scrollIntoView({
             behavior: 'smooth',
             block: 'nearest',
           });
@@ -1902,7 +1902,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                 </select>
                 <button
                   type="button"
-                  id="addDeyeInverter"
+                  id="addInverterToOpenEms"
                   className="pf-add-deye-btn"
                   aria-label={t('addDeyeInverterAria')}
                   title={t('addDeyeInverterAria')}

@@ -217,7 +217,7 @@
   "addDeyeInverterButton": "+",
   "addDeyeInverterAria": "Додати інвертор",
   "addDeyeMessengerTitle": "Зв'яжіться з нами через Telegram або WhatsApp",
-  "addDeyeMessengerPrefill": "Доброго дня! Хочу додати інвертор Deye до Open EMS.\n\n#addDeyeInverter",
+  "addDeyeMessengerPrefill": "Доброго дня! Хочу додати інвертор до open ems\n\n#addInverterToOpenEms",
   "addDeyeMessengerTelegramAria": "Telegram (відкриється в новій вкладці)",
   "addDeyeMessengerWhatsAppAria": "WhatsApp (відкриється в новій вкладці)",
   "damLoading": "Завантаження…",
