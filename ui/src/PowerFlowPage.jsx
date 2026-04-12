@@ -1904,6 +1904,8 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   type="button"
                   id="addDeyeInverter"
                   className="pf-add-deye-btn"
+                  aria-label={t('addDeyeInverterAria')}
+                  title={t('addDeyeInverterAria')}
                   onClick={() => setDeyeMessengerOpen(true)}
                 >
                   {t('addDeyeInverterButton')}

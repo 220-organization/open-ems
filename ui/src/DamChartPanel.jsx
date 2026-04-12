@@ -1336,6 +1336,24 @@ export default function DamChartPanel({
     return Boolean(imp || exp);
   }, [damGridWeightedMoneyUah, damDayEnergyTotals.importKwh, damDayEnergyTotals.exportKwh]);
 
+  /** Net DAM cash from grid: export value − import cost (same weighted hours as the two lines above). */
+  const damArbitrageRevenueDisplay = useMemo(() => {
+    const hasGridActivity =
+      damDayEnergyTotals.importKwh != null || damDayEnergyTotals.exportKwh != null;
+    if (!damGridWeightedMoneyUah) {
+      return { value: null, showDamUnavailable: Boolean(hasGridActivity) };
+    }
+    const exp = damGridWeightedMoneyUah.exportValueUah;
+    const imp = damGridWeightedMoneyUah.importCostUah;
+    if (exp == null && imp == null) {
+      return { value: null, showDamUnavailable: Boolean(hasGridActivity) };
+    }
+    return {
+      value: (exp ?? 0) - (imp ?? 0),
+      showDamUnavailable: false,
+    };
+  }, [damGridWeightedMoneyUah, damDayEnergyTotals.importKwh, damDayEnergyTotals.exportKwh]);
+
   const hzDomain = useMemo(() => {
     const vals = rows.map(r => r.gridFreqHz).filter(v => v != null && Number.isFinite(v));
     if (!vals.length) return [49.5, 50.5];
@@ -2036,6 +2054,25 @@ export default function DamChartPanel({
                   damGridWeightedMoneyUah &&
                   damGridWeightedMoneyUah.exportValueUah == null ? (
                     <span className="dam-day-energy-totals__dam-sub">{t('damEnergyDamUahUnavailable')}</span>
+                  ) : null}
+                </div>
+              </li>
+              <li className="dam-day-energy-totals__item">
+                <span className="dam-day-energy-totals__swatch" style={{ background: '#4ade80' }} aria-hidden />
+                <div className="dam-day-energy-totals__stack">
+                  <span className="dam-day-energy-totals__text">
+                    {t('damEnergyArbitrageRevenue')}:{` `}
+                    <span className="dam-day-energy-totals__value">
+                      {damArbitrageRevenueDisplay.value != null
+                        ? `${fmtUah.format(damArbitrageRevenueDisplay.value)} ${t('roiValueUahUnit')}`
+                        : '—'}
+                    </span>
+                  </span>
+                  {damArbitrageRevenueDisplay.showDamUnavailable ? (
+                    <span className="dam-day-energy-totals__dam-sub">{t('damEnergyDamUahUnavailable')}</span>
+                  ) : null}
+                  {damArbitrageRevenueDisplay.value != null ? (
+                    <span className="dam-day-energy-totals__dam-sub">{t('damEnergyArbitrageRevenueSub')}</span>
                   ) : null}
                 </div>
               </li>

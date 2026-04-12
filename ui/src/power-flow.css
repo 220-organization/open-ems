@@ -72,16 +72,31 @@ body {
   min-height: 100vh;
   min-height: 100dvh;
   padding-top: max(8px, env(safe-area-inset-top, 0px));
-  padding-right: max(12px, env(safe-area-inset-right, 0px));
+  padding-right: 0;
   padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
-  padding-left: max(12px, env(safe-area-inset-left, 0px));
+  padding-left: 0;
 }
 
+/* Full-width bar — matches 220-km.com / Keycloak dark navbar (#kc-header-wrapper). */
 .pf-top-bar {
+  --pf-header-control-h: 38px;
+  --pf-header-gap: 8px;
+
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
   width: 100%;
+  position: sticky;
+  top: max(0px, env(safe-area-inset-top, 0px));
+  z-index: 30;
+  box-sizing: border-box;
+  padding-left: max(12px, env(safe-area-inset-left, 0px));
+  padding-right: max(12px, env(safe-area-inset-right, 0px));
+  background: var(--km220-input-bg);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--km220-text);
+  font-family: 'Open Sans', system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, Cantarell, sans-serif;
 }
 
 /* Single REST hydration overlay over main column — no per-section blur */
@@ -93,6 +108,8 @@ body {
   align-items: stretch;
   min-height: 0;
   width: 100%;
+  padding-left: max(12px, env(safe-area-inset-left, 0px));
+  padding-right: max(12px, env(safe-area-inset-right, 0px));
 }
 
 /* Fixed to viewport on all breakpoints — logo centered on the visible screen (not only the main column). */
@@ -721,22 +738,25 @@ body {
 .pf-header {
   display: flex;
   flex-wrap: nowrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--pf-header-gap, 8px);
   width: 100%;
-  padding: 8px 4px 12px;
+  max-width: 100%;
+  padding: 10px 0 12px;
   font-size: 13px;
+  font-weight: 600;
   overflow-x: hidden;
   overflow-y: hidden;
 }
 
+/* Grows so the inverter select can use all space before the trailing controls; fixed gap only. */
 .pf-header-primary {
   display: flex;
   flex-wrap: nowrap;
-  align-items: flex-start;
-  gap: 8px;
-  flex: 1 1 auto;
+  align-items: center;
+  gap: var(--pf-header-gap, 8px);
+  flex: 1 1 0%;
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
@@ -746,12 +766,53 @@ body {
 
 .pf-header-lang {
   flex: 0 0 auto;
-  margin-left: auto;
   display: flex;
   flex-direction: row;
   align-items: center;
-  align-self: flex-start;
-  gap: 6px;
+  align-self: center;
+  gap: var(--pf-header-gap, 8px);
+}
+
+/* Header controls — 220-km.com card / input surfaces (Keycloak theme tokens). */
+.pf-top-bar .pf-inverter-select,
+.pf-top-bar .pf-lang-select,
+.pf-top-bar .pf-share-btn,
+.pf-top-bar .pf-add-deye-btn {
+  background: var(--km220-card);
+  color: var(--km220-text);
+  border-color: rgba(193, 0, 185, 0.38);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.pf-top-bar .pf-share-btn:hover,
+.pf-top-bar .pf-add-deye-btn:hover,
+.pf-top-bar .pf-inverter-select:hover,
+.pf-top-bar .pf-lang-select:hover {
+  border-color: rgba(110, 0, 212, 0.55);
+}
+
+/* One row height: selects and square actions share --pf-header-control-h; even gaps --pf-header-gap */
+.pf-top-bar .pf-header .pf-inverter-select.pf-header-select--inverter,
+.pf-top-bar .pf-header .pf-lang-select.pf-header-select--lang {
+  min-height: var(--pf-header-control-h);
+  height: var(--pf-header-control-h);
+  box-sizing: border-box;
+  padding: 0 10px;
+  line-height: var(--pf-header-control-h);
+  font-size: 13px;
+}
+
+.pf-top-bar .pf-header .pf-share-btn,
+.pf-header .pf-station-field.pf-inverter-field .pf-add-deye-btn {
+  width: var(--pf-header-control-h);
+  min-width: var(--pf-header-control-h);
+  max-width: var(--pf-header-control-h);
+  height: var(--pf-header-control-h);
+  min-height: var(--pf-header-control-h);
+  padding: 0;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  align-self: center;
 }
 
 .pf-share-btn {
@@ -910,12 +971,11 @@ body {
   flex: 0 0 auto;
 }
 
-/* Compact header controls — one row on typical phone/tablet widths */
+/* Header inverter: fill primary column; width capped by parent only. */
 .pf-header .pf-header-select--inverter {
   min-width: 6.5rem;
-  max-width: 9.5rem;
+  max-width: 100%;
   flex-shrink: 1;
-  padding: 6px 8px;
   font-size: 13px;
 }
 
@@ -938,7 +998,6 @@ body {
 .pf-header .pf-header-select--lang {
   min-width: 2.6rem;
   max-width: 3.25rem;
-  padding: 6px 6px;
   font-size: 13px;
 }
 
@@ -972,11 +1031,19 @@ body {
   min-width: 0;
 }
 
-.pf-header .pf-station-field.pf-inverter-field > .pf-inverter-select.pf-header-select--inverter {
-  flex: 1 1 6.5rem;
+.pf-header .pf-station-field.pf-inverter-field {
+  flex: 1 1 0%;
   min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  gap: var(--pf-header-gap, 8px);
+}
+
+.pf-header .pf-station-field.pf-inverter-field > .pf-inverter-select.pf-header-select--inverter {
+  flex: 1 1 0%;
+  min-width: 0;
+  max-width: 100%;
   box-sizing: border-box;
-  width: auto;
 }
 
 .pf-header .pf-station-field.pf-inverter-field .pf-add-deye-btn {
@@ -1761,8 +1828,12 @@ a.pf-node {
 
 /* —— Mobile / narrow viewports —— */
 @media (max-width: 720px) {
+  .pf-top-bar {
+    --pf-header-control-h: 40px;
+  }
+
   .pf-header {
-    gap: 6px;
+    gap: var(--pf-header-gap, 8px);
     padding-bottom: 10px;
   }
 
@@ -1787,7 +1858,7 @@ a.pf-node {
     width: 100%;
     max-width: 100%;
     min-width: 0;
-    gap: 10px;
+    gap: var(--pf-header-gap, 8px);
   }
 
   .pf-lang-port-bar {
@@ -1880,13 +1951,17 @@ a.pf-node {
     font-size: 16px;
   }
 
-  /* Header + lang/port bar: larger touch targets */
-  .pf-header .pf-inverter-select,
-  .pf-header .pf-lang-select,
+  /* Lang/port bar under graph: larger touch targets (header row uses --pf-header-control-h) */
   .pf-lang-port-bar .pf-inverter-select,
   .pf-lang-port-bar .pf-lang-select {
     min-height: 40px;
     font-size: 14px;
+  }
+
+  .pf-top-bar .pf-header .pf-inverter-select.pf-header-select--inverter,
+  .pf-top-bar .pf-header .pf-lang-select.pf-header-select--lang {
+    font-size: 14px;
+    line-height: var(--pf-header-control-h);
   }
 
   .pf-lang-port-bar .pf-inverter-select.pf-header-select--port {
@@ -1896,10 +1971,7 @@ a.pf-node {
   }
 
   .pf-header .pf-station-field.pf-inverter-field .pf-add-deye-btn {
-    min-height: 40px;
-    font-size: 14px;
-    padding-top: 8px;
-    padding-bottom: 8px;
+    font-size: 20px;
   }
 
   .pf-discharge-delta-select--header,
@@ -2195,14 +2267,14 @@ a.pf-node {
 }
 
 .pf-header .pf-station-field.pf-inverter-field .pf-add-deye-btn {
-  box-sizing: border-box;
   flex: 0 0 auto;
-  align-self: flex-end;
-  padding: 6px 10px;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  line-height: 1.25;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(var(--pf-header-control-h, 38px) * 0.47);
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1;
   text-align: center;
   white-space: nowrap;
 }
