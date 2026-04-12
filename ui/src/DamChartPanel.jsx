@@ -93,27 +93,34 @@ function hourlyDamPriceUahPerKwhFromRow(row, damMarket, eurUahRate) {
 }
 
 /**
- * Hourly Σ (kWh_h × DAM_UAH_h) and volume-weighted average DAM (UAH/kWh) for grid import / export.
- * Only hours with both grid energy and DAM price contribute.
+ * Per calendar hour h (one row): import kWh from grid (gridKw > 0) and export kWh (gridKw < 0).
+ * Same rule as landing ``arbitrageRevenueUah`` SQL: only hours with a DAM price contribute.
+ *
+ *   hour_net_UAH = +export_kWh × DAM_UAH/kWh − import_kWh × DAM_UAH/kWh
+ *
+ * Day arbitrage = Σ hour_net. Import/export lines still use volume-weighted averages from the same sums.
  */
 function computeDamWeightedGridMoneyUah(rows, damMarket, eurUahRate) {
   let importKwh = 0;
   let exportKwh = 0;
   let importUah = 0;
   let exportUah = 0;
+  let netArbitrageUah = 0;
+  let anyHourWithDamAndGrid = false;
   for (const r of rows) {
     const g = r.gridKw;
     if (g == null || !Number.isFinite(g)) continue;
     const pUah = hourlyDamPriceUahPerKwhFromRow(r, damMarket, eurUahRate);
     if (pUah == null) continue;
-    if (g > 0) {
-      importKwh += g;
-      importUah += g * pUah;
-    } else if (g < 0) {
-      const ex = -g;
-      exportKwh += ex;
-      exportUah += ex * pUah;
-    }
+    const impKwh = g > 0 ? g : 0;
+    const expKwh = g < 0 ? -g : 0;
+    if (impKwh <= 0 && expKwh <= 0) continue;
+    anyHourWithDamAndGrid = true;
+    importKwh += impKwh;
+    exportKwh += expKwh;
+    importUah += impKwh * pUah;
+    exportUah += expKwh * pUah;
+    netArbitrageUah += expKwh * pUah - impKwh * pUah;
   }
   return {
     importKwhWeighted: importKwh,
@@ -122,6 +129,7 @@ function computeDamWeightedGridMoneyUah(rows, damMarket, eurUahRate) {
     exportValueUah: exportKwh > 0 ? exportUah : null,
     importAvgUahPerKwh: importKwh > 0 ? importUah / importKwh : null,
     exportAvgUahPerKwh: exportKwh > 0 ? exportUah / exportKwh : null,
+    netArbitrageUah: anyHourWithDamAndGrid ? netArbitrageUah : null,
   };
 }
 
@@ -1336,22 +1344,18 @@ export default function DamChartPanel({
     return Boolean(imp || exp);
   }, [damGridWeightedMoneyUah, damDayEnergyTotals.importKwh, damDayEnergyTotals.exportKwh]);
 
-  /** Net DAM cash from grid: export value − import cost (same weighted hours as the two lines above). */
+  /** Σ_h (+export_kWh×DAM − import_kWh×DAM); same hour logic as landing-totals ``arbitrageRevenueUah``. */
   const damArbitrageRevenueDisplay = useMemo(() => {
     const hasGridActivity =
       damDayEnergyTotals.importKwh != null || damDayEnergyTotals.exportKwh != null;
     if (!damGridWeightedMoneyUah) {
       return { value: null, showDamUnavailable: Boolean(hasGridActivity) };
     }
-    const exp = damGridWeightedMoneyUah.exportValueUah;
-    const imp = damGridWeightedMoneyUah.importCostUah;
-    if (exp == null && imp == null) {
+    const net = damGridWeightedMoneyUah.netArbitrageUah;
+    if (net == null) {
       return { value: null, showDamUnavailable: Boolean(hasGridActivity) };
     }
-    return {
-      value: (exp ?? 0) - (imp ?? 0),
-      showDamUnavailable: false,
-    };
+    return { value: net, showDamUnavailable: false };
   }, [damGridWeightedMoneyUah, damDayEnergyTotals.importKwh, damDayEnergyTotals.exportKwh]);
 
   const hzDomain = useMemo(() => {

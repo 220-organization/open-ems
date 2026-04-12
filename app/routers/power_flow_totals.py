@@ -85,15 +85,18 @@ async def _sum_arbitrage_revenue_uah(
     kyiv_day_le: Optional[date] = None,
 ) -> float:
     """
-    Arbitrage-style revenue (UAH) from grid samples × DAM hourly UAH/kWh (same zone as tariff compare).
+    Total arbitrage (UAH) = sum over Kyiv calendar days of each day's net DAM cash from the grid.
 
-    Per 5‑min row: import kWh (grid_power_w > 0) and export kWh (grid_power_w < 0) use the same
-    bucket formula as total export (|W| / 12000). Each row is mapped to Kyiv calendar day and hour;
-    DAM period 1–24 matches hour 0–23 (period = hour + 1). Sum over all rows:
+    For every Kyiv (day, hour), aggregate import and export kWh from 5‑min ``deye_soc_sample`` rows
+    (same W/12000 formula as elsewhere). Join OREE DAM for that Kyiv trade day and period (hour + 1).
+    Per hour (same as the DAM chart «arbitrage for this day»)::
 
-        Σ (charge_kwh * dam_uah_kwh − discharge_kwh * dam_uah_kwh)
+        + hourly_export_kWh × DAM_UAH_per_kWh  −  hourly_import_kWh × DAM_UAH_per_kWh
 
-    Rows without a matching ``oree_dam_price`` for that Kyiv (day, hour) are omitted.
+    Hours without a DAM price row are omitted. The grand total is ``Σ hour_uah``, which equals
+    **Σ_daily (sum of hour_uah in that day)** — i.e. the sum of the same per‑day figure shown in the
+    Power Flow DAM chart («DAM export value minus DAM import cost»), extended over all samples in range.
+
     Optional ``kyiv_day_ge`` / ``kyiv_day_le`` restrict by Kyiv calendar date (inclusive).
     """
     zone = settings.OREE_COMPARE_ZONE_EIC
@@ -106,43 +109,47 @@ async def _sum_arbitrage_revenue_uah(
     if kyiv_day_le is not None:
         date_pred += " AND ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date) <= :kyiv_d1"
         params["kyiv_d1"] = kyiv_day_le
-    base_from = f"""
-        FROM deye_soc_sample s
-        INNER JOIN oree_dam_price p ON p.trade_day = ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date)
-            AND p.zone_eic = :zone
-            AND p.period = (EXTRACT(HOUR FROM (s.bucket_start AT TIME ZONE 'Europe/Kiev'))::int + 1)
-        WHERE s.grid_power_w IS NOT NULL
-          AND s.grid_power_w <> 0
-          {date_pred}
-    """
+    device_pred = " AND s.device_sn = :sn" if sn else ""
     if sn:
-        sql = (
-            """
-            SELECT COALESCE(SUM(
-                (
-                    CASE WHEN s.grid_power_w > 0 THEN s.grid_power_w::double precision / 12000.0 ELSE 0 END
-                    - CASE WHEN s.grid_power_w < 0 THEN ABS(s.grid_power_w)::double precision / 12000.0 ELSE 0 END
-                ) * (p.price_uah_mwh / 1000.0)
-            ), 0)::double precision
-            """
-            + base_from
-            + " AND s.device_sn = :sn"
-        )
         params["sn"] = sn
-        r = await session.execute(text(sql), params)
-    else:
-        sql = (
-            """
-            SELECT COALESCE(SUM(
-                (
+
+    sql = (
+        """
+        WITH hourly AS (
+            SELECT
+                ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date) AS kyiv_day,
+                (EXTRACT(HOUR FROM (s.bucket_start AT TIME ZONE 'Europe/Kiev'))::int) AS kyiv_hour,
+                SUM(
                     CASE WHEN s.grid_power_w > 0 THEN s.grid_power_w::double precision / 12000.0 ELSE 0 END
-                    - CASE WHEN s.grid_power_w < 0 THEN ABS(s.grid_power_w)::double precision / 12000.0 ELSE 0 END
-                ) * (p.price_uah_mwh / 1000.0)
-            ), 0)::double precision
-            """
-            + base_from
+                ) AS import_kwh,
+                SUM(
+                    CASE WHEN s.grid_power_w < 0 THEN ABS(s.grid_power_w)::double precision / 12000.0 ELSE 0 END
+                ) AS export_kwh
+            FROM deye_soc_sample s
+            WHERE s.grid_power_w IS NOT NULL
+              AND s.grid_power_w <> 0
+        """
+        + date_pred
+        + device_pred
+        + """
+            GROUP BY 1, 2
+        ),
+        hour_net AS (
+            SELECT
+                h.kyiv_day,
+                (h.export_kwh * (p.price_uah_mwh / 1000.0))
+                - (h.import_kwh * (p.price_uah_mwh / 1000.0)) AS hour_uah
+            FROM hourly h
+            INNER JOIN oree_dam_price p ON p.trade_day = h.kyiv_day
+                AND p.zone_eic = :zone
+                AND p.period = h.kyiv_hour + 1
+            WHERE h.import_kwh > 1e-18 OR h.export_kwh > 1e-18
         )
-        r = await session.execute(text(sql), params)
+        SELECT COALESCE(SUM(hour_uah), 0)::double precision
+        FROM hour_net
+        """
+    )
+    r = await session.execute(text(sql), params)
     v = r.scalar_one()
     return float(v or 0.0)
 
@@ -349,7 +356,8 @@ async def landing_totals(
     When ``deviceSn`` is set, ``dam.currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd`` is the volume-weighted
     OREE DAM UAH/kWh over **grid import** 5‑min samples (``grid_power_w > 0``) for Kyiv MTD, joined to hourly DAM
     (same join as arbitrage). ``dam.currentMonthDeviceGridImportKwhMtd`` is the matched import kWh sum.
-    ``arbitrageRevenueUah`` uses the same DAM hourly prices joined on Kyiv day/hour per sample.
+    ``arbitrageRevenueUah`` is the sum over Kyiv days of per‑day net (export − import) × DAM UAH/kWh on
+    hourly buckets from ``deye_soc_sample``, matching the DAM chart «arbitrage for this day» summed across days.
     ``arbitrageKyivMonthMomPct`` compares current Kyiv month MTD arbitrage to the same calendar-day span
     in the previous Kyiv month (``arbitrageKyivMonthMomYear`` / ``arbitrageKyivMonthMomMonth`` label the month).
 
