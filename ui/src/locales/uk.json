@@ -191,7 +191,7 @@
   "damEnergyTotalImport": "Імпорт за цей день",
   "damEnergyTotalExport": "Експорт за цей день",
   "damEnergyArbitrageRevenue": "Дохід від арбітражу за цей день",
-  "damEnergyArbitrageRevenueSub": "Чисто: вартість експорту за РДН мінус вартість імпорту (ті ж години, що й рядки РДН вище).",
+  "damEnergyArbitrageRevenueSub": "Вартість експорту за РДН мінус вартість імпорту",
   "damEnergyTotalGeneration": "Генерація за цей день",
   "damEnergyTotalConsumption": "Споживання за цей день",
   "damEnergyTotalLostSolar": "Втрачена сонячна енергія за цей день",

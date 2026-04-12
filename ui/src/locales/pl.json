@@ -191,7 +191,7 @@
   "damEnergyTotalImport": "Import this day",
   "damEnergyTotalExport": "Export this day",
   "damEnergyArbitrageRevenue": "Przychód z arbitrażu tego dnia",
-  "damEnergyArbitrageRevenueSub": "Netto: wartość eksportu DAM minus koszt importu (te same godziny co powyższe sumy DAM).",
+  "damEnergyArbitrageRevenueSub": "Wartość eksportu DAM minus koszt importu",
   "damEnergyTotalGeneration": "Generation this day",
   "damEnergyTotalConsumption": "Consumption this day",
   "damEnergyTotalLostSolar": "Lost solar this day",
