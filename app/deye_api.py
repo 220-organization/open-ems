@@ -1131,13 +1131,19 @@ def _tou_setting_items(soc: float, power: int) -> list[dict[str, Any]]:
     ]
 
 
-def _body_selling_first(device_sn: str, tou_soc: float, rated_power: int) -> dict[str, Any]:
+def _body_selling_first(
+    device_sn: str,
+    tou_soc: float,
+    rated_power: int,
+    *,
+    solar_sell_action: str = "on",
+) -> dict[str, Any]:
     rp = int(rated_power)
     return {
         "deviceSn": device_sn,
         "maxSellPower": rp,
         "maxSolarPower": rp,
-        "solarSellAction": "on",
+        "solarSellAction": solar_sell_action,
         "touAction": "on",
         "touDays": list(_TOU_DAYS),
         "workMode": "SELLING_FIRST",
@@ -1145,12 +1151,18 @@ def _body_selling_first(device_sn: str, tou_soc: float, rated_power: int) -> dic
     }
 
 
-def _body_zero_export_target_soc(device_sn: str, tou_soc: float, rated_power: int) -> dict[str, Any]:
+def _body_zero_export_target_soc(
+    device_sn: str,
+    tou_soc: float,
+    rated_power: int,
+    *,
+    solar_sell_action: str = "on",
+) -> dict[str, Any]:
     """ZERO_EXPORT_TO_CT with a uniform TOU SoC target (used to bias battery toward a higher SoC)."""
     power = int(rated_power)
     return {
         "deviceSn": device_sn,
-        "solarSellAction": "on",
+        "solarSellAction": solar_sell_action,
         "touAction": "on",
         "touDays": list(_TOU_DAYS),
         "workMode": "ZERO_EXPORT_TO_CT",
@@ -1203,15 +1215,24 @@ async def apply_selling_first_max_power_w(
     """
     SELLING_FIRST with max sell / solar power set to ``max_power_w`` (e.g. EV station job powerWt).
     ``tou_soc`` should be low enough to allow discharge during the session (see Deye TOU template).
+
+    Solar sell stays off (``solarSellAction`` ``off``) so EV-port automation does not enable PV export
+    sell on sites configured for zero-export / Solar Sell disabled in the inverter app.
     """
     await assert_inverter_owned(device_sn)
     sn = device_sn.strip()
     rp = _clamp_sell_power_w(max_power_w)
-    await _post_strategy_dynamic_control(_body_selling_first(sn, float(tou_soc), rp))
+    await _post_strategy_dynamic_control(
+        _body_selling_first(sn, float(tou_soc), rp, solar_sell_action="off")
+    )
 
 
 async def restore_zero_export_ct_current_soc(device_sn: str) -> None:
-    """ZERO_EXPORT_TO_CT with TOU SoC = max(5%, current SoC) — template power from DEYE_DYNAMIC_CONTROL_RATED_POWER_W."""
+    """
+    ZERO_EXPORT_TO_CT with TOU SoC = max(5%, current SoC) — template power from DEYE_DYNAMIC_CONTROL_RATED_POWER_W.
+
+    Used after EV-port SELLING_FIRST; keeps solar sell off to match pre-session zero-export / Solar Sell disabled.
+    """
     await assert_inverter_owned(device_sn)
     sn = device_sn.strip()
     rated = settings.DEYE_DYNAMIC_CONTROL_RATED_POWER_W
@@ -1221,7 +1242,9 @@ async def restore_zero_export_ct_current_soc(device_sn: str) -> None:
         tou_soc = _ZERO_EXPORT_CT_DEFAULT_TOU_SOC_PCT
     else:
         tou_soc = max(_ZERO_EXPORT_CT_DEFAULT_TOU_SOC_PCT, round(float(soc), 2))
-    await _post_strategy_dynamic_control(_body_zero_export_target_soc(sn, tou_soc, rated))
+    await _post_strategy_dynamic_control(
+        _body_zero_export_target_soc(sn, tou_soc, rated, solar_sell_action="off")
+    )
 
 
 async def assert_inverter_owned(device_sn: str) -> None:
@@ -1244,7 +1267,10 @@ async def _discharge_soc_delta_poll_loop_and_restore(
     timeout: float,
     rated: int,
 ) -> tuple[bool, float, Optional[str], datetime]:
-    """Poll until SoC at target; then ZERO_EXPORT_TO_CT with TOU SoC = max(5%, discharge target)."""
+    """Poll until SoC at target; then ZERO_EXPORT_TO_CT with TOU SoC = max(5%, discharge target).
+
+    Restore keeps solar sell off (same as EV-port export) for zero-export / Solar Sell disabled sites.
+    """
     hit_target = False
     last_soc: float = float(soc0_f)
     restore_error: Optional[str] = None
@@ -1266,7 +1292,9 @@ async def _discharge_soc_delta_poll_loop_and_restore(
     finally:
         try:
             tou_soc_rest = max(_ZERO_EXPORT_CT_DEFAULT_TOU_SOC_PCT, round(float(target), 2))
-            await _post_strategy_dynamic_control(_body_zero_export_target_soc(sn, tou_soc_rest, rated))
+            await _post_strategy_dynamic_control(
+                _body_zero_export_target_soc(sn, tou_soc_rest, rated, solar_sell_action="off")
+            )
         except Exception as exc:
             restore_error = str(exc)
             logger.exception("Deye: ZERO_EXPORT_TO_CT restore failed sn=%s", sn)
@@ -1297,6 +1325,8 @@ async def discharge_soc_delta_then_zero_export_ct(
     ``exportSession`` with ``endedAt``) after the session finishes; errors are logged, not raised.
 
     Warning: replaces the device's TOU schedule with the template (Deye API limitation).
+
+    Solar sell is not enabled during this sequence (``solarSellAction`` ``off``), consistent with EV-port export.
     """
     delta = float(soc_delta_pct)
     if delta < _DISCHARGE_SOC_DELTA_MIN or delta > _DISCHARGE_SOC_DELTA_MAX:
@@ -1323,7 +1353,9 @@ async def discharge_soc_delta_then_zero_export_ct(
     # TOU soc floor = desired SoC after discharge target (Deye samples use low soc to allow discharge)
     tou_soc_discharge = round(target, 2)
 
-    await _post_strategy_dynamic_control(_body_selling_first(sn, tou_soc_discharge, rated))
+    await _post_strategy_dynamic_control(
+        _body_selling_first(sn, tou_soc_discharge, rated, solar_sell_action="off")
+    )
     export_started_at = datetime.now(timezone.utc)
 
     if return_after_start:
@@ -1428,7 +1460,10 @@ async def _charge_soc_delta_poll_loop_and_restore(
     timeout: float,
     rated: int,
 ) -> tuple[bool, float, Optional[str]]:
-    """Poll until SoC reaches charge target; then set ZERO_EXPORT_TO_CT TOU SoC to that target (no min-TOU clamp)."""
+    """Poll until SoC reaches charge target; then set ZERO_EXPORT_TO_CT TOU SoC to that target (no min-TOU clamp).
+
+    Restore keeps solar sell off (same as EV / discharge export) for zero-export / Solar Sell disabled sites.
+    """
     hit_target = False
     last_soc: float = float(soc0_f)
     restore_error: Optional[str] = None
@@ -1449,7 +1484,9 @@ async def _charge_soc_delta_poll_loop_and_restore(
     finally:
         try:
             tou_soc_rest = round(float(target), 2)
-            await _post_strategy_dynamic_control(_body_zero_export_target_soc(sn, tou_soc_rest, rated))
+            await _post_strategy_dynamic_control(
+                _body_zero_export_target_soc(sn, tou_soc_rest, rated, solar_sell_action="off")
+            )
         except Exception as exc:
             restore_error = str(exc)
             logger.exception("Deye: ZERO_EXPORT_TO_CT restore failed after charge sn=%s", sn)
@@ -1472,6 +1509,8 @@ async def charge_soc_delta_then_zero_export_ct(
 
     When return_after_start is True, step 1 is awaited and the caller may return immediately;
     steps 2–3 continue in a background task.
+
+    Solar sell is not enabled (``solarSellAction`` ``off``), consistent with EV-port and discharge export.
     """
     delta_f = float(soc_delta_pct)
     delta_i = int(round(delta_f))
@@ -1497,7 +1536,9 @@ async def charge_soc_delta_then_zero_export_ct(
     timeout = max(60, settings.DEYE_DISCHARGE_SOC_TIMEOUT_SEC)
     tou_soc_charge = round(target, 2)
 
-    await _post_strategy_dynamic_control(_body_zero_export_target_soc(sn, tou_soc_charge, rated))
+    await _post_strategy_dynamic_control(
+        _body_zero_export_target_soc(sn, tou_soc_charge, rated, solar_sell_action="off")
+    )
 
     if return_after_start:
 
