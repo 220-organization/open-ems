@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://220-km.com:9220/sitemap.xml

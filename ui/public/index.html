@@ -13,21 +13,27 @@
       type="image/svg+xml"
     />
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/static/220-km-logo.svg" />
-    <title>Open EMS — Power flow</title>
+    <title>Open EMS — Energy Management System for Solar, Battery &amp; EV Charging</title>
 
     <meta
       name="description"
-      content="Open EMS: open-source energy management UI for Deye inverters, DAM prices, and EV charging integration — by 220 km."
+      content="Open EMS: open-source energy management system for Deye inverters, solar PV, battery storage, and EV charging. Monitor real-time power flow, optimise against day-ahead market (DAM) prices, and control smart charging — self-hosted, no cloud lock-in."
     />
+    <meta
+      name="keywords"
+      content="open source energy management system, EMS, Deye inverter, solar battery, DAM prices, day-ahead market, EV charging, smart charging, grid management, DER, power flow, OREE, ENTSO-E, V2G, home energy, open-ems, 220-km"
+    />
+    <meta name="robots" content="index, follow" />
+    <meta name="author" content="220-km.com" />
     <link rel="canonical" href="https://220-km.com:9220/" />
 
-    <!-- Open Graph / social previews (English) -->
+    <!-- Open Graph / social previews -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Open EMS" />
-    <meta property="og:title" content="Open EMS — Power flow &amp; DAM" />
+    <meta property="og:title" content="Open EMS — Open-Source Energy Management System" />
     <meta
       property="og:description"
-      content="Monitor power flow, Deye battery and grid metrics, and day-ahead market prices. Open source on GitHub."
+      content="Monitor real-time power flow, Deye battery and grid metrics, and day-ahead market prices. Open-source EMS for solar, battery, and EV charging. Self-hosted — no cloud lock-in."
     />
     <meta property="og:url" content="https://220-km.com:9220/" />
     <meta
@@ -36,19 +42,51 @@
     />
     <meta property="og:locale" content="en_US" />
 
+    <!-- Twitter / X card -->
     <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content="Open EMS — Power flow &amp; DAM" />
+    <meta name="twitter:site" content="@220kmua" />
+    <meta name="twitter:title" content="Open EMS — Open-Source Energy Management System" />
     <meta
       name="twitter:description"
-      content="Monitor power flow, Deye metrics, and DAM prices. Open source."
+      content="Monitor power flow, Deye battery metrics, and DAM prices. Smart charging optimisation. Open source on GitHub."
     />
     <meta
       name="twitter:image"
       content="https://220-km.com:9220/static/220-km-logo.svg"
     />
+
+    <!-- JSON-LD structured data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "Open EMS",
+      "url": "https://220-km.com:9220/",
+      "applicationCategory": "EnergyApplication",
+      "operatingSystem": "Linux, Docker",
+      "description": "Open-source energy management system (EMS) for Deye inverters, solar PV, battery storage, and EV charging. Integrates day-ahead market (DAM) prices for smart charging optimisation.",
+      "keywords": "energy management system, EMS, open source, Deye inverter, solar battery, EV charging, DAM prices, smart charging, DER, power flow",
+      "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+      "codeRepository": "https://github.com/220-organization/open-ems",
+      "author": {
+        "@type": "Organization",
+        "name": "220-km.com",
+        "url": "https://220-km.com"
+      },
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      }
+    }
+    </script>
   </head>
   <body>
-    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <noscript>
+      Open EMS — open-source energy management system for solar, battery, and EV charging.
+      Monitor real-time power flow and day-ahead market prices.
+      JavaScript is required to run this app.
+    </noscript>
     <div id="root"></div>
   </body>
 </html>

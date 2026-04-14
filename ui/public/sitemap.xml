@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:xhtml="http://www.w3.org/1999/xhtml">
+
+  <url>
+    <loc>https://220-km.com:9220/</loc>
+    <lastmod>2026-04-14</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://220-km.com:9220/" />
+    <xhtml:link rel="alternate" hreflang="uk" href="https://220-km.com:9220/" />
+  </url>
+
+  <url>
+    <loc>https://github.com/220-organization/open-ems</loc>
+    <lastmod>2026-04-14</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+
+</urlset>
