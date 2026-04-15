@@ -1,0 +1,134 @@
+{
+	"info": {
+		"_postman_id": "a8f3c1d2-7b4e-4f01-9c00-huawei-nb01",
+		"name": "Huawei FusionSolar Northbound (Basic)",
+		"description": "Northbound Open API: login via thirdData/login, then plant KPIs (status) via getStationRealKpi.\n\n**Setup:** Import the matching environment and set `baseUrl` to the same regional host you use in the browser (e.g. `https://eu5.fusionsolar.huawei.com`). Run **Login** first; the collection test script stores `xsrf-token` into `xsrfToken`. Use **Get station list** to copy `plantCode` / `stationCode` for your plant into the `stationCodes` variable, then call **Get station real KPI (status)**.\n\n**Auth:** `userName` + `systemCode` (Northbound account password). Subsequent calls need header `xsrf-token`.\n\n**References:** Huawei SmartPVMS / FusionSolar Northbound API documentation (Basic APIs).",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1. Login (thirdData/login)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"const json = pm.response.json();",
+							"pm.test(\"login success flag\", function () {",
+							"    pm.expect(json).to.have.property(\"success\");",
+							"    pm.expect(json.success).to.eql(true);",
+							"});",
+							"const headers = {};",
+							"pm.response.headers.all().forEach(function (h) {",
+							"    headers[h.key.toLowerCase()] = h.value;",
+							"});",
+							"const token = headers[\"xsrf-token\"];",
+							"if (token) {",
+							"    pm.environment.set(\"xsrfToken\", token);",
+							"} else {",
+							"    console.warn(\"No xsrf-token header; check response and regional baseUrl.\");",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"userName\": \"{{huaweiUserName}}\",\n    \"systemCode\": \"{{huaweiSystemCode}}\"\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/thirdData/login",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"thirdData",
+						"login"
+					]
+				},
+				"description": "Obtains session token. Response header `xsrf-token` is saved to environment variable `xsrfToken`."
+			},
+			"response": []
+		},
+		{
+			"name": "2. Get station list",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					},
+					{
+						"key": "xsrf-token",
+						"value": "{{xsrfToken}}"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"pageNo\": 1,\n    \"pageSize\": 100\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/thirdData/getStationList",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"thirdData",
+						"getStationList"
+					]
+				},
+				"description": "Lists plants available to this Northbound user. `pageNo` and `pageSize` are both required by many regions. Copy the `plantCode` (or `stationCode`) for your plant into environment variable `stationCodes`. For multiple plants, use comma-separated codes."
+			},
+			"response": []
+		},
+		{
+			"name": "3. Get station real KPI (plant status)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					},
+					{
+						"key": "xsrf-token",
+						"value": "{{xsrfToken}}"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"stationCodes\": \"{{stationCodes}}\"\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/thirdData/getStationRealKpi",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"thirdData",
+						"getStationRealKpi"
+					]
+				},
+				"description": "Real-time plant KPIs (power, energy, health state, etc.). Requires `stationCodes` from the station list."
+			},
+			"response": []
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "https://eu5.fusionsolar.huawei.com",
+			"type": "string"
+		}
+	]
+}
