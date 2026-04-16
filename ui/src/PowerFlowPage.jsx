@@ -119,25 +119,38 @@ const LANDING_EXPORT_METRIC = Object.freeze({
 
 const LANDING_EXPORT_METRIC_VALUES = new Set(Object.values(LANDING_EXPORT_METRIC));
 
-function landingExportMetricStorageKey(inverterSn) {
+function landingExportMetricStorageKey(inverterSn, huaweiStationCode) {
+  const h = String(huaweiStationCode || '').trim();
+  if (h) return `pf-landing-export-metric-v1-huawei-${h}`;
   const s = String(inverterSn || '').trim();
   return `pf-landing-export-metric-v1-${s || 'fleet'}`;
 }
 
-function readStoredLandingExportMetric(inverterSn) {
+function readStoredLandingExportMetric(inverterSn, huaweiStationCode) {
   try {
-    const raw = localStorage.getItem(landingExportMetricStorageKey(inverterSn));
-    if (raw && LANDING_EXPORT_METRIC_VALUES.has(raw)) return raw;
+    const raw = localStorage.getItem(landingExportMetricStorageKey(inverterSn, huaweiStationCode));
+    if (raw && LANDING_EXPORT_METRIC_VALUES.has(raw)) {
+      const h = String(huaweiStationCode || '').trim();
+      if (
+        h &&
+        (raw === LANDING_EXPORT_METRIC.PEAK ||
+          raw === LANDING_EXPORT_METRIC.MANUAL ||
+          raw === LANDING_EXPORT_METRIC.ARBITRAGE)
+      ) {
+        return LANDING_EXPORT_METRIC.TOTAL;
+      }
+      return raw;
+    }
   } catch {
     /* ignore */
   }
   return LANDING_EXPORT_METRIC.TOTAL;
 }
 
-function writeStoredLandingExportMetric(inverterSn, value) {
+function writeStoredLandingExportMetric(inverterSn, huaweiStationCode, value) {
   if (!LANDING_EXPORT_METRIC_VALUES.has(value)) return;
   try {
-    localStorage.setItem(landingExportMetricStorageKey(inverterSn), value);
+    localStorage.setItem(landingExportMetricStorageKey(inverterSn, huaweiStationCode), value);
   } catch {
     /* ignore */
   }
@@ -822,8 +835,38 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const [landingExportMetric, setLandingExportMetric] = useState(LANDING_EXPORT_METRIC.TOTAL);
 
   useEffect(() => {
-    setLandingExportMetric(readStoredLandingExportMetric(selInverterSn));
-  }, [selInverterSn]);
+    setLandingExportMetric(readStoredLandingExportMetric(selInverterSn, selHuaweiStationCode));
+  }, [selInverterSn, selHuaweiStationCode]);
+
+  useEffect(() => {
+    if (!selHuaweiStationCode) return;
+    setLandingExportMetric(prev => {
+      if (
+        prev === LANDING_EXPORT_METRIC.PEAK ||
+        prev === LANDING_EXPORT_METRIC.MANUAL ||
+        prev === LANDING_EXPORT_METRIC.ARBITRAGE
+      ) {
+        return LANDING_EXPORT_METRIC.TOTAL;
+      }
+      return prev;
+    });
+  }, [selHuaweiStationCode]);
+
+  /** Arbitrage counter is hidden when we know cumulative sample export is zero (fleet or device). */
+  const canOfferLandingArbitrageMetric = useMemo(() => {
+    if (selHuaweiStationCode) return false;
+    if (!landingTotals?.ok) return true;
+    const te = landingTotals.totalExportKwh;
+    if (te == null || !Number.isFinite(Number(te))) return true;
+    return Number(te) > 1e-9;
+  }, [selHuaweiStationCode, landingTotals?.ok, landingTotals?.totalExportKwh]);
+
+  useEffect(() => {
+    if (!canOfferLandingArbitrageMetric && landingExportMetric === LANDING_EXPORT_METRIC.ARBITRAGE) {
+      setLandingExportMetric(LANDING_EXPORT_METRIC.TOTAL);
+      writeStoredLandingExportMetric(selInverterSn, selHuaweiStationCode, LANDING_EXPORT_METRIC.TOTAL);
+    }
+  }, [canOfferLandingArbitrageMetric, landingExportMetric, selInverterSn, selHuaweiStationCode]);
 
   const [exportHourlyChartOpen, setExportHourlyChartOpen] = useState(false);
   const exportHourlyScope = useMemo(() => {
@@ -1889,22 +1932,34 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     return () => window.removeEventListener('hashchange', syncFromHash);
   }, []);
 
-  useEffect(() => {
-    setLandingTotals(null);
-  }, [selInverterSn]);
+  const deyeListReady = inverterRows.configured && !inverterRows.loading && !inverterRows.error;
+  const huaweiListReady = huaweiRows.configured && !huaweiRows.loading && !huaweiRows.error;
+  const inverterListReady = deyeListReady || huaweiListReady;
 
   useEffect(() => {
-    if (!inverterRows.configured || inverterRows.loading || inverterRows.error) {
+    setLandingTotals(null);
+  }, [selInverterSn, selHuaweiStationCode]);
+
+  useEffect(() => {
+    if (!inverterListReady) {
       setLandingTotalsLoading(false);
       return undefined;
     }
     let cancelled = false;
+    const landingTotalsUrl = () => {
+      const hw = selHuaweiStationCode.trim();
+      if (hw) {
+        const q = new URLSearchParams({ huaweiStationCode: hw });
+        return apiUrl(`/api/power-flow/landing-totals?${q}`);
+      }
+      const sn = selInverterSn.trim();
+      const q = sn ? `?deviceSn=${encodeURIComponent(sn)}` : '';
+      return apiUrl(`/api/power-flow/landing-totals${q}`);
+    };
     const load = async () => {
       setLandingTotalsLoading(true);
       try {
-        const sn = selInverterSn.trim();
-        const q = sn ? `?deviceSn=${encodeURIComponent(sn)}` : '';
-        const r = await fetch(apiUrl(`/api/power-flow/landing-totals${q}`));
+        const r = await fetch(landingTotalsUrl());
         const data = await r.json();
         if (!cancelled && data.ok) setLandingTotals(data);
         else if (!cancelled) setLandingTotals(null);
@@ -1917,9 +1972,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     const poll = async () => {
       if (cancelled) return;
       try {
-        const sn = selInverterSn.trim();
-        const q = sn ? `?deviceSn=${encodeURIComponent(sn)}` : '';
-        const r = await fetch(apiUrl(`/api/power-flow/landing-totals${q}`));
+        const r = await fetch(landingTotalsUrl());
         const data = await r.json();
         if (!cancelled && data.ok) setLandingTotals(data);
         else if (!cancelled) setLandingTotals(null);
@@ -1933,11 +1986,12 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       cancelled = true;
       clearInterval(id);
     };
-  }, [selInverterSn, inverterRows.configured, inverterRows.loading, inverterRows.error]);
+  }, [
+    selInverterSn,
+    selHuaweiStationCode,
+    inverterListReady,
+  ]);
 
-  const deyeListReady = inverterRows.configured && !inverterRows.loading && !inverterRows.error;
-  const huaweiListReady = huaweiRows.configured && !huaweiRows.loading && !huaweiRows.error;
-  const inverterListReady = deyeListReady || huaweiListReady;
   const showPowerFlowSections =
     (!inverterRows.error && (inverterRows.loading || inverterRows.configured)) ||
     (!huaweiRows.error && (huaweiRows.loading || huaweiRows.configured));
@@ -2118,15 +2172,26 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
           {showPowerFlowSections
             ? (() => {
                 const ltd = inverterListReady ? formatLandingTotalsDisplay(landingTotals, bcp47, t) : null;
-                const landingTotalsFleet = landingTotals?.exportScope === 'fleet';
+                const landingTotalsScopeFleet = landingTotals?.exportScope === 'fleet';
                 const listPending = !inverterListReady;
+                const landingHuaweiEss = Boolean(selHuaweiStationCode);
+                const landingExportMetricUi =
+                  landingHuaweiEss &&
+                  (landingExportMetric === LANDING_EXPORT_METRIC.PEAK ||
+                    landingExportMetric === LANDING_EXPORT_METRIC.MANUAL ||
+                    landingExportMetric === LANDING_EXPORT_METRIC.ARBITRAGE)
+                    ? LANDING_EXPORT_METRIC.TOTAL
+                    : !canOfferLandingArbitrageMetric &&
+                        landingExportMetric === LANDING_EXPORT_METRIC.ARBITRAGE
+                      ? LANDING_EXPORT_METRIC.TOTAL
+                      : landingExportMetric;
 
                 const inverterMetricDisplay = ltd
                   ? (() => {
-                      if (landingExportMetric === LANDING_EXPORT_METRIC.TOTAL) {
+                      if (landingExportMetricUi === LANDING_EXPORT_METRIC.TOTAL) {
                         return {
                           text: formatLandingTotalExportSamplesKwh(landingTotals.totalExportKwh, bcp47),
-                          title: landingTotalsFleet
+                          title: landingTotalsScopeFleet
                             ? t('powerFlowLandingExportTotalHintFleet')
                             : t('powerFlowLandingExportTotalHint'),
                           wrapClass: 'pf-landing-totals__counter-wrap',
@@ -2134,11 +2199,11 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                           valueIsCurrency: false,
                         };
                       }
-                      if (landingExportMetric === LANDING_EXPORT_METRIC.PEAK) {
+                      if (landingExportMetricUi === LANDING_EXPORT_METRIC.PEAK) {
                         const p = ltd.peakDam;
                         return {
                           text: p ? p.exportText : '—',
-                          title: landingTotalsFleet
+                          title: landingTotalsScopeFleet
                             ? t('powerFlowLandingPeakDamSessionHintFleet')
                             : t('powerFlowLandingPeakDamSessionHint'),
                           wrapClass: `pf-landing-totals__counter-wrap${p ? ' pf-landing-totals__counter-wrap--peak-dam' : ''}`,
@@ -2146,11 +2211,11 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                           valueIsCurrency: false,
                         };
                       }
-                      if (landingExportMetric === LANDING_EXPORT_METRIC.MANUAL) {
+                      if (landingExportMetricUi === LANDING_EXPORT_METRIC.MANUAL) {
                         const m = ltd.manualDischarge;
                         return {
                           text: m ? m.exportText : '—',
-                          title: landingTotalsFleet
+                          title: landingTotalsScopeFleet
                             ? t('powerFlowLandingManualDischargeHintFleet')
                             : t('powerFlowLandingManualDischargeHint'),
                           wrapClass: `pf-landing-totals__counter-wrap${m ? ' pf-landing-totals__counter-wrap--manual-discharge' : ''}`,
@@ -2158,11 +2223,11 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                           valueIsCurrency: false,
                         };
                       }
-                      if (landingExportMetric === LANDING_EXPORT_METRIC.ARBITRAGE) {
+                      if (landingExportMetricUi === LANDING_EXPORT_METRIC.ARBITRAGE) {
                         const a = ltd.arbitrage;
                         return {
                           text: a ? a.revenueText : '—',
-                          title: landingTotalsFleet
+                          title: landingTotalsScopeFleet
                             ? t('powerFlowLandingArbitrageHintFleet')
                             : t('powerFlowLandingArbitrageHint'),
                           wrapClass: `pf-landing-totals__counter-wrap${a ? ' pf-landing-totals__counter-wrap--arbitrage' : ''}`,
@@ -2173,7 +2238,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                       }
                       return {
                         text: formatLandingTotalExportSamplesKwh(landingTotals.totalExportKwh, bcp47),
-                        title: landingTotalsFleet
+                        title: landingTotalsScopeFleet
                           ? t('powerFlowLandingExportTotalHintFleet')
                           : t('powerFlowLandingExportTotalHint'),
                         wrapClass: 'pf-landing-totals__counter-wrap',
@@ -2217,23 +2282,31 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                             id="pf-landing-export-metric"
                             className="pf-lang-select pf-landing-totals__metric-select"
                             aria-label={t('powerFlowLandingExportMetricAria')}
-                            value={landingExportMetric}
+                            value={landingExportMetricUi}
                             onChange={e => {
                               const v = e.target.value;
                               setLandingExportMetric(v);
-                              writeStoredLandingExportMetric(selInverterSn, v);
+                              writeStoredLandingExportMetric(selInverterSn, selHuaweiStationCode, v);
                             }}
                           >
-                            <option value={LANDING_EXPORT_METRIC.PEAK}>{t('powerFlowLandingExportMetricPeak')}</option>
-                            <option value={LANDING_EXPORT_METRIC.MANUAL}>
-                              {t('powerFlowLandingExportMetricManual')}
-                            </option>
+                            {landingHuaweiEss ? null : (
+                              <>
+                                <option value={LANDING_EXPORT_METRIC.PEAK}>
+                                  {t('powerFlowLandingExportMetricPeak')}
+                                </option>
+                                <option value={LANDING_EXPORT_METRIC.MANUAL}>
+                                  {t('powerFlowLandingExportMetricManual')}
+                                </option>
+                              </>
+                            )}
                             <option value={LANDING_EXPORT_METRIC.TOTAL}>
                               {t('powerFlowLandingExportMetricTotal')}
                             </option>
-                            <option value={LANDING_EXPORT_METRIC.ARBITRAGE}>
-                              {t('powerFlowLandingExportMetricArbitrage')}
-                            </option>
+                            {landingHuaweiEss || !canOfferLandingArbitrageMetric ? null : (
+                              <option value={LANDING_EXPORT_METRIC.ARBITRAGE}>
+                                {t('powerFlowLandingExportMetricArbitrage')}
+                              </option>
+                            )}
                           </select>
                           {ltd && inverterMetricDisplay ? (
                             <div
@@ -2243,30 +2316,55 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                                   : 'pf-landing-totals__export-value'
                               }
                             >
-                              <button
-                                type="button"
-                                className={`${inverterMetricDisplay.wrapClass} pf-landing-totals__counter-wrap--export-chart-trigger`}
-                                aria-label={t('powerFlowPeakHourlyChartOpenAria')}
-                                onClick={() => setExportHourlyChartOpen(true)}
-                              >
-                                <div className="pf-landing-totals__counter-scroll">
-                                  <PfScrollNumber
-                                    direction="up"
-                                    duration={0.32}
-                                    ease={[0.33, 0, 0.2, 1]}
-                                    className={inverterMetricDisplay.counterClass}
-                                    numberStyle={{
-                                      letterSpacing: '0.05em',
-                                    }}
-                                  >
-                                    {formatLandingMetricCounterText(
-                                      inverterMetricDisplay.text,
-                                      t,
-                                      inverterMetricDisplay.valueIsCurrency
-                                    )}
-                                  </PfScrollNumber>
+                              {landingHuaweiEss ? (
+                                <div
+                                  className={inverterMetricDisplay.wrapClass}
+                                  aria-label={inverterMetricDisplay.title || undefined}
+                                >
+                                  <div className="pf-landing-totals__counter-scroll">
+                                    <PfScrollNumber
+                                      direction="up"
+                                      duration={0.32}
+                                      ease={[0.33, 0, 0.2, 1]}
+                                      className={inverterMetricDisplay.counterClass}
+                                      numberStyle={{
+                                        letterSpacing: '0.05em',
+                                      }}
+                                    >
+                                      {formatLandingMetricCounterText(
+                                        inverterMetricDisplay.text,
+                                        t,
+                                        inverterMetricDisplay.valueIsCurrency
+                                      )}
+                                    </PfScrollNumber>
+                                  </div>
                                 </div>
-                              </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className={`${inverterMetricDisplay.wrapClass} pf-landing-totals__counter-wrap--export-chart-trigger`}
+                                  aria-label={t('powerFlowPeakHourlyChartOpenAria')}
+                                  onClick={() => setExportHourlyChartOpen(true)}
+                                >
+                                  <div className="pf-landing-totals__counter-scroll">
+                                    <PfScrollNumber
+                                      direction="up"
+                                      duration={0.32}
+                                      ease={[0.33, 0, 0.2, 1]}
+                                      className={inverterMetricDisplay.counterClass}
+                                      numberStyle={{
+                                        letterSpacing: '0.05em',
+                                      }}
+                                    >
+                                      {formatLandingMetricCounterText(
+                                        inverterMetricDisplay.text,
+                                        t,
+                                        inverterMetricDisplay.valueIsCurrency
+                                      )}
+                                    </PfScrollNumber>
+                                  </div>
+                                </button>
+                              )}
                               {inverterMetricDisplay.arbitrageMom ? (
                                 <span
                                   className={
@@ -2751,10 +2849,15 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
             </div>
           </div>
 
-          <section className="pf-dam-section" aria-label={t('damChartHeading')}>
+                   <section className="pf-dam-section" aria-label={t('damChartHeading')}>
             <DamChartPanel
               variant="embedded"
-              inverterSn={selInverterSn || undefined}
+              inverterSn={essSel.provider === 'deye' ? selInverterSn || undefined : undefined}
+              huaweiStationCode={
+                essSel.provider === 'huawei' && huaweiListReady && !huaweiRows.error
+                  ? selHuaweiStationCode || undefined
+                  : undefined
+              }
               t={t}
               getBcp47Locale={getBcp47Locale}
               chartHeight={320}
@@ -3383,7 +3486,10 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
         onClose={() => setExportHourlyChartOpen(false)}
         fetchUrl={exportHourlyBarsUrl}
         hourlyScope={exportHourlyScope}
-        exportRevenueUah={landingExportMetric === LANDING_EXPORT_METRIC.ARBITRAGE}
+        exportRevenueUah={
+          canOfferLandingArbitrageMetric &&
+          landingExportMetric === LANDING_EXPORT_METRIC.ARBITRAGE
+        }
         t={t}
       />
       {shareFeedback ? (

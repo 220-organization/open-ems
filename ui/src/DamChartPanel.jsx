@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bar,
   BarChart,
@@ -232,6 +232,13 @@ function addCalendarDays(iso, deltaDays) {
   const mm = String(u.getUTCMonth() + 1).padStart(2, '0');
   const dd = String(u.getUTCDate()).padStart(2, '0');
   return `${yy}-${mm}-${dd}`;
+}
+
+/** Display trade day as DD.MM.YYYY from ISO yyyy-mm-dd. */
+function formatTradeDayDdMmYyyy(iso) {
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso || '—';
+  const [y, m, d] = iso.split('-');
+  return `${d}.${m}.${y}`;
 }
 
 /** Last selectable DAM trade day: tomorrow in Europe/Kyiv (aligned with lazy OREE rules). */
@@ -578,6 +585,7 @@ function kyivHourIndexNowForDate(tradeDayIso) {
 /**
  * @param {'embedded' | 'fullpage'} variant — fullpage: URL ?date= sync + top nav; embedded: bottom of Power flow only.
  * @param {string} [inverterSn] — Deye serial; when set, overlays mean SoC % per hour (from DB) on the chart.
+ * @param {string} [huaweiStationCode] — FusionSolar plant code; grid/PV/load bars from DB (`/api/huawei/station-hourly`). Mutually exclusive with Deye bar data in practice.
  */
 export default function DamChartPanel({
   t,
@@ -589,6 +597,7 @@ export default function DamChartPanel({
   LOCALE_NAMES,
   onLangSelectChange,
   inverterSn: inverterSnProp,
+  huaweiStationCode: huaweiStationCodeProp,
 }) {
   const [tradeDay, setTradeDay] = useState(() => getInitialDamChartState(variant).date);
   const [damMarket, setDamMarket] = useState(() => getInitialDamChartState(variant).market);
@@ -628,11 +637,19 @@ export default function DamChartPanel({
   /** NBU UAH per 1 EUR — scales ENTSO-E EUR/kWh onto the same axis as Ukraine DAM (UAH/kWh). */
   const [eurUahRate, setEurUahRate] = useState(null);
   const [eurUahRateLabel, setEurUahRateLabel] = useState(null);
+  const [huaweiHourly, setHuaweiHourly] = useState(null);
+  const [huaweiSnapshotBusy, setHuaweiSnapshotBusy] = useState(false);
+  const tradeDayLineInputRef = useRef(null);
+  const tradeDayGridInputRef = useRef(null);
+  const tradeDayPvInputRef = useRef(null);
 
   const effectiveInverterSn = (
     (inverterSnProp && String(inverterSnProp).trim()) ||
     (variant === 'fullpage' ? urlInverterOnce : '')
   ).trim();
+  const effectiveHuaweiStation = (huaweiStationCodeProp && String(huaweiStationCodeProp).trim()) || '';
+  const showEnergyBars = Boolean(effectiveInverterSn || effectiveHuaweiStation);
+  const showDeyeExtras = Boolean(effectiveInverterSn && !effectiveHuaweiStation);
 
   const damChartMobile = useDamChartMobileLayout();
 
@@ -988,7 +1005,7 @@ export default function DamChartPanel({
   }, [tradeDay, baseIndexCompareMode, damMarket]);
 
   useEffect(() => {
-    if (!effectiveInverterSn) {
+    if (!effectiveInverterSn || effectiveHuaweiStation) {
       setSocPayload(null);
       setSocError('');
       setSocLoading(false);
@@ -1016,10 +1033,10 @@ export default function DamChartPanel({
     return () => {
       cancelled = true;
     };
-  }, [tradeDay, effectiveInverterSn]);
+  }, [tradeDay, effectiveInverterSn, effectiveHuaweiStation]);
 
   useEffect(() => {
-    if (!effectiveInverterSn) {
+    if (!effectiveInverterSn || effectiveHuaweiStation) {
       setLiveGridPowerW(null);
       setLiveLoadPowerW(null);
       setLivePvPowerW(null);
@@ -1067,7 +1084,54 @@ export default function DamChartPanel({
       cancelled = true;
       clearInterval(id);
     };
-  }, [effectiveInverterSn]);
+  }, [effectiveInverterSn, effectiveHuaweiStation]);
+
+  useEffect(() => {
+    if (!effectiveHuaweiStation) {
+      setHuaweiHourly(null);
+      return undefined;
+    }
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const q = new URLSearchParams({ stationCodes: effectiveHuaweiStation, date: tradeDay });
+        const r = await fetch(apiUrl(`/api/huawei/station-hourly?${q}`), { cache: 'no-store' });
+        const j = await r.json().catch(() => ({}));
+        if (!cancelled) setHuaweiHourly(j);
+      } catch {
+        if (!cancelled) setHuaweiHourly(null);
+      }
+    };
+    void load();
+    const id = setInterval(load, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [effectiveHuaweiStation, tradeDay]);
+
+  const runHuaweiPowerSnapshot = useCallback(async () => {
+    if (!effectiveHuaweiStation) return;
+    setHuaweiSnapshotBusy(true);
+    try {
+      const r = await fetch(apiUrl('/api/huawei/power-snapshot'), {
+        method: 'POST',
+        cache: 'no-store',
+        headers: { Accept: 'application/json' },
+      });
+      const j = await r.json().catch(() => ({}));
+      if (j?.ok) {
+        const q = new URLSearchParams({ stationCodes: effectiveHuaweiStation, date: tradeDay });
+        const r2 = await fetch(apiUrl(`/api/huawei/station-hourly?${q}`), { cache: 'no-store' });
+        const j2 = await r2.json().catch(() => ({}));
+        setHuaweiHourly(j2);
+      }
+    } catch {
+      /* keep previous hourly state */
+    } finally {
+      setHuaweiSnapshotBusy(false);
+    }
+  }, [effectiveHuaweiStation, tradeDay]);
 
   const rows = useMemo(() => {
     const damArr = getHourlyDamPerKwhFromPayload(payload);
@@ -1174,66 +1238,102 @@ export default function DamChartPanel({
       };
     });
 
-    const liveGridKw =
-      liveGridPowerW != null && Number.isFinite(Number(liveGridPowerW)) ? Number(liveGridPowerW) / 1000 : null;
-    const liveLoadKw =
-      liveLoadPowerW != null && Number.isFinite(Number(liveLoadPowerW)) ? Number(liveLoadPowerW) / 1000 : null;
-    const hi = kyivHourIndexNowForDate(tradeDay);
-    if (hi != null) {
-      const hasAnyGrid = out.some(r => r.gridKw != null && Number.isFinite(r.gridKw));
-      const slot = out[hi];
-      const slotEmpty = slot.gridKw == null || !Number.isFinite(slot.gridKw);
-      let fallbackKw = liveGridKw;
-      let fallbackFromLoad = false;
-      if (fallbackKw != null && Math.abs(fallbackKw) < 0.2 && liveLoadKw != null && liveLoadKw > 0) {
-        fallbackKw = liveLoadKw;
-        fallbackFromLoad = true;
-      }
-      if (fallbackKw != null && (slotEmpty || !hasAnyGrid)) {
-        out[hi] = { ...slot, gridKw: fallbackKw, gridKwLive: true, gridKwFromLoad: fallbackFromLoad };
+    if (effectiveHuaweiStation && huaweiHourly?.ok && Array.isArray(huaweiHourly.hours)) {
+      const byHour = new Map(huaweiHourly.hours.map(h => [Number(h.hour), h]));
+      for (let i = 0; i < 24; i++) {
+        const hr = byHour.get(i + 1);
+        if (!hr) continue;
+        const slot = out[i];
+        const gImp = hr.gridImportKwh;
+        const gExp = hr.gridExportKwh;
+        let gridKw = null;
+        const hasImp = gImp != null && Number.isFinite(Number(gImp)) && Number(gImp) !== 0;
+        const hasExp = gExp != null && Number.isFinite(Number(gExp)) && Number(gExp) !== 0;
+        if (hasImp || hasExp) {
+          gridKw = Number(gImp || 0) + Number(gExp || 0);
+        }
+        let pvKwh = null;
+        if (hr.generationKwh != null && Number.isFinite(Number(hr.generationKwh)) && Number(hr.generationKwh) !== 0) {
+          pvKwh = Number(hr.generationKwh);
+        }
+        let consKwhNeg = null;
+        if (hr.consumptionKwh != null && Number.isFinite(Number(hr.consumptionKwh)) && Number(hr.consumptionKwh) !== 0) {
+          consKwhNeg = Number(hr.consumptionKwh);
+        }
+        out[i] = {
+          ...slot,
+          gridKw,
+          pvKwh,
+          consKwhNeg,
+          gridKwLive: false,
+          gridKwFromLoad: false,
+          pvLoadLive: false,
+        };
       }
     }
-    if (
-      usesDeyeFlowBalance(effectiveInverterSn) &&
-      hi != null &&
-      liveLoadPowerW != null &&
-      livePvPowerW != null &&
-      liveBatteryPowerW != null &&
-      Number.isFinite(Number(liveLoadPowerW)) &&
-      Number.isFinite(Number(livePvPowerW)) &&
-      Number.isFinite(Number(liveBatteryPowerW))
-    ) {
-      const balW =
-        Number(liveLoadPowerW) - DEYE_FLOW_BALANCE_PV_FACTOR * Number(livePvPowerW) - Number(liveBatteryPowerW);
-      const slot = out[hi];
-      out[hi] = {
-        ...slot,
-        gridKw: balW / 1000,
-        gridKwLive: true,
-        gridKwFromLoad: false,
-      };
-    }
-    if (hi != null && effectiveInverterSn) {
-      const hasAnyPv = out.some(r => r.pvKwh != null && Number.isFinite(r.pvKwh));
-      const hasAnyLoad = out.some(r => r.consKwhNeg != null && Number.isFinite(r.consKwhNeg));
-      const slot = out[hi];
-      let pvK = slot.pvKwh;
-      let cNeg = slot.consKwhNeg;
-      if (livePvPowerW != null && Number.isFinite(Number(livePvPowerW)) && (pvK == null || !hasAnyPv)) {
-        const raw = Number(livePvPowerW);
-        const eff = usesDeyeFlowBalance(effectiveInverterSn) ? raw * DEYE_FLOW_BALANCE_PV_FACTOR : raw;
-        pvK = eff / 1000;
+
+    if (!effectiveHuaweiStation) {
+      const liveGridKw =
+        liveGridPowerW != null && Number.isFinite(Number(liveGridPowerW)) ? Number(liveGridPowerW) / 1000 : null;
+      const liveLoadKw =
+        liveLoadPowerW != null && Number.isFinite(Number(liveLoadPowerW)) ? Number(liveLoadPowerW) / 1000 : null;
+      const hi = kyivHourIndexNowForDate(tradeDay);
+      if (hi != null) {
+        const hasAnyGrid = out.some(r => r.gridKw != null && Number.isFinite(r.gridKw));
+        const slot = out[hi];
+        const slotEmpty = slot.gridKw == null || !Number.isFinite(slot.gridKw);
+        let fallbackKw = liveGridKw;
+        let fallbackFromLoad = false;
+        if (fallbackKw != null && Math.abs(fallbackKw) < 0.2 && liveLoadKw != null && liveLoadKw > 0) {
+          fallbackKw = liveLoadKw;
+          fallbackFromLoad = true;
+        }
+        if (fallbackKw != null && (slotEmpty || !hasAnyGrid)) {
+          out[hi] = { ...slot, gridKw: fallbackKw, gridKwLive: true, gridKwFromLoad: fallbackFromLoad };
+        }
       }
-      if (liveLoadPowerW != null && Number.isFinite(Number(liveLoadPowerW)) && (cNeg == null || !hasAnyLoad)) {
-        cNeg = -Math.abs(Number(liveLoadPowerW)) / 1000;
-      }
-      if (pvK !== slot.pvKwh || cNeg !== slot.consKwhNeg) {
+      if (
+        usesDeyeFlowBalance(effectiveInverterSn) &&
+        hi != null &&
+        liveLoadPowerW != null &&
+        livePvPowerW != null &&
+        liveBatteryPowerW != null &&
+        Number.isFinite(Number(liveLoadPowerW)) &&
+        Number.isFinite(Number(livePvPowerW)) &&
+        Number.isFinite(Number(liveBatteryPowerW))
+      ) {
+        const balW =
+          Number(liveLoadPowerW) - DEYE_FLOW_BALANCE_PV_FACTOR * Number(livePvPowerW) - Number(liveBatteryPowerW);
+        const slot = out[hi];
         out[hi] = {
           ...slot,
-          pvKwh: pvK ?? slot.pvKwh,
-          consKwhNeg: cNeg ?? slot.consKwhNeg,
-          pvLoadLive: true,
+          gridKw: balW / 1000,
+          gridKwLive: true,
+          gridKwFromLoad: false,
         };
+      }
+      if (hi != null && effectiveInverterSn) {
+        const hasAnyPv = out.some(r => r.pvKwh != null && Number.isFinite(r.pvKwh));
+        const hasAnyLoad = out.some(r => r.consKwhNeg != null && Number.isFinite(r.consKwhNeg));
+        const slot = out[hi];
+        let pvK = slot.pvKwh;
+        let cNeg = slot.consKwhNeg;
+        if (livePvPowerW != null && Number.isFinite(Number(livePvPowerW)) && (pvK == null || !hasAnyPv)) {
+          const raw = Number(livePvPowerW);
+          const eff = usesDeyeFlowBalance(effectiveInverterSn) ? raw * DEYE_FLOW_BALANCE_PV_FACTOR : raw;
+          pvK = eff / 1000;
+        }
+        if (liveLoadPowerW != null && Number.isFinite(Number(liveLoadPowerW)) && (cNeg == null || !hasAnyLoad)) {
+          cNeg = -Math.abs(Number(liveLoadPowerW)) / 1000;
+        }
+        if (pvK !== slot.pvKwh || cNeg !== slot.consKwhNeg) {
+          out[hi] = {
+            ...slot,
+            pvKwh: pvK ?? slot.pvKwh,
+            consKwhNeg: cNeg ?? slot.consKwhNeg,
+            pvLoadLive: true,
+          };
+        }
       }
     }
     return out;
@@ -1248,6 +1348,8 @@ export default function DamChartPanel({
     livePvPowerW,
     liveBatteryPowerW,
     effectiveInverterSn,
+    effectiveHuaweiStation,
+    huaweiHourly,
     eurUahRate,
   ]);
 
@@ -1329,9 +1431,9 @@ export default function DamChartPanel({
   }, [rows]);
 
   const damGridWeightedMoneyUah = useMemo(() => {
-    if (!effectiveInverterSn || !rows.length) return null;
+    if (!(effectiveInverterSn || effectiveHuaweiStation) || !rows.length) return null;
     return computeDamWeightedGridMoneyUah(rows, damMarket, eurUahRate);
-  }, [rows, damMarket, eurUahRate, effectiveInverterSn]);
+  }, [rows, damMarket, eurUahRate, effectiveInverterSn, effectiveHuaweiStation]);
 
   const damGridMoneyPartialNote = useMemo(() => {
     if (!damGridWeightedMoneyUah) return false;
@@ -1358,6 +1460,12 @@ export default function DamChartPanel({
     return { value: net, showDamUnavailable: false };
   }, [damGridWeightedMoneyUah, damDayEnergyTotals.importKwh, damDayEnergyTotals.exportKwh]);
 
+  /** Hide grid arbitrage line when there was no grid export energy this Kyiv day (import-only is not arbitrage UX here). */
+  const showDamGridArbitrageRow = useMemo(() => {
+    const ex = damDayEnergyTotals.exportKwh;
+    return ex != null && Number.isFinite(ex) && ex > 1e-9;
+  }, [damDayEnergyTotals.exportKwh]);
+
   const hzDomain = useMemo(() => {
     const vals = rows.map(r => r.gridFreqHz).filter(v => v != null && Number.isFinite(v));
     if (!vals.length) return [49.5, 50.5];
@@ -1370,13 +1478,13 @@ export default function DamChartPanel({
 
   const lineChartRightMargin = useMemo(() => {
     if (damChartMobile) return 8;
-    if (!effectiveInverterSn) return 16;
+    if (!showDeyeExtras) return 16;
     const { soc, hz } = damSeriesVisible;
     if (soc && hz) return DAM_RIGHT_Y_AXIS_WIDTH + DAM_HZ_Y_AXIS_WIDTH + 28;
     if (soc) return 52;
     if (hz) return DAM_HZ_Y_AXIS_WIDTH + 28;
     return 16;
-  }, [effectiveInverterSn, damSeriesVisible, damChartMobile]);
+  }, [showDeyeExtras, damSeriesVisible, damChartMobile]);
 
   /** Same horizontal gutters + matched right-axis bands so LineChart and ComposedChart X domains align. */
   const damLineChartMargin = useMemo(
@@ -1417,6 +1525,22 @@ export default function DamChartPanel({
       const cap = damMarket === 'entsoe' ? maxTradeDayBrusselsIso() : maxTradeDayKyivIso();
       return next > cap ? cap : next;
     });
+
+  const openTradeDayPicker = useCallback(inputRef => {
+    const el = inputRef?.current;
+    if (!el) return;
+    if (typeof el.showPicker === 'function') {
+      try {
+        el.showPicker();
+        return;
+      } catch {
+        /* fall through */
+      }
+    }
+    el.click();
+  }, []);
+
+  const showEmbeddedHeadDateBar = variant !== 'fullpage' && !showEnergyBars;
 
   const hasChart = Boolean(payload?.ok) && rows.length === 24;
   const hasAnyDamPrice = useMemo(
@@ -1545,6 +1669,54 @@ export default function DamChartPanel({
     </div>
   );
 
+  const renderSectionDateBar = (inputRef, idSuffix, classNameExtra = '') => (
+    <div
+      className={`dam-date-bar dam-date-bar--section${classNameExtra ? ` ${classNameExtra}` : ''}`.trim()}
+      role="group"
+      aria-label={t('damDateLabel')}
+    >
+      <button type="button" className="dam-date-btn" onClick={goPrev} aria-label={t('damPrevDay')}>
+        ‹
+      </button>
+      <div className="dam-date-field">
+        <span className="dam-date-field__text">{formatTradeDayDdMmYyyy(tradeDay)}</span>
+        <button
+          type="button"
+          className="dam-date-field__calendar"
+          onClick={() => openTradeDayPicker(inputRef)}
+          aria-label={t('damOpenDatePickerAria')}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path
+              fill="currentColor"
+              d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zM5 8V6h14v2H5zm2 4h5v5H7v-5z"
+            />
+          </svg>
+        </button>
+        <input
+          ref={inputRef}
+          id={`dam-section-trade-day-${variant}-${idSuffix}`}
+          className="dam-date-field__native"
+          type="date"
+          tabIndex={-1}
+          value={tradeDay}
+          max={maxTradeDay}
+          onChange={onDateInput}
+          aria-hidden="true"
+        />
+      </div>
+      <button
+        type="button"
+        className="dam-date-btn"
+        onClick={goNext}
+        disabled={tradeDay >= maxTradeDay}
+        aria-label={t('damNextDay')}
+      >
+        ›
+      </button>
+    </div>
+  );
+
   const damCompareControls = (
     <div className="dam-compare-row">
       <select
@@ -1581,7 +1753,7 @@ export default function DamChartPanel({
             </a>
           </div>
           {marketControls}
-          {dateBar}
+          {showEnergyBars ? null : dateBar}
           <select
             id="dam-lang"
             className="pf-lang-select"
@@ -1602,7 +1774,7 @@ export default function DamChartPanel({
             <h2 className="dam-title dam-title-embedded">{t('damChartHeading')}</h2>
             {damCompareControls}
           </div>
-          {dateBar}
+          {showEmbeddedHeadDateBar ? dateBar : null}
         </div>
       )}
 
@@ -1630,9 +1802,23 @@ export default function DamChartPanel({
         </div>
       ) : null}
 
-      {effectiveInverterSn && socError ? (
+      {showDeyeExtras && socError ? (
         <div className="dam-banner dam-banner-warn" role="status">
           {t('damSocHistoryError')}: {socError}
+        </div>
+      ) : null}
+
+      {effectiveHuaweiStation && huaweiHourly?.ok && huaweiHourly.empty ? (
+        <div className="dam-banner dam-banner-info dam-banner--with-action" role="status">
+          <span className="dam-banner__message">{t('damHuaweiDbSamplesHint')}</span>
+          <button
+            type="button"
+            className="dam-banner__btn"
+            onClick={() => void runHuaweiPowerSnapshot()}
+            disabled={huaweiSnapshotBusy}
+          >
+            {huaweiSnapshotBusy ? t('damHuaweiUpdateNowBusy') : t('damHuaweiUpdateNow')}
+          </button>
         </div>
       ) : null}
 
@@ -1652,14 +1838,18 @@ export default function DamChartPanel({
 
         {loading && !hasChart ? <p className="dam-loading">{t('damLoading')}</p> : null}
 
-        {effectiveInverterSn && socLoading && !loading && hasChart ? (
+        {showDeyeExtras && socLoading && !loading && hasChart ? (
           <p className="dam-loading dam-soc-loading">{t('damSocLoading')}</p>
         ) : null}
 
         {!loading && hasChart ? (
-          <div className="dam-recharts-wrap dam-recharts-wrap--line-stack" style={{ minHeight: `calc(${h}px + 42px)` }}>
-            <ResponsiveContainer width="100%" height={h}>
-              <LineChart data={rows} syncId="dam-day" margin={damLineChartMargin} isAnimationActive={false}>
+          <>
+            {showEnergyBars
+              ? renderSectionDateBar(tradeDayLineInputRef, 'line', 'dam-date-bar--above-chart')
+              : null}
+            <div className="dam-recharts-wrap dam-recharts-wrap--line-stack" style={{ minHeight: `calc(${h}px + 42px)` }}>
+              <ResponsiveContainer width="100%" height={h}>
+                <LineChart data={rows} syncId="dam-day" margin={damLineChartMargin} isAnimationActive={false}>
                 <CartesianGrid stroke="rgba(252, 1, 155, 0.12)" strokeDasharray="3 3" />
                 <XAxis
                   dataKey="hour"
@@ -1709,7 +1899,7 @@ export default function DamChartPanel({
                     }}
                   />
                 ) : null}
-                {effectiveInverterSn && damSeriesVisible.soc ? (
+                {showDeyeExtras && damSeriesVisible.soc ? (
                   <YAxis
                     yAxisId="soc"
                     orientation="right"
@@ -1729,7 +1919,7 @@ export default function DamChartPanel({
                     }}
                   />
                 ) : null}
-                {effectiveInverterSn && damSeriesVisible.hz ? (
+                {showDeyeExtras && damSeriesVisible.hz ? (
                   <YAxis
                     yAxisId="hz"
                     orientation="right"
@@ -1840,7 +2030,7 @@ export default function DamChartPanel({
                     isAnimationActive={false}
                   />
                 ) : null}
-                {effectiveInverterSn && damSeriesVisible.soc ? (
+                {showDeyeExtras && damSeriesVisible.soc ? (
                   <Line
                     yAxisId="soc"
                     type="monotone"
@@ -1853,7 +2043,7 @@ export default function DamChartPanel({
                     isAnimationActive={false}
                   />
                 ) : null}
-                {effectiveInverterSn && damSeriesVisible.hz ? (
+                {showDeyeExtras && damSeriesVisible.hz ? (
                   <Line
                     yAxisId="hz"
                     type="monotone"
@@ -1951,7 +2141,7 @@ export default function DamChartPanel({
                   </button>
                 </li>
               ) : null}
-              {effectiveInverterSn ? (
+              {showDeyeExtras ? (
                 <li>
                   <button
                     type="button"
@@ -1972,7 +2162,7 @@ export default function DamChartPanel({
                   </button>
                 </li>
               ) : null}
-              {effectiveInverterSn ? (
+              {showDeyeExtras ? (
                 <li>
                   <button
                     type="button"
@@ -2003,9 +2193,10 @@ export default function DamChartPanel({
               </p>
             ) : null}
           </div>
+          </>
         ) : null}
 
-        {!loading && hasChart && effectiveInverterSn ? (
+        {!loading && hasChart && showEnergyBars ? (
           <div className="dam-grid-bars-wrap">
             <p className="dam-grid-bars-caption">{t('damGridBarsCaption')}</p>
             <ul className="dam-day-energy-totals dam-day-energy-totals--grid" aria-label={t('damEnergyTotalsGridAria')}>
@@ -2061,31 +2252,34 @@ export default function DamChartPanel({
                   ) : null}
                 </div>
               </li>
-              <li className="dam-day-energy-totals__item">
-                <span className="dam-day-energy-totals__swatch" style={{ background: '#4ade80' }} aria-hidden />
-                <div className="dam-day-energy-totals__stack">
-                  <span className="dam-day-energy-totals__text">
-                    {t('damEnergyArbitrageRevenue')}:{` `}
-                    <span className="dam-day-energy-totals__value">
-                      {damArbitrageRevenueDisplay.value != null
-                        ? `${fmtUah.format(damArbitrageRevenueDisplay.value)} ${t('roiValueUahUnit')}`
-                        : '—'}
+              {showDamGridArbitrageRow ? (
+                <li className="dam-day-energy-totals__item">
+                  <span className="dam-day-energy-totals__swatch" style={{ background: '#4ade80' }} aria-hidden />
+                  <div className="dam-day-energy-totals__stack">
+                    <span className="dam-day-energy-totals__text">
+                      {t('damEnergyArbitrageRevenue')}:{` `}
+                      <span className="dam-day-energy-totals__value">
+                        {damArbitrageRevenueDisplay.value != null
+                          ? `${fmtUah.format(damArbitrageRevenueDisplay.value)} ${t('roiValueUahUnit')}`
+                          : '—'}
+                      </span>
                     </span>
-                  </span>
-                  {damArbitrageRevenueDisplay.showDamUnavailable ? (
-                    <span className="dam-day-energy-totals__dam-sub">{t('damEnergyDamUahUnavailable')}</span>
-                  ) : null}
-                  {damArbitrageRevenueDisplay.value != null ? (
-                    <span className="dam-day-energy-totals__dam-sub">{t('damEnergyArbitrageRevenueSub')}</span>
-                  ) : null}
-                </div>
-              </li>
+                    {damArbitrageRevenueDisplay.showDamUnavailable ? (
+                      <span className="dam-day-energy-totals__dam-sub">{t('damEnergyDamUahUnavailable')}</span>
+                    ) : null}
+                    {damArbitrageRevenueDisplay.value != null ? (
+                      <span className="dam-day-energy-totals__dam-sub">{t('damEnergyArbitrageRevenueSub')}</span>
+                    ) : null}
+                  </div>
+                </li>
+              ) : null}
             </ul>
             {damGridMoneyPartialNote ? (
               <p className="dam-grid-dam-money-footnote" role="note">
                 {t('damEnergyDamPartialHoursNote')}
               </p>
             ) : null}
+            {renderSectionDateBar(tradeDayGridInputRef, 'grid', 'dam-date-bar--above-chart')}
             <ResponsiveContainer width="100%" height={gridBarH}>
               <ComposedChart data={rows} syncId="dam-day" margin={damComposedChartMargin} isAnimationActive={false}>
                 <CartesianGrid stroke="rgba(252, 1, 155, 0.08)" strokeDasharray="3 3" vertical={false} />
@@ -2124,7 +2318,7 @@ export default function DamChartPanel({
                   }}
                 />
                 {/* Match LineChart right Y-axis band widths so Cartesian X width is identical. */}
-                {!damChartMobile && damSeriesVisible.soc ? (
+                {!damChartMobile && showDeyeExtras && damSeriesVisible.soc ? (
                   <YAxis
                     yAxisId="sync-right-margin"
                     orientation="right"
@@ -2135,7 +2329,7 @@ export default function DamChartPanel({
                     axisLine={false}
                   />
                 ) : null}
-                {!damChartMobile && damSeriesVisible.hz ? (
+                {!damChartMobile && showDeyeExtras && damSeriesVisible.hz ? (
                   <YAxis
                     yAxisId="sync-hz-margin"
                     orientation="right"
@@ -2211,7 +2405,7 @@ export default function DamChartPanel({
           </div>
         ) : null}
 
-        {!loading && hasChart && effectiveInverterSn ? (
+        {!loading && hasChart && showEnergyBars ? (
           <div className="dam-pv-load-bars-wrap">
             <p className="dam-grid-bars-caption">{t('damPvLoadBarsCaption')}</p>
             <ul
@@ -2252,6 +2446,7 @@ export default function DamChartPanel({
                 </span>
               </li>
             </ul>
+            {renderSectionDateBar(tradeDayPvInputRef, 'pv', 'dam-date-bar--above-chart')}
             <ResponsiveContainer width="100%" height={gridBarH}>
               <ComposedChart data={rows} syncId="dam-day" margin={damComposedChartMargin} isAnimationActive={false}>
                 <CartesianGrid stroke="rgba(252, 1, 155, 0.08)" strokeDasharray="3 3" vertical={false} />
@@ -2289,7 +2484,7 @@ export default function DamChartPanel({
                     style: { fill: 'rgba(255,248,252,0.55)', fontSize: 10, textAnchor: 'end' },
                   }}
                 />
-                {!damChartMobile && damSeriesVisible.soc ? (
+                {!damChartMobile && showDeyeExtras && damSeriesVisible.soc ? (
                   <YAxis
                     yAxisId="sync-right-margin"
                     orientation="right"
@@ -2300,7 +2495,7 @@ export default function DamChartPanel({
                     axisLine={false}
                   />
                 ) : null}
-                {!damChartMobile && damSeriesVisible.hz ? (
+                {!damChartMobile && showDeyeExtras && damSeriesVisible.hz ? (
                   <YAxis
                     yAxisId="sync-hz-margin"
                     orientation="right"

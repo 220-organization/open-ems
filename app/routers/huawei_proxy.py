@@ -1,11 +1,16 @@
 """Huawei FusionSolar Northbound — plant list + status (no secrets in browser)."""
 
 import logging
+from datetime import datetime
+from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from zoneinfo import ZoneInfo
 from fastapi.responses import JSONResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import settings
+from app.db import get_db
 from app.huawei_api import (
     HuaweiRateLimitNoCacheError,
     get_plant_status,
@@ -14,6 +19,7 @@ from app.huawei_api import (
     huawei_missing_env_names,
     list_stations,
 )
+from app.huawei_power_service import get_station_hourly_chart_from_db, run_huawei_power_snapshot
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -56,6 +62,61 @@ async def get_stations():
         )
     except Exception as exc:
         logger.exception("GET /api/huawei/stations — failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/power-snapshot")
+async def post_power_snapshot(session: AsyncSession = Depends(get_db)):
+    """
+    Run one Huawei power DB snapshot (same as the background task): fetch live power per plant and upsert
+    ``huawei_power_sample`` for the current 5-minute bucket. Use when hourly chart is empty until samples exist.
+    """
+    if not huawei_configured():
+        return JSONResponse(
+            content={"ok": False, "configured": False, "reason": "not_configured"},
+            headers=_NO_STORE_CACHE,
+        )
+    try:
+        n = await run_huawei_power_snapshot(session)
+        await session.commit()
+        return JSONResponse(
+            content={"ok": True, "configured": True, "plantsUpdated": int(n)},
+            headers=_NO_STORE_CACHE,
+        )
+    except Exception as exc:
+        await session.rollback()
+        logger.exception("POST /api/huawei/power-snapshot — failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/station-hourly")
+async def get_station_hourly_route(
+    stationCodes: str = Query(
+        ...,
+        min_length=1,
+        max_length=512,
+        description="Plant stationCode",
+    ),
+    date: Optional[str] = Query(
+        None,
+        min_length=10,
+        max_length=10,
+        description="YYYY-MM-DD (Kyiv calendar day). Default: today in Europe/Kyiv.",
+    ),
+    session: AsyncSession = Depends(get_db),
+):
+    """Hourly kWh from DB (5-minute power samples); populated by background Huawei snapshot task."""
+    if not huawei_configured():
+        return JSONResponse(
+            content={"ok": False, "configured": False, "reason": "not_configured"},
+            headers=_NO_STORE_CACHE,
+        )
+    day = date or datetime.now(ZoneInfo("Europe/Kyiv")).date().isoformat()
+    try:
+        body = await get_station_hourly_chart_from_db(session, stationCodes, day)
+        return JSONResponse(content=body, headers=_NO_STORE_CACHE)
+    except Exception as exc:
+        logger.exception("GET /api/huawei/station-hourly — failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 

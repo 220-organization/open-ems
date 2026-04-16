@@ -43,6 +43,26 @@ class DeyeSocSample(Base):
     )
 
 
+class HuaweiPowerSample(Base):
+    """
+    Huawei plant power in 5-minute UTC buckets (aligned with Deye snapshot cadence).
+    Same sign convention as Deye / Power flow UI: grid_power_w > 0 = import, < 0 = export.
+    """
+
+    __tablename__ = "huawei_power_sample"
+
+    station_code: Mapped[str] = mapped_column(String(64), primary_key=True)
+    bucket_start: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), primary_key=True
+    )
+    pv_power_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    grid_power_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    load_power_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    created_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class DeyeRoiCapex(Base):
     """User-configured CAPEX (USD) and ROI period start per inverter (Setup ROI statistics)."""
 

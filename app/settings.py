@@ -253,6 +253,12 @@ ENTSOE_CHART_DAY_LAZY_FETCH: bool = _env_bool("ENTSOE_CHART_DAY_LAZY_FETCH", Tru
 DEYE_SOC_SNAPSHOT_ENABLED: bool = _env_bool("DEYE_SOC_SNAPSHOT_ENABLED", True)
 DEYE_SOC_SNAPSHOT_INTERVAL_SEC: int = _env_int("DEYE_SOC_SNAPSHOT_INTERVAL_SEC", 300, 60, 3600)
 
+# Persist Huawei PV/grid/load (getDevRealKpi via get_power_flow) to Postgres — UTC 5-minute buckets (same as Deye) for hourly charts.
+HUAWEI_POWER_SNAPSHOT_ENABLED: bool = _env_bool("HUAWEI_POWER_SNAPSHOT_ENABLED", True)
+HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC: int = _env_int(
+    "HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC", 300, 60, 3600
+)
+
 # POST /strategy/dynamicControl — template power (W) for timeUseSettingItems; also maxSell/maxSolar when SELLING_FIRST.
 DEYE_DYNAMIC_CONTROL_RATED_POWER_W: int = _env_int("DEYE_DYNAMIC_CONTROL_RATED_POWER_W", 10_000, 500, 200_000)
 # discharge-2pct: poll SoC and max wait (blocking HTTP — raise reverse-proxy read timeouts if needed).

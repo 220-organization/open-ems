@@ -23,6 +23,7 @@ from app.entsoe_dam_service import entsoe_dam_configured
 from app.oree_dam_scheduler import dam_daily_sync_loop
 from app.oree_dam_service import oree_dam_configured
 from app.deye_soc_scheduler import deye_soc_snapshot_loop
+from app.huawei_power_scheduler import huawei_power_snapshot_loop
 from app.deye_low_dam_charge_scheduler import deye_low_dam_charge_loop
 from app.deye_peak_auto_scheduler import deye_peak_auto_discharge_loop
 from app.deye_ev_port_scheduler import deye_ev_port_export_loop
@@ -102,6 +103,16 @@ async def lifespan(app: FastAPI):
             settings.DEYE_SOC_SNAPSHOT_INTERVAL_SEC,
         )
 
+    stop_huawei_power: Optional[asyncio.Event] = None
+    huawei_power_task: Optional[asyncio.Task[None]] = None
+    if settings.HUAWEI_POWER_SNAPSHOT_ENABLED:
+        stop_huawei_power = asyncio.Event()
+        huawei_power_task = asyncio.create_task(huawei_power_snapshot_loop(stop_huawei_power))
+        logger.info(
+            "Huawei power: snapshot to DB every %ss (HUAWEI_POWER_SNAPSHOT_*)",
+            settings.HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC,
+        )
+
     stop_peak_auto: Optional[asyncio.Event] = None
     peak_auto_task: Optional[asyncio.Task[None]] = None
     if settings.DEYE_PEAK_AUTO_DISCHARGE_SCHEDULER_ENABLED:
@@ -154,6 +165,13 @@ async def lifespan(app: FastAPI):
         deye_soc_task.cancel()
         try:
             await deye_soc_task
+        except asyncio.CancelledError:
+            pass
+    if huawei_power_task is not None and stop_huawei_power is not None:
+        stop_huawei_power.set()
+        huawei_power_task.cancel()
+        try:
+            await huawei_power_task
         except asyncio.CancelledError:
             pass
     if peak_auto_task is not None and stop_peak_auto is not None:
