@@ -1403,7 +1403,9 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
 
   /* simTick triggers a periodic re-render so Kyiv-time simulation updates */
   void simTick;
-  const sim = computeSimulatedSources(consumptionMw, liveMinerW);
+  const sim = essAnySelected
+    ? { solarW: 0, gridW: 0, essW: 0, minerW: 0, consumptionW: 0 }
+    : computeSimulatedSources(consumptionMw, liveMinerW);
 
   const { solarW, gridW, essW, minerW, consumptionW } = sim;
   const useLivePvDeye = Boolean(selInverterSn) && deyeLive?.pvPowerW != null && Number.isFinite(deyeLive.pvPowerW);
@@ -1435,8 +1437,11 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     : gridW;
   const useLiveEss =
     Boolean(selInverterSn) && deyeLive?.batteryPowerW != null && Number.isFinite(deyeLive.batteryPowerW);
-  const displayEssW = useLiveEss ? deyeLive.batteryPowerW : essW;
-  const displayEssCharging = displayEssW < 0;
+  const displayEssW = essAnySelected ? (useLiveEss ? deyeLive.batteryPowerW : null) : essW;
+  const displayEssCharging = displayEssW != null && displayEssW < 0;
+  /** Fake miner/consumption sim only when no inverter / plant is selected; live miner power otherwise. */
+  const displayMinerW = essAnySelected ? liveMinerW : minerW;
+  const minerFlowW = essAnySelected ? (liveMinerW ?? 0) : minerW;
   const displayLoadW =
     Boolean(selHuaweiStationCode) && huaweiLive?.loadPowerW != null && Number.isFinite(huaweiLive.loadPowerW)
       ? Math.max(0, huaweiLive.loadPowerW)
@@ -1462,8 +1467,8 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const hasFlow =
     (showEvAggregate && consumptionW > 0) ||
     stationEvFlowActive ||
-    minerW > 0 ||
-    displayEssW !== 0 ||
+    minerFlowW > 0 ||
+    (displayEssW != null && Math.abs(displayEssW) > 0) ||
     gridFlowActive ||
     loadFlowActive;
   const geom = useMemo(() => computeWideGeometry(graphWidth), [graphWidth]);
@@ -1480,7 +1485,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     ? flowMotionPath(gSell.start.x, gSell.start.y, gSell.end.x, gSell.end.y)
     : flowMotionPath(gBuy.start.x, gBuy.start.y, gBuy.end.x, gBuy.end.y);
 
-  const essActive = hasFlow && Math.abs(displayEssW) > 0;
+  const essActive = hasFlow && displayEssW != null && Math.abs(displayEssW) > 0;
   /** Motion dots that travel *into* the hub (line ends at EMS): solar, grid import, ESS discharge. */
   const hubLogoInboundFlow =
     solarFlowActive || (!gridSelling && gridLineCoords.active) || (essActive && !displayEssCharging);
@@ -2482,7 +2487,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   <line
                     id="pf-line-miner"
                     className="pf-line"
-                    data-active={hasFlow && minerW > 0 ? 'true' : 'false'}
+                    data-active={hasFlow && minerFlowW > 0 ? 'true' : 'false'}
                     x1={geom.minerLine.start.x}
                     y1={geom.minerLine.start.y}
                     x2={geom.minerLine.end.x}
@@ -2525,7 +2530,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   <g id="pf-dot-ess" style={{ display: essActive ? undefined : 'none' }}>
                     <MotionDot pathD={essPath} />
                   </g>
-                  <g id="pf-dot-miner" style={{ display: hasFlow && minerW > 0 ? undefined : 'none' }}>
+                  <g id="pf-dot-miner" style={{ display: hasFlow && minerFlowW > 0 ? undefined : 'none' }}>
                     <MotionDot
                       pathD={flowMotionPath(
                         geom.minerLine.start.x,
@@ -2711,7 +2716,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   </span>
                   <span className="pf-node-label">{t('nodeEss')}</span>
                   <span className="pf-node-value" id="pf-val-ess">
-                    {formatPower(Math.abs(displayEssW), t, bcp47)}
+                    {formatPower(displayEssW != null ? Math.abs(displayEssW) : null, t, bcp47)}
                   </span>
                   {selInverterSn && essSocPercent != null && Number.isFinite(essSocPercent) ? (
                     <span
@@ -2736,7 +2741,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   href={BINANCE_MINER_URL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  data-active={hasFlow && minerW > 0 ? 'true' : 'false'}
+                  data-active={hasFlow && minerFlowW > 0 ? 'true' : 'false'}
                 >
                   <span className="pf-node-icon" aria-hidden>
                     💠
@@ -2745,7 +2750,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                     {minerLabel}
                   </span>
                   <span className="pf-node-value" id="pf-val-miner">
-                    {formatPower(minerW, t, bcp47)}
+                    {formatPower(displayMinerW, t, bcp47)}
                   </span>
                   <div className="pf-node-sub" id="pf-miner-usdt">
                     {usdt ? `${usdt} ${t('usdtSuffix')}` : ''}
