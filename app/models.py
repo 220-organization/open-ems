@@ -1,7 +1,8 @@
 import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy import BigInteger, Boolean, Date, DateTime, Double, Integer, SmallInteger, String, Text, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -202,6 +203,39 @@ class EntsoeDamPrice(Base):
     updated_on: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+
+class HuaweiStationListCache(Base):
+    """
+    getStationList result cached per pageNo:pageSize key.
+    Used as a 407-rate-limit fallback so the station list survives process restarts.
+    """
+
+    __tablename__ = "huawei_station_list_cache"
+
+    cache_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    saved_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    items: Mapped[Any] = mapped_column(JSONB, nullable=False, default=list)
+
+
+class HuaweiPowerDevicesCache(Base):
+    """
+    Resolved meter+inverter device pair per stationCode.
+    Avoids a getDevList call on every power-flow request after first resolution.
+    """
+
+    __tablename__ = "huawei_power_devices_cache"
+
+    station_code: Mapped[str] = mapped_column(String(64), primary_key=True)
+    saved_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    meter_dev_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    meter_dev_type_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    inverter_dev_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    inverter_dev_type_id: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
 class OreeDamIndex(Base):

@@ -138,7 +138,6 @@ async def dam_damindexes(
                     "data": None,
                     "date": day.isoformat(),
                 },
-                status_code=404,
                 headers=_NO_STORE,
             )
         return JSONResponse(

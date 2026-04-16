@@ -395,12 +395,12 @@ async def sync_dam_indexes_from_oree_fetch(
         logger.warning("OREE damindexes: could not parse trade_day from response")
         return 0
     if trade_day is not None and td != trade_day:
-        logger.warning(
-            "OREE damindexes: requested %s but API returned %s — not saving",
+        logger.info(
+            "OREE damindexes: requested %s but API returned %s — saving for returned date",
             trade_day.isoformat(),
             td.isoformat(),
         )
-        return 0
+        # OREE publishes the next day's prices today; save under the date the API actually returned.
     return await upsert_dam_indexes_from_oree_json(session, raw)
 
 

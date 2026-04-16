@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
-from datetime import datetime
-from pathlib import Path
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 import httpx
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import select
 
 from app import settings
+from app.db import async_session_factory
+from app.models import HuaweiStationListCache, HuaweiPowerDevicesCache
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -233,55 +235,51 @@ def _station_list_from_payload(payload: dict[str, Any]) -> list[dict[str, str]]:
     return out
 
 
-def _station_list_disk_path(cache_key: str) -> Path:
-    safe = cache_key.replace(":", "_")
-    return settings.huawei_disk_cache_dir() / f"station_list_{safe}.json"
-
-
-def _read_station_list_disk(cache_key: str) -> Optional[tuple[list[dict[str, str]], float]]:
-    if not settings.HUAWEI_DISK_CACHE_ENABLED:
-        return None
-    path = _station_list_disk_path(cache_key)
-    if not path.is_file():
-        return None
+async def _read_station_list_db(cache_key: str) -> Optional[tuple[list[dict[str, str]], float]]:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+        async with async_session_factory() as session:
+            row = await session.get(HuaweiStationListCache, cache_key)
+        if row is None:
+            return None
+        saved_ts = row.saved_at.replace(tzinfo=timezone.utc).timestamp()
+        if time.time() - saved_ts > float(settings.HUAWEI_STATION_LIST_CACHE_TTL_SEC):
+            return None
+        items = row.items
+        if not isinstance(items, list):
+            return None
+        out: list[dict[str, str]] = []
+        for x in items:
+            if not isinstance(x, dict):
+                continue
+            code = str(x.get("stationCode") or "").strip()
+            name = str(x.get("stationName") or "").strip() or code
+            if code:
+                out.append({"stationCode": code, "stationName": name})
+        if not out:
+            return None
+        out.sort(key=lambda x: x["stationName"].lower())
+        return (out, saved_ts)
+    except Exception as exc:
+        logger.warning("Huawei: station list DB cache read failed — %s", exc)
         return None
-    saved = data.get("savedAt")
-    items = data.get("items")
-    if not isinstance(saved, (int, float)) or not isinstance(items, list):
-        return None
-    if time.time() - float(saved) > float(settings.HUAWEI_STATION_LIST_DISK_TTL_SEC):
-        return None
-    out: list[dict[str, str]] = []
-    for x in items:
-        if not isinstance(x, dict):
-            continue
-        code = str(x.get("stationCode") or "").strip()
-        name = str(x.get("stationName") or "").strip() or code
-        if code:
-            out.append({"stationCode": code, "stationName": name})
-    if not out:
-        return None
-    out.sort(key=lambda x: x["stationName"].lower())
-    return (out, float(saved))
 
 
-def _write_station_list_disk(cache_key: str, items: list[dict[str, str]]) -> None:
-    if not settings.HUAWEI_DISK_CACHE_ENABLED:
-        return
-    path = _station_list_disk_path(cache_key)
+async def _write_station_list_db(cache_key: str, items: list[dict[str, str]]) -> None:
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        blob = json.dumps(
-            {"savedAt": time.time(), "items": items},
-            ensure_ascii=False,
-            separators=(",", ":"),
-        )
-        path.write_text(blob, encoding="utf-8")
-    except OSError as exc:
-        logger.warning("Huawei: station list disk cache write failed — %s", exc)
+        async with async_session_factory() as session:
+            stmt = pg_insert(HuaweiStationListCache).values(
+                cache_key=cache_key,
+                saved_at=datetime.now(timezone.utc),
+                items=items,
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["cache_key"],
+                set_={"saved_at": stmt.excluded.saved_at, "items": stmt.excluded.items},
+            )
+            await session.execute(stmt)
+            await session.commit()
+    except Exception as exc:
+        logger.warning("Huawei: station list DB cache write failed — %s", exc)
 
 
 async def list_stations(page_no: int = 1, page_size: int = 100) -> list[dict[str, str]]:
@@ -291,20 +289,20 @@ async def list_stations(page_no: int = 1, page_size: int = 100) -> list[dict[str
     cache_key = f"{int(page_no)}:{int(page_size)}"
     now = time.time()
     if cache_key not in _station_list_cache:
-        disk = _read_station_list_disk(cache_key)
-        if disk:
-            _station_list_cache[cache_key] = disk
+        db = await _read_station_list_db(cache_key)
+        if db:
+            _station_list_cache[cache_key] = db
 
     if now < _station_list_skip_api_until[0]:
         cached = _station_list_cache.get(cache_key)
         if cached:
             logger.info("Huawei: list_stations — cooldown, RAM cache (%s plants)", len(cached[0]))
             return cached[0]
-        disk2 = _read_station_list_disk(cache_key)
-        if disk2:
-            _station_list_cache[cache_key] = disk2
-            logger.info("Huawei: list_stations — cooldown, disk cache (%s plants)", len(disk2[0]))
-            return disk2[0]
+        db2 = await _read_station_list_db(cache_key)
+        if db2:
+            _station_list_cache[cache_key] = db2
+            logger.info("Huawei: list_stations — cooldown, DB cache (%s plants)", len(db2[0]))
+            return db2[0]
         logger.warning(
             "Huawei: list_stations — cooldown %.0fs left, no station list cache",
             _station_list_skip_api_until[0] - now,
@@ -329,12 +327,12 @@ async def list_stations(page_no: int = 1, page_size: int = 100) -> list[dict[str
                     len(cached[0]),
                 )
                 return cached[0]
-            disk = _read_station_list_disk(cache_key)
-            if disk:
-                out_d, saved_at = disk
-                _station_list_cache[cache_key] = disk
+            db = await _read_station_list_db(cache_key)
+            if db:
+                out_d, saved_at = db
+                _station_list_cache[cache_key] = db
                 logger.warning(
-                    "Huawei: getStationList failCode=407 — returning disk cache (age %.0fs, %s plants)",
+                    "Huawei: getStationList failCode=407 — returning DB cache (age %.0fs, %s plants)",
                     now - saved_at,
                     len(out_d),
                 )
@@ -346,12 +344,34 @@ async def list_stations(page_no: int = 1, page_size: int = 100) -> list[dict[str
                 cool,
             )
             raise HuaweiRateLimitNoCacheError("northbound_rate_limit_no_station_list") from exc
+        # Non-407 Northbound error — fall through to generic cache fallback below.
+        raise
+    except Exception:
+        # Login failure, network error, etc. — return any available cache rather than 502.
+        cached = _station_list_cache.get(cache_key)
+        if cached:
+            logger.warning(
+                "Huawei: getStationList failed — returning RAM cache (age %.0fs, %s plants)",
+                now - cached[1],
+                len(cached[0]),
+            )
+            return cached[0]
+        db = await _read_station_list_db(cache_key)
+        if db:
+            out_d, saved_at = db
+            _station_list_cache[cache_key] = db
+            logger.warning(
+                "Huawei: getStationList failed — returning DB cache (age %.0fs, %s plants)",
+                now - saved_at,
+                len(out_d),
+            )
+            return out_d
         raise
 
     out = _station_list_from_payload(payload)
     _station_list_cache[cache_key] = (out, now)
     _station_list_skip_api_until[0] = 0.0
-    _write_station_list_disk(cache_key, out)
+    await _write_station_list_db(cache_key, out)
     logger.info("Huawei: list_stations — %s plant(s)", len(out))
     return out
 
@@ -487,54 +507,48 @@ async def get_plant_status(station_codes: str) -> list[dict[str, Any]]:
     return out
 
 
-def _power_devices_disk_path(station_code: str) -> Path:
-    safe = station_code.replace("=", "_").replace("/", "_").replace("\\", "_")[:180]
-    return settings.huawei_disk_cache_dir() / f"power_devices_{safe}.json"
-
-
-def _read_power_devices_disk(station_code: str) -> Optional[tuple[str, int, str, int]]:
-    if not settings.HUAWEI_DISK_CACHE_ENABLED:
-        return None
-    path = _power_devices_disk_path(station_code)
-    if not path.is_file():
-        return None
+async def _read_power_devices_db(station_code: str) -> Optional[tuple[str, int, str, int]]:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+        async with async_session_factory() as session:
+            row = await session.get(HuaweiPowerDevicesCache, station_code)
+        if row is None:
+            return None
+        mid = str(row.meter_dev_id).strip()
+        iid = str(row.inverter_dev_id).strip()
+        if not mid or not iid:
+            return None
+        return (mid, int(row.meter_dev_type_id), iid, int(row.inverter_dev_type_id))
+    except Exception as exc:
+        logger.warning("Huawei: power devices DB cache read failed — %s", exc)
         return None
-    try:
-        mid = str(data["meterDevId"]).strip()
-        mt = int(data["meterDevTypeId"])
-        iid = str(data["inverterDevId"]).strip()
-        it = int(data["inverterDevTypeId"])
-    except (KeyError, TypeError, ValueError):
-        return None
-    if not mid or not iid:
-        return None
-    return (mid, mt, iid, it)
 
 
-def _write_power_devices_disk(station_code: str, quad: tuple[str, int, str, int]) -> None:
-    if not settings.HUAWEI_DISK_CACHE_ENABLED:
-        return
+async def _write_power_devices_db(station_code: str, quad: tuple[str, int, str, int]) -> None:
     mid, mt, iid, it = quad
-    path = _power_devices_disk_path(station_code)
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        blob = json.dumps(
-            {
-                "savedAt": time.time(),
-                "meterDevId": mid,
-                "meterDevTypeId": mt,
-                "inverterDevId": iid,
-                "inverterDevTypeId": it,
-            },
-            ensure_ascii=False,
-            separators=(",", ":"),
-        )
-        path.write_text(blob, encoding="utf-8")
-    except OSError as exc:
-        logger.warning("Huawei: power device disk cache write failed — %s", exc)
+        async with async_session_factory() as session:
+            stmt = pg_insert(HuaweiPowerDevicesCache).values(
+                station_code=station_code,
+                saved_at=datetime.now(timezone.utc),
+                meter_dev_id=mid,
+                meter_dev_type_id=mt,
+                inverter_dev_id=iid,
+                inverter_dev_type_id=it,
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["station_code"],
+                set_={
+                    "saved_at": stmt.excluded.saved_at,
+                    "meter_dev_id": stmt.excluded.meter_dev_id,
+                    "meter_dev_type_id": stmt.excluded.meter_dev_type_id,
+                    "inverter_dev_id": stmt.excluded.inverter_dev_id,
+                    "inverter_dev_type_id": stmt.excluded.inverter_dev_type_id,
+                },
+            )
+            await session.execute(stmt)
+            await session.commit()
+    except Exception as exc:
+        logger.warning("Huawei: power devices DB cache write failed — %s", exc)
 
 
 def _parse_dev_list_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -593,10 +607,10 @@ async def _resolve_meter_inverter_pairs(
 
     quad = _device_pair_cache.get(station)
     if not quad:
-        disk = _read_power_devices_disk(station)
-        if disk:
-            _device_pair_cache[station] = disk
-            quad = disk
+        db = await _read_power_devices_db(station)
+        if db:
+            _device_pair_cache[station] = db
+            quad = db
 
     need_dev_list = quad is None or bool(mid_e) or bool(iid_e)
     if not need_dev_list:
@@ -612,7 +626,7 @@ async def _resolve_meter_inverter_pairs(
         ip = (iid_e, settings.HUAWEI_INVERTER_DEV_TYPE_ID)
     if mp and ip:
         _device_pair_cache[station] = (mp[0], mp[1], ip[0], ip[1])
-        _write_power_devices_disk(station, _device_pair_cache[station])
+        await _write_power_devices_db(station, _device_pair_cache[station])
     return mp, ip
 
 

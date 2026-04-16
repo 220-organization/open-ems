@@ -1,6 +1,7 @@
 import os
-from pathlib import Path
 from dotenv import load_dotenv
+
+from pathlib import Path
 
 # Load open-ems/.env into the process environment (local dev; Docker/k8s can still inject vars).
 _APP_ROOT = Path(__file__).resolve().parent.parent
@@ -92,9 +93,8 @@ def _env_int(name: str, default: int, min_v: int, max_v: int) -> int:
     return max(min_v, min(max_v, v))
 
 
-# Persist last successful getStationList JSON under open-ems/var/huawei_northbound/ (407 fallback after restart).
-HUAWEI_DISK_CACHE_ENABLED: bool = _env_bool("HUAWEI_DISK_CACHE_ENABLED", True)
-HUAWEI_STATION_LIST_DISK_TTL_SEC: int = _env_int(
+# How long a cached getStationList result in DB is considered fresh (407 fallback). Env var kept for compat.
+HUAWEI_STATION_LIST_CACHE_TTL_SEC: int = _env_int(
     "HUAWEI_STATION_LIST_DISK_TTL_SEC",
     604800,
     300,
@@ -112,13 +112,6 @@ HUAWEI_METER_DEV_ID: str = (os.environ.get("HUAWEI_METER_DEV_ID") or "").strip()
 HUAWEI_METER_DEV_TYPE_ID: int = _env_int("HUAWEI_METER_DEV_TYPE_ID", 47, 1, 999)
 HUAWEI_INVERTER_DEV_ID: str = (os.environ.get("HUAWEI_INVERTER_DEV_ID") or "").strip()
 HUAWEI_INVERTER_DEV_TYPE_ID: int = _env_int("HUAWEI_INVERTER_DEV_TYPE_ID", 1, 1, 999)
-
-
-def huawei_disk_cache_dir() -> Path:
-    raw = (os.environ.get("HUAWEI_CACHE_DIR") or "").strip()
-    if raw:
-        return Path(raw).expanduser().resolve()
-    return _APP_ROOT / "var" / "huawei_northbound"
 
 
 def _parse_oree_sync_hours_kyiv() -> tuple[int, ...]:
