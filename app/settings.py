@@ -107,6 +107,11 @@ HUAWEI_STATION_LIST_COOLDOWN_AFTER_407_SEC: int = _env_int(
     60,
     3600,
 )
+# Optional: pin Northbound device ids for getDevRealKpi (skip getDevList discovery when both set).
+HUAWEI_METER_DEV_ID: str = (os.environ.get("HUAWEI_METER_DEV_ID") or "").strip()
+HUAWEI_METER_DEV_TYPE_ID: int = _env_int("HUAWEI_METER_DEV_TYPE_ID", 47, 1, 999)
+HUAWEI_INVERTER_DEV_ID: str = (os.environ.get("HUAWEI_INVERTER_DEV_ID") or "").strip()
+HUAWEI_INVERTER_DEV_TYPE_ID: int = _env_int("HUAWEI_INVERTER_DEV_TYPE_ID", 1, 1, 999)
 
 
 def huawei_disk_cache_dir() -> Path:

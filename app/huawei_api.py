@@ -34,6 +34,11 @@ _station_list_cache: dict[str, tuple[list[dict[str, str]], float]] = {}
 # Monotonic wall time: skip calling getStationList until then after 407 with no cache (list cell, not global stmt).
 _station_list_skip_api_until: list[float] = [0.0]
 
+# Last successful power-flow snapshot per station (getDevRealKpi; 407 fallback).
+_power_flow_cache: dict[str, tuple[dict[str, Any], float]] = {}
+# Resolved (meterId, meterType, inverterId, inverterType) per stationCode.
+_device_pair_cache: dict[str, tuple[str, int, str, int]] = {}
+
 
 class HuaweiNorthboundError(RuntimeError):
     """API returned success=false with a known failCode."""
@@ -364,6 +369,15 @@ def _float_from_map(m: dict[str, Any], *keys: str) -> Optional[float]:
     return None
 
 
+def _normalize_maybe_kw_to_w(value: float) -> float:
+    """Northbound often returns instant power in kW (e.g. ~28); some devices return watts (e.g. |v| > 500)."""
+    if value != value:  # NaN
+        return value
+    if abs(value) < 500:
+        return value * 1000.0
+    return value
+
+
 def _active_power_w_from_data_item_map(m: dict[str, Any]) -> Optional[float]:
     if not m:
         return None
@@ -388,9 +402,7 @@ def _active_power_w_from_data_item_map(m: dict[str, Any]) -> Optional[float]:
                     continue
                 if v != v:  # NaN
                     continue
-                if abs(v) < 500:
-                    return v * 1000.0
-                return v
+                return _normalize_maybe_kw_to_w(v)
     return None
 
 
@@ -472,3 +484,244 @@ async def get_plant_status(station_codes: str) -> list[dict[str, Any]]:
     if out:
         _plant_status_cache[codes] = (out, now)
     return out
+
+
+def _power_devices_disk_path(station_code: str) -> Path:
+    safe = station_code.replace("=", "_").replace("/", "_").replace("\\", "_")[:180]
+    return settings.huawei_disk_cache_dir() / f"power_devices_{safe}.json"
+
+
+def _read_power_devices_disk(station_code: str) -> Optional[tuple[str, int, str, int]]:
+    if not settings.HUAWEI_DISK_CACHE_ENABLED:
+        return None
+    path = _power_devices_disk_path(station_code)
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    try:
+        mid = str(data["meterDevId"]).strip()
+        mt = int(data["meterDevTypeId"])
+        iid = str(data["inverterDevId"]).strip()
+        it = int(data["inverterDevTypeId"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not mid or not iid:
+        return None
+    return (mid, mt, iid, it)
+
+
+def _write_power_devices_disk(station_code: str, quad: tuple[str, int, str, int]) -> None:
+    if not settings.HUAWEI_DISK_CACHE_ENABLED:
+        return
+    mid, mt, iid, it = quad
+    path = _power_devices_disk_path(station_code)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        blob = json.dumps(
+            {
+                "savedAt": time.time(),
+                "meterDevId": mid,
+                "meterDevTypeId": mt,
+                "inverterDevId": iid,
+                "inverterDevTypeId": it,
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        path.write_text(blob, encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Huawei: power device disk cache write failed — %s", exc)
+
+
+def _parse_dev_list_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    data = payload.get("data")
+    if isinstance(data, list):
+        return [x for x in data if isinstance(x, dict)]
+    return []
+
+
+def _meter_type_fallback_order() -> tuple[int, ...]:
+    seen: set[int] = set()
+    out: list[int] = []
+    for x in (settings.HUAWEI_METER_DEV_TYPE_ID, 47, 17):
+        if x not in seen:
+            seen.add(x)
+            out.append(x)
+    return tuple(out)
+
+
+def _pick_meter_inverter_from_rows(
+    rows: list[dict[str, Any]],
+) -> tuple[Optional[tuple[str, int]], Optional[tuple[str, int]]]:
+    inv_type = settings.HUAWEI_INVERTER_DEV_TYPE_ID
+    inv_row = None
+    for r in rows:
+        if int(r.get("devTypeId") or 0) == inv_type and r.get("id") is not None:
+            inv_row = r
+            break
+    meter_row = None
+    for mt in _meter_type_fallback_order():
+        for r in rows:
+            if int(r.get("devTypeId") or 0) == mt and r.get("id") is not None:
+                meter_row = r
+                break
+        if meter_row:
+            break
+    inv_pair: Optional[tuple[str, int]] = None
+    meter_pair: Optional[tuple[str, int]] = None
+    if inv_row:
+        inv_pair = (str(inv_row["id"]), int(inv_row["devTypeId"]))
+    if meter_row:
+        meter_pair = (str(meter_row["id"]), int(meter_row["devTypeId"]))
+    return meter_pair, inv_pair
+
+
+async def _resolve_meter_inverter_pairs(
+    client: httpx.AsyncClient, station: str
+) -> tuple[Optional[tuple[str, int]], Optional[tuple[str, int]]]:
+    mid_e = (settings.HUAWEI_METER_DEV_ID or "").strip()
+    iid_e = (settings.HUAWEI_INVERTER_DEV_ID or "").strip()
+    if mid_e and iid_e:
+        return (
+            (mid_e, settings.HUAWEI_METER_DEV_TYPE_ID),
+            (iid_e, settings.HUAWEI_INVERTER_DEV_TYPE_ID),
+        )
+
+    quad = _device_pair_cache.get(station)
+    if not quad:
+        disk = _read_power_devices_disk(station)
+        if disk:
+            _device_pair_cache[station] = disk
+            quad = disk
+
+    need_dev_list = quad is None or bool(mid_e) or bool(iid_e)
+    if not need_dev_list:
+        mid2, mt2, iid2, it2 = quad
+        return (mid2, mt2), (iid2, it2)
+
+    payload = await _post_third_data(client, "/thirdData/getDevList", {"stationCodes": station})
+    rows = _parse_dev_list_rows(payload)
+    mp, ip = _pick_meter_inverter_from_rows(rows)
+    if mid_e:
+        mp = (mid_e, settings.HUAWEI_METER_DEV_TYPE_ID)
+    if iid_e:
+        ip = (iid_e, settings.HUAWEI_INVERTER_DEV_TYPE_ID)
+    if mp and ip:
+        _device_pair_cache[station] = (mp[0], mp[1], ip[0], ip[1])
+        _write_power_devices_disk(station, _device_pair_cache[station])
+    return mp, ip
+
+
+def _active_power_w_from_dev_dim(dim: dict[str, Any]) -> Optional[float]:
+    """Parse getDevRealKpi dataItemMap active / generation power into watts (same kW heuristic as plant KPI)."""
+    if not dim:
+        return None
+    lower_map = {str(k).lower(): v for k, v in dim.items()}
+    candidates_kw = (
+        "active_power",
+        "activepower",
+        "inverter_power",
+        "inverterpower",
+        "generation_power",
+        "total_active_power",
+        "p_power",
+        "realtime_power",
+    )
+    for ck in candidates_kw:
+        for mk, mv in lower_map.items():
+            if ck.replace("_", "") == mk.replace("_", "") or ck == mk:
+                try:
+                    v = float(mv)
+                except (TypeError, ValueError):
+                    continue
+                if v != v:
+                    continue
+                return _normalize_maybe_kw_to_w(v)
+    return None
+
+
+async def _fetch_dev_real_kpi_dim(
+    client: httpx.AsyncClient, dev_id: str, dev_type_id: int
+) -> dict[str, Any]:
+    payload = await _post_third_data(
+        client,
+        "/thirdData/getDevRealKpi",
+        {"devIds": str(dev_id), "devTypeId": int(dev_type_id)},
+    )
+    data = payload.get("data")
+    if isinstance(data, list) and data:
+        first = data[0]
+        if isinstance(first, dict):
+            dim = first.get("dataItemMap")
+            if isinstance(dim, dict):
+                return dim
+    return {}
+
+
+async def get_power_flow(station_code: str) -> dict[str, Any]:
+    """
+    Instantaneous PV / grid / load (W) via getDevList + getDevRealKpi (meter + inverter).
+
+    gridPowerW uses the same sign convention as Deye in PowerFlowPage: positive = grid import,
+    negative = export. Huawei meter active_power is typically negative on import, so we negate it.
+    loadPowerW = inverter_active_power - meter_active_power (both raw W from API).
+    """
+    st = (station_code or "").strip()
+    if not st:
+        return {"ok": False, "configured": bool(huawei_configured()), "reason": "missing_station"}
+    if not huawei_configured():
+        return {"ok": False, "configured": False, "reason": "not_configured"}
+
+    now = time.time()
+    try:
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+            mp, ip = await _resolve_meter_inverter_pairs(client, st)
+            if not mp or not ip:
+                return {
+                    "ok": False,
+                    "configured": True,
+                    "reason": "no_meter_inverter",
+                    "stationCode": st,
+                }
+            meter_dim = await _fetch_dev_real_kpi_dim(client, mp[0], mp[1])
+            inv_dim = await _fetch_dev_real_kpi_dim(client, ip[0], ip[1])
+    except HuaweiNorthboundError as exc:
+        if exc.fail_code == _FAIL_CODE_RATE_LIMIT:
+            cached = _power_flow_cache.get(st)
+            if cached:
+                body = dict(cached[0])
+                body["northboundRateLimited"] = True
+                body["cacheAgeSec"] = round(now - cached[1], 1)
+                return body
+            return {
+                "ok": False,
+                "configured": True,
+                "northboundRateLimited": True,
+                "reason": "rate_limit",
+                "stationCode": st,
+            }
+        raise
+
+    meter_raw = _active_power_w_from_dev_dim(meter_dim)
+    inv_raw = _active_power_w_from_dev_dim(inv_dim)
+
+    pv_w = max(0.0, float(inv_raw)) if inv_raw is not None else None
+    grid_ui: Optional[float] = -float(meter_raw) if meter_raw is not None else None
+    load_w: Optional[float] = None
+    if inv_raw is not None and meter_raw is not None:
+        load_w = max(0.0, float(inv_raw) - float(meter_raw))
+
+    out: dict[str, Any] = {
+        "ok": True,
+        "configured": True,
+        "stationCode": st,
+        "pvPowerW": pv_w,
+        "gridPowerW": grid_ui,
+        "loadPowerW": load_w,
+        "northboundRateLimited": False,
+    }
+    _power_flow_cache[st] = (dict(out), now)
+    return dict(out)

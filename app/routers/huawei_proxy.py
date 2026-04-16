@@ -9,6 +9,7 @@ from app import settings
 from app.huawei_api import (
     HuaweiRateLimitNoCacheError,
     get_plant_status,
+    get_power_flow,
     huawei_configured,
     huawei_missing_env_names,
     list_stations,
@@ -55,6 +56,31 @@ async def get_stations():
         )
     except Exception as exc:
         logger.exception("GET /api/huawei/stations — failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/power-flow")
+async def get_power_flow_route(
+    stationCodes: str = Query(
+        ...,
+        min_length=1,
+        max_length=512,
+        description="Plant stationCode (e.g. from GET /api/huawei/stations)",
+    ),
+):
+    """Instantaneous PV / grid / load (W) via getDevRealKpi (meter + inverter)."""
+    if not huawei_configured():
+        return JSONResponse(
+            content={"ok": False, "configured": False, "reason": "not_configured"},
+            headers=_NO_STORE_CACHE,
+        )
+    try:
+        body = await get_power_flow(stationCodes)
+        if not body.get("ok") and body.get("reason") == "rate_limit":
+            logger.warning("GET /api/huawei/power-flow — rate limit, no cache")
+        return JSONResponse(content=body, headers=_NO_STORE_CACHE)
+    except Exception as exc:
+        logger.exception("GET /api/huawei/power-flow — failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 

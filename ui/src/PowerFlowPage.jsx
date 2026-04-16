@@ -795,7 +795,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const [deyeLiveLoading, setDeyeLiveLoading] = useState(false);
   /** Matches `selInverterSn` after Deye ess-power has completed for that SN (avoids blur on 20s poll). */
   const [deyeHydratedSn, setDeyeHydratedSn] = useState('');
-  /** Huawei plant KPI poll (Northbound getStationRealKpi); PV W when API exposes active power. */
+  /** Huawei real power (getDevRealKpi meter + inverter via GET /api/huawei/power-flow). */
   const [huaweiLive, setHuaweiLive] = useState(null);
   const [huaweiLiveLoading, setHuaweiLiveLoading] = useState(false);
   const [huaweiHydratedCode, setHuaweiHydratedCode] = useState('');
@@ -1156,16 +1156,18 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       setHuaweiLiveLoading(true);
       try {
         const q = new URLSearchParams({ stationCodes: selHuaweiStationCode });
-        const r = await fetch(`${apiUrl('/api/huawei/plant-status')}?${q}`, { cache: 'no-store' });
+        const r = await fetch(`${apiUrl('/api/huawei/power-flow')}?${q}`, { cache: 'no-store' });
         const data = await r.json().catch(() => ({}));
         if (cancelled) return;
-        if (r.ok && data.ok && data.configured && Array.isArray(data.items) && data.items.length > 0) {
-          const row = data.items.find(x => x.stationCode === selHuaweiStationCode) || data.items[0];
-          const pvW = row.pvPowerW;
+        if (r.ok && data.ok && data.configured) {
+          const pvW = data.pvPowerW;
+          const gridW = data.gridPowerW;
+          const loadW = data.loadPowerW;
           setHuaweiLive({
             pvPowerW: pvW != null && Number.isFinite(Number(pvW)) ? Math.max(0, Number(pvW)) : null,
-            healthState: row.healthState,
-            dayPowerKwh: row.dayPowerKwh,
+            gridPowerW: gridW != null && Number.isFinite(Number(gridW)) ? Number(gridW) : null,
+            loadPowerW: loadW != null && Number.isFinite(Number(loadW)) ? Math.max(0, Number(loadW)) : null,
+            northboundRateLimited: !!data.northboundRateLimited,
           });
         } else if (!data?.northboundRateLimited) {
           setHuaweiLive(null);
@@ -1377,16 +1379,27 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       : rawDisplaySolarW;
   /** Aggregate EV charging (B2B) is misleading next to a single site — hide when an inverter/plant is selected. */
   const showEvAggregate = !essAnySelected;
-  const useLiveGrid = Boolean(selInverterSn) && deyeLive?.gridPowerW != null && Number.isFinite(deyeLive.gridPowerW);
-  const effectiveGridW = essAnySelected ? (useLiveGrid ? deyeLive.gridPowerW : null) : gridW;
+  const useLiveGridDeye =
+    Boolean(selInverterSn) && deyeLive?.gridPowerW != null && Number.isFinite(deyeLive.gridPowerW);
+  const useLiveGridHuawei =
+    Boolean(selHuaweiStationCode) && huaweiLive?.gridPowerW != null && Number.isFinite(huaweiLive.gridPowerW);
+  const effectiveGridW = essAnySelected
+    ? useLiveGridHuawei
+      ? huaweiLive.gridPowerW
+      : useLiveGridDeye
+        ? deyeLive.gridPowerW
+        : null
+    : gridW;
   const useLiveEss =
     Boolean(selInverterSn) && deyeLive?.batteryPowerW != null && Number.isFinite(deyeLive.batteryPowerW);
   const displayEssW = useLiveEss ? deyeLive.batteryPowerW : essW;
   const displayEssCharging = displayEssW < 0;
   const displayLoadW =
-    Boolean(selInverterSn) && deyeLive?.loadPowerW != null && Number.isFinite(deyeLive.loadPowerW)
-      ? Math.max(0, deyeLive.loadPowerW)
-      : null;
+    Boolean(selHuaweiStationCode) && huaweiLive?.loadPowerW != null && Number.isFinite(huaweiLive.loadPowerW)
+      ? Math.max(0, huaweiLive.loadPowerW)
+      : Boolean(selInverterSn) && deyeLive?.loadPowerW != null && Number.isFinite(deyeLive.loadPowerW)
+        ? Math.max(0, deyeLive.loadPowerW)
+        : null;
   const useSpecialGridBalance =
     usesDeyeFlowBalance(selInverterSn) && displaySolarW != null && displayEssW != null && displayLoadW != null;
   const displayGridW = useSpecialGridBalance ? displayLoadW - displaySolarW - displayEssW : effectiveGridW;
@@ -2528,7 +2541,9 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                       : selHuaweiStationCode
                         ? huaweiLiveLoading
                           ? '…'
-                          : formatPower(null, t, bcp47)
+                          : displayLoadW != null
+                            ? formatPower(displayLoadW, t, bcp47)
+                            : formatPower(null, t, bcp47)
                         : deyeLiveLoading
                           ? '…'
                           : displayLoadW != null

@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "a8f3c1d2-7b4e-4f01-9c00-huawei-nb01",
 		"name": "Huawei FusionSolar Northbound (Basic)",
-		"description": "Northbound Open API: login via thirdData/login, then station list, plant KPIs (getStationRealKpi), and device inventory (getDevList).\n\n**Setup:** Import the matching environment and set `baseUrl` to the same regional host you use in the browser (e.g. `https://eu5.fusionsolar.huawei.com`). Run **Login** first; the collection test script stores `xsrf-token` into `xsrfToken`. **Get station real KPI** and **Get device list** use a hardcoded plant `stationCodes` = `NE=256081648` (edit the request body to change).\n\n**Auth:** `userName` + `systemCode` (Northbound account password). Subsequent calls need header `xsrf-token`.\n\n**References:** Huawei SmartPVMS / FusionSolar Northbound API documentation (Basic APIs).",
+		"description": "Northbound Open API for FusionSolar (Basic).\n\n## Flow: instantaneous power in kW (not kWh)\nMany plants only return **energy** (kWh) in `getStationRealKpi` (`day_power`, `total_power`, …). For **real-time power**, use **`getDevRealKpi`** on devices from **`getDevList`**:\n1. **Login** → saves `xsrfToken`.\n2. **Get device list** → note `id` + `devTypeId` for meter (often **47**) and inverter (**1**).\n3. **Get device real KPI — Meter** → `dataItemMap.active_power` is usually **watts** → divide by **1000** for kW (sign: import vs export).\n4. **Get device real KPI — Inverter (PV)** → same field for PV output (W → kW).\n5. **Load (estimate):** `Load_kW = PV_kW - Grid_kW` using kW from step 3 and 4 (Grid_kW signed as returned).\n\nOptional: **`getKpiStationDay`** needs `collectTime` (ms) — returns **daily / period energy**, not instant kW. **`getStationDeviceList`** may return `APIG.0101` on some accounts; use **`getDevList`** instead.\n\n**Shell:** `postman/huawei_real_power_kw.sh` (token or login via env; no secrets in repo).\n\n**Auth:** `huaweiUserName` + `huaweiSystemCode` in environment; header `xsrf-token` after login.",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"item": [
@@ -87,7 +87,7 @@
 						"getStationList"
 					]
 				},
-				"description": "Lists plants available to this Northbound user. `pageNo` and `pageSize` are both required by many regions. Requests 3–4 use hardcoded plant `NE=256081648`; adjust those bodies if needed. For multiple plants, use comma-separated codes in the body."
+				"description": "Lists plants available to this Northbound user. `pageNo` and `pageSize` are both required by many regions. Later requests use hardcoded plant/device IDs for NE=256081648; adjust bodies if needed."
 			},
 			"response": []
 		},
@@ -119,7 +119,7 @@
 						"getStationRealKpi"
 					]
 				},
-				"description": "Real-time plant KPIs (power, energy, health state, etc.). Body uses hardcoded `stationCodes` NE=256081648."
+				"description": "Plant-level KPI snapshot. On many sites `day_power` / `total_power` / `month_power` are **accumulated energy (kWh)**, not instantaneous kW. For PV/grid **power** in kW use **getDevList** + **getDevRealKpi** (steps 4–6). Body: hardcoded `stationCodes` NE=256081648."
 			},
 			"response": []
 		},
@@ -169,7 +169,175 @@
 						"getDevList"
 					]
 				},
-				"description": "Lists devices under a plant (meters, inverters, dongles, etc.). Body uses hardcoded `stationCodes` NE=256081648. Run **Login** first so `xsrfToken` is set; optional `Cookie: XSRF-TOKEN=...` is usually not required if the header is present."
+				"description": "Lists devices under a plant (meters, inverters, dongles, etc.). Body uses hardcoded `stationCodes` NE=256081648. Run **Login** first so `xsrfToken` is set; optional `Cookie: XSRF-TOKEN=...` is usually not required if the header is present. Use `id` as `devIds` and `devTypeId` from a row in this response for **5. Get device real KPI**."
+			},
+			"response": []
+		},
+		{
+			"name": "5. Get device real KPI — Meter-1 (getDevRealKpi)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"const json = pm.response.json();",
+							"pm.test(\"getDevRealKpi success\", function () {",
+							"    pm.expect(json).to.have.property(\"success\");",
+							"    pm.expect(json.success).to.eql(true);",
+							"});",
+							"const dim = json.data && json.data[0] && json.data[0].dataItemMap;",
+							"if (dim && dim.active_power != null) {",
+							"    const w = Number(dim.active_power);",
+							"    console.log(\"Grid meter active_power:\", w, \"W →\", (w / 1000).toFixed(3), \"kW (negative often = grid import)\");",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					},
+					{
+						"key": "xsrf-token",
+						"value": "{{xsrfToken}}"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"devIds\": \"1000000256081734\",\n    \"devTypeId\": 47\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/thirdData/getDevRealKpi",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"thirdData",
+						"getDevRealKpi"
+					]
+				},
+				"description": "Real-time KPI for **Meter-1** (grid): `id` 1000000256081734, `devTypeId` 47. `active_power` is usually **watts**; divide by 1000 for kW. Run **6** for inverter PV; estimate load as PV_kW - Grid_kW in kW."
+			},
+			"response": []
+		},
+		{
+			"name": "6. Get device real KPI — PV inverter (getDevRealKpi)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"const json = pm.response.json();",
+							"pm.test(\"getDevRealKpi inverter success\", function () {",
+							"    pm.expect(json).to.have.property(\"success\");",
+							"    pm.expect(json.success).to.eql(true);",
+							"});",
+							"const dim = json.data && json.data[0] && json.data[0].dataItemMap;",
+							"if (dim && dim.active_power != null) {",
+							"    const w = Number(dim.active_power);",
+							"    console.log(\"Inverter active_power:\", w, \"W →\", (w / 1000).toFixed(3), \"kW (PV output)\");",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					},
+					{
+						"key": "xsrf-token",
+						"value": "{{xsrfToken}}"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"devIds\": \"1000000256081652\",\n    \"devTypeId\": 1\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/thirdData/getDevRealKpi",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"thirdData",
+						"getDevRealKpi"
+					]
+				},
+				"description": "Real-time KPI for **INV-ES2340066499**: `id` 1000000256081652, `devTypeId` 1. Use `active_power` / 1000 for PV kW. Alternate: some environments accept `{ \"sns\": \"ES2340066499\", \"devTypeId\": 1 }` instead of `devIds`."
+			},
+			"response": []
+		},
+		{
+			"name": "7. Get KPI station day (energy — kWh, not instant kW)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					},
+					{
+						"key": "xsrf-token",
+						"value": "{{xsrfToken}}"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"stationCodes\": \"NE=256081648\",\n    \"collectTime\": 1776297600000\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/thirdData/getKpiStationDay",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"thirdData",
+						"getKpiStationDay"
+					]
+				},
+				"description": "**Daily / period station KPI** — typically **energy (kWh)** for the day keyed by `collectTime` (Unix **ms**, usually local midnights per Huawei docs). This is **not** instantaneous power in kW. Adjust `collectTime` for the day you need."
+			},
+			"response": []
+		},
+		{
+			"name": "8. Get station device list (optional — may APIG.0101)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					},
+					{
+						"key": "xsrf-token",
+						"value": "{{xsrfToken}}"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"stationCodes\": \"NE=256081648\"\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/thirdData/getStationDeviceList",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"thirdData",
+						"getStationDeviceList"
+					]
+				},
+				"description": "Alternative device listing for some tenants. Many Northbound accounts get **`error_code` APIG.0101** (API not published). If so, use **4. getDevList** only. No trailing slash on URL path."
 			},
 			"response": []
 		}
