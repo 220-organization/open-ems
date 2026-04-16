@@ -57,6 +57,14 @@ def _parse_dev_mock_device_sns() -> tuple[str, ...]:
 
 DEYE_DEV_MOCK_DEVICE_SNS: tuple[str, ...] = _parse_dev_mock_device_sns()
 
+# Huawei FusionSolar Northbound (Basic APIs) — use same regional host as the browser portal.
+HUAWEI_BASE_URL: str = os.environ.get(
+    "HUAWEI_BASE_URL",
+    "https://eu5.fusionsolar.huawei.com",
+).rstrip("/")
+HUAWEI_USER_NAME: str = (os.environ.get("HUAWEI_USER_NAME") or "").strip()
+HUAWEI_SYSTEM_CODE: str = os.environ.get("HUAWEI_SYSTEM_CODE") or ""
+
 # OREE / DAM API (same as Java OreeDamPriceSyncService — api.oree.com.ua).
 OREE_API_BASE_URL: str = os.environ.get(
     "OREE_API_BASE_URL",
@@ -82,6 +90,30 @@ def _env_int(name: str, default: int, min_v: int, max_v: int) -> int:
     except ValueError:
         return default
     return max(min_v, min(max_v, v))
+
+
+# Persist last successful getStationList JSON under open-ems/var/huawei_northbound/ (407 fallback after restart).
+HUAWEI_DISK_CACHE_ENABLED: bool = _env_bool("HUAWEI_DISK_CACHE_ENABLED", True)
+HUAWEI_STATION_LIST_DISK_TTL_SEC: int = _env_int(
+    "HUAWEI_STATION_LIST_DISK_TTL_SEC",
+    604800,
+    300,
+    2592000,
+)  # default 7d; min 5m; max 30d
+# After failCode 407 with no list to return, do not call getStationList again for this long (reduces log/API noise).
+HUAWEI_STATION_LIST_COOLDOWN_AFTER_407_SEC: int = _env_int(
+    "HUAWEI_STATION_LIST_COOLDOWN_AFTER_407_SEC",
+    300,
+    60,
+    3600,
+)
+
+
+def huawei_disk_cache_dir() -> Path:
+    raw = (os.environ.get("HUAWEI_CACHE_DIR") or "").strip()
+    if raw:
+        return Path(raw).expanduser().resolve()
+    return _APP_ROOT / "var" / "huawei_northbound"
 
 
 def _parse_oree_sync_hours_kyiv() -> tuple[int, ...]:

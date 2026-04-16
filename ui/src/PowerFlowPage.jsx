@@ -20,11 +20,15 @@ import RoiStackStatistics from './RoiStackStatistics';
 import { DEYE_FLOW_BALANCE_PV_FACTOR, usesDeyeFlowBalance } from './deyeFlowBalanceSites';
 import { inverterSelectShortLabel, parseEvPortStationNumber } from './deyeInverterDisplay';
 import { clearInverterPinCache, readCachedInverterPin, rememberInverterPin } from './deyeInverterPinCache';
+import { ESS_PREFIX_DEYE, ESS_PREFIX_HUAWEI, normalizeEssSelectionValue, parseEssSelection } from './essSelection';
 import PfScrollNumber from './PfScrollNumber';
 import './power-flow.css';
 import './dam-chart.css';
 
 const INVERTER_STORAGE = 'pf-deye-inverter';
+
+/** Huawei Northbound thirdData — strict rate limits (failCode 407 if polled too often). */
+const HUAWEI_NORTHBOUND_POLL_MS = 300_000;
 
 /** Aside QR wraps this URL (B12 uncrewed systems unit). */
 const QR_SUPPORT_URL = 'https://b12.army/';
@@ -211,7 +215,7 @@ function formatLandingTotalsDisplay(landingTotals, bcp47, t) {
         monthLabel = sh ? sh.charAt(0).toUpperCase() + sh.slice(1) : String(amM);
       } else {
         monthLabel = new Intl.DateTimeFormat(bcp47, { month: 'short', timeZone: 'Europe/Kyiv' }).format(
-          new Date(Date.UTC(amY, amM - 1, 15, 12, 0, 0)),
+          new Date(Date.UTC(amY, amM - 1, 15, 12, 0, 0))
         );
         if (monthLabel.length > 0) {
           monthLabel = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1);
@@ -223,22 +227,14 @@ function formatLandingTotalsDisplay(landingTotals, bcp47, t) {
   }
   const pds = landingTotals.peakDamLastSession;
   let peakDam = null;
-  if (
-    pds &&
-    typeof pds.exportSessionKwh === 'number' &&
-    Number.isFinite(pds.exportSessionKwh)
-  ) {
+  if (pds && typeof pds.exportSessionKwh === 'number' && Number.isFinite(pds.exportSessionKwh)) {
     peakDam = {
       exportText: fmtKwh.format(pds.exportSessionKwh),
     };
   }
   const mds = landingTotals.manualDischargeLastSession;
   let manualDischarge = null;
-  if (
-    mds &&
-    typeof mds.exportSessionKwh === 'number' &&
-    Number.isFinite(mds.exportSessionKwh)
-  ) {
+  if (mds && typeof mds.exportSessionKwh === 'number' && Number.isFinite(mds.exportSessionKwh)) {
     manualDischarge = {
       exportText: fmtKwh.format(mds.exportSessionKwh),
     };
@@ -267,11 +263,7 @@ function formatLandingTotalsDisplay(landingTotals, bcp47, t) {
     const isDeviceScope = landingTotals.exportScope === 'device';
     const personalDamWavg = dam.currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd;
     let damTariffLine = null;
-    if (
-      isDeviceScope &&
-      personalDamWavg != null &&
-      Number.isFinite(Number(personalDamWavg))
-    ) {
+    if (isDeviceScope && personalDamWavg != null && Number.isFinite(Number(personalDamWavg))) {
       const retailPersonal = landingRetailUahPerKwh(Number(personalDamWavg));
       if (retailPersonal != null) {
         damTariffLine = t('powerFlowLandingDamTariffLine', {
@@ -403,6 +395,13 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     configured: false,
     items: [],
     error: false,
+  });
+  const [huaweiRows, setHuaweiRows] = useState({
+    loading: true,
+    configured: false,
+    items: [],
+    error: false,
+    northboundRateLimited: false,
   });
   const [chargingPorts, setChargingPorts] = useState({
     loading: true,
@@ -673,24 +672,71 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     return () => clearInterval(id);
   }, [loadInverters]);
 
+  const loadHuaweiStations = useCallback(async () => {
+    try {
+      const r = await fetch(apiUrl('/api/huawei/stations'), { cache: 'no-store' });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setHuaweiRows({
+          loading: false,
+          configured: false,
+          items: [],
+          error: true,
+          northboundRateLimited: false,
+        });
+      } else {
+        setHuaweiRows({
+          loading: false,
+          configured: !!data.configured,
+          items: data.items || [],
+          error: false,
+          northboundRateLimited: !!data.northboundRateLimited,
+        });
+      }
+    } catch {
+      setHuaweiRows({
+        loading: false,
+        configured: false,
+        items: [],
+        error: true,
+        northboundRateLimited: false,
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadHuaweiStations();
+    const id = setInterval(() => void loadHuaweiStations(), HUAWEI_NORTHBOUND_POLL_MS);
+    return () => clearInterval(id);
+  }, [loadHuaweiStations]);
+
   const [inverterValue, setInverterValue] = useState('');
 
   useEffect(() => {
-    if (inverterRows.loading || !inverterRows.configured || inverterRows.error) return;
+    if (inverterRows.loading || huaweiRows.loading) return;
     let want = '';
     try {
       want = new URLSearchParams(window.location.search).get('inverter') || '';
       if (!want) want = localStorage.getItem(INVERTER_STORAGE) || '';
+      want = normalizeEssSelectionValue(want);
     } catch {
       /* ignore */
     }
-    if (want && inverterRows.items.some(r => r.deviceSn === want)) {
-      setInverterValue(want);
+    if (!want) return;
+    const parsed = parseEssSelection(want);
+    if (parsed.provider === 'deye' && inverterRows.configured && !inverterRows.error) {
+      if (inverterRows.items.some(r => r.deviceSn === parsed.id)) {
+        setInverterValue(want);
+      }
+    } else if (parsed.provider === 'huawei' && huaweiRows.configured && !huaweiRows.error) {
+      if (huaweiRows.items.some(r => r.stationCode === parsed.id)) {
+        setInverterValue(want);
+      }
     }
-  }, [inverterRows]);
+  }, [inverterRows, huaweiRows]);
 
   const onInverterChange = useCallback(e => {
-    const v = e.target.value.trim();
+    const v = normalizeEssSelectionValue(e.target.value.trim());
     setInverterValue(v);
     try {
       if (v) localStorage.setItem(INVERTER_STORAGE, v);
@@ -704,7 +750,10 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     window.history.replaceState({}, '', u);
   }, []);
 
-  const selInverterSn = inverterValue.trim();
+  const essSel = useMemo(() => parseEssSelection(inverterValue), [inverterValue]);
+  const selInverterSn = essSel.provider === 'deye' ? essSel.id.trim() : '';
+  const selHuaweiStationCode = essSel.provider === 'huawei' ? essSel.id.trim() : '';
+  const essAnySelected = Boolean(selInverterSn || selHuaweiStationCode);
 
   const selInverterPinRequired = useMemo(() => {
     const sn = selInverterSn.trim();
@@ -746,6 +795,10 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const [deyeLiveLoading, setDeyeLiveLoading] = useState(false);
   /** Matches `selInverterSn` after Deye ess-power has completed for that SN (avoids blur on 20s poll). */
   const [deyeHydratedSn, setDeyeHydratedSn] = useState('');
+  /** Huawei plant KPI poll (Northbound getStationRealKpi); PV W when API exposes active power. */
+  const [huaweiLive, setHuaweiLive] = useState(null);
+  const [huaweiLiveLoading, setHuaweiLiveLoading] = useState(false);
+  const [huaweiHydratedCode, setHuaweiHydratedCode] = useState('');
   /** Today/tomorrow insolation % + today cloud icon hint (coordinates never exposed to browser). */
   const [solarForecast, setSolarForecast] = useState({
     loading: false,
@@ -818,7 +871,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   useEffect(() => {
     setDischarge2Feedback('');
     setDeyeCommandModal(null);
-  }, [selInverterSn]);
+  }, [inverterValue]);
 
   useEffect(() => {
     if (peakPrefSaveTimerRef.current != null) {
@@ -1093,6 +1146,64 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   }, [selInverterSn, deyeLiveLoading, inverterRows.configured, inverterRows.error]);
 
   useEffect(() => {
+    if (!selHuaweiStationCode || !huaweiRows.configured || huaweiRows.error) {
+      setHuaweiLive(null);
+      setHuaweiLiveLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    const loadHuawei = async () => {
+      setHuaweiLiveLoading(true);
+      try {
+        const q = new URLSearchParams({ stationCodes: selHuaweiStationCode });
+        const r = await fetch(`${apiUrl('/api/huawei/plant-status')}?${q}`, { cache: 'no-store' });
+        const data = await r.json().catch(() => ({}));
+        if (cancelled) return;
+        if (r.ok && data.ok && data.configured && Array.isArray(data.items) && data.items.length > 0) {
+          const row = data.items.find(x => x.stationCode === selHuaweiStationCode) || data.items[0];
+          const pvW = row.pvPowerW;
+          setHuaweiLive({
+            pvPowerW: pvW != null && Number.isFinite(Number(pvW)) ? Math.max(0, Number(pvW)) : null,
+            healthState: row.healthState,
+            dayPowerKwh: row.dayPowerKwh,
+          });
+        } else if (!data?.northboundRateLimited) {
+          setHuaweiLive(null);
+        }
+      } catch {
+        if (!cancelled) {
+          // Keep last value on transient API/network errors to avoid dropping live power to zero.
+        }
+      } finally {
+        if (!cancelled) setHuaweiLiveLoading(false);
+      }
+    };
+    void loadHuawei();
+    const id = setInterval(() => void loadHuawei(), HUAWEI_NORTHBOUND_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [selHuaweiStationCode, huaweiRows.configured, huaweiRows.error]);
+
+  useLayoutEffect(() => {
+    setHuaweiHydratedCode('');
+    if (selHuaweiStationCode && huaweiRows.configured && !huaweiRows.error) {
+      setHuaweiLiveLoading(true);
+    }
+  }, [selHuaweiStationCode, huaweiRows.configured, huaweiRows.error]);
+
+  useEffect(() => {
+    if (!selHuaweiStationCode || !huaweiRows.configured || huaweiRows.error) {
+      setHuaweiHydratedCode('');
+      return;
+    }
+    if (!huaweiLiveLoading) {
+      setHuaweiHydratedCode(selHuaweiStationCode);
+    }
+  }, [selHuaweiStationCode, huaweiLiveLoading, huaweiRows.configured, huaweiRows.error]);
+
+  useEffect(() => {
     if (!selInverterSn || !inverterRows.configured || inverterRows.error) {
       solarInsolationInitialFetchRef.current = true;
       setSolarForecast({
@@ -1250,16 +1361,24 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const sim = computeSimulatedSources(consumptionMw, liveMinerW);
 
   const { solarW, gridW, essW, minerW, consumptionW } = sim;
-  const useLivePv = Boolean(selInverterSn) && deyeLive?.pvPowerW != null && Number.isFinite(deyeLive.pvPowerW);
-  const rawDisplaySolarW = selInverterSn ? (useLivePv ? Math.max(0, deyeLive.pvPowerW) : null) : solarW;
+  const useLivePvDeye = Boolean(selInverterSn) && deyeLive?.pvPowerW != null && Number.isFinite(deyeLive.pvPowerW);
+  const useLivePvHuawei =
+    Boolean(selHuaweiStationCode) && huaweiLive?.pvPowerW != null && Number.isFinite(huaweiLive.pvPowerW);
+  const useLivePv = useLivePvDeye || useLivePvHuawei;
+  const rawPvW = useLivePvDeye
+    ? Math.max(0, deyeLive.pvPowerW)
+    : useLivePvHuawei
+      ? Math.max(0, huaweiLive.pvPowerW)
+      : null;
+  const rawDisplaySolarW = essAnySelected ? (useLivePv ? rawPvW : null) : solarW;
   const displaySolarW =
     rawDisplaySolarW != null && usesDeyeFlowBalance(selInverterSn)
       ? rawDisplaySolarW * DEYE_FLOW_BALANCE_PV_FACTOR
       : rawDisplaySolarW;
-  /** Aggregate EV charging (B2B) is misleading next to a single Deye site — hide when an inverter is selected. */
-  const showEvAggregate = !selInverterSn;
+  /** Aggregate EV charging (B2B) is misleading next to a single site — hide when an inverter/plant is selected. */
+  const showEvAggregate = !essAnySelected;
   const useLiveGrid = Boolean(selInverterSn) && deyeLive?.gridPowerW != null && Number.isFinite(deyeLive.gridPowerW);
-  const effectiveGridW = selInverterSn ? (useLiveGrid ? deyeLive.gridPowerW : null) : gridW;
+  const effectiveGridW = essAnySelected ? (useLiveGrid ? deyeLive.gridPowerW : null) : gridW;
   const useLiveEss =
     Boolean(selInverterSn) && deyeLive?.batteryPowerW != null && Number.isFinite(deyeLive.batteryPowerW);
   const displayEssW = useLiveEss ? deyeLive.batteryPowerW : essW;
@@ -1803,19 +1922,28 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     };
   }, [selInverterSn, inverterRows.configured, inverterRows.loading, inverterRows.error]);
 
-  const inverterListReady = inverterRows.configured && !inverterRows.loading && !inverterRows.error;
-  const showPowerFlowSections = !inverterRows.error && (inverterRows.loading || inverterRows.configured);
+  const deyeListReady = inverterRows.configured && !inverterRows.loading && !inverterRows.error;
+  const huaweiListReady = huaweiRows.configured && !huaweiRows.loading && !huaweiRows.error;
+  const inverterListReady = deyeListReady || huaweiListReady;
+  const showPowerFlowSections =
+    (!inverterRows.error && (inverterRows.loading || inverterRows.configured)) ||
+    (!huaweiRows.error && (huaweiRows.loading || huaweiRows.configured));
   const dischargeFeedbackText = discharge2Feedback;
   /** One full-page (main column) blur until initial REST payloads needed for Power Flow are ready — no per-section blur. */
   const pageRestHydrationPending =
     inverterRows.loading ||
+    huaweiRows.loading ||
     chargingPorts.loading ||
     (realtimePower === null && loadError === '') ||
     (inverterListReady && landingTotalsLoading) ||
     (Boolean(selInverterSn) &&
-      inverterListReady &&
+      deyeListReady &&
       !inverterRows.error &&
-      (deyeHydratedSn !== selInverterSn || toolbarPrefsLoading || solarForecast.loading));
+      (deyeHydratedSn !== selInverterSn || toolbarPrefsLoading || solarForecast.loading)) ||
+    (Boolean(selHuaweiStationCode) &&
+      huaweiListReady &&
+      !huaweiRows.error &&
+      (huaweiHydratedCode !== selHuaweiStationCode || huaweiLiveLoading));
 
   const powerFlowShareUrl = useMemo(() => {
     try {
@@ -1823,13 +1951,13 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       const st = stationFilter.trim();
       if (st) u.searchParams.set('station', st);
       u.searchParams.set('lang', locale);
-      const inv = selInverterSn.trim();
+      const inv = normalizeEssSelectionValue(inverterValue).trim();
       if (inv) u.searchParams.set('inverter', inv);
       return u.toString();
     } catch {
       return '';
     }
-  }, [stationFilter, locale, selInverterSn]);
+  }, [stationFilter, locale, inverterValue]);
 
   const handleSharePage = useCallback(async () => {
     const url = powerFlowShareUrl;
@@ -1855,6 +1983,8 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     }
   }, [powerFlowShareUrl]);
 
+  const noEssListYet = (inverterRows.loading || huaweiRows.loading) && !deyeListReady && !huaweiListReady;
+
   return (
     <div className="pf-body">
       <div className="pf-root">
@@ -1866,37 +1996,56 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   id="pf-inverter"
                   className="pf-inverter-select pf-header-select--inverter"
                   aria-label={t('inverterSelectLabel')}
-                  value={inverterRows.loading ? '' : inverterValue}
+                  value={noEssListYet ? '' : inverterValue}
                   onChange={onInverterChange}
                 >
-                  {inverterRows.loading ? (
+                  {noEssListYet ? (
                     <option value="" disabled>
                       …
                     </option>
-                  ) : inverterRows.error ? (
+                  ) : inverterRows.error && huaweiRows.error ? (
                     <option value="" disabled>
                       {t('inverterLoadError')}
                     </option>
-                  ) : !inverterRows.configured ? (
+                  ) : !inverterRows.configured && !huaweiRows.configured ? (
                     <option value="" disabled>
-                      {t('inverterNotConfigured')}
+                      {t('inverterSourcesNotConfigured')}
                     </option>
                   ) : (
                     <>
                       <option value="">{t('inverterSelectLabel')}</option>
-                      {inverterRows.items.map(row => {
-                        const p = socBySn[row.deviceSn];
-                        const socSuffix = p != null && Number.isFinite(p) ? ` · ${inverterSocFmt.format(p)}%` : '';
-                        const c = row.capexUsd;
-                        const capexSuffix =
-                          c != null && Number.isFinite(Number(c)) ? ` · ${formatInverterCapexUsd(Number(c))}` : '';
-                        const shortLabel = inverterSelectShortLabel(row.label, row.deviceSn);
-                        return (
-                          <option key={row.deviceSn} value={row.deviceSn}>
-                            {shortLabel + socSuffix + capexSuffix}
+                      {deyeListReady && inverterRows.items.length > 0 ? (
+                        <optgroup label={t('essDeyeCloud')}>
+                          {inverterRows.items.map(row => {
+                            const p = socBySn[row.deviceSn];
+                            const socSuffix = p != null && Number.isFinite(p) ? ` · ${inverterSocFmt.format(p)}%` : '';
+                            const c = row.capexUsd;
+                            const capexSuffix =
+                              c != null && Number.isFinite(Number(c)) ? ` · ${formatInverterCapexUsd(Number(c))}` : '';
+                            const shortLabel = inverterSelectShortLabel(row.label, row.deviceSn);
+                            return (
+                              <option key={`deye-${row.deviceSn}`} value={`${ESS_PREFIX_DEYE}${row.deviceSn}`}>
+                                {shortLabel + socSuffix + capexSuffix}
+                              </option>
+                            );
+                          })}
+                        </optgroup>
+                      ) : null}
+                      {huaweiListReady && huaweiRows.northboundRateLimited && huaweiRows.items.length === 0 ? (
+                        <optgroup label={t('essHuaweiFusionSolar')}>
+                          <option value="" disabled>
+                            {t('huaweiNorthboundRateLimited')}
                           </option>
-                        );
-                      })}
+                        </optgroup>
+                      ) : huaweiListReady && huaweiRows.items.length > 0 ? (
+                        <optgroup label={t('essHuaweiFusionSolar')}>
+                          {huaweiRows.items.map(row => (
+                            <option key={`huawei-${row.stationCode}`} value={`${ESS_PREFIX_HUAWEI}${row.stationCode}`}>
+                              {row.stationName || row.stationCode}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ) : null}
                     </>
                   )}
                 </select>
@@ -2062,9 +2211,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                               writeStoredLandingExportMetric(selInverterSn, v);
                             }}
                           >
-                            <option value={LANDING_EXPORT_METRIC.PEAK}>
-                              {t('powerFlowLandingExportMetricPeak')}
-                            </option>
+                            <option value={LANDING_EXPORT_METRIC.PEAK}>{t('powerFlowLandingExportMetricPeak')}</option>
                             <option value={LANDING_EXPORT_METRIC.MANUAL}>
                               {t('powerFlowLandingExportMetricManual')}
                             </option>
@@ -2102,7 +2249,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                                     {formatLandingMetricCounterText(
                                       inverterMetricDisplay.text,
                                       t,
-                                      inverterMetricDisplay.valueIsCurrency,
+                                      inverterMetricDisplay.valueIsCurrency
                                     )}
                                   </PfScrollNumber>
                                 </div>
@@ -2156,7 +2303,9 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                           )}
                         </p>
                         {ltd?.damTariffLine ? (
-                          <p className="pf-landing-totals__tariff pf-landing-totals__tariff--dam">{ltd.damTariffLine}</p>
+                          <p className="pf-landing-totals__tariff pf-landing-totals__tariff--dam">
+                            {ltd.damTariffLine}
+                          </p>
                         ) : null}
                       </>
                     </div>
@@ -2374,13 +2523,17 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   </span>
                   <span className="pf-node-label">{t('nodeLoad')}</span>
                   <span className="pf-node-value" id="pf-val-load">
-                    {!selInverterSn
+                    {!essAnySelected
                       ? formatPower(null, t, bcp47)
-                      : deyeLiveLoading
-                        ? '…'
-                        : displayLoadW != null
-                          ? formatPower(displayLoadW, t, bcp47)
-                          : formatPower(null, t, bcp47)}
+                      : selHuaweiStationCode
+                        ? huaweiLiveLoading
+                          ? '…'
+                          : formatPower(null, t, bcp47)
+                        : deyeLiveLoading
+                          ? '…'
+                          : displayLoadW != null
+                            ? formatPower(displayLoadW, t, bcp47)
+                            : formatPower(null, t, bcp47)}
                   </span>
                 </div>
                 <div className="pf-hub" id="pf-hub">

@@ -13,10 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.models import Note
-from app.routers import b2b_proxy, dam, deye_proxy, entsoe_dam, nbu_fx, power_flow_totals, server_metrics
+from app.routers import b2b_proxy, dam, deye_proxy, entsoe_dam, huawei_proxy, nbu_fx, power_flow_totals, server_metrics
 from app.schemas import NoteCreate, NoteRead
 from app import settings
 from app.deye_api import deye_configured, deye_missing_env_names
+from app.huawei_api import huawei_configured, huawei_missing_env_names
 from app.entsoe_dam_scheduler import entsoe_dam_daily_sync_loop
 from app.entsoe_dam_service import entsoe_dam_configured
 from app.oree_dam_scheduler import dam_daily_sync_loop
@@ -54,6 +55,14 @@ async def lifespan(app: FastAPI):
         logger.info("ENTSO-E DAM: ENTSOE_SECURITY_TOKEN set (base: %s)", settings.ENTSOE_API_BASE_URL)
     else:
         logger.warning("ENTSO-E DAM: not configured — set ENTSOE_SECURITY_TOKEN for ES/PL charts (see docs/ENTSOE_TRANSPARENCY_DAM.md)")
+    if huawei_configured():
+        logger.info("Huawei FusionSolar: configured (base: %s)", settings.HUAWEI_BASE_URL)
+    else:
+        hm = huawei_missing_env_names()
+        logger.warning(
+            "Huawei FusionSolar: not configured — set env: %s",
+            ", ".join(hm) if hm else "HUAWEI_USER_NAME, HUAWEI_SYSTEM_CODE",
+        )
 
     if settings.RATE_LIMIT_ENABLED:
         logger.info(
@@ -202,6 +211,7 @@ app.add_middleware(
 
 app.include_router(b2b_proxy.router)
 app.include_router(deye_proxy.router)
+app.include_router(huawei_proxy.router)
 app.include_router(dam.router)
 app.include_router(entsoe_dam.router)
 app.include_router(nbu_fx.router)
