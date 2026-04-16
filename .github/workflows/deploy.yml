@@ -120,6 +120,19 @@ jobs:
           ENTSOE_API_BASE_URL: ${{ secrets.ENTSOE_API_BASE_URL }}
           ENTSOE_SECURITY_TOKEN: ${{ secrets.ENTSOE_SECURITY_TOKEN }}
           ENTSOE_DAM_ZONE_EICS: ${{ secrets.ENTSOE_DAM_ZONE_EICS }}
+          HUAWEI_BASE_URL: ${{ secrets.HUAWEI_BASE_URL }}
+          HUAWEI_USER_NAME: ${{ secrets.HUAWEI_USER_NAME }}
+          HUAWEI_SYSTEM_CODE: ${{ secrets.HUAWEI_SYSTEM_CODE }}
+          HUAWEI_METER_DEV_ID: ${{ secrets.HUAWEI_METER_DEV_ID }}
+          HUAWEI_METER_DEV_TYPE_ID: ${{ secrets.HUAWEI_METER_DEV_TYPE_ID }}
+          HUAWEI_INVERTER_DEV_ID: ${{ secrets.HUAWEI_INVERTER_DEV_ID }}
+          HUAWEI_INVERTER_DEV_TYPE_ID: ${{ secrets.HUAWEI_INVERTER_DEV_TYPE_ID }}
+          HUAWEI_DISK_CACHE_ENABLED: ${{ secrets.HUAWEI_DISK_CACHE_ENABLED }}
+          HUAWEI_STATION_LIST_DISK_TTL_SEC: ${{ secrets.HUAWEI_STATION_LIST_DISK_TTL_SEC }}
+          HUAWEI_STATION_LIST_COOLDOWN_AFTER_407_SEC: ${{ secrets.HUAWEI_STATION_LIST_COOLDOWN_AFTER_407_SEC }}
+          HUAWEI_CACHE_DIR: ${{ secrets.HUAWEI_CACHE_DIR }}
+          HUAWEI_POWER_SNAPSHOT_ENABLED: ${{ secrets.HUAWEI_POWER_SNAPSHOT_ENABLED }}
+          HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC: ${{ secrets.HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC }}
         run: |
           set -e
           umask 077
@@ -139,6 +152,19 @@ jobs:
             printf '%s\n' "ENTSOE_API_BASE_URL=${ENTSOE_API_BASE_URL:-https://web-api.tp.entsoe.eu/api}"
             printf '%s\n' "ENTSOE_SECURITY_TOKEN=${ENTSOE_SECURITY_TOKEN:-}"
             printf '%s\n' "ENTSOE_DAM_ZONE_EICS=${ENTSOE_DAM_ZONE_EICS:-}"
+            printf '%s\n' "HUAWEI_BASE_URL=${HUAWEI_BASE_URL:-https://eu5.fusionsolar.huawei.com}"
+            printf '%s\n' "HUAWEI_USER_NAME=${HUAWEI_USER_NAME:-}"
+            printf '%s\n' "HUAWEI_SYSTEM_CODE=${HUAWEI_SYSTEM_CODE:-}"
+            printf '%s\n' "HUAWEI_METER_DEV_ID=${HUAWEI_METER_DEV_ID:-}"
+            printf '%s\n' "HUAWEI_METER_DEV_TYPE_ID=${HUAWEI_METER_DEV_TYPE_ID:-47}"
+            printf '%s\n' "HUAWEI_INVERTER_DEV_ID=${HUAWEI_INVERTER_DEV_ID:-}"
+            printf '%s\n' "HUAWEI_INVERTER_DEV_TYPE_ID=${HUAWEI_INVERTER_DEV_TYPE_ID:-1}"
+            printf '%s\n' "HUAWEI_DISK_CACHE_ENABLED=${HUAWEI_DISK_CACHE_ENABLED:-true}"
+            printf '%s\n' "HUAWEI_STATION_LIST_DISK_TTL_SEC=${HUAWEI_STATION_LIST_DISK_TTL_SEC:-604800}"
+            printf '%s\n' "HUAWEI_STATION_LIST_COOLDOWN_AFTER_407_SEC=${HUAWEI_STATION_LIST_COOLDOWN_AFTER_407_SEC:-300}"
+            printf '%s\n' "HUAWEI_CACHE_DIR=${HUAWEI_CACHE_DIR:-}"
+            printf '%s\n' "HUAWEI_POWER_SNAPSHOT_ENABLED=${HUAWEI_POWER_SNAPSHOT_ENABLED:-true}"
+            printf '%s\n' "HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC=${HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC:-300}"
           } > /tmp/open-ems-deploy.env
           test -s /tmp/open-ems-deploy.env
       # appleboy/scp-action often creates a *directory* named like the target and nests the file
