@@ -1,0 +1,33 @@
+# Example `env` block for a GitHub Actions job that deploys open-ems `api` (e.g. docker compose / k8s).
+# Add the listed names under Repository → Settings → Secrets and variables → Actions.
+# This file is not executed as a workflow (kept under deploy/, not .github/workflows/).
+
+env:
+  B2B_API_BASE_URL: ${{ secrets.B2B_API_BASE_URL }}
+  DEYE_API_BASE_URL: ${{ secrets.DEYE_API_BASE_URL }}
+  DEYE_APP_ID: ${{ secrets.DEYE_APP_ID }}
+  DEYE_APP_SECRET: ${{ secrets.DEYE_APP_SECRET }}
+  DEYE_EMAIL: ${{ secrets.DEYE_EMAIL }}
+  DEYE_PASSWORD: ${{ secrets.DEYE_PASSWORD }}
+  DEYE_COMPANY_ID: ${{ secrets.DEYE_COMPANY_ID }}
+  OREE_API_BASE_URL: ${{ secrets.OREE_API_BASE_URL }}
+  OREE_API_DAM_PRICES_PATH: ${{ secrets.OREE_API_DAM_PRICES_PATH }}
+  OREE_API_KEY: ${{ secrets.OREE_API_KEY }}
+  OREE_COMPARE_ZONE_EIC: ${{ secrets.OREE_COMPARE_ZONE_EIC }}
+  ENTSOE_API_BASE_URL: ${{ secrets.ENTSOE_API_BASE_URL }}
+  ENTSOE_SECURITY_TOKEN: ${{ secrets.ENTSOE_SECURITY_TOKEN }}
+  ENTSOE_DAM_ZONE_EICS: ${{ secrets.ENTSOE_DAM_ZONE_EICS }}
+  HUAWEI_BASE_URL: ${{ secrets.HUAWEI_BASE_URL }}
+  HUAWEI_USER_NAME: ${{ secrets.HUAWEI_USER_NAME }}
+  HUAWEI_SYSTEM_CODE: ${{ secrets.HUAWEI_SYSTEM_CODE }}
+  # Optional (see open-ems/.env.example); omit secrets to use app defaults / empty
+  HUAWEI_METER_DEV_ID: ${{ secrets.HUAWEI_METER_DEV_ID }}
+  HUAWEI_METER_DEV_TYPE_ID: ${{ secrets.HUAWEI_METER_DEV_TYPE_ID }}
+  HUAWEI_INVERTER_DEV_ID: ${{ secrets.HUAWEI_INVERTER_DEV_ID }}
+  HUAWEI_INVERTER_DEV_TYPE_ID: ${{ secrets.HUAWEI_INVERTER_DEV_TYPE_ID }}
+  HUAWEI_DISK_CACHE_ENABLED: ${{ secrets.HUAWEI_DISK_CACHE_ENABLED }}
+  HUAWEI_STATION_LIST_DISK_TTL_SEC: ${{ secrets.HUAWEI_STATION_LIST_DISK_TTL_SEC }}
+  HUAWEI_STATION_LIST_COOLDOWN_AFTER_407_SEC: ${{ secrets.HUAWEI_STATION_LIST_COOLDOWN_AFTER_407_SEC }}
+  HUAWEI_CACHE_DIR: ${{ secrets.HUAWEI_CACHE_DIR }}
+  HUAWEI_POWER_SNAPSHOT_ENABLED: ${{ secrets.HUAWEI_POWER_SNAPSHOT_ENABLED }}
+  HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC: ${{ secrets.HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC }}
