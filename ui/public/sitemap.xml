@@ -7,8 +7,10 @@
     <lastmod>2026-04-14</lastmod>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
-    <xhtml:link rel="alternate" hreflang="en" href="https://220-km.com:9220/" />
-    <xhtml:link rel="alternate" hreflang="uk" href="https://220-km.com:9220/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://220-km.com:9220/?lang=en" />
+    <xhtml:link rel="alternate" hreflang="uk" href="https://220-km.com:9220/?lang=uk" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://220-km.com:9220/?lang=de" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://220-km.com:9220/?lang=pl" />
   </url>
 
   <url>

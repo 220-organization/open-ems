@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import bg from './locales/bg.json';
 import cs from './locales/cs.json';
+import de from './locales/de.json';
 import en from './locales/en.json';
 import es from './locales/es.json';
 import fr from './locales/fr.json';
@@ -8,9 +9,9 @@ import nl from './locales/nl.json';
 import pl from './locales/pl.json';
 import uk from './locales/uk.json';
 
-const BUNDLES = { en, uk, pl, cs, nl, bg, fr, es };
+const BUNDLES = { en, uk, pl, cs, nl, bg, fr, es, de };
 
-const SUPPORTED = ['en', 'uk', 'pl', 'cs', 'nl', 'bg', 'fr', 'es'];
+const SUPPORTED = ['en', 'uk', 'pl', 'cs', 'nl', 'bg', 'fr', 'es', 'de'];
 
 const ALIASES = { cz: 'cs', ua: 'uk' };
 
@@ -23,6 +24,7 @@ const BCP47 = {
   bg: 'bg-BG',
   fr: 'fr-FR',
   es: 'es-ES',
+  de: 'de-DE',
 };
 
 export const LOCALE_NAMES = {
@@ -34,6 +36,7 @@ export const LOCALE_NAMES = {
   bg: 'Български',
   fr: 'Français',
   es: 'Español',
+  de: 'Deutsch',
 };
 
 const STORAGE_KEY = 'pf-lang';
