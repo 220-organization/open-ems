@@ -13,6 +13,8 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
+from app.deye_api import get_inverter_station_coordinates
+from app.lost_solar_deye import sum_lost_solar_last_n_kyiv_days
 from app.models import DeyeManualDischargeSession, DeyePeakAutoDischargeFired, OreeDamPrice
 from app.oree_dam_service import KYIV, oree_dam_configured
 from app import settings
@@ -600,6 +602,9 @@ async def landing_totals(
     sum of every ``export_session_kwh`` in ``deye_manual_discharge_session``, same device vs fleet-wide pattern.
     Also capped at ``totalExportKwh`` when above the sample total.
 
+    When ``deviceSn`` is set, ``lostSolarKwhLast7KyivDays`` is the sum of per-day clipped-PV estimates (same model
+    as the DAM chart) over the last 7 Kyiv calendar days including today. Missing or failed compute yields ``0.0``.
+
     When ``huaweiStationCode`` is set, ``totalExportKwh`` and arbitrage come from ``huawei_power_sample`` for that
     plant; peak/manual session fields are omitted. ``dam.currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd`` uses
     the same import-weighted hourly DAM join over ``huawei_power_sample`` (``grid_power_w > 0``) Kyiv MTD as for
@@ -683,6 +688,21 @@ async def landing_totals(
                 payload["manualDischargeLastSession"] = manual_cum
         except Exception as exc:
             logger.exception("landing-totals manual discharge cumulative kWh: %s", exc)
+        lat: Optional[float] = None
+        lon: Optional[float] = None
+        try:
+            lat, lon = await get_inverter_station_coordinates(device_sn.strip())
+        except Exception as exc:
+            logger.warning("landing-totals lost solar 7d: station coords unavailable (%s); using synthetic clear-sky weights", exc)
+        try:
+            lost_7 = await sum_lost_solar_last_n_kyiv_days(
+                db, device_sn.strip(), n_days=7, lat=lat, lon=lon
+            )
+            # Always a number so the landing counter shows a total (0 when no computable days).
+            payload["lostSolarKwhLast7KyivDays"] = float(lost_7) if lost_7 is not None else 0.0
+        except Exception as exc:
+            logger.exception("landing-totals lost solar 7d: %s", exc)
+            payload["lostSolarKwhLast7KyivDays"] = 0.0
     else:
         try:
             peak_sum = await _fleet_sum_all_peak_dam_export_kwh(db)

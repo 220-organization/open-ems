@@ -46,6 +46,7 @@ from app.deye_roi_service import (
     compute_roi_pv_kwh_and_value_uah_previous_kyiv_month,
 )
 from app.deye_soc_service import hourly_inverter_history_for_kyiv_day
+from app.solar_clear_sky import kyiv_day_hourly_clear_sky_weights
 from app.solar_forecast_open_meteo import (
     fetch_today_tomorrow_insolation_forecast,
     fetch_tomorrow_insolation_percent,
@@ -474,6 +475,59 @@ async def get_solar_insolation(
         )
     return JSONResponse(
         content={"ok": True, "configured": True, **payload},
+        headers=_NO_STORE_CACHE,
+    )
+
+
+@router.get("/clear-sky-hourly-shape")
+async def get_clear_sky_hourly_shape(
+    deviceSn: str = Query(
+        ...,
+        min_length=6,
+        max_length=32,
+        pattern=r"^[0-9]+$",
+        description="Deye inverter serial; coordinates resolved server-side (not returned).",
+    ),
+    trade_day: date_cls = Query(
+        ...,
+        alias="date",
+        description="Kyiv calendar day (YYYY-MM-DD);24 weights for chart hours 1–24.",
+    ),
+) -> JSONResponse:
+    """
+    Relative clear-sky PV shape: 24 weights (≥0) for Kyiv-local hours from plant GPS and date.
+
+    Used by the DAM chart to estimate clipped PV after SoC reaches ~100% (lost solar kWh / income).
+    """
+    if not deye_configured():
+        return JSONResponse(
+            content={"ok": False, "configured": False, "hourlyWeights": None},
+            headers=_NO_STORE_CACHE,
+        )
+    sn = deviceSn.strip()
+    try:
+        await assert_inverter_owned(sn)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    lat, lon = await get_inverter_station_coordinates(sn)
+    if lat is None or lon is None:
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": True,
+                "hourlyWeights": None,
+                "detail": "no_station_coordinates",
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    weights = kyiv_day_hourly_clear_sky_weights(float(lat), float(lon), trade_day)
+    return JSONResponse(
+        content={
+            "ok": True,
+            "configured": True,
+            "date": trade_day.isoformat(),
+            "hourlyWeights": weights,
+        },
         headers=_NO_STORE_CACHE,
     )
 

@@ -154,10 +154,23 @@ then
   echo "WARN: Lost-solar SoC seed failed (non-fatal)." >&2
 fi
 
+echo "Seeding Lost solar — 7 Kyiv-day dev scenario for DEVICE_SN=${DEVICE_SN} (scripts/seed_lost_solar_7d_dev.sql)…" >&2
+if [[ -f ./scripts/seed_lost_solar_7d_dev.sql ]]; then
+  if ! docker compose exec -T db psql -U openems -d openems -v "device_sn=${DEVICE_SN}" < ./scripts/seed_lost_solar_7d_dev.sql; then
+    echo "WARN: Lost solar 7d seed failed (non-fatal). Run: docker compose exec -T db psql -U openems -d openems -v device_sn=${DEVICE_SN} < ./scripts/seed_lost_solar_7d_dev.sql" >&2
+  fi
+else
+  echo "WARN: scripts/seed_lost_solar_7d_dev.sql missing — skip Lost solar 7d seed." >&2
+fi
+
 if [[ "${POWER_FLOW_DEMO_SN}" != "${DEVICE_SN}" ]]; then
   echo "Running ROI dev DB seed for POWER_FLOW_DEMO_SN=${POWER_FLOW_DEMO_SN} (./scripts/seed_roi_dev_data.sh)…" >&2
   if ! DEVICE_SN="${POWER_FLOW_DEMO_SN}" ./scripts/seed_roi_dev_data.sh; then
     echo "WARN: ROI dev seed for POWER_FLOW_DEMO_SN failed (non-fatal). Run: DEVICE_SN=${POWER_FLOW_DEMO_SN} ./scripts/seed_roi_dev_data.sh" >&2
+  fi
+  echo "Seeding Lost solar — 7 Kyiv-day dev scenario for POWER_FLOW_DEMO_SN=${POWER_FLOW_DEMO_SN}…" >&2
+  if [[ -f ./scripts/seed_lost_solar_7d_dev.sql ]]; then
+    docker compose exec -T db psql -U openems -d openems -v "device_sn=${POWER_FLOW_DEMO_SN}" < ./scripts/seed_lost_solar_7d_dev.sql || true
   fi
 fi
 

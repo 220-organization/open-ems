@@ -115,6 +115,7 @@ const LANDING_EXPORT_METRIC = Object.freeze({
   MANUAL: 'manual',
   TOTAL: 'total',
   ARBITRAGE: 'arbitrage',
+  LOST_SOLAR_7D: 'lost_solar_7d',
 });
 
 const LANDING_EXPORT_METRIC_VALUES = new Set(Object.values(LANDING_EXPORT_METRIC));
@@ -135,8 +136,13 @@ function readStoredLandingExportMetric(inverterSn, huaweiStationCode) {
         h &&
         (raw === LANDING_EXPORT_METRIC.PEAK ||
           raw === LANDING_EXPORT_METRIC.MANUAL ||
-          raw === LANDING_EXPORT_METRIC.ARBITRAGE)
+          raw === LANDING_EXPORT_METRIC.ARBITRAGE ||
+          raw === LANDING_EXPORT_METRIC.LOST_SOLAR_7D)
       ) {
+        return LANDING_EXPORT_METRIC.TOTAL;
+      }
+      const s = String(inverterSn || '').trim();
+      if (!s && !h && raw === LANDING_EXPORT_METRIC.LOST_SOLAR_7D) {
         return LANDING_EXPORT_METRIC.TOTAL;
       }
       return raw;
@@ -752,6 +758,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const onInverterChange = useCallback(e => {
     const v = normalizeEssSelectionValue(e.target.value.trim());
     setInverterValue(v);
+    setStationFilter('');
     try {
       if (v) localStorage.setItem(INVERTER_STORAGE, v);
       else localStorage.removeItem(INVERTER_STORAGE);
@@ -761,6 +768,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     const u = new URL(window.location.href);
     if (v) u.searchParams.set('inverter', v);
     else u.searchParams.delete('inverter');
+    u.searchParams.delete('station');
     window.history.replaceState({}, '', u);
   }, []);
 
@@ -845,7 +853,8 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       if (
         prev === LANDING_EXPORT_METRIC.PEAK ||
         prev === LANDING_EXPORT_METRIC.MANUAL ||
-        prev === LANDING_EXPORT_METRIC.ARBITRAGE
+        prev === LANDING_EXPORT_METRIC.ARBITRAGE ||
+        prev === LANDING_EXPORT_METRIC.LOST_SOLAR_7D
       ) {
         return LANDING_EXPORT_METRIC.TOTAL;
       }
@@ -873,6 +882,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const exportHourlyScope = useMemo(() => {
     if (landingExportMetric === LANDING_EXPORT_METRIC.PEAK) return 'peak';
     if (landingExportMetric === LANDING_EXPORT_METRIC.MANUAL) return 'manual';
+    if (landingExportMetric === LANDING_EXPORT_METRIC.LOST_SOLAR_7D) return 'total';
     return 'total';
   }, [landingExportMetric]);
   const exportHourlyBarsUrl = useMemo(() => {
@@ -2185,7 +2195,8 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   landingHuaweiEss &&
                   (landingExportMetric === LANDING_EXPORT_METRIC.PEAK ||
                     landingExportMetric === LANDING_EXPORT_METRIC.MANUAL ||
-                    landingExportMetric === LANDING_EXPORT_METRIC.ARBITRAGE)
+                    landingExportMetric === LANDING_EXPORT_METRIC.ARBITRAGE ||
+                    landingExportMetric === LANDING_EXPORT_METRIC.LOST_SOLAR_7D)
                     ? LANDING_EXPORT_METRIC.TOTAL
                     : !canOfferLandingArbitrageMetric &&
                         landingExportMetric === LANDING_EXPORT_METRIC.ARBITRAGE
@@ -2240,6 +2251,25 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                           counterClass: `pf-landing-totals__counter${a ? ' pf-landing-totals__counter--arbitrage' : ''}`,
                           valueIsCurrency: true,
                           arbitrageMom: a?.mom ?? null,
+                        };
+                      }
+                      if (landingExportMetricUi === LANDING_EXPORT_METRIC.LOST_SOLAR_7D) {
+                        const ls = landingTotals?.lostSolarKwhLast7KyivDays;
+                        const fmtLs = new Intl.NumberFormat(bcp47, {
+                          maximumFractionDigits: 1,
+                          minimumFractionDigits: 0,
+                        });
+                        return {
+                          text:
+                            ls != null && Number.isFinite(Number(ls))
+                              ? fmtLs.format(Number(ls))
+                              : '—',
+                          title: landingTotalsScopeFleet
+                            ? t('powerFlowLandingExportMetricLostSolar7dHintFleet')
+                            : t('powerFlowLandingExportMetricLostSolar7dHint'),
+                          wrapClass: 'pf-landing-totals__counter-wrap pf-landing-totals__counter-wrap--lost-solar',
+                          counterClass: 'pf-landing-totals__counter pf-landing-totals__counter--lost-solar',
+                          valueIsCurrency: false,
                         };
                       }
                       return {
@@ -2308,6 +2338,11 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                             <option value={LANDING_EXPORT_METRIC.TOTAL}>
                               {t('powerFlowLandingExportMetricTotal')}
                             </option>
+                            {landingHuaweiEss || !selInverterSn?.trim() ? null : (
+                              <option value={LANDING_EXPORT_METRIC.LOST_SOLAR_7D}>
+                                {t('powerFlowLandingExportMetricLostSolar7d')}
+                              </option>
+                            )}
                             {landingHuaweiEss || !canOfferLandingArbitrageMetric ? null : (
                               <option value={LANDING_EXPORT_METRIC.ARBITRAGE}>
                                 {t('powerFlowLandingExportMetricArbitrage')}

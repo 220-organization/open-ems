@@ -374,41 +374,89 @@ function isSocFullPercent(socPercent) {
   return socPercent != null && Number.isFinite(Number(socPercent)) && Number(socPercent) >= 99.5;
 }
 
-/**
- * When the battery is full for 2+ hours, estimate solar income not captured into the pack
- * as sum(pv_kwh * DAM_uah_kwh) over those hours (DAM = “mining” opportunity rate per kWh).
- */
-function computeLostSolarIncomeFromFullBatteryUah(rows) {
-  if (!Array.isArray(rows) || !rows.length) return null;
-  const fullHours = rows.filter(r => isSocFullPercent(r.socPercent)).length;
-  if (fullHours < 2) return null;
-  let uah = 0;
-  for (const r of rows) {
-    if (!isSocFullPercent(r.socPercent)) continue;
-    const pv = r.pvKwh;
-    if (pv == null || !Number.isFinite(Number(pv)) || Number(pv) <= 0) continue;
-    const dam = r.damPriceKwh;
-    const rate = dam != null && Number.isFinite(Number(dam)) ? Number(dam) : 0;
-    uah += Number(pv) * rate;
-  }
-  return uah;
+function medianPositive(nums) {
+  const s = nums.filter(x => Number.isFinite(x) && x > 0).sort((a, b) => a - b);
+  if (!s.length) return null;
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
-/** Sum of PV kWh during full-SoC hours when the day has 2+ full hours (same gate as lost income). */
-function computeLostSolarKwhFromFullBattery(rows) {
-  if (!Array.isArray(rows) || !rows.length) return null;
-  const fullHours = rows.filter(r => isSocFullPercent(r.socPercent)).length;
-  if (fullHours < 2) return null;
-  let kwh = 0;
-  let any = false;
-  for (const r of rows) {
-    if (!isSocFullPercent(r.socPercent)) continue;
-    const pv = r.pvKwh;
-    if (pv == null || !Number.isFinite(Number(pv)) || Number(pv) <= 0) continue;
-    kwh += Number(pv);
-    any = true;
+/** Fallback shape when /api/deye/clear-sky-hourly-shape is unavailable (no coords / offline). */
+function syntheticMiddayClearSkyWeights24() {
+  const w = new Array(24).fill(0);
+  for (let i = 0; i < 24; i++) {
+    const dist = Math.abs(i + 0.5 - 12.5);
+    if (dist < 8) w[i] = Math.max(0, 1 - (dist / 8) ** 2);
   }
-  return any ? kwh : 0;
+  return w;
+}
+
+/**
+ * Lost PV after the first ~100% SoC hour: compare clear-sky-shaped forecast vs measured hourly kWh.
+ *
+ * Scale is calibrated from pre-full hours as median(pv_kwh / weight). Forecast hours are those with
+ * full SoC; lost_kWh = max(0, predicted − actual) per hour. Income uses the same DAM kWh price as
+ * the primary chart series for that hour.
+ */
+function computeLostSolarForecast(rows, clearSkyWeights) {
+  if (!Array.isArray(rows) || rows.length !== 24) return null;
+  let i0 = -1;
+  for (let i = 0; i < 24; i++) {
+    if (isSocFullPercent(rows[i]?.socPercent)) {
+      i0 = i;
+      break;
+    }
+  }
+  if (i0 < 0) return null;
+  let fullHours = 0;
+  for (const r of rows) {
+    if (isSocFullPercent(r?.socPercent)) fullHours += 1;
+  }
+  if (fullHours < 1) return null;
+
+  const weights =
+    clearSkyWeights != null && clearSkyWeights.length === 24
+      ? clearSkyWeights.map(x => (Number.isFinite(Number(x)) ? Math.max(0, Number(x)) : 0))
+      : syntheticMiddayClearSkyWeights24();
+
+  const ratios = [];
+  for (let i = 0; i < i0; i++) {
+    const pv = rows[i]?.pvKwh;
+    const ww = weights[i];
+    if (pv != null && Number.isFinite(Number(pv)) && Number(pv) > 0 && ww > 1e-8) {
+      ratios.push(Number(pv) / ww);
+    }
+  }
+  let scale = medianPositive(ratios);
+  if (scale == null) {
+    const pv0 = rows[i0]?.pvKwh;
+    const ww0 = weights[i0];
+    if (pv0 != null && Number.isFinite(Number(pv0)) && Number(pv0) > 0 && ww0 > 1e-8) {
+      scale = Number(pv0) / ww0;
+    }
+  }
+  if (scale == null || !Number.isFinite(scale) || scale <= 0) return null;
+
+  let totalKwh = 0;
+  let totalMoney = 0;
+  const hourMoney = new Array(24).fill(null);
+  for (let i = i0; i < 24; i++) {
+    if (!isSocFullPercent(rows[i]?.socPercent)) continue;
+    const predicted = scale * weights[i];
+    const pv = rows[i]?.pvKwh;
+    const actual = pv != null && Number.isFinite(Number(pv)) && Number(pv) > 0 ? Number(pv) : 0;
+    const diff = predicted - actual;
+    if (diff > 0) {
+      totalKwh += diff;
+      const dam = rows[i]?.damPriceKwh;
+      if (dam != null && Number.isFinite(Number(dam))) {
+        const m = diff * Number(dam);
+        totalMoney += m;
+        hourMoney[i] = m;
+      }
+    }
+  }
+  return { totalKwh, totalMoney, hourMoney };
 }
 
 function formatDamLineTooltipItem(
@@ -487,7 +535,7 @@ function DamLineChartTooltip({
   fmtUah,
   fmtEur,
   damUnitLabel,
-  lostSolarIncomeMoney,
+  lostSolarHourMoney,
   lostSolarCurrency,
   damLineSeriesName,
   damEntsoeOverlaySeriesNames,
@@ -509,8 +557,14 @@ function DamLineChartTooltip({
   };
   const labelStyle = { color: 'rgba(255, 248, 252, 0.95)' };
   const itemStyle = { color: 'rgba(255, 248, 252, 0.95)' };
+  const hi = label != null && lostSolarHourMoney?.length === 24 ? Number(label) - 1 : -1;
+  const lostSolarIncomeAtHour =
+    hi >= 0 && hi < 24 ? lostSolarHourMoney[hi] : null;
   const showLostSolar =
-    lostSolarIncomeMoney != null && Number.isFinite(lostSolarIncomeMoney) && isSocFullPercent(row?.socPercent);
+    lostSolarIncomeAtHour != null &&
+    Number.isFinite(lostSolarIncomeAtHour) &&
+    lostSolarIncomeAtHour > 0 &&
+    isSocFullPercent(row?.socPercent);
 
   return (
     <div className="recharts-default-tooltip" style={tooltipContentStyle}>
@@ -549,8 +603,8 @@ function DamLineChartTooltip({
         <p style={{ ...itemStyle, marginTop: 8, marginBottom: 0, fontSize: 12 }}>
           {t('damTooltipLostSolarIncome')}:{' '}
           {lostSolarCurrency === 'eur'
-            ? `${fmtEur.format(lostSolarIncomeMoney)} ${t('roiValueEurUnit')}`
-            : `${fmtUah.format(lostSolarIncomeMoney)} ${t('roiValueUahUnit')}`}
+            ? `${fmtEur.format(lostSolarIncomeAtHour)} ${t('roiValueEurUnit')}`
+            : `${fmtUah.format(lostSolarIncomeAtHour)} ${t('roiValueUahUnit')}`}
         </p>
       ) : null}
     </div>
@@ -639,6 +693,8 @@ export default function DamChartPanel({
   const [eurUahRateLabel, setEurUahRateLabel] = useState(null);
   const [huaweiHourly, setHuaweiHourly] = useState(null);
   const [huaweiSnapshotBusy, setHuaweiSnapshotBusy] = useState(false);
+  /** 24 clear-sky weights from server (plant GPS); improves lost-solar kWh after SoC ~100%. */
+  const [clearSkyWeights, setClearSkyWeights] = useState(null);
   const tradeDayLineInputRef = useRef(null);
   const tradeDayGridInputRef = useRef(null);
   const tradeDayPvInputRef = useRef(null);
@@ -1037,6 +1093,32 @@ export default function DamChartPanel({
 
   useEffect(() => {
     if (!effectiveInverterSn || effectiveHuaweiStation) {
+      setClearSkyWeights(null);
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const q = new URLSearchParams({ deviceSn: effectiveInverterSn, date: tradeDay });
+        const r = await fetch(apiUrl(`/api/deye/clear-sky-hourly-shape?${q}`), { cache: 'no-store' });
+        const j = await r.json().catch(() => ({}));
+        if (cancelled) return;
+        if (j?.ok && Array.isArray(j.hourlyWeights) && j.hourlyWeights.length === 24) {
+          setClearSkyWeights(j.hourlyWeights.map(x => (Number.isFinite(Number(x)) ? Number(x) : 0)));
+        } else {
+          setClearSkyWeights(null);
+        }
+      } catch {
+        if (!cancelled) setClearSkyWeights(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tradeDay, effectiveInverterSn, effectiveHuaweiStation]);
+
+  useEffect(() => {
+    if (!effectiveInverterSn || effectiveHuaweiStation) {
       setLiveGridPowerW(null);
       setLiveLoadPowerW(null);
       setLivePvPowerW(null);
@@ -1353,7 +1435,10 @@ export default function DamChartPanel({
     eurUahRate,
   ]);
 
-  const lostSolarIncomeMoney = useMemo(() => computeLostSolarIncomeFromFullBatteryUah(rows), [rows]);
+  const lostSolarForecast = useMemo(
+    () => computeLostSolarForecast(rows, clearSkyWeights),
+    [rows, clearSkyWeights]
+  );
 
   const gridDomain = useMemo(() => {
     const vals = rows.map(r => r.gridKw).filter(v => v != null && Number.isFinite(v));
@@ -1420,7 +1505,10 @@ export default function DamChartPanel({
         anyCons = true;
       }
     }
-    const lostSolarKwh = computeLostSolarKwhFromFullBattery(rows);
+    const lostSolarKwh =
+      lostSolarForecast != null && Number.isFinite(lostSolarForecast.totalKwh)
+        ? lostSolarForecast.totalKwh
+        : null;
     return {
       importKwh: anyImport ? importKwh : null,
       exportKwh: anyExport ? exportKwh : null,
@@ -1428,7 +1516,7 @@ export default function DamChartPanel({
       consumptionKwh: anyCons ? consumptionKwh : null,
       lostSolarKwh,
     };
-  }, [rows]);
+  }, [rows, lostSolarForecast]);
 
   const damGridWeightedMoneyUah = useMemo(() => {
     if (!(effectiveInverterSn || effectiveHuaweiStation) || !rows.length) return null;
@@ -1954,7 +2042,7 @@ export default function DamChartPanel({
                       fmtUah={fmtUah}
                       fmtEur={fmtEur}
                       damUnitLabel={damUnitLabel}
-                      lostSolarIncomeMoney={lostSolarIncomeMoney}
+                      lostSolarHourMoney={lostSolarForecast?.hourMoney ?? null}
                       lostSolarCurrency={damMarket === 'entsoe' ? 'eur' : 'uah'}
                       damLineSeriesName={damLineSeriesName}
                       damEntsoeOverlaySeriesNames={
