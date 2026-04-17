@@ -14,7 +14,7 @@ from sqlalchemy import select
 
 from app import settings
 from app.db import async_session_factory
-from app.models import HuaweiStationListCache, HuaweiPowerDevicesCache
+from app.models import HuaweiPowerDevicesCache, HuaweiPowerFlowCache, HuaweiStationListCache
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -235,14 +235,16 @@ def _station_list_from_payload(payload: dict[str, Any]) -> list[dict[str, str]]:
     return out
 
 
-async def _read_station_list_db(cache_key: str) -> Optional[tuple[list[dict[str, str]], float]]:
+async def _read_station_list_db(
+    cache_key: str, *, stale_ok: bool = False
+) -> Optional[tuple[list[dict[str, str]], float]]:
     try:
         async with async_session_factory() as session:
             row = await session.get(HuaweiStationListCache, cache_key)
         if row is None:
             return None
         saved_ts = row.saved_at.replace(tzinfo=timezone.utc).timestamp()
-        if time.time() - saved_ts > float(settings.HUAWEI_STATION_LIST_CACHE_TTL_SEC):
+        if not stale_ok and time.time() - saved_ts > float(settings.HUAWEI_STATION_LIST_CACHE_TTL_SEC):
             return None
         items = row.items
         if not isinstance(items, list):
@@ -282,32 +284,52 @@ async def _write_station_list_db(cache_key: str, items: list[dict[str, str]]) ->
         logger.warning("Huawei: station list DB cache write failed — %s", exc)
 
 
+def _newer_station_cache(
+    a: Optional[tuple[list[dict[str, str]], float]],
+    b: Optional[tuple[list[dict[str, str]], float]],
+) -> Optional[tuple[list[dict[str, str]], float]]:
+    if a and b:
+        return a if a[1] >= b[1] else b
+    return a or b
+
+
 async def list_stations(page_no: int = 1, page_size: int = 100) -> list[dict[str, str]]:
     if not huawei_configured():
         return []
 
     cache_key = f"{int(page_no)}:{int(page_size)}"
     now = time.time()
-    if cache_key not in _station_list_cache:
-        db = await _read_station_list_db(cache_key)
-        if db:
-            _station_list_cache[cache_key] = db
+    ttl = float(settings.HUAWEI_STATION_LIST_CACHE_TTL_SEC)
+
+    ram = _station_list_cache.get(cache_key)
+    # RAM hit within TTL: skip Postgres read (same process already has newest snapshot).
+    if ram and (now - ram[1]) <= ttl:
+        db_stale: Optional[tuple[list[dict[str, str]], float]] = None
+    else:
+        db_stale = await _read_station_list_db(cache_key, stale_ok=True)
+    best = _newer_station_cache(ram, db_stale)
+    if best:
+        _station_list_cache[cache_key] = best
 
     if now < _station_list_skip_api_until[0]:
-        cached = _station_list_cache.get(cache_key)
-        if cached:
-            logger.info("Huawei: list_stations — cooldown, RAM cache (%s plants)", len(cached[0]))
-            return cached[0]
-        db2 = await _read_station_list_db(cache_key)
-        if db2:
-            _station_list_cache[cache_key] = db2
-            logger.info("Huawei: list_stations — cooldown, DB cache (%s plants)", len(db2[0]))
-            return db2[0]
+        if best:
+            src = "RAM" if ram and best is ram else "DB"
+            logger.info("Huawei: list_stations — cooldown, %s cache (%s plants)", src, len(best[0]))
+            return best[0]
         logger.warning(
             "Huawei: list_stations — cooldown %.0fs left, no station list cache",
             _station_list_skip_api_until[0] - now,
         )
         raise HuaweiRateLimitNoCacheError("northbound_rate_limit_no_station_list")
+
+    if best and (now - best[1]) <= ttl:
+        logger.info(
+            "Huawei: list_stations — cache hit (%s plants, age %.0fs ≤ ttl %.0fs), skip getStationList",
+            len(best[0]),
+            now - best[1],
+            ttl,
+        )
+        return best[0]
 
     try:
         async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
@@ -327,7 +349,7 @@ async def list_stations(page_no: int = 1, page_size: int = 100) -> list[dict[str
                     len(cached[0]),
                 )
                 return cached[0]
-            db = await _read_station_list_db(cache_key)
+            db = await _read_station_list_db(cache_key, stale_ok=True)
             if db:
                 out_d, saved_at = db
                 _station_list_cache[cache_key] = db
@@ -356,7 +378,7 @@ async def list_stations(page_no: int = 1, page_size: int = 100) -> list[dict[str
                 len(cached[0]),
             )
             return cached[0]
-        db = await _read_station_list_db(cache_key)
+        db = await _read_station_list_db(cache_key, stale_ok=True)
         if db:
             out_d, saved_at = db
             _station_list_cache[cache_key] = db
@@ -551,6 +573,54 @@ async def _write_power_devices_db(station_code: str, quad: tuple[str, int, str, 
         logger.warning("Huawei: power devices DB cache write failed — %s", exc)
 
 
+def _power_flow_body_for_storage(body: dict[str, Any]) -> dict[str, Any]:
+    """Strip volatile keys before persisting (re-applied on read)."""
+    return {k: v for k, v in body.items() if k not in ("northboundRateLimited", "cacheAgeSec")}
+
+
+async def _read_power_flow_db(station_code: str) -> Optional[tuple[dict[str, Any], float]]:
+    st = (station_code or "").strip()
+    if not st:
+        return None
+    try:
+        async with async_session_factory() as session:
+            row = await session.get(HuaweiPowerFlowCache, st)
+        if row is None:
+            return None
+        raw = row.payload
+        if not isinstance(raw, dict):
+            return None
+        saved_ts = row.saved_at.replace(tzinfo=timezone.utc).timestamp()
+        return (dict(raw), saved_ts)
+    except Exception as exc:
+        logger.warning("Huawei: power flow DB cache read failed — %s", exc)
+        return None
+
+
+async def _write_power_flow_db(station_code: str, body: dict[str, Any]) -> None:
+    st = (station_code or "").strip()
+    if not st:
+        return
+    try:
+        payload = _power_flow_body_for_storage(body)
+        if payload.get("ok") is not True:
+            return
+        async with async_session_factory() as session:
+            stmt = pg_insert(HuaweiPowerFlowCache).values(
+                station_code=st,
+                saved_at=datetime.now(timezone.utc),
+                payload=payload,
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["station_code"],
+                set_={"saved_at": stmt.excluded.saved_at, "payload": stmt.excluded.payload},
+            )
+            await session.execute(stmt)
+            await session.commit()
+    except Exception as exc:
+        logger.warning("Huawei: power flow DB cache write failed — %s", exc)
+
+
 def _parse_dev_list_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
     data = payload.get("data")
     if isinstance(data, list):
@@ -711,6 +781,14 @@ async def get_power_flow(station_code: str) -> dict[str, Any]:
                 body["northboundRateLimited"] = True
                 body["cacheAgeSec"] = round(now - cached[1], 1)
                 return body
+            db_hit = await _read_power_flow_db(st)
+            if db_hit:
+                snap, saved_at = db_hit
+                _power_flow_cache[st] = (dict(snap), saved_at)
+                body = dict(snap)
+                body["northboundRateLimited"] = True
+                body["cacheAgeSec"] = round(now - saved_at, 1)
+                return body
             return {
                 "ok": False,
                 "configured": True,
@@ -739,4 +817,5 @@ async def get_power_flow(station_code: str) -> dict[str, Any]:
         "northboundRateLimited": False,
     }
     _power_flow_cache[st] = (dict(out), now)
+    await _write_power_flow_db(st, out)
     return dict(out)

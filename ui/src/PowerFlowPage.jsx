@@ -273,7 +273,8 @@ function formatLandingTotalsDisplay(landingTotals, bcp47, t) {
     const retailCurrent = landingRetailUahPerKwh(dam.currentAvgUahPerKwh);
     const retailPrev = landingRetailUahPerKwh(dam.prevAvgUahPerKwh);
     const rate = retailCurrent != null ? fmtRate.format(retailCurrent) : '—';
-    const isDeviceScope = landingTotals.exportScope === 'device';
+    const isDeviceScope =
+      landingTotals.exportScope === 'device' || landingTotals.exportScope === 'huawei';
     const personalDamWavg = dam.currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd;
     let damTariffLine = null;
     if (isDeviceScope && personalDamWavg != null && Number.isFinite(Number(personalDamWavg))) {

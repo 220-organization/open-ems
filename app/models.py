@@ -220,6 +220,20 @@ class HuaweiStationListCache(Base):
     items: Mapped[Any] = mapped_column(JSONB, nullable=False, default=list)
 
 
+class HuaweiPowerFlowCache(Base):
+    """
+    Last successful power-flow JSON per station (getDevRealKpi) for failCode 407 fallback.
+    """
+
+    __tablename__ = "huawei_power_flow_cache"
+
+    station_code: Mapped[str] = mapped_column(String(64), primary_key=True)
+    saved_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    payload: Mapped[Any] = mapped_column(JSONB, nullable=False)
+
+
 class HuaweiPowerDevicesCache(Base):
     """
     Resolved meter+inverter device pair per stationCode.

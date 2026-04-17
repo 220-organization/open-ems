@@ -447,13 +447,55 @@ async def _device_import_weighted_dam_mtd_kyiv(
     return import_kwh, cost_uah / import_kwh
 
 
+async def _huawei_station_import_weighted_dam_mtd_kyiv(
+    session: AsyncSession, station_code: str
+) -> tuple[float, Optional[float]]:
+    """
+    Same semantics as ``_device_import_weighted_dam_mtd_kyiv`` for Deye, but using ``huawei_power_sample``
+    for one FusionSolar plant (``station_code``). Grid import: ``grid_power_w > 0`` (W/12000 per bucket).
+    """
+    st = (station_code or "").strip()
+    if not st:
+        return 0.0, None
+    today = _kyiv_today()
+    first_mtd = _month_first(today)
+    zone = settings.OREE_COMPARE_ZONE_EIC
+    sql = """
+        SELECT
+            COALESCE(SUM(
+                CASE WHEN s.grid_power_w > 0 THEN s.grid_power_w::double precision / 12000.0 ELSE 0 END
+            ), 0)::double precision AS import_kwh,
+            COALESCE(SUM(
+                (CASE WHEN s.grid_power_w > 0 THEN s.grid_power_w::double precision / 12000.0 ELSE 0 END)
+                * (p.price_uah_mwh / 1000.0)
+            ), 0)::double precision AS cost_uah
+        FROM huawei_power_sample s
+        INNER JOIN oree_dam_price p ON p.trade_day = ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date)
+            AND p.zone_eic = :zone
+            AND p.period = (EXTRACT(HOUR FROM (s.bucket_start AT TIME ZONE 'Europe/Kiev'))::int + 1)
+        WHERE s.station_code = :st
+          AND s.grid_power_w IS NOT NULL
+          AND s.grid_power_w > 0
+          AND ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date) >= :d0
+          AND ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date) <= :d1
+    """
+    r = await session.execute(text(sql), {"st": st, "zone": zone, "d0": first_mtd, "d1": today})
+    row = r.one()
+    import_kwh = float(row[0] or 0.0)
+    cost_uah = float(row[1] or 0.0)
+    if import_kwh <= 1e-12:
+        return import_kwh, None
+    return import_kwh, cost_uah / import_kwh
+
+
 async def _finalize_landing_response(
     session: AsyncSession,
     payload: dict[str, Any],
     *,
     deye_device_sn_for_import_mtd: Optional[str] = None,
+    huawei_station_code_for_import_mtd: Optional[str] = None,
 ) -> JSONResponse:
-    """Attach Kyiv DAM month comparison (and optional Deye import-weighted DAM MTD) and return JSON."""
+    """Attach Kyiv DAM month comparison and optional per-device import-weighted DAM MTD (Deye or Huawei)."""
     today = _kyiv_today()
     zone = settings.OREE_COMPARE_ZONE_EIC
     dam: dict[str, Any] = {
@@ -491,16 +533,28 @@ async def _finalize_landing_response(
         dam["detail"] = "dam_avg_failed"
 
     sn_imp = (deye_device_sn_for_import_mtd or "").strip()
-    if sn_imp and oree_dam_configured():
-        try:
-            imp_kwh, wavg = await _device_import_weighted_dam_mtd_kyiv(session, sn_imp)
-            dam["currentMonthDeviceGridImportKwhMtd"] = imp_kwh
-            dam["currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd"] = wavg
-        except Exception as exc:
-            logger.exception("landing-totals device import weighted DAM: %s", exc)
-            dam["currentMonthDeviceGridImportKwhMtd"] = None
-            dam["currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd"] = None
-            dam["deviceImportDamDetail"] = "device_import_dam_failed"
+    hw_imp = (huawei_station_code_for_import_mtd or "").strip()
+    if oree_dam_configured():
+        if sn_imp:
+            try:
+                imp_kwh, wavg = await _device_import_weighted_dam_mtd_kyiv(session, sn_imp)
+                dam["currentMonthDeviceGridImportKwhMtd"] = imp_kwh
+                dam["currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd"] = wavg
+            except Exception as exc:
+                logger.exception("landing-totals device import weighted DAM: %s", exc)
+                dam["currentMonthDeviceGridImportKwhMtd"] = None
+                dam["currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd"] = None
+                dam["deviceImportDamDetail"] = "device_import_dam_failed"
+        elif hw_imp:
+            try:
+                imp_kwh, wavg = await _huawei_station_import_weighted_dam_mtd_kyiv(session, hw_imp)
+                dam["currentMonthDeviceGridImportKwhMtd"] = imp_kwh
+                dam["currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd"] = wavg
+            except Exception as exc:
+                logger.exception("landing-totals Huawei station import weighted DAM: %s", exc)
+                dam["currentMonthDeviceGridImportKwhMtd"] = None
+                dam["currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd"] = None
+                dam["deviceImportDamDetail"] = "huawei_station_import_dam_failed"
 
     return JSONResponse(content=payload, headers=_NO_STORE)
 
@@ -547,7 +601,9 @@ async def landing_totals(
     Also capped at ``totalExportKwh`` when above the sample total.
 
     When ``huaweiStationCode`` is set, ``totalExportKwh`` and arbitrage come from ``huawei_power_sample`` for that
-    plant; peak/manual session fields are omitted. ``deviceSn`` must not be sent together with ``huaweiStationCode``.
+    plant; peak/manual session fields are omitted. ``dam.currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd`` uses
+    the same import-weighted hourly DAM join over ``huawei_power_sample`` (``grid_power_w > 0``) Kyiv MTD as for
+    Deye. ``deviceSn`` must not be sent together with ``huaweiStationCode``.
     """
     hw = (huawei_station_code or "").strip()
     sn_req = (device_sn or "").strip()
@@ -582,7 +638,9 @@ async def landing_totals(
             payload["arbitrageKyivMonthMomPct"] = None
             payload["arbitrageKyivMonthMomYear"] = None
             payload["arbitrageKyivMonthMomMonth"] = None
-        return await _finalize_landing_response(db, payload, deye_device_sn_for_import_mtd=None)
+        return await _finalize_landing_response(
+            db, payload, deye_device_sn_for_import_mtd=None, huawei_station_code_for_import_mtd=hw
+        )
 
     payload: dict[str, Any] = {"ok": True, "exportScope": "device" if device_sn else "fleet"}
     if device_sn:

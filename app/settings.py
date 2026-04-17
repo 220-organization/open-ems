@@ -93,7 +93,9 @@ def _env_int(name: str, default: int, min_v: int, max_v: int) -> int:
     return max(min_v, min(max_v, v))
 
 
-# How long a cached getStationList result in DB is considered fresh (407 fallback). Env var kept for compat.
+# Max age of a cached getStationList row before refreshing from Northbound; also used to skip getStationList
+# while the Postgres/RAM snapshot is younger than this (reduces failCode 407 on shared Northbound accounts).
+# Env var name kept for compatibility.
 HUAWEI_STATION_LIST_CACHE_TTL_SEC: int = _env_int(
     "HUAWEI_STATION_LIST_DISK_TTL_SEC",
     604800,
