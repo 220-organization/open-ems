@@ -891,6 +891,20 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     if (sn) q.set('deviceSn', sn);
     return apiUrl(`/api/power-flow/export-hourly-bars?${q}`);
   }, [selInverterSn, exportHourlyScope]);
+  const lostSolarHourlyBarsUrl = useMemo(() => {
+    const q = new URLSearchParams({ days: '7' });
+    const sn = selInverterSn?.trim();
+    if (sn) q.set('deviceSn', sn);
+    return apiUrl(`/api/power-flow/lost-solar-hourly-bars?${q}`);
+  }, [selInverterSn]);
+  const peakHourlyChartFetchUrl = useMemo(
+    () =>
+      landingExportMetric === LANDING_EXPORT_METRIC.LOST_SOLAR_7D
+        ? lostSolarHourlyBarsUrl
+        : exportHourlyBarsUrl,
+    [landingExportMetric, lostSolarHourlyBarsUrl, exportHourlyBarsUrl]
+  );
+  const peakHourlyChartKind = landingExportMetric === LANDING_EXPORT_METRIC.LOST_SOLAR_7D ? 'lostSolar' : 'export';
 
   /** No serial or prefs still loading — controls stay disabled (no click). Missing PIN in name: enabled, click opens modal. */
   const deyeWritesHardBlocked = !selInverterSn || toolbarPrefsLoading;
@@ -2254,7 +2268,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                         };
                       }
                       if (landingExportMetricUi === LANDING_EXPORT_METRIC.LOST_SOLAR_7D) {
-                        const ls = landingTotals?.lostSolarKwhLast7KyivDays;
+                        const ls = landingTotals?.lostSolarKwhTotal;
                         const fmtLs = new Intl.NumberFormat(bcp47, {
                           maximumFractionDigits: 1,
                           minimumFractionDigits: 0,
@@ -2384,7 +2398,11 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                                 <button
                                   type="button"
                                   className={`${inverterMetricDisplay.wrapClass} pf-landing-totals__counter-wrap--export-chart-trigger`}
-                                  aria-label={t('powerFlowPeakHourlyChartOpenAria')}
+                                  aria-label={
+                                    landingExportMetric === LANDING_EXPORT_METRIC.LOST_SOLAR_7D
+                                      ? t('powerFlowLostSolarHourlyChartOpenAria')
+                                      : t('powerFlowPeakHourlyChartOpenAria')
+                                  }
                                   onClick={() => setExportHourlyChartOpen(true)}
                                 >
                                   <div className="pf-landing-totals__counter-scroll">
@@ -3525,7 +3543,8 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       <PeakExportHourlyChartModal
         open={exportHourlyChartOpen}
         onClose={() => setExportHourlyChartOpen(false)}
-        fetchUrl={exportHourlyBarsUrl}
+        fetchUrl={peakHourlyChartFetchUrl}
+        chartKind={peakHourlyChartKind}
         hourlyScope={exportHourlyScope}
         exportRevenueUah={
           canOfferLandingArbitrageMetric &&

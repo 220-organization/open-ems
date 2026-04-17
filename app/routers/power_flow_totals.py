@@ -14,7 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.deye_api import get_inverter_station_coordinates
-from app.lost_solar_deye import sum_lost_solar_last_n_kyiv_days
+from app.lost_solar_deye import (
+    lost_solar_hourly_breakdown_one_kyiv_day,
+    sum_lost_solar_all_sample_kyiv_days,
+)
 from app.models import DeyeManualDischargeSession, DeyePeakAutoDischargeFired, OreeDamPrice
 from app.oree_dam_service import KYIV, oree_dam_configured
 from app import settings
@@ -602,8 +605,9 @@ async def landing_totals(
     sum of every ``export_session_kwh`` in ``deye_manual_discharge_session``, same device vs fleet-wide pattern.
     Also capped at ``totalExportKwh`` when above the sample total.
 
-    When ``deviceSn`` is set, ``lostSolarKwhLast7KyivDays`` is the sum of per-day clipped-PV estimates (same model
-    as the DAM chart) over the last 7 Kyiv calendar days including today. Missing or failed compute yields ``0.0``.
+    When ``deviceSn`` is set, ``lostSolarKwhTotal`` is the sum of per-day clipped-PV estimates (same model as the
+    DAM chart) over every Kyiv calendar day that has ``deye_soc_sample`` rows for that device. Missing or failed
+    aggregate yields ``0.0``.
 
     When ``huaweiStationCode`` is set, ``totalExportKwh`` and arbitrage come from ``huawei_power_sample`` for that
     plant; peak/manual session fields are omitted. ``dam.currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd`` uses
@@ -693,16 +697,19 @@ async def landing_totals(
         try:
             lat, lon = await get_inverter_station_coordinates(device_sn.strip())
         except Exception as exc:
-            logger.warning("landing-totals lost solar 7d: station coords unavailable (%s); using synthetic clear-sky weights", exc)
+            logger.warning(
+                "landing-totals lost solar total: station coords unavailable (%s); using synthetic clear-sky weights",
+                exc,
+            )
         try:
-            lost_7 = await sum_lost_solar_last_n_kyiv_days(
-                db, device_sn.strip(), n_days=7, lat=lat, lon=lon
+            lost_total = await sum_lost_solar_all_sample_kyiv_days(
+                db, device_sn.strip(), lat=lat, lon=lon
             )
             # Always a number so the landing counter shows a total (0 when no computable days).
-            payload["lostSolarKwhLast7KyivDays"] = float(lost_7) if lost_7 is not None else 0.0
+            payload["lostSolarKwhTotal"] = float(lost_total) if lost_total is not None else 0.0
         except Exception as exc:
-            logger.exception("landing-totals lost solar 7d: %s", exc)
-            payload["lostSolarKwhLast7KyivDays"] = 0.0
+            logger.exception("landing-totals lost solar total: %s", exc)
+            payload["lostSolarKwhTotal"] = 0.0
     else:
         try:
             peak_sum = await _fleet_sum_all_peak_dam_export_kwh(db)
@@ -904,6 +911,94 @@ async def _hourly_export_bars_kyiv(
     }
 
 
+async def _lost_solar_hourly_bars_kyiv(
+    session: AsyncSession,
+    *,
+    device_sn: str,
+    days: int,
+) -> dict[str, Any]:
+    sn = (device_sn or "").strip()
+    if not sn:
+        return {
+            "chartKind": "lost_solar",
+            "deviceSn": "",
+            "zoneEic": settings.OREE_COMPARE_ZONE_EIC,
+            "kyivDayStart": _kyiv_today().isoformat(),
+            "kyivDayEnd": _kyiv_today().isoformat(),
+            "days": max(1, days),
+            "bars": [],
+        }
+
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    try:
+        lat, lon = await get_inverter_station_coordinates(sn)
+    except Exception as exc:
+        logger.warning("lost-solar-hourly-bars: station coords unavailable (%s); using synthetic clear-sky weights", exc)
+
+    end = _kyiv_today()
+    n = max(1, min(31, int(days)))
+    d_start = end - timedelta(days=n - 1)
+    zone = settings.OREE_COMPARE_ZONE_EIC
+
+    bars_raw: list[tuple[date, int, float]] = []
+    for k in range(n):
+        d = end - timedelta(days=k)
+        br = await lost_solar_hourly_breakdown_one_kyiv_day(session, sn, d, lat=lat, lon=lon)
+        if not br:
+            continue
+        for hour, lkwh in br:
+            if lkwh > 1e-9:
+                bars_raw.append((d, int(hour), float(lkwh)))
+
+    bars_raw.sort(key=lambda x: (x[0], x[1]))
+
+    dam_map: dict[tuple[date, int], Optional[float]] = {}
+    if bars_raw:
+        r = await session.execute(
+            text(
+                """
+                SELECT trade_day, period, (price_uah_mwh / 1000.0) AS dam_uah_per_kwh
+                FROM oree_dam_price
+                WHERE zone_eic = :zone
+                  AND trade_day >= :d_start
+                  AND trade_day <= :d_end
+                """
+            ),
+            {"zone": zone, "d_start": d_start, "d_end": end},
+        )
+        for row in r.mappings().all():
+            td = row["trade_day"]
+            if hasattr(td, "date"):
+                td = td.date()
+            period = int(row["period"])
+            dam_map[(td, period)] = float(row["dam_uah_per_kwh"]) if row["dam_uah_per_kwh"] is not None else None
+
+    bars: list[dict[str, Any]] = []
+    for kd, kh, lkwh in bars_raw:
+        if hasattr(kd, "date"):
+            kd = kd.date()
+        dam = dam_map.get((kd, kh + 1))
+        bars.append(
+            {
+                "dayIso": kd.isoformat() if hasattr(kd, "isoformat") else str(kd),
+                "hour": kh,
+                "lostSolarKwh": lkwh,
+                "damUahPerKwh": dam,
+            }
+        )
+
+    return {
+        "chartKind": "lost_solar",
+        "deviceSn": sn,
+        "zoneEic": zone,
+        "kyivDayStart": d_start.isoformat(),
+        "kyivDayEnd": end.isoformat(),
+        "days": n,
+        "bars": bars,
+    }
+
+
 @router.get("/export-hourly-bars")
 async def export_hourly_bars(
     device_sn: Optional[str] = Query(
@@ -949,5 +1044,40 @@ async def export_hourly_bars(
         return JSONResponse(
             status_code=500,
             content={"ok": False, "error": "export_hourly_bars_failed"},
+            headers=_NO_STORE,
+        )
+
+
+@router.get("/lost-solar-hourly-bars")
+async def lost_solar_hourly_bars(
+    device_sn: str = Query(
+        ...,
+        alias="deviceSn",
+        min_length=6,
+        max_length=32,
+        pattern=r"^[0-9]+$",
+        description="Deye inverter serial (lost solar is computed only for Deye device samples).",
+    ),
+    days: int = Query(
+        default=7,
+        ge=1,
+        le=31,
+        description="Kyiv calendar days ending today (inclusive).",
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """
+    Hourly clipped-PV (kWh) for the last ``days`` Kyiv days: one bar per hour with estimated loss > 0.
+    DAM UAH/kWh when present in ``oree_dam_price`` (hour ``period`` = Kyiv hour + 1, same as export bars).
+    """
+    try:
+        payload = await _lost_solar_hourly_bars_kyiv(db, device_sn=device_sn, days=days)
+        payload["ok"] = True
+        return JSONResponse(content=payload, headers=_NO_STORE)
+    except Exception as exc:
+        logger.exception("lost-solar-hourly-bars: %s", exc)
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": "lost_solar_hourly_bars_failed"},
             headers=_NO_STORE,
         )

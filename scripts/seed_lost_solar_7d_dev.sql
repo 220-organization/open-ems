@@ -4,6 +4,14 @@
 -- Run: docker compose exec -T db psql -U openems -d openems -v device_sn=YOUR_SN -f scripts/seed_lost_solar_7d_dev.sql
 \set ON_ERROR_STOP on
 
+-- Drop conflicting day-time rows (ROI seed uses a different 5-min phase; duplicates dilute hourly SoC and break lost-solar).
+DELETE FROM deye_soc_sample
+WHERE device_sn = :'device_sn'::varchar(64)
+  AND (bucket_start AT TIME ZONE 'Europe/Kiev')::date >= ((timezone('Europe/Kiev', now()))::date - interval '6 days')
+  AND (bucket_start AT TIME ZONE 'Europe/Kiev')::date <= ((timezone('Europe/Kiev', now()))::date)
+  AND EXTRACT(HOUR FROM (bucket_start AT TIME ZONE 'Europe/Kiev'))::int >= 8
+  AND EXTRACT(HOUR FROM (bucket_start AT TIME ZONE 'Europe/Kiev'))::int <= 18;
+
 INSERT INTO deye_soc_sample (
     device_sn,
     bucket_start,

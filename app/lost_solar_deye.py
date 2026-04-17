@@ -7,6 +7,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Optional
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deye_soc_service import hourly_inverter_history_for_kyiv_day
@@ -42,11 +43,16 @@ def _is_soc_full_percent(soc: Optional[float]) -> bool:
         return False
 
 
-def _lost_solar_kwh_from_hourly(
+def _lost_solar_hourly_breakdown_from_hourly(
     hourly_soc: list[Optional[float]],
     hourly_pv_kwh: list[Optional[float]],
     weights: list[float],
-) -> Optional[float]:
+) -> Optional[list[tuple[int, float]]]:
+    """
+    Per-hour clipped PV (kWh) for full-SoC hours where predicted clear-sky-shaped PV exceeds actual.
+
+    Returns ``None`` if the day is not in a computable state (same preconditions as the daily total).
+    """
     if len(hourly_soc) != 24 or len(hourly_pv_kwh) != 24 or len(weights) != 24:
         return None
     i0 = -1
@@ -75,7 +81,7 @@ def _lost_solar_kwh_from_hourly(
     if scale is None or scale <= 0:
         return None
 
-    total = 0.0
+    out: list[tuple[int, float]] = []
     for i in range(i0, 24):
         if not _is_soc_full_percent(hourly_soc[i]):
             continue
@@ -84,8 +90,19 @@ def _lost_solar_kwh_from_hourly(
         actual = float(pv) if pv is not None and float(pv) > 0 else 0.0
         diff = predicted - actual
         if diff > 0:
-            total += diff
-    return total
+            out.append((i, diff))
+    return out
+
+
+def _lost_solar_kwh_from_hourly(
+    hourly_soc: list[Optional[float]],
+    hourly_pv_kwh: list[Optional[float]],
+    weights: list[float],
+) -> Optional[float]:
+    hourly = _lost_solar_hourly_breakdown_from_hourly(hourly_soc, hourly_pv_kwh, weights)
+    if hourly is None:
+        return None
+    return float(sum(k for _, k in hourly))
 
 
 async def lost_solar_kwh_one_kyiv_day(
@@ -109,6 +126,28 @@ async def lost_solar_kwh_one_kyiv_day(
     return _lost_solar_kwh_from_hourly(hourly_soc, hourly_pv_kwh, weights)
 
 
+async def lost_solar_hourly_breakdown_one_kyiv_day(
+    session: AsyncSession,
+    device_sn: str,
+    trade_day: date,
+    *,
+    lat: Optional[float],
+    lon: Optional[float],
+) -> Optional[list[tuple[int, float]]]:
+    """``[(hour, lost_kwh), ...]`` for hours with positive clipped PV; ``None`` if the model does not apply."""
+    sn = (device_sn or "").strip()
+    if not sn:
+        return None
+    hourly_soc, _grid, _freq, hourly_pv_kwh, _load = await hourly_inverter_history_for_kyiv_day(
+        session, sn, trade_day
+    )
+    if lat is not None and lon is not None:
+        weights = kyiv_day_hourly_clear_sky_weights(float(lat), float(lon), trade_day)
+    else:
+        weights = _synthetic_midday_clear_sky_weights_24()
+    return _lost_solar_hourly_breakdown_from_hourly(hourly_soc, hourly_pv_kwh, weights)
+
+
 async def sum_lost_solar_last_n_kyiv_days(
     session: AsyncSession,
     device_sn: str,
@@ -130,6 +169,50 @@ async def sum_lost_solar_last_n_kyiv_days(
     for k in range(n):
         d = end - timedelta(days=k)
         v = await lost_solar_kwh_one_kyiv_day(session, device_sn, d, lat=lat, lon=lon)
+        if v is not None:
+            any_computed = True
+            total += float(v)
+    return total if any_computed else None
+
+
+async def sum_lost_solar_all_sample_kyiv_days(
+    session: AsyncSession,
+    device_sn: str,
+    *,
+    lat: Optional[float],
+    lon: Optional[float],
+) -> Optional[float]:
+    """
+    Sum lost-solar kWh over every distinct Kyiv calendar day that has at least one ``deye_soc_sample`` row
+    for the device (same per-day model as the DAM chart).
+
+    Days the model cannot evaluate contribute nothing; returns ``None`` if there are no samples or no computable day.
+    """
+    sn = (device_sn or "").strip()
+    if not sn:
+        return None
+    r = await session.execute(
+        text(
+            """
+            SELECT DISTINCT ((bucket_start AT TIME ZONE 'Europe/Kiev')::date) AS kyiv_d
+            FROM deye_soc_sample
+            WHERE device_sn = :sn
+            ORDER BY 1
+            """
+        ),
+        {"sn": sn},
+    )
+    day_rows = r.fetchall()
+    if not day_rows:
+        return None
+    total = 0.0
+    any_computed = False
+    for row in day_rows:
+        kyiv_d = row[0]
+        d = kyiv_d.date() if hasattr(kyiv_d, "date") else kyiv_d
+        if not isinstance(d, date):
+            continue
+        v = await lost_solar_kwh_one_kyiv_day(session, sn, d, lat=lat, lon=lon)
         if v is not None:
             any_computed = True
             total += float(v)

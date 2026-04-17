@@ -4,6 +4,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from zoneinfo import ZoneInfo
 from fastapi.responses import JSONResponse
@@ -27,6 +28,21 @@ logger.setLevel(logging.INFO)
 router = APIRouter(prefix="/api/huawei", tags=["huawei"])
 
 _NO_STORE_CACHE = {"Cache-Control": "no-store, max-age=0, must-revalidate"}
+
+
+def _log_huawei_route_error(context: str, exc: BaseException) -> None:
+    """Expected upstream outages (5xx, timeouts) — one warning line, no traceback."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        resp = exc.response
+        url = str(resp.request.url) if resp.request else "?"
+        snippet = (resp.text or "").replace("\n", " ").strip()[:240]
+        tail = snippet or (exc.args[0] if exc.args else "")
+        logger.warning("%s — Huawei HTTP %s %s — %s", context, resp.status_code, url, tail)
+        return
+    if isinstance(exc, httpx.RequestError):
+        logger.warning("%s — Huawei request error: %s", context, exc)
+        return
+    logger.exception("%s — failed: %s", context, exc)
 
 
 @router.get("/stations")
@@ -61,7 +77,7 @@ async def get_stations():
             headers=_NO_STORE_CACHE,
         )
     except Exception as exc:
-        logger.exception("GET /api/huawei/stations — failed: %s", exc)
+        _log_huawei_route_error("GET /api/huawei/stations", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
@@ -85,7 +101,7 @@ async def post_power_snapshot(session: AsyncSession = Depends(get_db)):
         )
     except Exception as exc:
         await session.rollback()
-        logger.exception("POST /api/huawei/power-snapshot — failed: %s", exc)
+        _log_huawei_route_error("POST /api/huawei/power-snapshot", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
@@ -116,7 +132,7 @@ async def get_station_hourly_route(
         body = await get_station_hourly_chart_from_db(session, stationCodes, day)
         return JSONResponse(content=body, headers=_NO_STORE_CACHE)
     except Exception as exc:
-        logger.exception("GET /api/huawei/station-hourly — failed: %s", exc)
+        _log_huawei_route_error("GET /api/huawei/station-hourly", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
@@ -141,7 +157,7 @@ async def get_power_flow_route(
             logger.warning("GET /api/huawei/power-flow — rate limit, no cache")
         return JSONResponse(content=body, headers=_NO_STORE_CACHE)
     except Exception as exc:
-        logger.exception("GET /api/huawei/power-flow — failed: %s", exc)
+        _log_huawei_route_error("GET /api/huawei/power-flow", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
@@ -178,5 +194,5 @@ async def get_plant_status_route(
             headers=_NO_STORE_CACHE,
         )
     except Exception as exc:
-        logger.exception("GET /api/huawei/plant-status — failed: %s", exc)
+        _log_huawei_route_error("GET /api/huawei/plant-status", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc

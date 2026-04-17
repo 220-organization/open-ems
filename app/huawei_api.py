@@ -101,7 +101,8 @@ async def _login_unlocked(client: httpx.AsyncClient) -> None:
         cookies=_huawei_cookies,
     )
     if r.status_code >= 400:
-        logger.warning("Huawei: login HTTP %s — %s", r.status_code, (r.text or "")[:500])
+        # One-line summary at call sites (e.g. huawei_proxy); avoid duplicate WARNING with full body here.
+        logger.debug("Huawei: login HTTP %s — %s", r.status_code, (r.text or "")[:500])
     r.raise_for_status()
     try:
         payload = r.json()

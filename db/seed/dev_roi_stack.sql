@@ -83,8 +83,8 @@ SELECT
     END,
     0.0
 FROM generate_series(
-    date_trunc('minute', now() - interval '3 months'),
-    date_trunc('minute', now()),
+    to_timestamp(floor(extract(epoch from (now() - interval '3 months')) / 300) * 300),
+    to_timestamp(floor(extract(epoch from now()) / 300) * 300),
     interval '5 minutes'
 ) AS g
 CROSS JOIN LATERAL (

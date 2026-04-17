@@ -23,6 +23,7 @@ export default function PeakExportHourlyChartModal({
   onClose,
   fetchUrl,
   t,
+  chartKind = 'export',
   hourlyScope = 'total',
   exportRevenueUah = false,
 }) {
@@ -52,22 +53,27 @@ export default function PeakExportHourlyChartModal({
         const bars = Array.isArray(data.bars) ? data.bars : [];
         const d = typeof data.days === 'number' && data.days > 0 ? data.days : 7;
         setRangeDays(d);
+        const lostMode = chartKind === 'lostSolar';
         const chart = bars.map((b, i) => {
           const dam = b.damUahPerKwh;
-          const ek = typeof b.exportKwh === 'number' ? b.exportKwh : Number(b.exportKwh);
+          const rawKwh = lostMode ? b.lostSolarKwh : b.exportKwh;
+          const ek =
+            typeof rawKwh === 'number' ? rawKwh : Number(rawKwh);
           const damStr =
             dam != null && Number.isFinite(dam) ? dam.toFixed(2) : '—';
           const rev =
             dam != null && Number.isFinite(dam) && Number.isFinite(ek) ? ek * dam : null;
           const revenueTop =
             rev != null && Number.isFinite(rev) ? rev.toFixed(1) : '—';
+          const kwhTop = Number.isFinite(ek) ? ek.toFixed(2) : '—';
           return {
             barKey: `${b.dayIso}-${b.hour}-${i}`,
             xLabel: formatXLabel(b.dayIso, b.hour),
-            exportKwh: b.exportKwh,
+            exportKwh: ek,
             exportRevenueUah: rev != null && Number.isFinite(rev) ? rev : 0,
             damUahPerKwh: dam,
             damTop: damStr,
+            kwhTop,
             revenueTop,
           };
         });
@@ -80,7 +86,7 @@ export default function PeakExportHourlyChartModal({
     return () => {
       cancelled = true;
     };
-  }, [open, fetchUrl]);
+  }, [open, fetchUrl, chartKind]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -103,13 +109,16 @@ export default function PeakExportHourlyChartModal({
 
   if (!open || typeof document === 'undefined') return null;
 
-  const titleKey = exportRevenueUah
-    ? 'powerFlowExportHourlyChartTitleArbitrage'
-    : hourlyScope === 'peak'
-      ? 'powerFlowExportHourlyChartTitlePeak'
-      : hourlyScope === 'manual'
-        ? 'powerFlowExportHourlyChartTitleManual'
-        : 'powerFlowExportHourlyChartTitleTotal';
+  const titleKey =
+    chartKind === 'lostSolar'
+      ? 'powerFlowLostSolarHourlyChartTitle'
+      : exportRevenueUah
+        ? 'powerFlowExportHourlyChartTitleArbitrage'
+        : hourlyScope === 'peak'
+          ? 'powerFlowExportHourlyChartTitlePeak'
+          : hourlyScope === 'manual'
+            ? 'powerFlowExportHourlyChartTitleManual'
+            : 'powerFlowExportHourlyChartTitleTotal';
   const title = t(titleKey, { days: rangeDays });
 
   const node = (
@@ -130,7 +139,11 @@ export default function PeakExportHourlyChartModal({
               type="button"
               className="pf-peak-hourly-chart-close"
               onClick={onClose}
-              aria-label={t('powerFlowPeakHourlyChartCloseAria')}
+              aria-label={
+                chartKind === 'lostSolar'
+                  ? t('powerFlowLostSolarHourlyChartCloseAria')
+                  : t('powerFlowPeakHourlyChartCloseAria')
+              }
             >
               {t('powerFlowPeakHourlyChartClose')}
             </button>
@@ -144,7 +157,13 @@ export default function PeakExportHourlyChartModal({
             </p>
           ) : null}
           {status === 'ready' && rows.length === 0 ? (
-            <p className="pf-peak-hourly-chart-status">{t('powerFlowPeakHourlyChartEmpty')}</p>
+            <p className="pf-peak-hourly-chart-status">
+              {t(
+                chartKind === 'lostSolar'
+                  ? 'powerFlowLostSolarHourlyChartEmpty'
+                  : 'powerFlowPeakHourlyChartEmpty'
+              )}
+            </p>
           ) : null}
           {status === 'ready' && rows.length > 0 ? (
             <div className="pf-peak-hourly-chart-scroll">
@@ -221,6 +240,10 @@ export default function PeakExportHourlyChartModal({
                           typeof p.exportRevenueUah === 'number' && Number.isFinite(p.exportRevenueUah)
                             ? p.exportRevenueUah.toFixed(2)
                             : null;
+                        const kwhLineLabel =
+                          chartKind === 'lostSolar'
+                            ? t('powerFlowLostSolarHourlyChartTooltipKwh')
+                            : t('powerFlowPeakHourlyChartTooltipKwh');
                         return (
                           <div className="pf-peak-hourly-chart-tooltip">
                             <div className="pf-peak-hourly-chart-tooltip__line">{p.xLabel}</div>
@@ -233,7 +256,7 @@ export default function PeakExportHourlyChartModal({
                               </div>
                             ) : null}
                             <div className="pf-peak-hourly-chart-tooltip__line">
-                              {t('powerFlowPeakHourlyChartTooltipKwh')}: {kwh}
+                              {kwhLineLabel}: {kwh}
                             </div>
                             <div className="pf-peak-hourly-chart-tooltip__line">
                               {t('powerFlowPeakHourlyChartTooltipDam')}: {dam}
@@ -252,7 +275,13 @@ export default function PeakExportHourlyChartModal({
                     >
                       {showDamBarLabels ? (
                         <LabelList
-                          dataKey={exportRevenueUah ? 'revenueTop' : 'damTop'}
+                          dataKey={
+                            exportRevenueUah
+                              ? 'revenueTop'
+                              : chartKind === 'lostSolar'
+                                ? 'kwhTop'
+                                : 'damTop'
+                          }
                           position="top"
                           offset={6}
                           fill="#fafafa"
