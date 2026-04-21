@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -12,8 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import settings
 from app.db import get_db
+from app.deye_inverter_pin import strip_inverter_pin_tokens_anywhere
 from app.huawei_api import (
+    HuaweiAuthError,
     HuaweiRateLimitNoCacheError,
+    HuaweiUpstreamHttpError,
     get_plant_status,
     get_power_flow,
     huawei_configured,
@@ -30,8 +33,29 @@ router = APIRouter(prefix="/api/huawei", tags=["huawei"])
 _NO_STORE_CACHE = {"Cache-Control": "no-store, max-age=0, must-revalidate"}
 
 
+def _public_huawei_station_rows(rows: list[dict[str, str]]) -> list[dict[str, Any]]:
+    """Strip ``pin`` tokens from plant names for the browser (same convention as Deye labels)."""
+    out: list[dict[str, Any]] = []
+    for x in rows:
+        code = str(x.get("stationCode") or "").strip()
+        raw = str(x.get("stationName") or "")
+        disp = strip_inverter_pin_tokens_anywhere(raw) or code
+        item: dict[str, Any] = {"stationCode": code, "stationName": disp}
+        pdn = str(x.get("plantDn") or "").strip()
+        if pdn:
+            item["plantDn"] = pdn
+        out.append(item)
+    return out
+
+
 def _log_huawei_route_error(context: str, exc: BaseException) -> None:
     """Expected upstream outages (5xx, timeouts) — one warning line, no traceback."""
+    if isinstance(exc, HuaweiAuthError):
+        logger.warning("%s — Huawei auth failed: %s", context, exc)
+        return
+    if isinstance(exc, HuaweiUpstreamHttpError):
+        logger.warning("%s — Huawei upstream HTTP: %s", context, exc)
+        return
     if isinstance(exc, httpx.HTTPStatusError):
         resp = exc.response
         url = str(resp.request.url) if resp.request else "?"
@@ -59,9 +83,22 @@ async def get_stations():
         )
     try:
         items = await list_stations()
-        logger.info("GET /api/huawei/stations — OK, %s plant(s)", len(items))
+        public_items = _public_huawei_station_rows(items)
+        logger.info("GET /api/huawei/stations — OK, %s plant(s)", len(public_items))
         return JSONResponse(
-            content={"configured": True, "items": items},
+            content={"configured": True, "items": public_items},
+            headers=_NO_STORE_CACHE,
+        )
+    except HuaweiAuthError as exc:
+        logger.warning("GET /api/huawei/stations — Northbound login failed (graceful empty list)")
+        return JSONResponse(
+            content={
+                "configured": True,
+                "items": [],
+                "huaweiAuthFailed": True,
+                "reason": "login_failed",
+                "detail": str(exc)[:400],
+            },
             headers=_NO_STORE_CACHE,
         )
     except HuaweiRateLimitNoCacheError:
@@ -97,6 +134,18 @@ async def post_power_snapshot(session: AsyncSession = Depends(get_db)):
         await session.commit()
         return JSONResponse(
             content={"ok": True, "configured": True, "plantsUpdated": int(n)},
+            headers=_NO_STORE_CACHE,
+        )
+    except HuaweiAuthError as exc:
+        await session.rollback()
+        _log_huawei_route_error("POST /api/huawei/power-snapshot", exc)
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": True,
+                "reason": "huawei_login_failed",
+                "detail": str(exc)[:400],
+            },
             headers=_NO_STORE_CACHE,
         )
     except Exception as exc:
@@ -156,6 +205,19 @@ async def get_power_flow_route(
         if not body.get("ok") and body.get("reason") == "rate_limit":
             logger.warning("GET /api/huawei/power-flow — rate limit, no cache")
         return JSONResponse(content=body, headers=_NO_STORE_CACHE)
+    except HuaweiAuthError as exc:
+        _log_huawei_route_error("GET /api/huawei/power-flow", exc)
+        st = (stationCodes or "").split(",")[0].strip()
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": True,
+                "reason": "huawei_login_failed",
+                "detail": str(exc)[:400],
+                "stationCode": st or None,
+            },
+            headers=_NO_STORE_CACHE,
+        )
     except Exception as exc:
         _log_huawei_route_error("GET /api/huawei/power-flow", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -179,6 +241,18 @@ async def get_plant_status_route(
         items = await get_plant_status(stationCodes)
         return JSONResponse(
             content={"ok": True, "configured": True, "items": items},
+            headers=_NO_STORE_CACHE,
+        )
+    except HuaweiAuthError as exc:
+        _log_huawei_route_error("GET /api/huawei/plant-status", exc)
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": True,
+                "items": [],
+                "reason": "huawei_login_failed",
+                "detail": str(exc)[:400],
+            },
             headers=_NO_STORE_CACHE,
         )
     except HuaweiRateLimitNoCacheError:

@@ -11,6 +11,9 @@ from fastapi import HTTPException
 
 # Match trailing " pin1234" on the device name (case-insensitive "pin" + digits).
 _INVERTER_PIN_SUFFIX_RE = re.compile(r"(?i)\s+pin(\d{1,12})\s*$")
+# Same token style as ``stripInverterPinForDisplay`` in the Power flow UI (PIN token anywhere in the string).
+_INVERTER_PIN_TOKEN_ANY_RE = re.compile(r"(?i)\bpin(\d{1,12})\b")
+_INVERTER_PIN_TOKEN_STRIP_RE = re.compile(r"(?i)\bpin\d{1,12}\b")
 # Same token as ``deye_ev_port_export_service.parse_ev_port_binding`` — EV port binding in the label.
 _EVPORT_BINDING_RE = re.compile(r"evport\s*(\d+)", re.IGNORECASE)
 
@@ -18,6 +21,27 @@ _EVPORT_BINDING_RE = re.compile(r"evport\s*(\d+)", re.IGNORECASE)
 def label_has_evport_binding(text: str) -> bool:
     """True when plant/device label contains ``evport<N>`` (220-km EV port binding)."""
     return bool(_EVPORT_BINDING_RE.search((text or "").strip()))
+
+
+def pin_token_from_label_anywhere(text: str) -> Optional[str]:
+    """Last ``pin<digits>`` token anywhere in the label (FusionSolar plant names, same convention as Deye UI)."""
+    s = (text or "").strip()
+    if not s:
+        return None
+    last: Optional[str] = None
+    for m in _INVERTER_PIN_TOKEN_ANY_RE.finditer(s):
+        last = m.group(1)
+    return last
+
+
+def strip_inverter_pin_tokens_anywhere(text: str) -> str:
+    """Display-only: remove all ``pin<digits>`` tokens (any position), collapse spaces."""
+    s = (text or "").strip()
+    if not s:
+        return s
+    out = _INVERTER_PIN_TOKEN_STRIP_RE.sub(" ", s)
+    out = re.sub(r"\s{2,}", " ", out).strip()
+    return out
 
 
 def strip_inverter_pin_suffix(text: str) -> tuple[str, Optional[str]]:

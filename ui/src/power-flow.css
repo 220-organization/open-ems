@@ -722,6 +722,14 @@ body {
   min-width: 0;
 }
 
+.pf-huawei-toolbar-fallback-msg {
+  margin: 0;
+  max-width: 52ch;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.72);
+}
+
 .pf-deye-command-line {
   width: 100%;
 }

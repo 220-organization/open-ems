@@ -120,32 +120,82 @@ const LANDING_EXPORT_METRIC = Object.freeze({
 
 const LANDING_EXPORT_METRIC_VALUES = new Set(Object.values(LANDING_EXPORT_METRIC));
 
-function landingExportMetricStorageKey(inverterSn, huaweiStationCode) {
+/** Query keys for landing export metric (values: peak | manual | total | arbitrage | lost_solar_7d). */
+const LANDING_EXPORT_METRIC_URL_KEYS = ['exportMetric', 'landingExport'];
+
+/** One preference for the whole UI session — survives inverter / station changes (still normalized for Huawei / fleet). */
+const LANDING_EXPORT_METRIC_STORAGE_GLOBAL = 'pf-landing-export-metric-v2-global';
+
+function normalizeLandingExportMetricForContext(metric, inverterSn, huaweiStationCode) {
+  if (!LANDING_EXPORT_METRIC_VALUES.has(metric)) return LANDING_EXPORT_METRIC.TOTAL;
   const h = String(huaweiStationCode || '').trim();
-  if (h) return `pf-landing-export-metric-v1-huawei-${h}`;
+  if (
+    h &&
+    (metric === LANDING_EXPORT_METRIC.PEAK ||
+      metric === LANDING_EXPORT_METRIC.MANUAL ||
+      metric === LANDING_EXPORT_METRIC.ARBITRAGE ||
+      metric === LANDING_EXPORT_METRIC.LOST_SOLAR_7D)
+  ) {
+    return LANDING_EXPORT_METRIC.TOTAL;
+  }
   const s = String(inverterSn || '').trim();
-  return `pf-landing-export-metric-v1-${s || 'fleet'}`;
+  if (!s && !h && metric === LANDING_EXPORT_METRIC.LOST_SOLAR_7D) return LANDING_EXPORT_METRIC.TOTAL;
+  return metric;
+}
+
+function readLandingExportMetricFromUrl(inverterSn, huaweiStationCode) {
+  try {
+    const u = new URLSearchParams(window.location.search);
+    let raw = '';
+    for (const k of LANDING_EXPORT_METRIC_URL_KEYS) {
+      const v = u.get(k);
+      if (v != null && String(v).trim()) {
+        raw = String(v).trim().toLowerCase();
+        break;
+      }
+    }
+    if (!raw || !LANDING_EXPORT_METRIC_VALUES.has(raw)) return null;
+    return normalizeLandingExportMetricForContext(raw, inverterSn, huaweiStationCode);
+  } catch {
+    return null;
+  }
+}
+
+function replaceLandingExportMetricInUrl(metric) {
+  try {
+    const u = new URL(window.location.href);
+    u.searchParams.delete('landingExport');
+    if (metric === LANDING_EXPORT_METRIC.TOTAL) u.searchParams.delete('exportMetric');
+    else u.searchParams.set('exportMetric', metric);
+    window.history.replaceState({}, '', u);
+  } catch {
+    /* ignore */
+  }
 }
 
 function readStoredLandingExportMetric(inverterSn, huaweiStationCode) {
   try {
-    const raw = localStorage.getItem(landingExportMetricStorageKey(inverterSn, huaweiStationCode));
-    if (raw && LANDING_EXPORT_METRIC_VALUES.has(raw)) {
-      const h = String(huaweiStationCode || '').trim();
-      if (
-        h &&
-        (raw === LANDING_EXPORT_METRIC.PEAK ||
-          raw === LANDING_EXPORT_METRIC.MANUAL ||
-          raw === LANDING_EXPORT_METRIC.ARBITRAGE ||
-          raw === LANDING_EXPORT_METRIC.LOST_SOLAR_7D)
-      ) {
-        return LANDING_EXPORT_METRIC.TOTAL;
-      }
+    let raw = localStorage.getItem(LANDING_EXPORT_METRIC_STORAGE_GLOBAL);
+    if (!raw) {
       const s = String(inverterSn || '').trim();
-      if (!s && !h && raw === LANDING_EXPORT_METRIC.LOST_SOLAR_7D) {
-        return LANDING_EXPORT_METRIC.TOTAL;
+      const h = String(huaweiStationCode || '').trim();
+      const legacyDevice = h
+        ? localStorage.getItem(`pf-landing-export-metric-v1-huawei-${h}`)
+        : s
+          ? localStorage.getItem(`pf-landing-export-metric-v1-${s}`)
+          : null;
+      const legacyFleet = localStorage.getItem('pf-landing-export-metric-v1-fleet');
+      raw = legacyDevice || legacyFleet || '';
+      if (raw && LANDING_EXPORT_METRIC_VALUES.has(raw)) {
+        try {
+          localStorage.setItem(LANDING_EXPORT_METRIC_STORAGE_GLOBAL, raw);
+        } catch {
+          /* ignore */
+        }
       }
-      return raw;
+    }
+    if (raw && LANDING_EXPORT_METRIC_VALUES.has(raw)) {
+      return normalizeLandingExportMetricForContext(raw, inverterSn, huaweiStationCode);
     }
   } catch {
     /* ignore */
@@ -156,7 +206,7 @@ function readStoredLandingExportMetric(inverterSn, huaweiStationCode) {
 function writeStoredLandingExportMetric(inverterSn, huaweiStationCode, value) {
   if (!LANDING_EXPORT_METRIC_VALUES.has(value)) return;
   try {
-    localStorage.setItem(landingExportMetricStorageKey(inverterSn, huaweiStationCode), value);
+    localStorage.setItem(LANDING_EXPORT_METRIC_STORAGE_GLOBAL, value);
   } catch {
     /* ignore */
   }
@@ -204,10 +254,10 @@ function formatLandingTotalsDisplay(landingTotals, bcp47, t) {
   const fmtUah = new Intl.NumberFormat(bcp47, {
     style: 'currency',
     currency: 'UAH',
-    maximumFractionDigits: 0,
-    minimumFractionDigits: 0,
+    maximumFractionDigits: 3,
+    minimumFractionDigits: 3,
   });
-  const fmtRate = new Intl.NumberFormat(bcp47, { maximumFractionDigits: 3, minimumFractionDigits: 2 });
+  const fmtRate = new Intl.NumberFormat(bcp47, { maximumFractionDigits: 3, minimumFractionDigits: 3 });
   const arbRaw = landingTotals.arbitrageRevenueUah;
   let arbitrage = null;
   if (typeof arbRaw === 'number' && Number.isFinite(arbRaw)) {
@@ -279,8 +329,7 @@ function formatLandingTotalsDisplay(landingTotals, bcp47, t) {
     const retailCurrent = landingRetailUahPerKwh(dam.currentAvgUahPerKwh);
     const retailPrev = landingRetailUahPerKwh(dam.prevAvgUahPerKwh);
     const rate = retailCurrent != null ? fmtRate.format(retailCurrent) : '—';
-    const isDeviceScope =
-      landingTotals.exportScope === 'device' || landingTotals.exportScope === 'huawei';
+    const isDeviceScope = landingTotals.exportScope === 'device' || landingTotals.exportScope === 'huawei';
     const personalDamWavg = dam.currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd;
     let damTariffLine = null;
     if (isDeviceScope && personalDamWavg != null && Number.isFinite(Number(personalDamWavg))) {
@@ -422,6 +471,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     items: [],
     error: false,
     northboundRateLimited: false,
+    authFailed: false,
   });
   const [chargingPorts, setChargingPorts] = useState({
     loading: true,
@@ -703,6 +753,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
           items: [],
           error: true,
           northboundRateLimited: false,
+          authFailed: false,
         });
       } else {
         setHuaweiRows({
@@ -711,6 +762,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
           items: data.items || [],
           error: false,
           northboundRateLimited: !!data.northboundRateLimited,
+          authFailed: !!data.huaweiAuthFailed,
         });
       }
     } catch {
@@ -720,6 +772,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
         items: [],
         error: true,
         northboundRateLimited: false,
+        authFailed: false,
       });
     }
   }, []);
@@ -833,6 +886,10 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const [remoteWriteNeedsPinOpen, setRemoteWriteNeedsPinOpen] = useState(false);
   const discharge2BusyRef = useRef(false);
   const charge2BusyRef = useRef(false);
+  /** After first load, inverter/station changes keep ``landingExportMetric`` unless URL overrides or context forbids it. */
+  const landingExportMetricHydratedRef = useRef(false);
+  /** Previous Deye ``selInverterSn`` (Huawei mode uses empty SN); used to reset metric to total export on inverter change. */
+  const prevSelInverterSnForMetricRef = useRef(null);
   const [peakDamDischargeEnabled, setPeakDamDischargeEnabled] = useState(false);
   const [dischargeSocDeltaPct, setDischargeSocDeltaPct] = useState(2);
   const [lowDamChargeEnabled, setLowDamChargeEnabled] = useState(false);
@@ -844,23 +901,46 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const [landingExportMetric, setLandingExportMetric] = useState(LANDING_EXPORT_METRIC.TOTAL);
 
   useEffect(() => {
-    setLandingExportMetric(readStoredLandingExportMetric(selInverterSn, selHuaweiStationCode));
+    const fromUrl = readLandingExportMetricFromUrl(selInverterSn, selHuaweiStationCode);
+    if (fromUrl !== null) {
+      setLandingExportMetric(fromUrl);
+      writeStoredLandingExportMetric(selInverterSn, selHuaweiStationCode, fromUrl);
+      landingExportMetricHydratedRef.current = true;
+      return;
+    }
+    if (!landingExportMetricHydratedRef.current) {
+      setLandingExportMetric(readStoredLandingExportMetric(selInverterSn, selHuaweiStationCode));
+      landingExportMetricHydratedRef.current = true;
+      return;
+    }
+    setLandingExportMetric(prev =>
+      normalizeLandingExportMetricForContext(prev, selInverterSn, selHuaweiStationCode)
+    );
+  }, [selInverterSn, selHuaweiStationCode]);
+
+  /** When user selects another Deye inverter, default the landing counter to total export (unless URL sets ``exportMetric``). */
+  useEffect(() => {
+    const hw = String(selHuaweiStationCode || '').trim();
+    if (hw) {
+      prevSelInverterSnForMetricRef.current = '';
+      return;
+    }
+    const cur = String(selInverterSn || '').trim();
+    const prev = prevSelInverterSnForMetricRef.current;
+    if (prev === null) {
+      prevSelInverterSnForMetricRef.current = cur;
+      return;
+    }
+    if (prev === cur) return;
+    prevSelInverterSnForMetricRef.current = cur;
+    if (readLandingExportMetricFromUrl(selInverterSn, selHuaweiStationCode) != null) return;
+    setLandingExportMetric(LANDING_EXPORT_METRIC.TOTAL);
+    writeStoredLandingExportMetric(selInverterSn, selHuaweiStationCode, LANDING_EXPORT_METRIC.TOTAL);
   }, [selInverterSn, selHuaweiStationCode]);
 
   useEffect(() => {
-    if (!selHuaweiStationCode) return;
-    setLandingExportMetric(prev => {
-      if (
-        prev === LANDING_EXPORT_METRIC.PEAK ||
-        prev === LANDING_EXPORT_METRIC.MANUAL ||
-        prev === LANDING_EXPORT_METRIC.ARBITRAGE ||
-        prev === LANDING_EXPORT_METRIC.LOST_SOLAR_7D
-      ) {
-        return LANDING_EXPORT_METRIC.TOTAL;
-      }
-      return prev;
-    });
-  }, [selHuaweiStationCode]);
+    replaceLandingExportMetricInUrl(landingExportMetric);
+  }, [landingExportMetric]);
 
   /** Arbitrage counter is hidden when we know cumulative sample export is zero (fleet or device). */
   const canOfferLandingArbitrageMetric = useMemo(() => {
@@ -898,10 +978,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     return apiUrl(`/api/power-flow/lost-solar-hourly-bars?${q}`);
   }, [selInverterSn]);
   const peakHourlyChartFetchUrl = useMemo(
-    () =>
-      landingExportMetric === LANDING_EXPORT_METRIC.LOST_SOLAR_7D
-        ? lostSolarHourlyBarsUrl
-        : exportHourlyBarsUrl,
+    () => (landingExportMetric === LANDING_EXPORT_METRIC.LOST_SOLAR_7D ? lostSolarHourlyBarsUrl : exportHourlyBarsUrl),
     [landingExportMetric, lostSolarHourlyBarsUrl, exportHourlyBarsUrl]
   );
   const peakHourlyChartKind = landingExportMetric === LANDING_EXPORT_METRIC.LOST_SOLAR_7D ? 'lostSolar' : 'export';
@@ -1214,7 +1291,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   }, [selInverterSn, deyeLiveLoading, inverterRows.configured, inverterRows.error]);
 
   useEffect(() => {
-    if (!selHuaweiStationCode || !huaweiRows.configured || huaweiRows.error) {
+    if (!selHuaweiStationCode || !huaweiRows.configured || huaweiRows.error || huaweiRows.authFailed) {
       setHuaweiLive(null);
       setHuaweiLiveLoading(false);
       return undefined;
@@ -1232,6 +1309,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
           const gridW = data.gridPowerW;
           const loadW = data.loadPowerW;
           setHuaweiLive({
+            ok: true,
             pvPowerW: pvW != null && Number.isFinite(Number(pvW)) ? Math.max(0, Number(pvW)) : null,
             gridPowerW: gridW != null && Number.isFinite(Number(gridW)) ? Number(gridW) : null,
             loadPowerW: loadW != null && Number.isFinite(Number(loadW)) ? Math.max(0, Number(loadW)) : null,
@@ -1254,24 +1332,24 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       cancelled = true;
       clearInterval(id);
     };
-  }, [selHuaweiStationCode, huaweiRows.configured, huaweiRows.error]);
+  }, [selHuaweiStationCode, huaweiRows.configured, huaweiRows.error, huaweiRows.authFailed]);
 
   useLayoutEffect(() => {
     setHuaweiHydratedCode('');
-    if (selHuaweiStationCode && huaweiRows.configured && !huaweiRows.error) {
+    if (selHuaweiStationCode && huaweiRows.configured && !huaweiRows.error && !huaweiRows.authFailed) {
       setHuaweiLiveLoading(true);
     }
-  }, [selHuaweiStationCode, huaweiRows.configured, huaweiRows.error]);
+  }, [selHuaweiStationCode, huaweiRows.configured, huaweiRows.error, huaweiRows.authFailed]);
 
   useEffect(() => {
-    if (!selHuaweiStationCode || !huaweiRows.configured || huaweiRows.error) {
+    if (!selHuaweiStationCode || !huaweiRows.configured || huaweiRows.error || huaweiRows.authFailed) {
       setHuaweiHydratedCode('');
       return;
     }
     if (!huaweiLiveLoading) {
       setHuaweiHydratedCode(selHuaweiStationCode);
     }
-  }, [selHuaweiStationCode, huaweiLiveLoading, huaweiRows.configured, huaweiRows.error]);
+  }, [selHuaweiStationCode, huaweiLiveLoading, huaweiRows.configured, huaweiRows.error, huaweiRows.authFailed]);
 
   useEffect(() => {
     if (!selInverterSn || !inverterRows.configured || inverterRows.error) {
@@ -1833,12 +1911,12 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const submitWritePinGate = useCallback(async () => {
     const pin = writePinValue.trim();
     if (!writePinGate) return;
+    const g = writePinGate;
     if (!pin && !selInverterEvportBound) {
       setWritePinError(t('deyeWritePinMissing'));
       return;
     }
     setWritePinError('');
-    const g = writePinGate;
     try {
       if (g.kind === 'peak') {
         const data = await savePeakAutoPref(g.nextEnabled, g.nextPct, pin);
@@ -1887,7 +1965,14 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       const m = err instanceof Error ? err.message : String(err);
       setWritePinError(m);
     }
-  }, [writePinGate, writePinValue, t, savePeakAutoPref, saveLowDamChargePref, selInverterEvportBound]);
+  }, [
+    writePinGate,
+    writePinValue,
+    t,
+    savePeakAutoPref,
+    saveLowDamChargePref,
+    selInverterEvportBound,
+  ]);
 
   const closeDeyeCommandModal = useCallback(() => {
     setDeyeCommandModal(null);
@@ -1963,7 +2048,8 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   }, []);
 
   const deyeListReady = inverterRows.configured && !inverterRows.loading && !inverterRows.error;
-  const huaweiListReady = huaweiRows.configured && !huaweiRows.loading && !huaweiRows.error;
+  const huaweiListReady =
+    huaweiRows.configured && !huaweiRows.loading && !huaweiRows.error && !huaweiRows.authFailed;
   const inverterListReady = deyeListReady || huaweiListReady;
 
   useEffect(() => {
@@ -2016,11 +2102,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       cancelled = true;
       clearInterval(id);
     };
-  }, [
-    selInverterSn,
-    selHuaweiStationCode,
-    inverterListReady,
-  ]);
+  }, [selInverterSn, selHuaweiStationCode, inverterListReady]);
 
   const showPowerFlowSections =
     (!inverterRows.error && (inverterRows.loading || inverterRows.configured)) ||
@@ -2050,11 +2132,14 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       u.searchParams.set('lang', locale);
       const inv = normalizeEssSelectionValue(inverterValue).trim();
       if (inv) u.searchParams.set('inverter', inv);
+      if (landingExportMetric && landingExportMetric !== LANDING_EXPORT_METRIC.TOTAL) {
+        u.searchParams.set('exportMetric', landingExportMetric);
+      }
       return u.toString();
     } catch {
       return '';
     }
-  }, [stationFilter, locale, inverterValue]);
+  }, [stationFilter, locale, inverterValue, landingExportMetric]);
 
   const handleSharePage = useCallback(async () => {
     const url = powerFlowShareUrl;
@@ -2128,7 +2213,13 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                           })}
                         </optgroup>
                       ) : null}
-                      {huaweiListReady && huaweiRows.northboundRateLimited && huaweiRows.items.length === 0 ? (
+                      {huaweiRows.configured && !huaweiRows.loading && !huaweiRows.error && huaweiRows.authFailed ? (
+                        <optgroup label={t('essHuaweiFusionSolar')}>
+                          <option value="" disabled>
+                            {t('huaweiAuthFailedHint')}
+                          </option>
+                        </optgroup>
+                      ) : huaweiListReady && huaweiRows.northboundRateLimited && huaweiRows.items.length === 0 ? (
                         <optgroup label={t('essHuaweiFusionSolar')}>
                           <option value="" disabled>
                             {t('huaweiNorthboundRateLimited')}
@@ -2136,11 +2227,14 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                         </optgroup>
                       ) : huaweiListReady && huaweiRows.items.length > 0 ? (
                         <optgroup label={t('essHuaweiFusionSolar')}>
-                          {huaweiRows.items.map(row => (
-                            <option key={`huawei-${row.stationCode}`} value={`${ESS_PREFIX_HUAWEI}${row.stationCode}`}>
-                              {row.stationName || row.stationCode}
-                            </option>
-                          ))}
+                          {huaweiRows.items.map(row => {
+                            const shortLabel = inverterSelectShortLabel(row.stationName, row.stationCode);
+                            return (
+                              <option key={`huawei-${row.stationCode}`} value={`${ESS_PREFIX_HUAWEI}${row.stationCode}`}>
+                                {shortLabel}
+                              </option>
+                            );
+                          })}
                         </optgroup>
                       ) : null}
                     </>
@@ -2212,8 +2306,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                     landingExportMetric === LANDING_EXPORT_METRIC.ARBITRAGE ||
                     landingExportMetric === LANDING_EXPORT_METRIC.LOST_SOLAR_7D)
                     ? LANDING_EXPORT_METRIC.TOTAL
-                    : !canOfferLandingArbitrageMetric &&
-                        landingExportMetric === LANDING_EXPORT_METRIC.ARBITRAGE
+                    : !canOfferLandingArbitrageMetric && landingExportMetric === LANDING_EXPORT_METRIC.ARBITRAGE
                       ? LANDING_EXPORT_METRIC.TOTAL
                       : landingExportMetric;
 
@@ -2274,10 +2367,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                           minimumFractionDigits: 0,
                         });
                         return {
-                          text:
-                            ls != null && Number.isFinite(Number(ls))
-                              ? fmtLs.format(Number(ls))
-                              : '—',
+                          text: ls != null && Number.isFinite(Number(ls)) ? fmtLs.format(Number(ls)) : '—',
                           title: landingTotalsScopeFleet
                             ? t('powerFlowLandingExportMetricLostSolar7dHintFleet')
                             : t('powerFlowLandingExportMetricLostSolar7dHint'),
@@ -2813,8 +2903,8 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                     {tf != null && Number.isFinite(tf)
                       ? t('tariffKwh', {
                           value: new Intl.NumberFormat(bcp47, {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
+                            minimumFractionDigits: 3,
+                            maximumFractionDigits: 3,
                           }).format(Math.max(0, tf)),
                         })
                       : ''}
@@ -2908,7 +2998,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
             </div>
           </div>
 
-                   <section className="pf-dam-section" aria-label={t('damChartHeading')}>
+          <section className="pf-dam-section" aria-label={t('damChartHeading')}>
             <DamChartPanel
               variant="embedded"
               inverterSn={essSel.provider === 'deye' ? selInverterSn || undefined : undefined}
@@ -2950,19 +3040,20 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                 </div>
               ) : (
                 <>
-                  <div className="pf-header-discharge-row">
-                    <div className="pf-discharge-toolbar pf-discharge-toolbar--combined">
-                      <div className="pf-deye-command-stack">
-                        <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header pf-deye-command-line">
-                          <div className="pf-discharge-delta-controls">
-                            <button
-                              type="button"
-                              className="pf-discharge-btn pf-discharge-go-btn"
-                              onClick={requestDischarge2Pct}
-                              disabled={deyeWritesHardBlocked}
-                              title={t('dischargeSoc2Hint')}
-                              aria-label={t('dischargeGoAria')}
-                            >
+                  {selHuaweiStationCode ? null : (
+                    <div className="pf-header-discharge-row">
+                      <div className="pf-discharge-toolbar pf-discharge-toolbar--combined">
+                        <div className="pf-deye-command-stack">
+                          <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header pf-deye-command-line">
+                            <div className="pf-discharge-delta-controls">
+                              <button
+                                type="button"
+                                className="pf-discharge-btn pf-discharge-go-btn"
+                                onClick={requestDischarge2Pct}
+                                disabled={deyeWritesHardBlocked}
+                                title={t('dischargeSoc2Hint')}
+                                aria-label={t('dischargeGoAria')}
+                              >
                               {t('dischargeGoButton')}
                             </button>
                             <select
@@ -3269,6 +3360,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                       </div>
                     </div>
                   </div>
+                  )}
                 </>
               )
             ) : null}
@@ -3546,10 +3638,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
         fetchUrl={peakHourlyChartFetchUrl}
         chartKind={peakHourlyChartKind}
         hourlyScope={exportHourlyScope}
-        exportRevenueUah={
-          canOfferLandingArbitrageMetric &&
-          landingExportMetric === LANDING_EXPORT_METRIC.ARBITRAGE
-        }
+        exportRevenueUah={canOfferLandingArbitrageMetric && landingExportMetric === LANDING_EXPORT_METRIC.ARBITRAGE}
         t={t}
       />
       {shareFeedback ? (

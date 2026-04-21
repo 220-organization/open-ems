@@ -114,8 +114,8 @@ HUAWEI_METER_DEV_ID: str = (os.environ.get("HUAWEI_METER_DEV_ID") or "").strip()
 HUAWEI_METER_DEV_TYPE_ID: int = _env_int("HUAWEI_METER_DEV_TYPE_ID", 47, 1, 999)
 HUAWEI_INVERTER_DEV_ID: str = (os.environ.get("HUAWEI_INVERTER_DEV_ID") or "").strip()
 HUAWEI_INVERTER_DEV_TYPE_ID: int = _env_int("HUAWEI_INVERTER_DEV_TYPE_ID", 1, 1, 999)
-
-
+# Comma-separated FusionSolar ``devTypeId`` values treated as battery / ESS (getDevList).
+HUAWEI_BATTERY_DEV_TYPE_IDS: str = (os.environ.get("HUAWEI_BATTERY_DEV_TYPE_IDS") or "39,52").strip()
 def _parse_oree_sync_hours_kyiv() -> tuple[int, ...]:
     """
     Europe/Kiev wall-clock hours for scheduled OREE DAM pulls (comma-separated), default 12–15.

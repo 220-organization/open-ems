@@ -337,8 +337,8 @@ export default function RoiStackStatistics({
   const fmtUah = useMemo(
     () =>
       new Intl.NumberFormat(bcp47, {
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0,
+        minimumFractionDigits: 3,
+        maximumFractionDigits: 3,
       }),
     [bcp47]
   );

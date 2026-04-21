@@ -1,8 +1,9 @@
-"""Huawei FusionSolar SmartPVMS Northbound Open API — session + plant list + real-time KPI (read-only)."""
+"""Huawei FusionSolar SmartPVMS Northbound Open API — session, plant list, real-time KPI."""
 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from datetime import datetime, timezone
@@ -59,6 +60,28 @@ class HuaweiRateLimitNoCacheError(RuntimeError):
     """Northbound failCode 407 and no cached response yet — retry after several minutes."""
 
 
+class HuaweiAuthError(RuntimeError):
+    """FusionSolar Northbound login failed or session token could not be obtained."""
+
+
+class HuaweiUpstreamHttpError(RuntimeError):
+    """Non-success HTTP from FusionSolar before JSON (avoids httpx default message with full URL + MDN link)."""
+
+    __slots__ = ("endpoint", "http_status", "body_snippet")
+
+    def __init__(self, endpoint: str, http_status: int, body_snippet: str):
+        self.endpoint = endpoint
+        self.http_status = http_status
+        self.body_snippet = body_snippet
+        tail = (body_snippet or "").strip()
+        if len(tail) > 220:
+            tail = tail[:220] + "…"
+        msg = f"FusionSolar HTTP {http_status} ({endpoint})"
+        if tail:
+            msg = f"{msg}: {tail}"
+        super().__init__(msg)
+
+
 def huawei_missing_env_names() -> list[str]:
     missing: list[str] = []
     if not settings.HUAWEI_USER_NAME:
@@ -101,23 +124,23 @@ async def _login_unlocked(client: httpx.AsyncClient) -> None:
         cookies=_huawei_cookies,
     )
     if r.status_code >= 400:
-        # One-line summary at call sites (e.g. huawei_proxy); avoid duplicate WARNING with full body here.
-        logger.debug("Huawei: login HTTP %s — %s", r.status_code, (r.text or "")[:500])
-    r.raise_for_status()
+        snippet = (r.text or "").replace("\n", " ").strip()[:400]
+        logger.warning("Huawei: login HTTP %s — %s", r.status_code, snippet or r.reason_phrase)
+        raise HuaweiAuthError(f"login HTTP {r.status_code}: {snippet or r.reason_phrase or 'error'}")
     try:
         payload = r.json()
     except Exception:
         logger.warning("Huawei: login response is not JSON — %s", (r.text or "")[:400])
-        raise RuntimeError("Huawei login: invalid JSON response") from None
+        raise HuaweiAuthError("invalid login response (not JSON)") from None
     if not payload.get("success"):
         msg = str(payload.get("message") or payload.get("msg") or "login failed")
         logger.warning("Huawei: login success=false — %s", msg[:400])
-        raise RuntimeError(msg)
+        raise HuaweiAuthError(msg)
 
     token = _xsrf_from_response(r)
     if not token:
         logger.warning("Huawei: login OK but no xsrf-token header in response")
-        raise RuntimeError("Huawei login: missing xsrf-token header")
+        raise HuaweiAuthError("missing xsrf-token header after login")
 
     _huawei_cookies.update(r.cookies)
     _xsrf_token = token
@@ -131,7 +154,7 @@ async def _ensure_session(client: httpx.AsyncClient) -> str:
             return _xsrf_token
         await _login_unlocked(client)
         if not _xsrf_token:
-            raise RuntimeError("Huawei: failed to obtain xsrf-token")
+            raise HuaweiAuthError("failed to obtain xsrf-token")
         return _xsrf_token
 
 
@@ -150,8 +173,10 @@ async def _post_third_data_impl(
     }
     r = await client.post(url, json=json_body, headers=headers, cookies=_huawei_cookies)
     if r.status_code >= 400:
-        logger.warning("Huawei: POST %s HTTP %s — %s", path, r.status_code, (r.text or "")[:600])
-    r.raise_for_status()
+        snippet = (r.text or "").replace("\n", " ").strip()[:500]
+        logger.warning("Huawei: POST %s HTTP %s — %s", path, r.status_code, snippet or r.reason_phrase)
+        short = path.rstrip("/").split("/")[-1] or path.replace("/", "_")
+        raise HuaweiUpstreamHttpError(short, int(r.status_code), snippet or (r.reason_phrase or ""))
     try:
         data = r.json()
     except Exception:
@@ -231,7 +256,11 @@ def _station_list_from_payload(payload: dict[str, Any]) -> list[dict[str, str]]:
             continue
         seen.add(code)
         name = _station_name_from_row(row) or code
-        out.append({"stationCode": code, "stationName": name})
+        item: dict[str, str] = {"stationCode": code, "stationName": name}
+        pdn = str(row.get("dn") or row.get("plantDn") or "").strip()
+        if pdn:
+            item["plantDn"] = pdn
+        out.append(item)
     out.sort(key=lambda x: x["stationName"].lower())
     return out
 
@@ -626,6 +655,19 @@ def _parse_dev_list_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
     data = payload.get("data")
     if isinstance(data, list):
         return [x for x in data if isinstance(x, dict)]
+    if isinstance(data, dict):
+        inner = (
+            data.get("list")
+            or data.get("dataList")
+            or data.get("deviceList")
+            or data.get("devList")
+            or []
+        )
+        if isinstance(inner, list):
+            return [x for x in inner if isinstance(x, dict)]
+    raw = payload.get("list") or payload.get("dataList") or []
+    if isinstance(raw, list):
+        return [x for x in raw if isinstance(x, dict)]
     return []
 
 
@@ -665,15 +707,61 @@ def _pick_meter_inverter_from_rows(
     return meter_pair, inv_pair
 
 
+def _huawei_battery_dev_type_ids() -> set[int]:
+    out: set[int] = set()
+    raw = (settings.HUAWEI_BATTERY_DEV_TYPE_IDS or "").strip()
+    for part in raw.split(","):
+        p = part.strip()
+        if p.isdigit():
+            out.add(int(p))
+    if not out:
+        out.add(39)
+        out.add(52)
+    return out
+
+
+def _has_battery_device_in_dev_list(rows: list[dict[str, Any]]) -> bool:
+    battery_types = _huawei_battery_dev_type_ids()
+    for r in rows:
+        try:
+            dt = int(r.get("devTypeId") or 0)
+        except (TypeError, ValueError):
+            continue
+        if dt in battery_types:
+            return True
+    return False
+
+
+def _ess_soc_percent_from_inverter_dim(dim: dict[str, Any]) -> Optional[float]:
+    """Hybrid inverters sometimes expose SoC in getDevRealKpi ``dataItemMap`` (FusionSolar naming varies)."""
+    if not dim:
+        return None
+    for k, v in dim.items():
+        lk = str(k).lower()
+        if "soc" not in lk or "cosoc" in lk:
+            continue
+        if any(x in lk for x in ("socket", "cosphi", "associate")):
+            continue
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            continue
+        if f != f or f < 0 or f > 100:
+            continue
+        return f
+    return None
+
+
 async def _resolve_meter_inverter_pairs(
     client: httpx.AsyncClient, station: str
-) -> tuple[Optional[tuple[str, int]], Optional[tuple[str, int]]]:
+) -> tuple[Optional[tuple[str, int]], Optional[tuple[str, int]], list[dict[str, Any]]]:
     mid_e = (settings.HUAWEI_METER_DEV_ID or "").strip()
     iid_e = (settings.HUAWEI_INVERTER_DEV_ID or "").strip()
     if mid_e and iid_e:
         return (
             (mid_e, settings.HUAWEI_METER_DEV_TYPE_ID),
             (iid_e, settings.HUAWEI_INVERTER_DEV_TYPE_ID),
+            [],
         )
 
     quad = _device_pair_cache.get(station)
@@ -686,7 +774,7 @@ async def _resolve_meter_inverter_pairs(
     need_dev_list = quad is None or bool(mid_e) or bool(iid_e)
     if not need_dev_list:
         mid2, mt2, iid2, it2 = quad
-        return (mid2, mt2), (iid2, it2)
+        return (mid2, mt2), (iid2, it2), []
 
     payload = await _post_third_data(client, "/thirdData/getDevList", {"stationCodes": station})
     rows = _parse_dev_list_rows(payload)
@@ -698,7 +786,7 @@ async def _resolve_meter_inverter_pairs(
     if mp and ip:
         _device_pair_cache[station] = (mp[0], mp[1], ip[0], ip[1])
         await _write_power_devices_db(station, _device_pair_cache[station])
-    return mp, ip
+    return mp, ip, rows
 
 
 def _active_power_w_from_dev_dim(dim: dict[str, Any]) -> Optional[float]:
@@ -747,6 +835,16 @@ async def _fetch_dev_real_kpi_dim(
     return {}
 
 
+def _ensure_power_flow_export_flags(body: dict[str, Any]) -> None:
+    """Backfill KPI snapshot fields for RAM or DB rows saved before these keys existed."""
+    if body.get("ok") is not True:
+        return
+    if "hasBatteryKpi" not in body:
+        body["hasBatteryKpi"] = False
+    if "essSocPercent" not in body:
+        body["essSocPercent"] = None
+
+
 async def get_power_flow(station_code: str) -> dict[str, Any]:
     """
     Instantaneous PV / grid / load (W) via getDevList + getDevRealKpi (meter + inverter).
@@ -764,7 +862,7 @@ async def get_power_flow(station_code: str) -> dict[str, Any]:
     now = time.time()
     try:
         async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-            mp, ip = await _resolve_meter_inverter_pairs(client, st)
+            mp, ip, dev_rows = await _resolve_meter_inverter_pairs(client, st)
             if not mp or not ip:
                 return {
                     "ok": False,
@@ -774,6 +872,33 @@ async def get_power_flow(station_code: str) -> dict[str, Any]:
                 }
             meter_dim = await _fetch_dev_real_kpi_dim(client, mp[0], mp[1])
             inv_dim = await _fetch_dev_real_kpi_dim(client, ip[0], ip[1])
+
+            meter_raw = _active_power_w_from_dev_dim(meter_dim)
+            inv_raw = _active_power_w_from_dev_dim(inv_dim)
+
+            pv_w = max(0.0, float(inv_raw)) if inv_raw is not None else None
+            grid_ui: Optional[float] = -float(meter_raw) if meter_raw is not None else None
+            load_w: Optional[float] = None
+            if inv_raw is not None and meter_raw is not None:
+                load_w = max(0.0, float(inv_raw) - float(meter_raw))
+
+            has_battery_kpi = _has_battery_device_in_dev_list(dev_rows) if dev_rows else False
+            ess_soc = _ess_soc_percent_from_inverter_dim(inv_dim)
+
+            out: dict[str, Any] = {
+                "ok": True,
+                "configured": True,
+                "stationCode": st,
+                "pvPowerW": pv_w,
+                "gridPowerW": grid_ui,
+                "loadPowerW": load_w,
+                "northboundRateLimited": False,
+                "hasBatteryKpi": has_battery_kpi,
+                "essSocPercent": ess_soc,
+            }
+            _power_flow_cache[st] = (dict(out), now)
+            await _write_power_flow_db(st, out)
+            return dict(out)
     except HuaweiNorthboundError as exc:
         if exc.fail_code == _FAIL_CODE_RATE_LIMIT:
             cached = _power_flow_cache.get(st)
@@ -781,6 +906,7 @@ async def get_power_flow(station_code: str) -> dict[str, Any]:
                 body = dict(cached[0])
                 body["northboundRateLimited"] = True
                 body["cacheAgeSec"] = round(now - cached[1], 1)
+                _ensure_power_flow_export_flags(body)
                 return body
             db_hit = await _read_power_flow_db(st)
             if db_hit:
@@ -789,6 +915,7 @@ async def get_power_flow(station_code: str) -> dict[str, Any]:
                 body = dict(snap)
                 body["northboundRateLimited"] = True
                 body["cacheAgeSec"] = round(now - saved_at, 1)
+                _ensure_power_flow_export_flags(body)
                 return body
             return {
                 "ok": False,
@@ -798,25 +925,3 @@ async def get_power_flow(station_code: str) -> dict[str, Any]:
                 "stationCode": st,
             }
         raise
-
-    meter_raw = _active_power_w_from_dev_dim(meter_dim)
-    inv_raw = _active_power_w_from_dev_dim(inv_dim)
-
-    pv_w = max(0.0, float(inv_raw)) if inv_raw is not None else None
-    grid_ui: Optional[float] = -float(meter_raw) if meter_raw is not None else None
-    load_w: Optional[float] = None
-    if inv_raw is not None and meter_raw is not None:
-        load_w = max(0.0, float(inv_raw) - float(meter_raw))
-
-    out: dict[str, Any] = {
-        "ok": True,
-        "configured": True,
-        "stationCode": st,
-        "pvPowerW": pv_w,
-        "gridPowerW": grid_ui,
-        "loadPowerW": load_w,
-        "northboundRateLimited": False,
-    }
-    _power_flow_cache[st] = (dict(out), now)
-    await _write_power_flow_db(st, out)
-    return dict(out)

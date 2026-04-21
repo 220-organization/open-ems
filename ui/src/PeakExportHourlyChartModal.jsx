@@ -238,7 +238,7 @@ export default function PeakExportHourlyChartModal({
                             : '—';
                         const rev =
                           typeof p.exportRevenueUah === 'number' && Number.isFinite(p.exportRevenueUah)
-                            ? p.exportRevenueUah.toFixed(2)
+                            ? p.exportRevenueUah.toFixed(3)
                             : null;
                         const kwhLineLabel =
                           chartKind === 'lostSolar'

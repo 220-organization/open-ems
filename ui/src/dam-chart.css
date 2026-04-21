@@ -437,6 +437,13 @@
   gap: 6px;
 }
 
+/* Ukraine (OREE / primary) DAM line is always shown — not a toggle. */
+.dam-line-legend-item--primary-locked {
+  padding: 2px 8px;
+  border-radius: 8px;
+  cursor: default;
+}
+
 .dam-line-legend-swatch--dashed {
   border: 2px dashed rgba(255, 255, 255, 0.4);
   background-clip: padding-box;

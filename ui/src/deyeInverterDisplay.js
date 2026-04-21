@@ -13,6 +13,19 @@ export function stripInverterPinForDisplay(text) {
     .trim();
 }
 
+/** Last ``pin<digits>`` token in the label (for write PIN when not yet cached). */
+export function extractInverterPinFromLabel(text) {
+  const s = String(text ?? '').trim();
+  if (!s) return '';
+  const re = /\bpin(\d{1,12})\b/gi;
+  let last = '';
+  let m;
+  while ((m = re.exec(s)) !== null) {
+    last = m[1];
+  }
+  return last;
+}
+
 /** Match ``evport<station>`` in plant/device names (same as backend EV port binding). */
 const EVPORT_RE = /evport\s*(\d+)/i;
 
