@@ -299,6 +299,14 @@
   touch-action: manipulation;
 }
 
+.dam-date-btn--today {
+  width: auto;
+  min-width: 72px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .dam-date-btn:hover {
   border-color: rgba(252, 1, 155, 0.45);
 }

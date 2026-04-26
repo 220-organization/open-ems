@@ -210,6 +210,7 @@
   "damOpenDatePickerAria": "Open calendar",
   "damPrevDay": "Previous day",
   "damNextDay": "Next day",
+  "damToday": "Vandaag",
   "damError": "Load error",
   "damOreeNotConfigured": "OREE_API_KEY is not set — DAM line will be empty until prices are synced on a server with the key.",
   "damSyncNote": "DAM prices were just synced from OREE for this view.",
@@ -271,5 +272,16 @@
   "roiSetupSave": "Save",
   "roiSetupCancel": "Cancel",
   "roiSetupSaveError": "Could not save ROI settings.",
-  "roiSetupPinForbidden": "PIN rejected or remote control not allowed for this inverter."
+  "roiSetupPinForbidden": "PIN rejected or remote control not allowed for this inverter.",
+  "addDeyeInstructionTitle": "Toegang geven in Deye Cloud",
+  "addDeyeInstructionStep1Alt": "Open het menu en tik op Toegang beheren",
+  "addDeyeInstructionStep2Alt": "Voer een e-mail in en zoek het account",
+  "addDeyeInstructionStep3Alt": "Tik op Toevoegen bij Geautoriseerde gebruikers",
+  "addDeyeInstructionStep4Alt": "Kies rechten en bevestig",
+  "addDeyeInstructionStep5Alt": "Gebruik zoeken om het account sneller te vinden",
+  "addDeyeInstructionStep6Alt": "Gebruik het menu op het hoofdscherm",
+  "addDeyeInstructionStepAria": "Ga naar stap {{step}}",
+  "addDeyeInstructionBack": "Terug",
+  "addDeyeInstructionNext": "Volgende",
+  "addDeyeMessengerSubtitle": "Als u vragen heeft, neem contact met ons op:"
 }

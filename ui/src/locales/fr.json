@@ -210,6 +210,7 @@
   "damOpenDatePickerAria": "Open calendar",
   "damPrevDay": "Previous day",
   "damNextDay": "Next day",
+  "damToday": "Aujourd'hui",
   "damError": "Load error",
   "damOreeNotConfigured": "OREE_API_KEY is not set — DAM line will be empty until prices are synced on a server with the key.",
   "damSyncNote": "DAM prices were just synced from OREE for this view.",
@@ -271,5 +272,16 @@
   "roiSetupSave": "Save",
   "roiSetupCancel": "Cancel",
   "roiSetupSaveError": "Could not save ROI settings.",
-  "roiSetupPinForbidden": "PIN rejected or remote control not allowed for this inverter."
+  "roiSetupPinForbidden": "PIN rejected or remote control not allowed for this inverter.",
+  "addDeyeInstructionTitle": "Comment donner l'accès dans Deye Cloud",
+  "addDeyeInstructionStep1Alt": "Ouvrez le menu et appuyez sur Gérer l'accès",
+  "addDeyeInstructionStep2Alt": "Saisissez un e-mail et trouvez le compte",
+  "addDeyeInstructionStep3Alt": "Appuyez sur Ajouter dans Utilisateurs autorisés",
+  "addDeyeInstructionStep4Alt": "Choisissez les permissions et confirmez",
+  "addDeyeInstructionStep5Alt": "Utilisez la recherche pour trouver le compte plus vite",
+  "addDeyeInstructionStep6Alt": "Utilisez le menu depuis l'écran principal",
+  "addDeyeInstructionStepAria": "Aller à l'étape {{step}}",
+  "addDeyeInstructionBack": "Retour",
+  "addDeyeInstructionNext": "Suivant",
+  "addDeyeMessengerSubtitle": "Si vous avez des questions, contactez-nous :"
 }

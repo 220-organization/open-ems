@@ -217,6 +217,7 @@
   "damOpenDatePickerAria": "Kalender öffnen",
   "damPrevDay": "Vorheriger Tag",
   "damNextDay": "Nächster Tag",
+  "damToday": "Heute",
   "damError": "Ladefehler",
   "damOreeNotConfigured": "OREE_API_KEY ist nicht gesetzt — DAM-Linie bleibt leer, bis Preise auf einem Server mit dem Schlüssel synchronisiert werden.",
   "damSyncNote": "DAM-Preise wurden gerade von OREE für diese Ansicht synchronisiert.",
@@ -279,5 +280,16 @@
   "roiSetupSave": "Speichern",
   "roiSetupCancel": "Abbrechen",
   "roiSetupSaveError": "ROI-Einstellungen konnten nicht gespeichert werden.",
-  "roiSetupPinForbidden": "PIN abgelehnt oder Fernsteuerung für diesen Wechselrichter nicht erlaubt."
+  "roiSetupPinForbidden": "PIN abgelehnt oder Fernsteuerung für diesen Wechselrichter nicht erlaubt.",
+  "addDeyeInstructionTitle": "So geben Sie Zugriff in Deye Cloud",
+  "addDeyeInstructionStep1Alt": "Öffnen Sie das Menü und tippen Sie auf Zugriff verwalten",
+  "addDeyeInstructionStep2Alt": "Geben Sie eine E-Mail ein und finden Sie das Konto",
+  "addDeyeInstructionStep3Alt": "Tippen Sie auf Hinzufügen bei Autorisierte Benutzer",
+  "addDeyeInstructionStep4Alt": "Wählen Sie Berechtigungen und bestätigen Sie",
+  "addDeyeInstructionStep5Alt": "Nutzen Sie die Suche, um das Konto schneller zu finden",
+  "addDeyeInstructionStep6Alt": "Verwenden Sie das Menü auf dem Hauptbildschirm",
+  "addDeyeInstructionStepAria": "Zu Schritt {{step}} wechseln",
+  "addDeyeInstructionBack": "Zurück",
+  "addDeyeInstructionNext": "Weiter",
+  "addDeyeMessengerSubtitle": "Wenn Sie Fragen haben, kontaktieren Sie uns:"
 }

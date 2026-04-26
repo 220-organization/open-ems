@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { buildB2bTelegramUrl, buildB2bWhatsAppUrl } from './messengerContactUrls';
 
@@ -36,14 +36,50 @@ function WhatsAppIcon() {
  * Same pattern as 220-km.com/b2b messenger modal: Telegram / WhatsApp choice.
  */
 export default function DeyeInverterMessengerModal({ open, onClose, t }) {
+  const [slideIndex, setSlideIndex] = useState(0);
+
+  const instructionSlides = [
+    {
+      src: '/static/deye-add-carousel/step-1.png',
+      alt: t('addDeyeInstructionStep1Alt'),
+    },
+    {
+      src: '/static/deye-add-carousel/step-2.png',
+      alt: t('addDeyeInstructionStep2Alt'),
+    },
+    {
+      src: '/static/deye-add-carousel/step-3.png',
+      alt: t('addDeyeInstructionStep3Alt'),
+    },
+    {
+      src: '/static/deye-add-carousel/step-4.png',
+      alt: t('addDeyeInstructionStep4Alt'),
+    },
+    {
+      src: '/static/deye-add-carousel/step-5.png',
+      alt: t('addDeyeInstructionStep5Alt'),
+    },
+    {
+      src: '/static/deye-add-carousel/step-6.png',
+      alt: t('addDeyeInstructionStep6Alt'),
+    },
+  ];
+  const isLastSlide = slideIndex >= instructionSlides.length - 1;
+
   useEffect(() => {
     if (!open) return undefined;
     const onKey = (e) => {
       if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowRight') setSlideIndex((prev) => Math.min(prev + 1, instructionSlides.length - 1));
+      if (e.key === 'ArrowLeft') setSlideIndex((prev) => Math.max(prev - 1, 0));
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  }, [open, onClose, instructionSlides.length]);
+
+  useEffect(() => {
+    if (open) setSlideIndex(0);
+  }, [open]);
 
   if (!open || typeof document === 'undefined') return null;
 
@@ -67,7 +103,49 @@ export default function DeyeInverterMessengerModal({ open, onClose, t }) {
       >
         <div className="pf-messenger-panel">
           <p id="pf-add-deye-messenger-title" className="pf-messenger-title">
-            {t('addDeyeMessengerTitle')}
+            {t('addDeyeInstructionTitle')}
+          </p>
+          <div className="pf-add-deye-carousel" aria-live="polite">
+            <img
+              className="pf-add-deye-carousel__image"
+              src={instructionSlides[slideIndex].src}
+              alt={instructionSlides[slideIndex].alt}
+              loading="eager"
+              decoding="async"
+            />
+            <div className="pf-add-deye-carousel__progress">
+              {instructionSlides.map((slide, idx) => (
+                <button
+                  key={slide.src}
+                  type="button"
+                  className={`pf-add-deye-carousel__dot${idx === slideIndex ? ' is-active' : ''}`}
+                  aria-label={t('addDeyeInstructionStepAria', { step: String(idx + 1) })}
+                  onClick={() => setSlideIndex(idx)}
+                />
+              ))}
+            </div>
+            <div className="pf-add-deye-carousel__controls">
+              <button
+                type="button"
+                className="pf-add-deye-carousel__nav-btn"
+                onClick={() => setSlideIndex((prev) => Math.max(prev - 1, 0))}
+                disabled={slideIndex === 0}
+              >
+                {t('addDeyeInstructionBack')}
+              </button>
+              <button
+                type="button"
+                className="pf-add-deye-carousel__nav-btn pf-add-deye-carousel__nav-btn--primary"
+                onClick={() => setSlideIndex((prev) => Math.min(prev + 1, instructionSlides.length - 1))}
+                disabled={isLastSlide}
+              >
+                {t('addDeyeInstructionNext')}
+              </button>
+            </div>
+          </div>
+
+          <p className="pf-messenger-subtitle">
+            {t('addDeyeMessengerSubtitle')}
           </p>
           <div className="pf-messenger-actions">
             <button

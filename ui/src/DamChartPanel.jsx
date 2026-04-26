@@ -1711,6 +1711,7 @@ export default function DamChartPanel({
       const cap = damMarket === 'entsoe' ? maxTradeDayBrusselsIso() : maxTradeDayKyivIso();
       return next > cap ? cap : next;
     });
+  const goToday = () => setTradeDay(maxTradeDay);
 
   const openTradeDayPicker = useCallback(inputRef => {
     const el = inputRef?.current;
@@ -1852,6 +1853,15 @@ export default function DamChartPanel({
       >
         ›
       </button>
+      <button
+        type="button"
+        className="dam-date-btn dam-date-btn--today"
+        onClick={goToday}
+        disabled={tradeDay >= maxTradeDay}
+        aria-label={t('damToday')}
+      >
+        {t('damToday')}
+      </button>
     </div>
   );
 
@@ -1899,6 +1909,15 @@ export default function DamChartPanel({
         aria-label={t('damNextDay')}
       >
         ›
+      </button>
+      <button
+        type="button"
+        className="dam-date-btn dam-date-btn--today"
+        onClick={goToday}
+        disabled={tradeDay >= maxTradeDay}
+        aria-label={t('damToday')}
+      >
+        {t('damToday')}
       </button>
     </div>
   );

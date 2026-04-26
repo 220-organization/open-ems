@@ -210,6 +210,7 @@
   "damOpenDatePickerAria": "Open calendar",
   "damPrevDay": "Previous day",
   "damNextDay": "Next day",
+  "damToday": "Днес",
   "damError": "Load error",
   "damOreeNotConfigured": "OREE_API_KEY is not set — DAM line will be empty until prices are synced on a server with the key.",
   "damSyncNote": "DAM prices were just synced from OREE for this view.",
@@ -271,5 +272,16 @@
   "roiSetupSave": "Save",
   "roiSetupCancel": "Cancel",
   "roiSetupSaveError": "Could not save ROI settings.",
-  "roiSetupPinForbidden": "PIN rejected or remote control not allowed for this inverter."
+  "roiSetupPinForbidden": "PIN rejected or remote control not allowed for this inverter.",
+  "addDeyeInstructionTitle": "Как да дадете достъп в Deye Cloud",
+  "addDeyeInstructionStep1Alt": "Отворете менюто и натиснете Управление на достъпа",
+  "addDeyeInstructionStep2Alt": "Въведете имейл и намерете акаунта",
+  "addDeyeInstructionStep3Alt": "Натиснете Добави в секцията Оторизирани потребители",
+  "addDeyeInstructionStep4Alt": "Изберете права и потвърдете",
+  "addDeyeInstructionStep5Alt": "Използвайте търсене, за да намерите акаунта по-бързо",
+  "addDeyeInstructionStep6Alt": "Използвайте менюто от началния екран",
+  "addDeyeInstructionStepAria": "Към стъпка {{step}}",
+  "addDeyeInstructionBack": "Назад",
+  "addDeyeInstructionNext": "Напред",
+  "addDeyeMessengerSubtitle": "Ако имате въпроси, свържете се с нас:"
 }

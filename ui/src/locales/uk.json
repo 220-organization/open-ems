@@ -225,6 +225,7 @@
   "damOpenDatePickerAria": "Відкрити календар",
   "damPrevDay": "Попередній день",
   "damNextDay": "Наступний день",
+  "damToday": "Сьогодні",
   "damError": "Помилка завантаження",
   "damOreeNotConfigured": "OREE_API_KEY не задано — лінія РДН буде порожня, доки синхронізація не виконається на сервері з ключем.",
   "damSyncNote": "Ціни РДН щойно синхронізовано з OREE для цього перегляду.",
@@ -287,5 +288,16 @@
   "roiSetupSave": "Зберегти",
   "roiSetupCancel": "Скасувати",
   "roiSetupSaveError": "Не вдалося зберегти налаштування ROI.",
-  "roiSetupPinForbidden": "PIN відхилено або віддалене керування недоступне для цього інвертора."
+  "roiSetupPinForbidden": "PIN відхилено або віддалене керування недоступне для цього інвертора.",
+  "addDeyeInstructionTitle": "Як надати доступ у Deye Cloud",
+  "addDeyeInstructionStep1Alt": "Відкрийте меню та натисніть Керування доступом",
+  "addDeyeInstructionStep2Alt": "Введіть email і знайдіть акаунт",
+  "addDeyeInstructionStep3Alt": "Натисніть Додати в розділі Авторизовані користувачі",
+  "addDeyeInstructionStep4Alt": "Виберіть права доступу та підтвердьте",
+  "addDeyeInstructionStep5Alt": "Скористайтеся пошуком, щоб швидше знайти акаунт",
+  "addDeyeInstructionStep6Alt": "Використайте меню з головного екрана",
+  "addDeyeInstructionStepAria": "Перейти до кроку {{step}}",
+  "addDeyeInstructionBack": "Назад",
+  "addDeyeInstructionNext": "Далі",
+  "addDeyeMessengerSubtitle": "Якщо у вас є запитання, зв'яжіться з нами:"
 }
