@@ -6,7 +6,6 @@ export const LINE_EDGE_INSET = 44;
 export const BINANCE_MINER_URL =
   'https://pool.binance.com/en/statistics?urlParams=k0L2WD9yFZlqcgCbBtRfiu040xT4UPvxRgFKVq0hr4k08962';
 export const SITE_220KM_HOME = 'https://220-km.com/';
-export const EV_LIST_URL = 'https://220-km.com/list';
 /** Deep link to start flow for a selected charging station (query `station` = port number). */
 export const EV_START_URL = 'https://220-km.com/start';
 

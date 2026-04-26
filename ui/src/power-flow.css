@@ -901,6 +901,25 @@ body {
   transform: translateX(-50%);
   width: fit-content;
   max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pf-ev-ports-used-count {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(252, 1, 155, 0.28);
+  background: rgba(24, 6, 32, 0.62);
+  color: rgba(255, 248, 252, 0.92);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
 }
 
 .pf-header-trailing {
@@ -994,11 +1013,11 @@ body {
   font-size: 13px;
 }
 
-/* Port under flow graph: compact, aligned with EV card — not full header width */
+/* Port under flow graph: aligned with EV card — wide enough for placeholder + max-power label (e.g. "541 · 22,00 kW"). */
 .pf-lang-port-bar .pf-header-select--port {
-  min-width: 3rem;
-  max-width: 4.25rem;
-  padding: 4px 6px;
+  min-width: 9rem;
+  max-width: 12rem;
+  padding: 4px 8px;
   font-size: 12px;
   line-height: 1.2;
 }
@@ -1324,6 +1343,53 @@ a.pf-node {
   font-size: 28px;
   margin-bottom: 4px;
   filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.4));
+}
+
+.pf-node-icon--inline-count {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.pf-node-icon__tesla {
+  width: auto;
+  height: 2.9em;
+  display: inline-block;
+  color: #e11d48;
+  filter: drop-shadow(0 2px 6px rgba(225, 29, 72, 0.35));
+}
+
+.pf-node-icon__ev-station {
+  filter: drop-shadow(0 1px 4px rgba(252, 1, 155, 0.5));
+}
+
+.pf-node-icon__ev-flow-line {
+  fill: none;
+  stroke: #ff7fde;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-dasharray: 2.6 2.6;
+  opacity: 0.95;
+  animation: pf-ev-flow-dash 0.9s linear infinite;
+}
+
+@keyframes pf-ev-flow-dash {
+  to {
+    stroke-dashoffset: -10.4;
+  }
+}
+
+.pf-node-icon__ev-flow-dot {
+  filter: drop-shadow(0 0 4px rgba(255, 235, 250, 0.95));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pf-node-icon__ev-flow-line {
+    animation: none;
+  }
 }
 
 /* Battery + lightning while charging (replaces plug). */
@@ -1974,8 +2040,9 @@ a.pf-node {
 
   .pf-lang-port-bar .pf-inverter-select.pf-header-select--port {
     font-size: 13px;
-    padding: 6px 8px;
-    max-width: 4.75rem;
+    padding: 6px 10px;
+    min-width: 10rem;
+    max-width: 13rem;
   }
 
   .pf-header .pf-station-field.pf-inverter-field .pf-add-deye-btn {

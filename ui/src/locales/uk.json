@@ -152,7 +152,7 @@
   "evHiddenByInverter": "Агрегована зарядка EV прихована, поки обрано інвертор",
   "unitMW": "МВт",
   "unitKW": "кВт",
-  "tariffKwh": "{{value}} ₴/кВт·год",
+  "tariffKwh": "{{value}} грн/кВтг",
   "usdtSuffix": "USDT",
   "damNavLink": "РДН",
   "damNavToPowerFlow": "Потоки потужності",

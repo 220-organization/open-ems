@@ -140,6 +140,7 @@ async def charging_ports(
                 "label": (str(name).strip() if name is not None else "") or key,
                 "distanceMeters": row.get("distanceMeters"),
                 "powerWt": job.get("powerWt") if isinstance(job, dict) else None,
+                "maxPowerWt": row.get("maxPowerWt"),
             }
         )
 

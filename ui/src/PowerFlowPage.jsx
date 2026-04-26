@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   BINANCE_MINER_URL,
-  EV_LIST_URL,
   EV_START_URL,
   SITE_220KM_HOME,
   FLOW_DOT_MOTION_DUR,
@@ -11,7 +10,6 @@ import {
   flowMotionPath,
   formatPower,
   formatPowerValueOnly,
-  formatUsdt,
 } from './powerFlowEngine';
 import DamChartPanel from './DamChartPanel';
 import DeyeInverterMessengerModal from './DeyeInverterMessengerModal';
@@ -52,6 +50,158 @@ function apiUrl(path) {
   const base = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
   if (!base) return path;
   return `${base}${path}`;
+}
+
+function EvCarMark({ className = '' }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 96 64"
+      aria-hidden="true"
+      focusable="false"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <defs>
+        <linearGradient id="pfEvStationBody" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#ff5fc8" />
+          <stop offset="55%" stopColor="#fc019b" />
+          <stop offset="100%" stopColor="#7a0566" />
+        </linearGradient>
+        {/* 220-km.com brand: vivid magenta body */}
+        <linearGradient id="pfEvCarBody" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#ff4db8" />
+          <stop offset="48%" stopColor="#fc019b" />
+          <stop offset="100%" stopColor="#82004f" />
+        </linearGradient>
+        <linearGradient id="pfEvGlass" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#1e083a" />
+          <stop offset="100%" stopColor="#09011a" />
+        </linearGradient>
+      </defs>
+
+      {/* Ground shadows */}
+      <ellipse cx="62" cy="57.5" rx="32" ry="1.7" fill="rgba(252,1,155,0.2)" />
+      <ellipse cx="13" cy="57.5" rx="11" ry="1.3" fill="rgba(252,1,155,0.14)" />
+
+      {/* === Fast charging station === */}
+      <g className="pf-node-icon__ev-station">
+        <rect x="2" y="55" width="20" height="2.5" rx="1.25" fill="#2d0336" />
+        <rect x="6" y="14" width="14" height="41" rx="3.5" fill="url(#pfEvStationBody)" />
+        <rect x="6" y="14" width="14" height="3.5" rx="1.75" fill="rgba(255,255,255,0.25)" />
+        <rect x="7" y="20" width="1.2" height="31" rx="0.6" fill="rgba(255,255,255,0.25)" />
+        <rect x="8.5" y="20" width="9" height="11.5" rx="1.8" fill="#0a0118" />
+        <rect x="9" y="20.5" width="8" height="10.5" rx="1.3" fill="none" stroke="rgba(255,127,222,0.4)" strokeWidth="0.45" />
+        <path d="M13.5 22.5 L11 26.5 L13.1 26.5 L11.4 29.6 L14.7 25.4 L12.7 25.4 L14.2 22.5 Z" fill="#fff5fb" />
+        <circle cx="13" cy="35" r="1.1" fill="#22ff88">
+          <animate attributeName="opacity" values="1;0.3;1" dur="1.6s" repeatCount="indefinite" />
+        </circle>
+        <rect x="9" y="39" width="8" height="1.5" rx="0.75" fill="rgba(255,255,255,0.45)" />
+        <rect x="9" y="41.5" width="5.5" height="1" rx="0.5" fill="rgba(255,255,255,0.28)" />
+        <rect x="19.5" y="28.5" width="2.5" height="4.5" rx="0.9" fill="#2d0336" />
+      </g>
+
+      {/* === Charging cable === */}
+      <path d="M22 30.5 C28 30 33 33 38.5 34" stroke="#2d0336" strokeWidth="2.8" fill="none" strokeLinecap="round" />
+      <path d="M22 30.5 C28 30 33 33 38.5 34" stroke="#fc019b" strokeWidth="1.4" fill="none" strokeLinecap="round" opacity="0.75" />
+      <path className="pf-node-icon__ev-flow-line" d="M22 30.5 C28 30 33 33 38.5 34" />
+      <circle className="pf-node-icon__ev-flow-dot" r="1.4" fill="#ffffff">
+        <animateMotion dur="1.4s" repeatCount="indefinite" path="M 22 30.5 C 28 30 33 33 38.5 34" />
+      </circle>
+      <circle className="pf-node-icon__ev-flow-dot" r="0.9" fill="#f9a8ef" opacity="0.7">
+        <animateMotion dur="1.4s" begin="0.47s" repeatCount="indefinite" path="M 22 30.5 C 28 30 33 33 38.5 34" />
+      </circle>
+
+      {/* === Nissan Leaf silhouette (facing right) === */}
+      {/* Body — Leaf characteristic tall cabin, rounded nose, sloping hatch */}
+      <path
+        d="M32 46
+           L32 39
+           C32 35 34.5 31 38.5 30
+           L41 29.5
+           C43.2 29 45 27.5 46 25.5
+           L48.4 21
+           C49.6 18.8 52 17.5 54.5 17.5
+           L73.5 17.5
+           C77 17.5 80.4 19.5 82.2 22.8
+           L84.6 27.5
+           C85.3 28.9 86.4 30 87.8 30.6
+           L90.2 31.6
+           C91.6 32.2 92.5 33.6 92.5 35.2
+           L92.5 46 Z"
+        fill="url(#pfEvCarBody)"
+      />
+
+      {/* Windows — one clean greenhouse shape */}
+      <path
+        d="M45.5 25.5
+           L48 21.2
+           C49.2 19.1 51.5 19.5 54 19.5
+           L73.5 19.5
+           C76.6 19.5 79.5 21.4 81 24.3
+           L83.4 29.5
+           L45.5 29.5 Z"
+        fill="url(#pfEvGlass)"
+      />
+      {/* Window glare */}
+      <path d="M46.5 26 L49 21.5 L57.5 21.5 L54 29 L46.5 29 Z" fill="rgba(255,255,255,0.09)" />
+
+      {/* B-pillar */}
+      <rect x="66" y="19.5" width="1.4" height="10" rx="0.7" fill="rgba(0,0,0,0.55)" />
+
+      {/* Body shoulder crease (Leaf character line) */}
+      <path d="M35 39 L91 39" stroke="rgba(0,0,0,0.2)" strokeWidth="0.6" strokeLinecap="round" />
+
+      {/* Rear tail-light strip */}
+      <rect x="31.8" y="35.5" width="2" height="7" rx="0.9" fill="#fc019b" opacity="0.95" />
+      <rect x="31.8" y="35.5" width="2" height="7" rx="0.9" fill="rgba(255,180,240,0.4)" />
+
+      {/* Front DRL — Leaf "boomerang" daytime running light */}
+      <path d="M89.5 33 L92.5 36.5 L91.5 40.5" stroke="#fffbe0" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+
+      {/* Charging port inlet (rear quarter) */}
+      <rect x="37" y="32.5" width="3.2" height="3" rx="0.7" fill="rgba(255,245,251,0.9)" />
+      <circle cx="38.6" cy="34" r="0.7" fill="#fc019b" />
+
+      {/* Large 220-km brand on car body centre */}
+      <text
+        x="62"
+        y="40"
+        textAnchor="middle"
+        fontSize="7"
+        fontWeight="900"
+        fontFamily="Arial,Helvetica,sans-serif"
+        letterSpacing="-0.2"
+        fill="#ffffff"
+        opacity="0.95"
+      >
+        220-km
+      </text>
+
+      {/* === Wheels === */}
+      {/* Rear */}
+      <circle cx="43" cy="48" r="6.5" fill="#0d0222" />
+      <circle cx="43" cy="48" r="4.4" fill="#1a0830" />
+      <circle cx="43" cy="48" r="2.9" fill="#28103e" />
+      <g stroke="#fc019b" strokeWidth="0.55" strokeLinecap="round" opacity="0.8">
+        <line x1="43" y1="45.2" x2="43" y2="50.8" />
+        <line x1="40.2" y1="48" x2="45.8" y2="48" />
+        <line x1="41.1" y1="46" x2="44.9" y2="50" />
+        <line x1="41.1" y1="50" x2="44.9" y2="46" />
+      </g>
+      <circle cx="43" cy="48" r="0.9" fill="#fc019b" />
+      {/* Front */}
+      <circle cx="80" cy="48" r="6.5" fill="#0d0222" />
+      <circle cx="80" cy="48" r="4.4" fill="#1a0830" />
+      <circle cx="80" cy="48" r="2.9" fill="#28103e" />
+      <g stroke="#fc019b" strokeWidth="0.55" strokeLinecap="round" opacity="0.8">
+        <line x1="80" y1="45.2" x2="80" y2="50.8" />
+        <line x1="77.2" y1="48" x2="82.8" y2="48" />
+        <line x1="78.1" y1="46" x2="81.9" y2="50" />
+        <line x1="78.1" y1="50" x2="81.9" y2="46" />
+      </g>
+      <circle cx="80" cy="48" r="0.9" fill="#fc019b" />
+    </svg>
+  );
 }
 
 /**
@@ -913,9 +1063,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       landingExportMetricHydratedRef.current = true;
       return;
     }
-    setLandingExportMetric(prev =>
-      normalizeLandingExportMetricForContext(prev, selInverterSn, selHuaweiStationCode)
-    );
+    setLandingExportMetric(prev => normalizeLandingExportMetricForContext(prev, selInverterSn, selHuaweiStationCode));
   }, [selInverterSn, selHuaweiStationCode]);
 
   /** When user selects another Deye inverter, default the landing counter to total export (unless URL sets ``exportMetric``). */
@@ -1495,8 +1643,9 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     if (!s || base.some(x => String(x.number) === s)) {
       return base;
     }
-    return [...base, { number: s, label: s, distanceMeters: null, powerWt: null }];
+    return [...base, { number: s, label: s, distanceMeters: null, powerWt: null, maxPowerWt: null }];
   }, [chargingPorts.items, stationFilter]);
+  const evPortsUsedCount = chargingPorts.items.length;
 
   const consumptionMw = realtimePower?.powerMw ?? 0;
   const liveMinerW =
@@ -1602,12 +1751,8 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       )
     : flowMotionPath(geom.essLine.start.x, geom.essLine.start.y, geom.essLine.end.x, geom.essLine.end.y);
 
-  const usdt = formatUsdt(minerSnap?.minedUsdtToday, bcp47);
   const tf = minerSnap?.tariffUahPerKwh;
-  let minerLabel = t('nodeMiner');
-  if (minerSnap?.configured && minerSnap.workersActive != null && minerSnap.workersTotal != null) {
-    minerLabel += ` (${minerSnap.workersActive}/${minerSnap.workersTotal})`;
-  }
+  const minerLabel = t('nodeMiner');
 
   const evBusy = showEvAggregate && realtimePower == null && loadError === '';
   const evFlowActive = (showEvAggregate && consumptionW > 0) || stationEvFlowActive;
@@ -1965,14 +2110,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       const m = err instanceof Error ? err.message : String(err);
       setWritePinError(m);
     }
-  }, [
-    writePinGate,
-    writePinValue,
-    t,
-    savePeakAutoPref,
-    saveLowDamChargePref,
-    selInverterEvportBound,
-  ]);
+  }, [writePinGate, writePinValue, t, savePeakAutoPref, saveLowDamChargePref, selInverterEvportBound]);
 
   const closeDeyeCommandModal = useCallback(() => {
     setDeyeCommandModal(null);
@@ -2048,8 +2186,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   }, []);
 
   const deyeListReady = inverterRows.configured && !inverterRows.loading && !inverterRows.error;
-  const huaweiListReady =
-    huaweiRows.configured && !huaweiRows.loading && !huaweiRows.error && !huaweiRows.authFailed;
+  const huaweiListReady = huaweiRows.configured && !huaweiRows.loading && !huaweiRows.error && !huaweiRows.authFailed;
   const inverterListReady = deyeListReady || huaweiListReady;
 
   useEffect(() => {
@@ -2230,7 +2367,10 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                           {huaweiRows.items.map(row => {
                             const shortLabel = inverterSelectShortLabel(row.stationName, row.stationCode);
                             return (
-                              <option key={`huawei-${row.stationCode}`} value={`${ESS_PREFIX_HUAWEI}${row.stationCode}`}>
+                              <option
+                                key={`huawei-${row.stationCode}`}
+                                value={`${ESS_PREFIX_HUAWEI}${row.stationCode}`}
+                              >
                                 {shortLabel}
                               </option>
                             );
@@ -2896,15 +3036,12 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   <span className="pf-node-value" id="pf-val-miner">
                     {formatPower(displayMinerW, t, bcp47)}
                   </span>
-                  <div className="pf-node-sub" id="pf-miner-usdt">
-                    {usdt ? `${usdt} ${t('usdtSuffix')}` : ''}
-                  </div>
                   <div className="pf-node-meta" id="pf-miner-tariff">
                     {tf != null && Number.isFinite(tf)
                       ? t('tariffKwh', {
                           value: new Intl.NumberFormat(bcp47, {
-                            minimumFractionDigits: 3,
-                            maximumFractionDigits: 3,
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
                           }).format(Math.max(0, tf)),
                         })
                       : ''}
@@ -2915,13 +3052,17 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                     className="pf-node"
                     data-pos="right-bottom"
                     id="pf-node-ev"
-                    href={EV_LIST_URL}
+                    href={
+                      stationFilter.trim()
+                        ? `${EV_START_URL}?station=${encodeURIComponent(stationFilter.trim())}`
+                        : SITE_220KM_HOME
+                    }
                     target="_blank"
                     rel="noopener noreferrer"
                     data-active={evFlowActive ? 'true' : 'false'}
                   >
-                    <span className="pf-node-icon" aria-hidden>
-                      🚗
+                    <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
+                      <EvCarMark className="pf-node-icon__tesla" />
                     </span>
                     <span className="pf-node-label">{t('nodeEv')}</span>
                     <span className="pf-node-value" id="pf-val-ev">
@@ -2939,8 +3080,8 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                     data-active={stationEvFlowActive ? 'true' : 'false'}
                     title={t('stationLabel')}
                   >
-                    <span className="pf-node-icon" aria-hidden>
-                      🚗
+                    <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
+                      <EvCarMark className="pf-node-icon__tesla" />
                     </span>
                     <span className="pf-node-label">{t('nodeEv')}</span>
                     <span className="pf-node-value" id="pf-val-ev">
@@ -2957,8 +3098,8 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                     data-active="false"
                     title={t('evHiddenByInverter')}
                   >
-                    <span className="pf-node-icon" aria-hidden>
-                      🚗
+                    <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
+                      <EvCarMark className="pf-node-icon__tesla" />
                     </span>
                     <span className="pf-node-label">{t('nodeEv')}</span>
                     <span className="pf-node-value" id="pf-val-ev">
@@ -2976,6 +3117,12 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
           <div className="pf-lang-port-bar" style={{ '--pf-graph-anchor-pct': `${graphAnchorPct}%` }}>
             <div className="pf-lang-port-port-track">
               <div className="pf-lang-port-port-align">
+                <span
+                  className="pf-ev-ports-used-count"
+                  aria-label={`${t('stationPlaceholder')}: ${evPortsUsedCount} x`}
+                >
+                  {evPortsUsedCount} x
+                </span>
                 <select
                   id="pf-station"
                   className="pf-inverter-select pf-header-select--port"
@@ -2987,9 +3134,15 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   <option value="">{chargingPorts.loading ? '…' : t('stationPlaceholder')}</option>
                   {portSelectOptions.map(row => {
                     const num = String(row.number);
+                    const maxW = Number(row.maxPowerWt);
+                    const maxLabel =
+                      Number.isFinite(maxW) && maxW > 0
+                        ? ` · ${formatPower(maxW, t, bcp47)}`
+                        : '';
                     return (
                       <option key={num} value={num}>
                         {num}
+                        {maxLabel}
                       </option>
                     );
                   })}
@@ -3054,30 +3207,110 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                                 title={t('dischargeSoc2Hint')}
                                 aria-label={t('dischargeGoAria')}
                               >
-                              {t('dischargeGoButton')}
-                            </button>
-                            <select
-                              id="pf-discharge-delta-select"
-                              className="pf-discharge-delta-select pf-discharge-delta-select--header"
-                              value={
-                                dischargeSocDeltaPct === FULL_DISCHARGE ? FULL_DISCHARGE : String(dischargeSocDeltaPct)
-                              }
-                              disabled={deyeWritesHardBlocked}
-                              aria-label={t('dischargeSocDeltaAria')}
-                              onChange={e => {
-                                if (!remoteWriteConfigured) {
-                                  setRemoteWriteNeedsPinOpen(true);
-                                  return;
+                                {t('dischargeGoButton')}
+                              </button>
+                              <select
+                                id="pf-discharge-delta-select"
+                                className="pf-discharge-delta-select pf-discharge-delta-select--header"
+                                value={
+                                  dischargeSocDeltaPct === FULL_DISCHARGE
+                                    ? FULL_DISCHARGE
+                                    : String(dischargeSocDeltaPct)
                                 }
-                                const raw = e.target.value;
-                                const n = raw === FULL_DISCHARGE ? FULL_DISCHARGE : normalizeDischargeSocDeltaPct(raw);
-                                const apiPct = peakPrefDischargePctForApi(n);
-                                const cached = readCachedInverterPin(selInverterSn?.trim() || '');
-                                if (cached) {
-                                  void (async () => {
+                                disabled={deyeWritesHardBlocked}
+                                aria-label={t('dischargeSocDeltaAria')}
+                                onChange={e => {
+                                  if (!remoteWriteConfigured) {
+                                    setRemoteWriteNeedsPinOpen(true);
+                                    return;
+                                  }
+                                  const raw = e.target.value;
+                                  const n =
+                                    raw === FULL_DISCHARGE ? FULL_DISCHARGE : normalizeDischargeSocDeltaPct(raw);
+                                  const apiPct = peakPrefDischargePctForApi(n);
+                                  const cached = readCachedInverterPin(selInverterSn?.trim() || '');
+                                  if (cached) {
+                                    void (async () => {
+                                      try {
+                                        const data = await savePeakAutoPref(peakDamEnabledRef.current, apiPct, cached);
+                                        setDischargeSocDeltaPct(n);
+                                        if (data && typeof data.enabled === 'boolean') {
+                                          setPeakDamDischargeEnabled(data.enabled);
+                                        }
+                                        const p = data?.dischargeSocDeltaPct;
+                                        if (p != null && Number.isFinite(Number(p))) {
+                                          setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
+                                        }
+                                      } catch (err) {
+                                        const m = err instanceof Error ? err.message : String(err);
+                                        setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
+                                      }
+                                    })();
+                                    return;
+                                  }
+                                  if (selInverterEvportBound) {
+                                    void (async () => {
+                                      try {
+                                        const data = await savePeakAutoPref(peakDamEnabledRef.current, apiPct, '');
+                                        setDischargeSocDeltaPct(n);
+                                        if (data && typeof data.enabled === 'boolean') {
+                                          setPeakDamDischargeEnabled(data.enabled);
+                                        }
+                                        const p = data?.dischargeSocDeltaPct;
+                                        if (p != null && Number.isFinite(Number(p))) {
+                                          setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
+                                        }
+                                      } catch (err) {
+                                        const m = err instanceof Error ? err.message : String(err);
+                                        setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
+                                      }
+                                    })();
+                                    return;
+                                  }
+                                  setWritePinGate({ kind: 'peakPct', nextPct: apiPct });
+                                }}
+                              >
+                                {DISCHARGE_SOC_DELTA_OPTIONS.map(o => (
+                                  <option key={o} value={o}>
+                                    {t('dischargeSocDeltaValue', { pct: o })}
+                                  </option>
+                                ))}
+                                <option value={FULL_DISCHARGE}>{t('dischargeSocDeltaValueFull')}</option>
+                              </select>
+                            </div>
+                            <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
+                              <input
+                                type="checkbox"
+                                checked={peakDamDischargeEnabled}
+                                disabled={deyeWritesHardBlocked}
+                                onChange={async e => {
+                                  if (!remoteWriteConfigured) {
+                                    setRemoteWriteNeedsPinOpen(true);
+                                    return;
+                                  }
+                                  const v = e.target.checked;
+                                  const sn = selInverterSn?.trim();
+                                  if (!sn) return;
+                                  const prev = peakDamDischargeEnabled;
+                                  const prevPct = dischargeSocDeltaPct;
+                                  if (peakPrefSaveTimerRef.current != null) {
+                                    clearTimeout(peakPrefSaveTimerRef.current);
+                                    peakPrefSaveTimerRef.current = null;
+                                  }
+                                  if (chargePrefSaveTimerRef.current != null) {
+                                    clearTimeout(chargePrefSaveTimerRef.current);
+                                    chargePrefSaveTimerRef.current = null;
+                                  }
+                                  const cached = readCachedInverterPin(sn);
+                                  if (cached) {
+                                    setPeakDamDischargeEnabled(v);
+                                    setDischarge2Feedback('');
                                     try {
-                                      const data = await savePeakAutoPref(peakDamEnabledRef.current, apiPct, cached);
-                                      setDischargeSocDeltaPct(n);
+                                      const data = await savePeakAutoPref(
+                                        v,
+                                        peakPrefDischargePctForApi(dischargeSocDeltaPct),
+                                        cached
+                                      );
                                       if (data && typeof data.enabled === 'boolean') {
                                         setPeakDamDischargeEnabled(data.enabled);
                                       }
@@ -3086,17 +3319,22 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                                         setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
                                       }
                                     } catch (err) {
+                                      setPeakDamDischargeEnabled(prev);
+                                      setDischargeSocDeltaPct(prevPct);
                                       const m = err instanceof Error ? err.message : String(err);
                                       setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
                                     }
-                                  })();
-                                  return;
-                                }
-                                if (selInverterEvportBound) {
-                                  void (async () => {
+                                    return;
+                                  }
+                                  if (selInverterEvportBound) {
+                                    setPeakDamDischargeEnabled(v);
+                                    setDischarge2Feedback('');
                                     try {
-                                      const data = await savePeakAutoPref(peakDamEnabledRef.current, apiPct, '');
-                                      setDischargeSocDeltaPct(n);
+                                      const data = await savePeakAutoPref(
+                                        v,
+                                        peakPrefDischargePctForApi(dischargeSocDeltaPct),
+                                        ''
+                                      );
                                       if (data && typeof data.enabled === 'boolean') {
                                         setPeakDamDischargeEnabled(data.enabled);
                                       }
@@ -3105,138 +3343,128 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                                         setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
                                       }
                                     } catch (err) {
+                                      setPeakDamDischargeEnabled(prev);
+                                      setDischargeSocDeltaPct(prevPct);
                                       const m = err instanceof Error ? err.message : String(err);
                                       setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
                                     }
-                                  })();
-                                  return;
-                                }
-                                setWritePinGate({ kind: 'peakPct', nextPct: apiPct });
-                              }}
-                            >
-                              {DISCHARGE_SOC_DELTA_OPTIONS.map(o => (
-                                <option key={o} value={o}>
-                                  {t('dischargeSocDeltaValue', { pct: o })}
-                                </option>
-                              ))}
-                              <option value={FULL_DISCHARGE}>{t('dischargeSocDeltaValueFull')}</option>
-                            </select>
+                                    return;
+                                  }
+                                  setWritePinGate({
+                                    kind: 'peak',
+                                    nextEnabled: v,
+                                    nextPct: peakPrefDischargePctForApi(dischargeSocDeltaPct),
+                                  });
+                                }}
+                                aria-label={t('peakDamDischargeToggleAria')}
+                              />
+                              <span className="pf-peak-dam-toggle-label" title={t('peakDamDischargeToggleHint')}>
+                                {t('peakDamDischargeToggle')}
+                              </span>
+                            </label>
                           </div>
-                          <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
-                            <input
-                              type="checkbox"
-                              checked={peakDamDischargeEnabled}
-                              disabled={deyeWritesHardBlocked}
-                              onChange={async e => {
-                                if (!remoteWriteConfigured) {
-                                  setRemoteWriteNeedsPinOpen(true);
-                                  return;
-                                }
-                                const v = e.target.checked;
-                                const sn = selInverterSn?.trim();
-                                if (!sn) return;
-                                const prev = peakDamDischargeEnabled;
-                                const prevPct = dischargeSocDeltaPct;
-                                if (peakPrefSaveTimerRef.current != null) {
-                                  clearTimeout(peakPrefSaveTimerRef.current);
-                                  peakPrefSaveTimerRef.current = null;
-                                }
-                                if (chargePrefSaveTimerRef.current != null) {
-                                  clearTimeout(chargePrefSaveTimerRef.current);
-                                  chargePrefSaveTimerRef.current = null;
-                                }
-                                const cached = readCachedInverterPin(sn);
-                                if (cached) {
-                                  setPeakDamDischargeEnabled(v);
-                                  setDischarge2Feedback('');
-                                  try {
-                                    const data = await savePeakAutoPref(
-                                      v,
-                                      peakPrefDischargePctForApi(dischargeSocDeltaPct),
-                                      cached
-                                    );
-                                    if (data && typeof data.enabled === 'boolean') {
-                                      setPeakDamDischargeEnabled(data.enabled);
-                                    }
-                                    const p = data?.dischargeSocDeltaPct;
-                                    if (p != null && Number.isFinite(Number(p))) {
-                                      setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
-                                    }
-                                  } catch (err) {
-                                    setPeakDamDischargeEnabled(prev);
-                                    setDischargeSocDeltaPct(prevPct);
-                                    const m = err instanceof Error ? err.message : String(err);
-                                    setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
+                          <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header pf-deye-command-line pf-deye-command-line--charge">
+                            <div className="pf-discharge-delta-controls">
+                              <button
+                                type="button"
+                                className="pf-discharge-btn pf-discharge-go-btn pf-charge-go-btn"
+                                onClick={requestCharge2Pct}
+                                disabled={deyeWritesHardBlocked}
+                                title={t('chargeSoc2Hint')}
+                                aria-label={t('chargeGoAria')}
+                              >
+                                {t('chargeGoButton')}
+                              </button>
+                              <select
+                                id="pf-charge-delta-select"
+                                className="pf-discharge-delta-select pf-discharge-delta-select--header"
+                                value={chargeSocDeltaPct}
+                                disabled={deyeWritesHardBlocked}
+                                aria-label={t('chargeSocDeltaAria')}
+                                onChange={e => {
+                                  if (!remoteWriteConfigured) {
+                                    setRemoteWriteNeedsPinOpen(true);
+                                    return;
                                   }
-                                  return;
-                                }
-                                if (selInverterEvportBound) {
-                                  setPeakDamDischargeEnabled(v);
-                                  setDischarge2Feedback('');
-                                  try {
-                                    const data = await savePeakAutoPref(
-                                      v,
-                                      peakPrefDischargePctForApi(dischargeSocDeltaPct),
-                                      ''
-                                    );
-                                    if (data && typeof data.enabled === 'boolean') {
-                                      setPeakDamDischargeEnabled(data.enabled);
-                                    }
-                                    const p = data?.dischargeSocDeltaPct;
-                                    if (p != null && Number.isFinite(Number(p))) {
-                                      setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
-                                    }
-                                  } catch (err) {
-                                    setPeakDamDischargeEnabled(prev);
-                                    setDischargeSocDeltaPct(prevPct);
-                                    const m = err instanceof Error ? err.message : String(err);
-                                    setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
+                                  const n = normalizeChargeSocDeltaPct(e.target.value);
+                                  const cached = readCachedInverterPin(selInverterSn?.trim() || '');
+                                  if (cached) {
+                                    void (async () => {
+                                      try {
+                                        const data = await saveLowDamChargePref(lowDamEnabledRef.current, n, cached);
+                                        setChargeSocDeltaPct(n);
+                                        if (data && typeof data.enabled === 'boolean') {
+                                          setLowDamChargeEnabled(data.enabled);
+                                        }
+                                        const p = data?.chargeSocDeltaPct;
+                                        if (p != null && Number.isFinite(Number(p))) {
+                                          setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
+                                        }
+                                      } catch (err) {
+                                        const m = err instanceof Error ? err.message : String(err);
+                                        setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
+                                      }
+                                    })();
+                                    return;
                                   }
-                                  return;
-                                }
-                                setWritePinGate({
-                                  kind: 'peak',
-                                  nextEnabled: v,
-                                  nextPct: peakPrefDischargePctForApi(dischargeSocDeltaPct),
-                                });
-                              }}
-                              aria-label={t('peakDamDischargeToggleAria')}
-                            />
-                            <span className="pf-peak-dam-toggle-label" title={t('peakDamDischargeToggleHint')}>
-                              {t('peakDamDischargeToggle')}
-                            </span>
-                          </label>
-                        </div>
-                        <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header pf-deye-command-line pf-deye-command-line--charge">
-                          <div className="pf-discharge-delta-controls">
-                            <button
-                              type="button"
-                              className="pf-discharge-btn pf-discharge-go-btn pf-charge-go-btn"
-                              onClick={requestCharge2Pct}
-                              disabled={deyeWritesHardBlocked}
-                              title={t('chargeSoc2Hint')}
-                              aria-label={t('chargeGoAria')}
-                            >
-                              {t('chargeGoButton')}
-                            </button>
-                            <select
-                              id="pf-charge-delta-select"
-                              className="pf-discharge-delta-select pf-discharge-delta-select--header"
-                              value={chargeSocDeltaPct}
-                              disabled={deyeWritesHardBlocked}
-                              aria-label={t('chargeSocDeltaAria')}
-                              onChange={e => {
-                                if (!remoteWriteConfigured) {
-                                  setRemoteWriteNeedsPinOpen(true);
-                                  return;
-                                }
-                                const n = normalizeChargeSocDeltaPct(e.target.value);
-                                const cached = readCachedInverterPin(selInverterSn?.trim() || '');
-                                if (cached) {
-                                  void (async () => {
+                                  if (selInverterEvportBound) {
+                                    void (async () => {
+                                      try {
+                                        const data = await saveLowDamChargePref(lowDamEnabledRef.current, n, '');
+                                        setChargeSocDeltaPct(n);
+                                        if (data && typeof data.enabled === 'boolean') {
+                                          setLowDamChargeEnabled(data.enabled);
+                                        }
+                                        const p = data?.chargeSocDeltaPct;
+                                        if (p != null && Number.isFinite(Number(p))) {
+                                          setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
+                                        }
+                                      } catch (err) {
+                                        const m = err instanceof Error ? err.message : String(err);
+                                        setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
+                                      }
+                                    })();
+                                    return;
+                                  }
+                                  setWritePinGate({ kind: 'lowPct', nextPct: n });
+                                }}
+                              >
+                                {CHARGE_SOC_DELTA_OPTIONS.map(o => (
+                                  <option key={o} value={o}>
+                                    {t('chargeSocDeltaValue', { pct: o })}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
+                              <input
+                                type="checkbox"
+                                checked={lowDamChargeEnabled}
+                                disabled={deyeWritesHardBlocked}
+                                onChange={async e => {
+                                  if (!remoteWriteConfigured) {
+                                    setRemoteWriteNeedsPinOpen(true);
+                                    return;
+                                  }
+                                  const v = e.target.checked;
+                                  const sn = selInverterSn?.trim();
+                                  if (!sn) return;
+                                  const prev = lowDamChargeEnabled;
+                                  const prevPct = chargeSocDeltaPct;
+                                  if (peakPrefSaveTimerRef.current != null) {
+                                    clearTimeout(peakPrefSaveTimerRef.current);
+                                    peakPrefSaveTimerRef.current = null;
+                                  }
+                                  if (chargePrefSaveTimerRef.current != null) {
+                                    clearTimeout(chargePrefSaveTimerRef.current);
+                                    chargePrefSaveTimerRef.current = null;
+                                  }
+                                  const cached = readCachedInverterPin(sn);
+                                  if (cached) {
+                                    setLowDamChargeEnabled(v);
+                                    setDischarge2Feedback('');
                                     try {
-                                      const data = await saveLowDamChargePref(lowDamEnabledRef.current, n, cached);
-                                      setChargeSocDeltaPct(n);
+                                      const data = await saveLowDamChargePref(v, chargeSocDeltaPct, cached);
                                       if (data && typeof data.enabled === 'boolean') {
                                         setLowDamChargeEnabled(data.enabled);
                                       }
@@ -3245,17 +3473,18 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                                         setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
                                       }
                                     } catch (err) {
+                                      setLowDamChargeEnabled(prev);
+                                      setChargeSocDeltaPct(prevPct);
                                       const m = err instanceof Error ? err.message : String(err);
                                       setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
                                     }
-                                  })();
-                                  return;
-                                }
-                                if (selInverterEvportBound) {
-                                  void (async () => {
+                                    return;
+                                  }
+                                  if (selInverterEvportBound) {
+                                    setLowDamChargeEnabled(v);
+                                    setDischarge2Feedback('');
                                     try {
-                                      const data = await saveLowDamChargePref(lowDamEnabledRef.current, n, '');
-                                      setChargeSocDeltaPct(n);
+                                      const data = await saveLowDamChargePref(v, chargeSocDeltaPct, '');
                                       if (data && typeof data.enabled === 'boolean') {
                                         setLowDamChargeEnabled(data.enabled);
                                       }
@@ -3264,102 +3493,29 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                                         setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
                                       }
                                     } catch (err) {
+                                      setLowDamChargeEnabled(prev);
+                                      setChargeSocDeltaPct(prevPct);
                                       const m = err instanceof Error ? err.message : String(err);
                                       setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
                                     }
-                                  })();
-                                  return;
-                                }
-                                setWritePinGate({ kind: 'lowPct', nextPct: n });
-                              }}
-                            >
-                              {CHARGE_SOC_DELTA_OPTIONS.map(o => (
-                                <option key={o} value={o}>
-                                  {t('chargeSocDeltaValue', { pct: o })}
-                                </option>
-                              ))}
-                            </select>
+                                    return;
+                                  }
+                                  setWritePinGate({
+                                    kind: 'low',
+                                    nextEnabled: v,
+                                    nextPct: chargeSocDeltaPct,
+                                  });
+                                }}
+                                aria-label={t('lowDamChargeToggleAria')}
+                              />
+                              <span className="pf-peak-dam-toggle-label" title={t('lowDamChargeToggleHint')}>
+                                {t('lowDamChargeToggle')}
+                              </span>
+                            </label>
                           </div>
-                          <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
-                            <input
-                              type="checkbox"
-                              checked={lowDamChargeEnabled}
-                              disabled={deyeWritesHardBlocked}
-                              onChange={async e => {
-                                if (!remoteWriteConfigured) {
-                                  setRemoteWriteNeedsPinOpen(true);
-                                  return;
-                                }
-                                const v = e.target.checked;
-                                const sn = selInverterSn?.trim();
-                                if (!sn) return;
-                                const prev = lowDamChargeEnabled;
-                                const prevPct = chargeSocDeltaPct;
-                                if (peakPrefSaveTimerRef.current != null) {
-                                  clearTimeout(peakPrefSaveTimerRef.current);
-                                  peakPrefSaveTimerRef.current = null;
-                                }
-                                if (chargePrefSaveTimerRef.current != null) {
-                                  clearTimeout(chargePrefSaveTimerRef.current);
-                                  chargePrefSaveTimerRef.current = null;
-                                }
-                                const cached = readCachedInverterPin(sn);
-                                if (cached) {
-                                  setLowDamChargeEnabled(v);
-                                  setDischarge2Feedback('');
-                                  try {
-                                    const data = await saveLowDamChargePref(v, chargeSocDeltaPct, cached);
-                                    if (data && typeof data.enabled === 'boolean') {
-                                      setLowDamChargeEnabled(data.enabled);
-                                    }
-                                    const p = data?.chargeSocDeltaPct;
-                                    if (p != null && Number.isFinite(Number(p))) {
-                                      setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
-                                    }
-                                  } catch (err) {
-                                    setLowDamChargeEnabled(prev);
-                                    setChargeSocDeltaPct(prevPct);
-                                    const m = err instanceof Error ? err.message : String(err);
-                                    setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
-                                  }
-                                  return;
-                                }
-                                if (selInverterEvportBound) {
-                                  setLowDamChargeEnabled(v);
-                                  setDischarge2Feedback('');
-                                  try {
-                                    const data = await saveLowDamChargePref(v, chargeSocDeltaPct, '');
-                                    if (data && typeof data.enabled === 'boolean') {
-                                      setLowDamChargeEnabled(data.enabled);
-                                    }
-                                    const p = data?.chargeSocDeltaPct;
-                                    if (p != null && Number.isFinite(Number(p))) {
-                                      setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
-                                    }
-                                  } catch (err) {
-                                    setLowDamChargeEnabled(prev);
-                                    setChargeSocDeltaPct(prevPct);
-                                    const m = err instanceof Error ? err.message : String(err);
-                                    setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
-                                  }
-                                  return;
-                                }
-                                setWritePinGate({
-                                  kind: 'low',
-                                  nextEnabled: v,
-                                  nextPct: chargeSocDeltaPct,
-                                });
-                              }}
-                              aria-label={t('lowDamChargeToggleAria')}
-                            />
-                            <span className="pf-peak-dam-toggle-label" title={t('lowDamChargeToggleHint')}>
-                              {t('lowDamChargeToggle')}
-                            </span>
-                          </label>
                         </div>
                       </div>
                     </div>
-                  </div>
                   )}
                 </>
               )
