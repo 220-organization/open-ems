@@ -2041,8 +2041,25 @@ a.pf-node {
   .pf-lang-port-bar .pf-inverter-select.pf-header-select--port {
     font-size: 13px;
     padding: 6px 10px;
-    min-width: 10rem;
-    max-width: 13rem;
+    min-width: 0;
+    max-width: none;
+    flex: 1 1 auto;
+    width: 0; /* flex child: grows to fill remaining space */
+  }
+
+  /* On mobile the port bar is full-width; drop the EV-anchor offset */
+  .pf-lang-port-port-align {
+    left: 0;
+    transform: none;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0 8px;
+  }
+
+  .pf-lang-port-port-track {
+    width: 100%;
+    max-width: 100%;
+    margin-top: 6px;
   }
 
   .pf-header .pf-station-field.pf-inverter-field .pf-add-deye-btn {
