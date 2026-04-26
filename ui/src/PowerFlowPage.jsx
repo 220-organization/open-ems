@@ -3411,6 +3411,59 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                                 {t('peakDamDischargeToggle')}
                               </span>
                             </label>
+                            <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
+                              <input
+                                type="checkbox"
+                                checked={selfConsumptionEnabled}
+                                disabled={deyeWritesHardBlocked}
+                                onChange={async e => {
+                                  if (!remoteWriteConfigured) {
+                                    setRemoteWriteNeedsPinOpen(true);
+                                    return;
+                                  }
+                                  const v = e.target.checked;
+                                  const sn = selInverterSn?.trim();
+                                  if (!sn) return;
+                                  const prev = selfConsumptionEnabled;
+                                  const cached = readCachedInverterPin(sn);
+                                  if (cached) {
+                                    setSelfConsumptionEnabled(v);
+                                    setDischarge2Feedback('');
+                                    try {
+                                      const data = await saveSelfConsumptionPref(v, cached);
+                                      if (data && typeof data.enabled === 'boolean') {
+                                        setSelfConsumptionEnabled(data.enabled);
+                                      }
+                                    } catch (err) {
+                                      setSelfConsumptionEnabled(prev);
+                                      const m = err instanceof Error ? err.message : String(err);
+                                      setDischarge2Feedback(`${t('selfConsumptionSaveError')}: ${m}`);
+                                    }
+                                    return;
+                                  }
+                                  if (selInverterEvportBound) {
+                                    setSelfConsumptionEnabled(v);
+                                    setDischarge2Feedback('');
+                                    try {
+                                      const data = await saveSelfConsumptionPref(v, '');
+                                      if (data && typeof data.enabled === 'boolean') {
+                                        setSelfConsumptionEnabled(data.enabled);
+                                      }
+                                    } catch (err) {
+                                      setSelfConsumptionEnabled(prev);
+                                      const m = err instanceof Error ? err.message : String(err);
+                                      setDischarge2Feedback(`${t('selfConsumptionSaveError')}: ${m}`);
+                                    }
+                                    return;
+                                  }
+                                  setWritePinGate({ kind: 'selfConsumption', nextEnabled: v });
+                                }}
+                                aria-label={t('selfConsumptionToggleAria')}
+                              />
+                              <span className="pf-peak-dam-toggle-label" title={t('selfConsumptionToggleHint')}>
+                                {t('selfConsumptionToggle')}
+                              </span>
+                            </label>
                           </div>
                           <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header pf-deye-command-line pf-deye-command-line--charge">
                             <div className="pf-discharge-delta-controls">
@@ -3562,62 +3615,6 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                               </span>
                             </label>
                           </div>
-                        </div>
-                        {/* Self-consumption row */}
-                        <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header pf-deye-command-line pf-deye-command-line--self-consumption">
-                          <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
-                            <input
-                              type="checkbox"
-                              checked={selfConsumptionEnabled}
-                              disabled={deyeWritesHardBlocked}
-                              onChange={async e => {
-                                if (!remoteWriteConfigured) {
-                                  setRemoteWriteNeedsPinOpen(true);
-                                  return;
-                                }
-                                const v = e.target.checked;
-                                const sn = selInverterSn?.trim();
-                                if (!sn) return;
-                                const prev = selfConsumptionEnabled;
-                                const cached = readCachedInverterPin(sn);
-                                if (cached) {
-                                  setSelfConsumptionEnabled(v);
-                                  setDischarge2Feedback('');
-                                  try {
-                                    const data = await saveSelfConsumptionPref(v, cached);
-                                    if (data && typeof data.enabled === 'boolean') {
-                                      setSelfConsumptionEnabled(data.enabled);
-                                    }
-                                  } catch (err) {
-                                    setSelfConsumptionEnabled(prev);
-                                    const m = err instanceof Error ? err.message : String(err);
-                                    setDischarge2Feedback(`${t('selfConsumptionSaveError')}: ${m}`);
-                                  }
-                                  return;
-                                }
-                                if (selInverterEvportBound) {
-                                  setSelfConsumptionEnabled(v);
-                                  setDischarge2Feedback('');
-                                  try {
-                                    const data = await saveSelfConsumptionPref(v, '');
-                                    if (data && typeof data.enabled === 'boolean') {
-                                      setSelfConsumptionEnabled(data.enabled);
-                                    }
-                                  } catch (err) {
-                                    setSelfConsumptionEnabled(prev);
-                                    const m = err instanceof Error ? err.message : String(err);
-                                    setDischarge2Feedback(`${t('selfConsumptionSaveError')}: ${m}`);
-                                  }
-                                  return;
-                                }
-                                setWritePinGate({ kind: 'selfConsumption', nextEnabled: v });
-                              }}
-                              aria-label={t('selfConsumptionToggleAria')}
-                            />
-                            <span className="pf-peak-dam-toggle-label" title={t('selfConsumptionToggleHint')}>
-                              {t('selfConsumptionToggle')}
-                            </span>
-                          </label>
                         </div>
                       </div>
                     </div>
