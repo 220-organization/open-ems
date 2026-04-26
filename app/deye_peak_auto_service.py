@@ -21,7 +21,7 @@ from app.deye_api import (
 )
 from app.deye_discharge_export_parse import parse_discharge_export_session_times
 from app.deye_sample_metrics import sum_grid_export_kwh_between
-from app.models import DeyePeakAutoDischargeFired, DeyePeakAutoDischargePref
+from app.models import DeyePeakAutoDischargeFired, DeyePeakAutoDischargePref, DeyeSelfConsumptionPref
 from app.oree_dam_service import KYIV, get_hourly_dam_uah_mwh
 
 logger = logging.getLogger(__name__)
@@ -189,16 +189,23 @@ async def run_peak_auto_discharge_tick() -> None:
             if q.scalar_one_or_none() is not None:
                 continue
 
+        async with async_session_factory() as session:
+            sc_row = await session.get(DeyeSelfConsumptionPref, sn)
+            self_consumption = bool(sc_row.enabled) if sc_row else False
+
         logger.info(
-            "Peak DAM auto: discharge starting device_sn=%s trade_day=%s peak_hour=%s stored_delta=%s",
+            "Peak DAM auto: discharge starting device_sn=%s trade_day=%s peak_hour=%s stored_delta=%s self_consumption=%s",
             sn,
             today.isoformat(),
             peak_idx,
             delta_pct,
+            self_consumption,
         )
         try:
             actual_delta = await resolve_stored_discharge_delta_points(sn, delta_pct)
-            discharge_result = await discharge_soc_delta_then_zero_export_ct(sn, actual_delta)
+            discharge_result = await discharge_soc_delta_then_zero_export_ct(
+                sn, actual_delta, self_consumption=self_consumption
+            )
         except Exception:
             logger.exception("Peak DAM auto: discharge failed device_sn=%s", sn)
             continue

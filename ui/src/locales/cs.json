@@ -283,5 +283,9 @@
   "addDeyeInstructionStepAria": "Přejít na krok {{step}}",
   "addDeyeInstructionBack": "Zpět",
   "addDeyeInstructionNext": "Další",
-  "addDeyeMessengerSubtitle": "Pokud máte dotazy, kontaktujte nás:"
+  "addDeyeMessengerSubtitle": "Pokud máte dotazy, kontaktujte nás:",
+  "selfConsumptionToggle": "Vlastní spotřeba",
+  "selfConsumptionToggleAria": "Zapnuto — baterie se volně vybíjí pro pokrytí zátěže (ZERO_EXPORT_TO_CT, TOU SoC = 5%). Špičkový výboj v hodině špičky využívá zbývající SoC.",
+  "selfConsumptionToggleHint": "Baterie nejprve pokrývá zátěž; špičkový prodej ze zbytku. Uloženo na serveru (Flyway V21).",
+  "selfConsumptionSaveError": "Nepodařilo se uložit předvolbu vlastní spotřeby"
 }

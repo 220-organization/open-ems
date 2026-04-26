@@ -283,5 +283,9 @@
   "addDeyeInstructionStepAria": "Към стъпка {{step}}",
   "addDeyeInstructionBack": "Назад",
   "addDeyeInstructionNext": "Напред",
-  "addDeyeMessengerSubtitle": "Ако имате въпроси, свържете се с нас:"
+  "addDeyeMessengerSubtitle": "Ако имате въпроси, свържете се с нас:",
+  "selfConsumptionToggle": "Самоконсумация",
+  "selfConsumptionToggleAria": "Включено — батерията се разрежда свободно за покриване на натоварването (ZERO_EXPORT_TO_CT, TOU SoC = 5%). Пиковото разреждане използва оставащия SoC.",
+  "selfConsumptionToggleHint": "Батерията покрива натоварването първо; пиковата продажба от остатъка. Запазено на сървъра (Flyway V21).",
+  "selfConsumptionSaveError": "Неуспешно запазване на предпочитанието за самоконсумация"
 }

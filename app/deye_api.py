@@ -1247,6 +1247,18 @@ async def restore_zero_export_ct_current_soc(device_sn: str) -> None:
     )
 
 
+async def apply_self_consumption_zero_export_ct(device_sn: str) -> None:
+    """ZERO_EXPORT_TO_CT with TOU SoC = 5% — allows battery to discharge freely to cover home load.
+
+    Used when self-consumption mode is enabled and after peak export completes in self-consumption mode.
+    """
+    sn = (device_sn or "").strip()
+    rated = settings.DEYE_DYNAMIC_CONTROL_RATED_POWER_W
+    await _post_strategy_dynamic_control(
+        _body_zero_export_target_soc(sn, _ZERO_EXPORT_CT_DEFAULT_TOU_SOC_PCT, rated, solar_sell_action="off")
+    )
+
+
 async def assert_inverter_owned(device_sn: str) -> None:
     sn = (device_sn or "").strip()
     items = await list_inverter_devices()
@@ -1266,8 +1278,14 @@ async def _discharge_soc_delta_poll_loop_and_restore(
     poll: float,
     timeout: float,
     rated: int,
+    *,
+    self_consumption: bool = False,
 ) -> tuple[bool, float, Optional[str], datetime]:
-    """Poll until SoC at target; then ZERO_EXPORT_TO_CT with TOU SoC = max(5%, discharge target).
+    """Poll until SoC at target; then restore ZERO_EXPORT_TO_CT.
+
+    Restore TOU SoC:
+    - Normal mode: max(5%, discharge target) — holds battery at that level for next peak.
+    - Self-consumption mode: 5% — battery continues freely discharging to cover load.
 
     Restore keeps solar sell off (same as EV-port export) for zero-export / Solar Sell disabled sites.
     """
@@ -1291,7 +1309,10 @@ async def _discharge_soc_delta_poll_loop_and_restore(
         raise
     finally:
         try:
-            tou_soc_rest = max(_ZERO_EXPORT_CT_DEFAULT_TOU_SOC_PCT, round(float(target), 2))
+            if self_consumption:
+                tou_soc_rest = _ZERO_EXPORT_CT_DEFAULT_TOU_SOC_PCT
+            else:
+                tou_soc_rest = max(_ZERO_EXPORT_CT_DEFAULT_TOU_SOC_PCT, round(float(target), 2))
             await _post_strategy_dynamic_control(
                 _body_zero_export_target_soc(sn, tou_soc_rest, rated, solar_sell_action="off")
             )
@@ -1310,11 +1331,14 @@ async def discharge_soc_delta_then_zero_export_ct(
     *,
     return_after_start: bool = False,
     on_export_session_complete: Optional[Callable[[dict[str, Any]], Awaitable[None]]] = None,
+    self_consumption: bool = False,
 ) -> dict[str, Any]:
     """
     1) Set workMode SELLING_FIRST via dynamicControl (discharge-friendly TOU template).
     2) Poll SoC until it drops by soc_delta_pct points or timeout.
-    3) Set ZERO_EXPORT_TO_CT with TOU SoC = max(5%, discharge target SoC).
+    3) Set ZERO_EXPORT_TO_CT.
+       - Normal mode: TOU SoC = max(5%, discharge target) — holds battery at that level.
+       - Self-consumption mode: TOU SoC = 5% — battery continues discharging to cover load.
 
     soc_delta_pct: 1..100 (percentage points of SoC to shed; use ~100% of current SoC for full discharge).
 
@@ -1363,7 +1387,7 @@ async def discharge_soc_delta_then_zero_export_ct(
         async def _bg_discharge() -> None:
             try:
                 hit_target, last_soc, restore_error, export_ended_at = await _discharge_soc_delta_poll_loop_and_restore(
-                    sn, soc0_f, target, poll, timeout, rated
+                    sn, soc0_f, target, poll, timeout, rated, self_consumption=self_consumption
                 )
                 completion: dict[str, Any] = {
                     "deviceSn": sn,
@@ -1414,7 +1438,7 @@ async def discharge_soc_delta_then_zero_export_ct(
         }
 
     hit_target, last_soc, restore_error, export_ended_at = await _discharge_soc_delta_poll_loop_and_restore(
-        sn, soc0_f, target, poll, timeout, rated
+        sn, soc0_f, target, poll, timeout, rated, self_consumption=self_consumption
     )
 
     if restore_error:

@@ -1044,6 +1044,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const [dischargeSocDeltaPct, setDischargeSocDeltaPct] = useState(2);
   const [lowDamChargeEnabled, setLowDamChargeEnabled] = useState(false);
   const [chargeSocDeltaPct, setChargeSocDeltaPct] = useState(10);
+  const [selfConsumptionEnabled, setSelfConsumptionEnabled] = useState(false);
   const [toolbarPrefsLoading, setToolbarPrefsLoading] = useState(false);
   /** Fleet or per-inverter totals from GET /api/power-flow/landing-totals. */
   const [landingTotals, setLandingTotals] = useState(null);
@@ -1191,6 +1192,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       setDischargeSocDeltaPct(2);
       setLowDamChargeEnabled(false);
       setChargeSocDeltaPct(10);
+      setSelfConsumptionEnabled(false);
       setToolbarPrefsLoading(false);
       return undefined;
     }
@@ -1199,12 +1201,14 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       setToolbarPrefsLoading(true);
       try {
         const q = new URLSearchParams({ deviceSn: selInverterSn });
-        const [rPeak, rLow] = await Promise.all([
+        const [rPeak, rLow, rSc] = await Promise.all([
           fetch(`${apiUrl('/api/deye/peak-auto-discharge')}?${q}`, { cache: 'no-store' }),
           fetch(`${apiUrl('/api/deye/low-dam-charge')}?${q}`, { cache: 'no-store' }),
+          fetch(`${apiUrl('/api/deye/self-consumption')}?${q}`, { cache: 'no-store' }),
         ]);
         const dataPeak = await rPeak.json().catch(() => ({}));
         const dataLow = await rLow.json().catch(() => ({}));
+        const dataSc = await rSc.json().catch(() => ({}));
         if (cancelled) return;
         if (rPeak.ok && dataPeak.ok && dataPeak.configured && typeof dataPeak.enabled === 'boolean') {
           setPeakDamDischargeEnabled(dataPeak.enabled);
@@ -1228,12 +1232,18 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
         } else {
           setChargeSocDeltaPct(10);
         }
+        if (rSc.ok && dataSc.ok && dataSc.configured && typeof dataSc.enabled === 'boolean') {
+          setSelfConsumptionEnabled(dataSc.enabled);
+        } else {
+          setSelfConsumptionEnabled(false);
+        }
       } catch {
         if (!cancelled) {
           setPeakDamDischargeEnabled(false);
           setDischargeSocDeltaPct(2);
           setLowDamChargeEnabled(false);
           setChargeSocDeltaPct(10);
+          setSelfConsumptionEnabled(false);
         }
       } finally {
         if (!cancelled) setToolbarPrefsLoading(false);
@@ -1295,6 +1305,40 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       const p = pin != null ? String(pin).trim() : '';
       if (p) body.pin = p;
       const r = await fetch(apiUrl('/api/deye/low-dam-charge'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        cache: 'no-store',
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        if (r.status === 403) {
+          clearInverterPinCache(sn);
+          setPinCacheBust(x => x + 1);
+        }
+        let msg = data.detail ?? r.statusText;
+        if (Array.isArray(msg)) {
+          msg = msg.map(x => (x && typeof x === 'object' ? x.msg || JSON.stringify(x) : x)).join('; ');
+        }
+        throw new Error(String(msg || 'Save failed'));
+      }
+      if (p) {
+        rememberInverterPin(sn, p);
+        setPinCacheBust(x => x + 1);
+      }
+      return data;
+    },
+    [selInverterSn]
+  );
+
+  const saveSelfConsumptionPref = useCallback(
+    async (nextEnabled, pin) => {
+      const sn = selInverterSn?.trim();
+      if (!sn) return null;
+      const body = { deviceSn: sn, enabled: nextEnabled };
+      const p = pin != null ? String(pin).trim() : '';
+      if (p) body.pin = p;
+      const r = await fetch(apiUrl('/api/deye/self-consumption'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -2103,6 +2147,11 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
         } else {
           setChargeSocDeltaPct(g.nextPct);
         }
+      } else if (g.kind === 'selfConsumption') {
+        const data = await saveSelfConsumptionPref(g.nextEnabled, pin);
+        if (data && typeof data.enabled === 'boolean') {
+          setSelfConsumptionEnabled(data.enabled);
+        }
       }
       setWritePinGate(null);
       setWritePinValue('');
@@ -2110,7 +2159,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       const m = err instanceof Error ? err.message : String(err);
       setWritePinError(m);
     }
-  }, [writePinGate, writePinValue, t, savePeakAutoPref, saveLowDamChargePref, selInverterEvportBound]);
+  }, [writePinGate, writePinValue, t, savePeakAutoPref, saveLowDamChargePref, saveSelfConsumptionPref, selInverterEvportBound]);
 
   const closeDeyeCommandModal = useCallback(() => {
     setDeyeCommandModal(null);
@@ -3513,6 +3562,62 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                               </span>
                             </label>
                           </div>
+                        </div>
+                        {/* Self-consumption row */}
+                        <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header pf-deye-command-line pf-deye-command-line--self-consumption">
+                          <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
+                            <input
+                              type="checkbox"
+                              checked={selfConsumptionEnabled}
+                              disabled={deyeWritesHardBlocked}
+                              onChange={async e => {
+                                if (!remoteWriteConfigured) {
+                                  setRemoteWriteNeedsPinOpen(true);
+                                  return;
+                                }
+                                const v = e.target.checked;
+                                const sn = selInverterSn?.trim();
+                                if (!sn) return;
+                                const prev = selfConsumptionEnabled;
+                                const cached = readCachedInverterPin(sn);
+                                if (cached) {
+                                  setSelfConsumptionEnabled(v);
+                                  setDischarge2Feedback('');
+                                  try {
+                                    const data = await saveSelfConsumptionPref(v, cached);
+                                    if (data && typeof data.enabled === 'boolean') {
+                                      setSelfConsumptionEnabled(data.enabled);
+                                    }
+                                  } catch (err) {
+                                    setSelfConsumptionEnabled(prev);
+                                    const m = err instanceof Error ? err.message : String(err);
+                                    setDischarge2Feedback(`${t('selfConsumptionSaveError')}: ${m}`);
+                                  }
+                                  return;
+                                }
+                                if (selInverterEvportBound) {
+                                  setSelfConsumptionEnabled(v);
+                                  setDischarge2Feedback('');
+                                  try {
+                                    const data = await saveSelfConsumptionPref(v, '');
+                                    if (data && typeof data.enabled === 'boolean') {
+                                      setSelfConsumptionEnabled(data.enabled);
+                                    }
+                                  } catch (err) {
+                                    setSelfConsumptionEnabled(prev);
+                                    const m = err instanceof Error ? err.message : String(err);
+                                    setDischarge2Feedback(`${t('selfConsumptionSaveError')}: ${m}`);
+                                  }
+                                  return;
+                                }
+                                setWritePinGate({ kind: 'selfConsumption', nextEnabled: v });
+                              }}
+                              aria-label={t('selfConsumptionToggleAria')}
+                            />
+                            <span className="pf-peak-dam-toggle-label" title={t('selfConsumptionToggleHint')}>
+                              {t('selfConsumptionToggle')}
+                            </span>
+                          </label>
                         </div>
                       </div>
                     </div>

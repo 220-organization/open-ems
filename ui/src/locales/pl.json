@@ -290,5 +290,9 @@
   "addDeyeInstructionStepAria": "Przejdź do kroku {{step}}",
   "addDeyeInstructionBack": "Wstecz",
   "addDeyeInstructionNext": "Dalej",
-  "addDeyeMessengerSubtitle": "Jeśli masz pytania, skontaktuj się z nami:"
+  "addDeyeMessengerSubtitle": "Jeśli masz pytania, skontaktuj się z nami:",
+  "selfConsumptionToggle": "Własne zużycie",
+  "selfConsumptionToggleAria": "Włączone — akumulator swobodnie się rozładowuje, pokrywając obciążenie (ZERO_EXPORT_TO_CT, TOU SoC = 5%). Szczytowy rozładunek w godzinie szczytu wykorzystuje pozostały SoC.",
+  "selfConsumptionToggleHint": "Akumulator najpierw pokrywa obciążenie; sprzedaż szczytowa — z resztek. Zapisane na serwerze (Flyway V21).",
+  "selfConsumptionSaveError": "Nie można zapisać ustawień własnego zużycia"
 }

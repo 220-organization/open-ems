@@ -29,6 +29,10 @@ from app.deye_low_dam_charge_service import (
     get_low_dam_charge_pref,
     set_low_dam_charge_from_ui,
 )
+from app.deye_self_consumption_service import (
+    get_self_consumption_pref,
+    set_self_consumption_from_ui,
+)
 from app.deye_peak_auto_service import (
     get_discharge_soc_delta_stored,
     get_peak_auto_pref,
@@ -115,6 +119,12 @@ class LowDamChargeBody(BaseModel):
     deviceSn: str = Field(..., min_length=6, max_length=64)
     enabled: bool
     chargeSocDeltaPct: ChargeSocDeltaPctOption = 10
+    pin: Optional[str] = Field(default=None, max_length=12)
+
+
+class SelfConsumptionBody(BaseModel):
+    deviceSn: str = Field(..., min_length=6, max_length=64)
+    enabled: bool
     pin: Optional[str] = Field(default=None, max_length=12)
 
 
@@ -929,3 +939,65 @@ async def post_charge_2pct(
     except Exception as exc:
         logger.exception("POST /api/deye/charge-2pct — failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/self-consumption")
+async def get_self_consumption(
+    deviceSn: str = Query(
+        ...,
+        min_length=6,
+        max_length=32,
+        pattern=r"^[0-9]+$",
+        description="Deye inverter serial",
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Per-device preference: battery discharges freely to cover home load (ZERO_EXPORT_TO_CT, TOU SoC=5%)."""
+    if not deye_configured():
+        return JSONResponse(
+            content={"ok": False, "configured": False, "enabled": False},
+            headers=_NO_STORE_CACHE,
+        )
+    enabled = await get_self_consumption_pref(db, deviceSn.strip())
+    return JSONResponse(
+        content={"ok": True, "configured": True, "deviceSn": deviceSn.strip(), "enabled": enabled},
+        headers=_NO_STORE_CACHE,
+    )
+
+
+@router.post("/self-consumption")
+async def post_self_consumption(
+    body: SelfConsumptionBody,
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Upsert self-consumption preference; enabling sends ZERO_EXPORT_TO_CT with TOU SoC=5% immediately."""
+    if not deye_configured():
+        missing = deye_missing_env_names()
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": False,
+                "enabled": False,
+                "detail": "DEYE_* not set" + (f" (missing: {', '.join(missing)})" if missing else ""),
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    sn = body.deviceSn.strip()
+    try:
+        await assert_deye_write_pin(sn, body.pin)
+        await set_self_consumption_from_ui(db, sn, body.enabled)
+        await db.commit()
+    except HTTPException:
+        await db.rollback()
+        raise
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        await db.rollback()
+        logger.exception("POST /api/deye/self-consumption — failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return JSONResponse(
+        content={"ok": True, "configured": True, "deviceSn": sn, "enabled": body.enabled},
+        headers=_NO_STORE_CACHE,
+    )

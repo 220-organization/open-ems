@@ -291,5 +291,9 @@
   "addDeyeInstructionStepAria": "Zu Schritt {{step}} wechseln",
   "addDeyeInstructionBack": "Zurück",
   "addDeyeInstructionNext": "Weiter",
-  "addDeyeMessengerSubtitle": "Wenn Sie Fragen haben, kontaktieren Sie uns:"
+  "addDeyeMessengerSubtitle": "Wenn Sie Fragen haben, kontaktieren Sie uns:",
+  "selfConsumptionToggle": "Eigenverbrauch",
+  "selfConsumptionToggleAria": "Aktiviert — Batterie entlädt frei zur Lastdeckung (ZERO_EXPORT_TO_CT, TOU SoC = 5%). Spitzenentladung nutzt verbleibenden SoC.",
+  "selfConsumptionToggleHint": "Batterie deckt zuerst Last; Spitzenverkauf aus dem Rest. Gespeichert auf dem Server (Flyway V21).",
+  "selfConsumptionSaveError": "Eigenverbrauch-Einstellung konnte nicht gespeichert werden"
 }

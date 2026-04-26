@@ -283,5 +283,9 @@
   "addDeyeInstructionStepAria": "Ir al paso {{step}}",
   "addDeyeInstructionBack": "Atrás",
   "addDeyeInstructionNext": "Siguiente",
-  "addDeyeMessengerSubtitle": "Si tiene alguna pregunta, contáctenos:"
+  "addDeyeMessengerSubtitle": "Si tiene alguna pregunta, contáctenos:",
+  "selfConsumptionToggle": "Autoconsumo",
+  "selfConsumptionToggleAria": "Activado — la batería se descarga libremente para cubrir la carga (ZERO_EXPORT_TO_CT, TOU SoC = 5%). La descarga en hora punta usa el SoC restante.",
+  "selfConsumptionToggleHint": "La batería cubre primero la carga; la venta en pico usa lo que queda. Almacenado en el servidor (Flyway V21).",
+  "selfConsumptionSaveError": "No se pudo guardar la preferencia de autoconsumo"
 }
