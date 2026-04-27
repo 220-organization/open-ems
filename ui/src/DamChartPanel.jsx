@@ -1711,7 +1711,8 @@ export default function DamChartPanel({
       const cap = damMarket === 'entsoe' ? maxTradeDayBrusselsIso() : maxTradeDayKyivIso();
       return next > cap ? cap : next;
     });
-  const goToday = () => setTradeDay(maxTradeDay);
+  const goToday = () =>
+    setTradeDay(damMarket === 'entsoe' ? brusselsCalendarIso() : kyivCalendarIso());
 
   const openTradeDayPicker = useCallback(inputRef => {
     const el = inputRef?.current;
