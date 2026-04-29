@@ -804,7 +804,7 @@
 /* ─── Huawei Totals Panel ─────────────────────────────────────────────────── */
 
 .hw-totals {
-  margin: 0 0 16px;
+  margin: 14px 0 16px;
   border-radius: 10px;
   background: var(--pf-surface);
   border: 1px solid var(--pf-border);

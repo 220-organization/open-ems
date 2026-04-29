@@ -26,6 +26,7 @@ from app.huawei_api import (
     huawei_configured,
     list_stations,
 )
+from app.huawei_power_service import get_station_hourly_chart_from_db
 from app.models import HuaweiStationEnergyTotals
 
 logger = logging.getLogger(__name__)
@@ -199,6 +200,32 @@ async def get_or_refresh_totals(
     d = parse_date_iso(date_iso)
     if d is None:
         return {"ok": False, "reason": "invalid_date"}
+
+    # For day view, use the same DB source as DAM bars (`huawei_power_sample`) to avoid
+    # drift between "FusionSolar totals" card and Open EMS chart totals.
+    if period == "day":
+        day_body = await get_station_hourly_chart_from_db(session, station_code, date_iso)
+        if day_body.get("ok") and isinstance(day_body.get("totals"), dict):
+            t = day_body["totals"]
+            item = {
+                "stationCode": station_code,
+                "pvKwh": t.get("generationKwh"),
+                "consumptionKwh": t.get("consumptionKwh"),
+                "gridImportKwh": t.get("gridImportKwh"),
+                "gridExportKwh": t.get("gridExportKwh"),
+                "selfConsumptionKwh": None,
+                "radiationKwhM2": None,
+                "theoryKwh": None,
+                "perpowerRatioKwhKwp": None,
+            }
+            return {
+                "ok": True,
+                "period": "day",
+                "periodKey": d.isoformat(),
+                "source": "huawei_power_sample",
+                "cacheAgeSec": 0.0,
+                "items": [item],
+            }
 
     pkey = period_key_for(d, period)
     row = await read_totals_row(session, station_code, period, pkey)
