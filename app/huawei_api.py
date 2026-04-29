@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Optional
 
 import httpx
@@ -925,3 +925,113 @@ async def get_power_flow(station_code: str) -> dict[str, Any]:
                 "stationCode": st,
             }
         raise
+
+
+def _parse_date_iso_energy(date_iso: str) -> Optional[date]:
+    s = (date_iso or "").strip()
+    if len(s) != 10:
+        return None
+    try:
+        return date.fromisoformat(s)
+    except ValueError:
+        return None
+
+
+def _kpi_collect_time_ms(d: date, period: str) -> int:
+    """Unix timestamp in ms for the start of the period (UTC midnight)."""
+    if period == "day":
+        return int(datetime(d.year, d.month, d.day, tzinfo=timezone.utc).timestamp() * 1000)
+    if period == "month":
+        return int(datetime(d.year, d.month, 1, tzinfo=timezone.utc).timestamp() * 1000)
+    # year
+    return int(datetime(d.year, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
+
+
+def _kpi_endpoint(period: str) -> str:
+    if period == "day":
+        return "/thirdData/getKpiStationDay"
+    if period == "month":
+        return "/thirdData/getKpiStationMonth"
+    return "/thirdData/getKpiStationYear"
+
+
+def _extract_energy_row(it: dict[str, Any]) -> dict[str, Any]:
+    code = str(it.get("stationCode") or "").strip()
+    dim = it.get("dataItemMap")
+    if not isinstance(dim, dict):
+        return {"stationCode": code}
+
+    def fv(*keys: str) -> Optional[float]:
+        return _float_from_map(dim, *keys)
+
+    pv_kwh = fv("inverter_power", "inverter_cap")
+    cons_kwh = fv("consumption_energy")
+    grid_export_kwh = fv("ongrid_power")
+    grid_import_kwh = fv("buyEnergy", "buy_power")
+    self_cons_kwh = fv("use_power")
+
+    # Huawei sometimes omits consumption_energy (notably on getKpiStationMonth/Year
+    # for stations without an explicit consumption meter). Reconstruct it from
+    # the parts the API does return so the UI can always show all three rows
+    # (Consumption / PV / Grid).
+    #   consumption = self-consumption + grid import
+    #   self-consumption = pv - grid export  (when not reported directly)
+    if cons_kwh is None:
+        if self_cons_kwh is not None and grid_import_kwh is not None:
+            cons_kwh = float(self_cons_kwh) + float(grid_import_kwh)
+        elif (
+            pv_kwh is not None
+            and grid_export_kwh is not None
+            and grid_import_kwh is not None
+        ):
+            cons_kwh = max(0.0, float(pv_kwh) - float(grid_export_kwh)) + float(grid_import_kwh)
+
+    return {
+        "stationCode": code,
+        "pvKwh": pv_kwh,
+        "consumptionKwh": cons_kwh,
+        "gridExportKwh": grid_export_kwh,
+        "gridImportKwh": grid_import_kwh,
+        "selfConsumptionKwh": self_cons_kwh,
+        "radiationKwhM2": fv("radiation_intensity"),
+        "theoryKwh": fv("theory_power"),
+        "perpowerRatioKwhKwp": fv("perpower_ratio"),
+    }
+
+
+async def get_station_energy_kpi(station_codes: str, period: str, date_iso: str) -> dict[str, Any]:
+    """
+    Fetch energy KPIs directly from Huawei Northbound — no DB storage.
+
+    period: 'day' | 'month' | 'year'
+    date_iso: YYYY-MM-DD  (selects the calendar period)
+    Returns {"ok": True, "period": period, "items": [...]} or {"ok": False, "reason": ...}
+    """
+    codes = ",".join(s.strip() for s in (station_codes or "").split(",") if s.strip())
+    if not codes:
+        return {"ok": False, "reason": "missing_station"}
+    if period not in ("day", "month", "year"):
+        return {"ok": False, "reason": "invalid_period"}
+
+    d = _parse_date_iso_energy(date_iso)
+    if d is None:
+        return {"ok": False, "reason": "invalid_date"}
+
+    collect_time = _kpi_collect_time_ms(d, period)
+    endpoint = _kpi_endpoint(period)
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+            payload = await _post_third_data(
+                client,
+                endpoint,
+                {"stationCodes": codes, "collectTime": collect_time},
+            )
+    except HuaweiNorthboundError as exc:
+        if exc.fail_code == _FAIL_CODE_RATE_LIMIT:
+            return {"ok": False, "configured": True, "northboundRateLimited": True, "reason": "rate_limit"}
+        raise
+
+    items = _parse_kpi_items(payload)
+    rows = [_extract_energy_row(it) for it in items if isinstance(it, dict)]
+    return {"ok": True, "period": period, "collectTimeMs": collect_time, "items": rows}

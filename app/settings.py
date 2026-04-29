@@ -254,6 +254,25 @@ HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC: int = _env_int(
     "HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC", 300, 60, 3600
 )
 
+# Persist Huawei station energy KPIs (getKpiStationDay/Month/Year) to Postgres — UI reads from DB.
+HUAWEI_STATION_ENERGY_SNAPSHOT_ENABLED: bool = _env_bool(
+    "HUAWEI_STATION_ENERGY_SNAPSHOT_ENABLED", True
+)
+HUAWEI_STATION_ENERGY_SNAPSHOT_INTERVAL_SEC: int = _env_int(
+    "HUAWEI_STATION_ENERGY_SNAPSHOT_INTERVAL_SEC", 900, 120, 7200
+)
+# Per-period TTL for the GET /api/huawei/station-energy lazy refresh path.
+# Day rollups change frequently → short TTL; month/year less so → longer TTL.
+HUAWEI_STATION_ENERGY_DAY_TTL_SEC: int = _env_int(
+    "HUAWEI_STATION_ENERGY_DAY_TTL_SEC", 900, 60, 86400
+)
+HUAWEI_STATION_ENERGY_MONTH_TTL_SEC: int = _env_int(
+    "HUAWEI_STATION_ENERGY_MONTH_TTL_SEC", 1800, 120, 86400
+)
+HUAWEI_STATION_ENERGY_YEAR_TTL_SEC: int = _env_int(
+    "HUAWEI_STATION_ENERGY_YEAR_TTL_SEC", 7200, 300, 604800
+)
+
 # POST /strategy/dynamicControl — template power (W) for timeUseSettingItems; also maxSell/maxSolar when SELLING_FIRST.
 DEYE_DYNAMIC_CONTROL_RATED_POWER_W: int = _env_int("DEYE_DYNAMIC_CONTROL_RATED_POWER_W", 10_000, 500, 200_000)
 # discharge-2pct: poll SoC and max wait (blocking HTTP — raise reverse-proxy read timeouts if needed).

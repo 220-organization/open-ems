@@ -303,5 +303,19 @@
   "addDeyeInstructionStepAria": "Перейти до кроку {{step}}",
   "addDeyeInstructionBack": "Назад",
   "addDeyeInstructionNext": "Далі",
-  "addDeyeMessengerSubtitle": "Якщо у вас є запитання, зв'яжіться з нами:"
+  "addDeyeMessengerSubtitle": "Якщо у вас є запитання, зв'яжіться з нами:",
+  "huaweiTotalsTitle": "Huawei Енергія",
+  "huaweiTotalsTabDay": "День",
+  "huaweiTotalsTabMonth": "Місяць",
+  "huaweiTotalsTabYear": "Рік",
+  "huaweiTotalsPvGen": "Вироблено ФЕУ",
+  "huaweiTotalsCons": "Споживання",
+  "huaweiTotalsGridImport": "З мережі",
+  "huaweiTotalsGridExport": "В мережу",
+  "huaweiTotalsSelfCons": "Самоспоживання",
+  "huaweiTotalsLoading": "Завантаження…",
+  "huaweiTotalsError": "Не вдалось завантажити",
+  "huaweiTotalsNotConfigured": "Huawei не налаштовано",
+  "huaweiTotalsRateLimited": "FusionSolar: ліміт запитів — спробуйте через кілька хвилин",
+  "huaweiTotalsNoData": "Немає даних за цей період"
 }

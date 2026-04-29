@@ -264,6 +264,33 @@ class HuaweiPowerDevicesCache(Base):
     inverter_dev_type_id: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
+class HuaweiStationEnergyTotals(Base):
+    """
+    Cached station energy KPIs from FusionSolar getKpiStationDay/Month/Year.
+
+    period in ('day', 'month', 'year').
+    period_key: 'YYYY-MM-DD' for day; 'YYYY-MM' for month; 'YYYY' for year.
+    Background scheduler refreshes; UI reads from this table.
+    """
+
+    __tablename__ = "huawei_station_energy_totals"
+
+    station_code: Mapped[str] = mapped_column(String(64), primary_key=True)
+    period: Mapped[str] = mapped_column(String(8), primary_key=True)
+    period_key: Mapped[str] = mapped_column(String(16), primary_key=True)
+    saved_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    pv_kwh: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    consumption_kwh: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    grid_import_kwh: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    grid_export_kwh: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    self_consumption_kwh: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    radiation_kwh_m2: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    theory_kwh: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    perpower_ratio: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+
+
 class OreeDamIndex(Base):
     """OREE /damindexes band prices (UAH/MWh); UI shows UAH/kWh = MWh/1000."""
 

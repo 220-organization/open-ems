@@ -11,7 +11,7 @@ body {
 }
 
 body {
-  background: #060104;
+  background: var(--pf-body-bg);
 }
 
 #root {
@@ -20,15 +20,32 @@ body {
 }
 
 :root {
+  /* Page backgrounds */
+  --pf-body-bg: #060104;
+  --pf-page-bg: radial-gradient(ellipse 120% 80% at 50% 20%, #2a0a32 0%, #0f0208 55%, #060104 100%);
+
+  /* Brand / accent */
   --pf-pink: #fc019b;
   --pf-pink-soft: rgba(252, 1, 155, 0.92);
   --pf-line-idle: rgba(232, 121, 249, 0.14);
   --pf-line-active: rgba(252, 1, 155, 0.92);
+
+  /* Surfaces */
   --pf-surface: rgba(36, 10, 48, 0.82);
   --pf-border: rgba(252, 1, 155, 0.28);
+
+  /* Text */
   --pf-label: rgba(255, 248, 252, 0.98);
   --pf-value: #f9a8ef;
   --pf-icon: #ff4db8;
+
+  /* Semantic text levels used by dam-chart.css */
+  --pf-text-secondary: rgba(255, 248, 252, 0.72);
+  --pf-text-muted: rgba(255, 248, 252, 0.58);
+  --pf-text-hint: rgba(255, 248, 252, 0.45);
+  --pf-text-loading: rgba(255, 248, 252, 0.65);
+  --pf-text-footnote: rgba(255, 248, 252, 0.48);
+  --pf-text-trade: rgba(255, 248, 252, 0.62);
 
   /* 220-km.com dark theme */
   --km220-bg: #292929;
@@ -54,7 +71,7 @@ body {
   min-height: 100dvh;
   touch-action: manipulation;
   -webkit-tap-highlight-color: rgba(252, 1, 155, 0.15);
-  background: radial-gradient(ellipse 120% 80% at 50% 20%, #2a0a32 0%, #0f0208 55%, #060104 100%);
+  background: var(--pf-page-bg);
   color: var(--pf-label);
   font-family:
     system-ui,
@@ -436,7 +453,7 @@ body {
   font-size: 13px;
   line-height: 1.45;
   font-weight: 500;
-  color: rgba(255, 248, 252, 0.88);
+  color: var(--pf-label);
   text-align: center;
   max-width: 100%;
   overflow-wrap: anywhere;
@@ -465,7 +482,7 @@ body {
 }
 
 .pf-landing-totals__delta--flat {
-  color: rgba(250, 250, 250, 0.82);
+  color: var(--pf-text-secondary);
 }
 
 @media (max-width: 600px) {
@@ -2944,5 +2961,102 @@ a.pf-node {
   .pf-peak-hourly-chart-inner {
     padding: 10px 12px;
     box-sizing: border-box;
+  }
+}
+
+/* ─── Theme toggle button ──────────────────────────────────────────────────── */
+
+.pf-theme-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 6px 8px;
+  min-width: 36px;
+  min-height: 34px;
+  box-sizing: border-box;
+  cursor: pointer;
+  color: var(--pf-label);
+  background: var(--pf-surface);
+  border: 1px solid var(--pf-border);
+  border-radius: 10px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition: border-color 0.15s ease, background 0.15s ease;
+  flex-shrink: 0;
+}
+
+.pf-theme-btn:hover {
+  border-color: rgba(252, 1, 155, 0.55);
+  background: var(--pf-surface);
+}
+
+.pf-theme-btn:focus-visible {
+  outline: 2px solid rgba(252, 1, 155, 0.55);
+  outline-offset: 2px;
+}
+
+/* In the top bar context, match the size of other controls */
+.pf-top-bar .pf-theme-btn {
+  background: var(--km220-card);
+  color: var(--km220-text);
+  border-color: rgba(193, 0, 185, 0.38);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  height: var(--pf-header-control-h, 38px);
+  min-height: var(--pf-header-control-h, 38px);
+}
+
+/* ─── Light theme — set via [data-theme="light"] or system preference ──────── */
+
+[data-theme="light"] {
+  --pf-body-bg: #faf5ff;
+  --pf-page-bg: radial-gradient(ellipse 120% 80% at 50% 20%, #f3e8ff 0%, #faf5ff 55%, #ffffff 100%);
+
+  --pf-line-idle: rgba(193, 0, 185, 0.10);
+  --pf-surface: rgba(255, 255, 255, 0.88);
+  --pf-border: rgba(193, 0, 185, 0.22);
+  --pf-label: rgba(20, 5, 30, 0.92);
+  --pf-value: #9000c2;
+  --pf-icon: #c100b9;
+
+  --pf-text-secondary: rgba(20, 5, 30, 0.68);
+  --pf-text-muted: rgba(20, 5, 30, 0.52);
+  --pf-text-hint: rgba(20, 5, 30, 0.40);
+  --pf-text-loading: rgba(20, 5, 30, 0.58);
+  --pf-text-footnote: rgba(20, 5, 30, 0.42);
+  --pf-text-trade: rgba(20, 5, 30, 0.58);
+
+  --km220-bg: #f7f0ff;
+  --km220-card: #ffffff;
+  --km220-text: #1a0a1e;
+  --km220-text-muted: #6b5b7b;
+  --km220-input-bg: #f0e8ff;
+  --km220-input-border: #c8b0e0;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --pf-body-bg: #faf5ff;
+    --pf-page-bg: radial-gradient(ellipse 120% 80% at 50% 20%, #f3e8ff 0%, #faf5ff 55%, #ffffff 100%);
+
+    --pf-line-idle: rgba(193, 0, 185, 0.10);
+    --pf-surface: rgba(255, 255, 255, 0.88);
+    --pf-border: rgba(193, 0, 185, 0.22);
+    --pf-label: rgba(20, 5, 30, 0.92);
+    --pf-value: #9000c2;
+    --pf-icon: #c100b9;
+
+    --pf-text-secondary: rgba(20, 5, 30, 0.68);
+    --pf-text-muted: rgba(20, 5, 30, 0.52);
+    --pf-text-hint: rgba(20, 5, 30, 0.40);
+    --pf-text-loading: rgba(20, 5, 30, 0.58);
+    --pf-text-footnote: rgba(20, 5, 30, 0.42);
+    --pf-text-trade: rgba(20, 5, 30, 0.58);
+
+    --km220-bg: #f7f0ff;
+    --km220-card: #ffffff;
+    --km220-text: #1a0a1e;
+    --km220-text-muted: #6b5b7b;
+    --km220-input-bg: #f0e8ff;
+    --km220-input-border: #c8b0e0;
   }
 }

@@ -303,5 +303,19 @@
   "roiSetupSave": "Save",
   "roiSetupCancel": "Cancel",
   "roiSetupSaveError": "Could not save ROI settings.",
-  "roiSetupPinForbidden": "PIN rejected or remote control not allowed for this inverter."
+  "roiSetupPinForbidden": "PIN rejected or remote control not allowed for this inverter.",
+  "huaweiTotalsTitle": "Huawei Energy",
+  "huaweiTotalsTabDay": "Day",
+  "huaweiTotalsTabMonth": "Month",
+  "huaweiTotalsTabYear": "Year",
+  "huaweiTotalsPvGen": "PV generation",
+  "huaweiTotalsCons": "Consumption",
+  "huaweiTotalsGridImport": "Grid import",
+  "huaweiTotalsGridExport": "Grid export",
+  "huaweiTotalsSelfCons": "Self-consumption",
+  "huaweiTotalsLoading": "Loading…",
+  "huaweiTotalsError": "Could not load energy totals",
+  "huaweiTotalsNotConfigured": "Huawei not configured",
+  "huaweiTotalsRateLimited": "FusionSolar rate limit — retry in a few minutes",
+  "huaweiTotalsNoData": "No data for this period"
 }

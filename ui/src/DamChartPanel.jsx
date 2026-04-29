@@ -16,7 +16,9 @@ import {
 } from 'recharts';
 import './dam-chart.css';
 import { DEYE_FLOW_BALANCE_PV_FACTOR, usesDeyeFlowBalance } from './deyeFlowBalanceSites';
+import HuaweiTotalsPanel from './HuaweiTotalsPanel';
 import { OREE_DAM_CHART_URL } from './OreeDamChartModal';
+import { useTheme } from './useTheme';
 
 function apiUrl(path) {
   const base = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
@@ -122,14 +124,6 @@ function formatDamBarTooltipClockHour(hour) {
   const clamped = Math.min(Math.max(Math.round(h), 0), 24);
   return `${String(clamped).padStart(2, '0')}:00`;
 }
-
-const DAM_BAR_TOOLTIP_BOX_STYLE = {
-  background: 'rgba(24, 8, 32, 0.94)',
-  border: '1px solid rgba(252, 1, 155, 0.35)',
-  borderRadius: 10,
-  color: '#fff',
-  padding: '8px 12px',
-};
 
 function getHourlyDamPerKwhFromPayload(p) {
   if (!p?.ok) return null;
@@ -449,7 +443,7 @@ const DAM_X_AXIS_DOMAIN = Object.freeze([0.5, 24.5]);
 
 /** Treat SoC as “full” for lost-PV heuristics (hourly % may be rounded). */
 function isSocFullPercent(socPercent) {
-  return socPercent != null && Number.isFinite(Number(socPercent)) && Number(socPercent) >= 99.5;
+  return socPercent != null && Number.isFinite(Number(socPercent)) && Number(socPercent) > 94;
 }
 
 function medianPositive(nums) {
@@ -631,18 +625,25 @@ function DamLineChartTooltip({
   damEntsoeOverlaySeriesNamePl,
   damEntsoeOverlaySeriesNameUaEntsoe,
   entsoeOverlayUahMode,
+  isDark,
 }) {
   if (!active || !payload?.length) return null;
   const row = payload[0]?.payload;
-  const tooltipContentStyle = {
+  const tooltipContentStyle = isDark ? {
     background: 'rgba(24, 8, 32, 0.94)',
     border: '1px solid rgba(252, 1, 155, 0.35)',
     borderRadius: 10,
     color: '#fff',
     padding: '8px 12px',
+  } : {
+    background: 'rgba(255, 255, 255, 0.97)',
+    border: '1px solid rgba(193, 0, 185, 0.28)',
+    borderRadius: 10,
+    color: '#1a0a1e',
+    padding: '8px 12px',
   };
-  const labelStyle = { color: 'rgba(255, 248, 252, 0.95)' };
-  const itemStyle = { color: 'rgba(255, 248, 252, 0.95)' };
+  const labelStyle = isDark ? { color: 'rgba(255, 248, 252, 0.95)' } : { color: 'rgba(20, 5, 30, 0.92)' };
+  const itemStyle = isDark ? { color: 'rgba(255, 248, 252, 0.95)' } : { color: 'rgba(20, 5, 30, 0.88)' };
   const hi = label != null && lostSolarHourMoney?.length === 24 ? Number(label) - 1 : -1;
   const lostSolarIncomeAtHour = hi >= 0 && hi < 24 ? lostSolarHourMoney[hi] : null;
   const showLostSolar =
@@ -738,6 +739,55 @@ export default function DamChartPanel({
   inverterSn: inverterSnProp,
   huaweiStationCode: huaweiStationCodeProp,
 }) {
+  const { theme, cycleTheme, isDark } = useTheme();
+
+  // Chart color palette — adapts to resolved light/dark theme.
+  const CHART = useMemo(() => isDark ? {
+    axisText: 'rgba(255,248,252,0.75)',
+    axisTextMuted: 'rgba(255,248,252,0.72)',
+    axisTextAmber: 'rgba(251, 191, 36, 0.92)',
+    axisTextBlue: 'rgba(147, 197, 253, 0.9)',
+    axisTextHz: 'rgba(250, 204, 21, 0.92)',
+    gridStroke: 'rgba(252, 1, 155, 0.12)',
+    gridStrokeFaint: 'rgba(252, 1, 155, 0.08)',
+    gridStrokeIndexes: 'rgba(252, 1, 155, 0.10)',
+    refLineStroke: 'rgba(255,248,252,0.35)',
+    circleBorder: 'rgba(255,255,255,0.45)',
+    tooltipBg: 'rgba(24, 8, 32, 0.94)',
+    tooltipBorder: '1px solid rgba(252, 1, 155, 0.35)',
+    tooltipColor: '#fff',
+    tooltipLabelColor: 'rgba(255, 248, 252, 0.95)',
+    tooltipCursor: 'rgba(252, 1, 155, 0.06)',
+    hzAxisLine: 'rgba(250, 204, 21, 0.35)',
+    hzAxisLabel: 'rgba(250, 204, 21, 0.75)',
+  } : {
+    axisText: 'rgba(20,5,30,0.68)',
+    axisTextMuted: 'rgba(20,5,30,0.58)',
+    axisTextAmber: 'rgba(146, 70, 0, 0.88)',
+    axisTextBlue: 'rgba(30, 90, 200, 0.88)',
+    axisTextHz: 'rgba(133, 95, 0, 0.88)',
+    gridStroke: 'rgba(193, 0, 185, 0.15)',
+    gridStrokeFaint: 'rgba(193, 0, 185, 0.10)',
+    gridStrokeIndexes: 'rgba(193, 0, 185, 0.12)',
+    refLineStroke: 'rgba(20,5,30,0.22)',
+    circleBorder: 'rgba(0,0,0,0.20)',
+    tooltipBg: 'rgba(255, 255, 255, 0.97)',
+    tooltipBorder: '1px solid rgba(193, 0, 185, 0.28)',
+    tooltipColor: '#1a0a1e',
+    tooltipLabelColor: 'rgba(20, 5, 30, 0.92)',
+    tooltipCursor: 'rgba(193, 0, 185, 0.06)',
+    hzAxisLine: 'rgba(133, 95, 0, 0.35)',
+    hzAxisLabel: 'rgba(133, 95, 0, 0.70)',
+  }, [isDark]);
+
+  const barTooltipStyle = useMemo(() => ({
+    background: CHART.tooltipBg,
+    border: CHART.tooltipBorder,
+    borderRadius: 10,
+    color: CHART.tooltipColor,
+    padding: '8px 12px',
+  }), [CHART]);
+
   const [damUrlBootstrap] = useState(() => getInitialDamChartState());
   const [tradeDay, setTradeDay] = useState(damUrlBootstrap.date);
   const [damMarket, setDamMarket] = useState(damUrlBootstrap.market);
@@ -1949,8 +1999,27 @@ export default function DamChartPanel({
     </div>
   );
 
+  const logoSrc = `${process.env.PUBLIC_URL || ''}/static/220-km-logo.svg`;
+
   return (
     <>
+      {variant === 'fullpage' ? (
+        <div
+          className={`dam-page-loader${loading ? ' dam-page-loader--visible' : ''}`}
+          aria-hidden={!loading}
+          role="status"
+          aria-label={loading ? t('damLoading') : undefined}
+        >
+          <img
+            className="dam-page-loader__logo"
+            src={logoSrc}
+            alt=""
+            width={96}
+            height={96}
+            decoding="async"
+          />
+        </div>
+      ) : null}
       {variant === 'fullpage' ? (
         <header className="pf-header dam-header">
           <div className="dam-header-left">
@@ -1973,6 +2042,37 @@ export default function DamChartPanel({
               </option>
             ))}
           </select>
+          <button
+            type="button"
+            className="pf-theme-btn"
+            onClick={cycleTheme}
+            aria-label={theme === 'dark' ? 'Switch to system theme' : theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'}
+            title={theme === 'dark' ? 'Dark theme (click for system)' : theme === 'light' ? 'Light theme (click for dark)' : 'System theme (click for light)'}
+          >
+            {theme === 'dark' ? (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z" />
+              </svg>
+            ) : theme === 'light' ? (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="5" />
+                <line x1="12" y1="1" x2="12" y2="3" />
+                <line x1="12" y1="21" x2="12" y2="23" />
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                <line x1="1" y1="12" x2="3" y2="12" />
+                <line x1="21" y1="12" x2="23" y2="12" />
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+              </svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                <line x1="8" y1="21" x2="16" y2="21" />
+                <line x1="12" y1="17" x2="12" y2="21" />
+              </svg>
+            )}
+          </button>
         </header>
       ) : (
         <div className="dam-embedded-head">
@@ -2042,7 +2142,9 @@ export default function DamChartPanel({
           </p>
         ) : null}
 
-        {loading && !hasChart ? <p className="dam-loading">{t('damLoading')}</p> : null}
+        {loading && !hasChart && variant !== 'fullpage' ? (
+          <p className="dam-loading">{t('damLoading')}</p>
+        ) : null}
 
         {showDeyeExtras && socLoading && !loading && hasChart ? (
           <p className="dam-loading dam-soc-loading">{t('damSocLoading')}</p>
@@ -2057,7 +2159,7 @@ export default function DamChartPanel({
             >
               <ResponsiveContainer width="100%" height={h}>
                 <LineChart data={rows} syncId="dam-day" margin={damLineChartMargin} isAnimationActive={false}>
-                  <CartesianGrid stroke="rgba(252, 1, 155, 0.12)" strokeDasharray="3 3" />
+                  <CartesianGrid stroke={CHART.gridStroke} strokeDasharray="3 3" />
                   <XAxis
                     dataKey="hour"
                     type="number"
@@ -2065,7 +2167,7 @@ export default function DamChartPanel({
                     ticks={DAM_HOUR_X_TICKS}
                     allowDecimals={false}
                     padding={{ left: 0, right: 0 }}
-                    tick={{ fill: 'rgba(255,248,252,0.75)', fontSize: 11 }}
+                    tick={{ fill: CHART.axisText, fontSize: 11 }}
                     tickLine={false}
                     hide={damChartMobile}
                   />
@@ -2075,16 +2177,16 @@ export default function DamChartPanel({
                       orientation="left"
                       width={DAM_ENTSOE_OVERLAY_AXIS_WIDTH}
                       hide={damChartMobile}
-                      tick={{ fill: 'rgba(251, 191, 36, 0.92)', fontSize: 11 }}
+                      tick={{ fill: CHART.axisTextAmber, fontSize: 11 }}
                       tickLine={false}
                       tickFormatter={v => fmtEur.format(v)}
-                      axisLine={{ stroke: 'rgba(251, 191, 36, 0.35)' }}
+                      axisLine={{ stroke: CHART.axisTextAmber }}
                       label={{
                         value: t('damTariffAxisEntsoeOverlay'),
                         angle: -90,
                         position: 'insideLeft',
                         offset: 8,
-                        style: { fill: 'rgba(251, 191, 36, 0.7)', fontSize: 10, textAnchor: 'end' },
+                        style: { fill: CHART.axisTextAmber, fontSize: 10, textAnchor: 'end' },
                       }}
                     />
                   ) : null}
@@ -2093,7 +2195,7 @@ export default function DamChartPanel({
                       yAxisId="dam"
                       width={DAM_LEFT_Y_AXIS_WIDTH}
                       hide={damChartMobile}
-                      tick={{ fill: 'rgba(255,248,252,0.75)', fontSize: 11 }}
+                      tick={{ fill: CHART.axisText, fontSize: 11 }}
                       tickLine={false}
                       tickFormatter={v => (damMarket === 'entsoe' ? fmtEur.format(v) : fmtDamTooltip.format(v))}
                       axisLine={{ stroke: 'rgba(252, 1, 155, 0.25)' }}
@@ -2113,16 +2215,16 @@ export default function DamChartPanel({
                       domain={[0, 100]}
                       width={DAM_RIGHT_Y_AXIS_WIDTH}
                       hide={damChartMobile}
-                      tick={{ fill: 'rgba(147, 197, 253, 0.9)', fontSize: 11 }}
+                      tick={{ fill: CHART.axisTextBlue, fontSize: 11 }}
                       tickLine={false}
                       tickFormatter={v => fmt1.format(v)}
-                      axisLine={{ stroke: 'rgba(96, 165, 250, 0.35)' }}
+                      axisLine={{ stroke: CHART.axisTextBlue }}
                       label={{
                         value: t('damSocAxis'),
                         angle: 90,
                         position: 'insideRight',
                         offset: 10,
-                        style: { fill: 'rgba(147, 197, 253, 0.7)', fontSize: 11, textAnchor: 'end' },
+                        style: { fill: CHART.axisTextBlue, fontSize: 11, textAnchor: 'end' },
                       }}
                     />
                   ) : null}
@@ -2134,19 +2236,19 @@ export default function DamChartPanel({
                       width={DAM_HZ_Y_AXIS_WIDTH}
                       hide={damChartMobile}
                       tick={{
-                        fill: 'rgba(250, 204, 21, 0.92)',
+                        fill: CHART.axisTextHz,
                         fontSize: 11,
                         dx: 6,
                       }}
                       tickLine={false}
                       tickFormatter={v => fmtHz.format(v)}
-                      axisLine={{ stroke: 'rgba(250, 204, 21, 0.35)' }}
+                      axisLine={{ stroke: CHART.hzAxisLine }}
                       label={{
                         value: t('damGridFreqAxis'),
                         angle: 90,
                         position: 'insideRight',
                         offset: 14,
-                        style: { fill: 'rgba(250, 204, 21, 0.75)', fontSize: 11, textAnchor: 'end' },
+                        style: { fill: CHART.hzAxisLabel, fontSize: 11, textAnchor: 'end' },
                       }}
                     />
                   ) : null}
@@ -2179,6 +2281,7 @@ export default function DamChartPanel({
                         damEntsoeOverlaySeriesNamePl={damEntsoeOverlaySeriesNamePl}
                         damEntsoeOverlaySeriesNameUaEntsoe={damEntsoeOverlaySeriesNameUaEntsoe}
                         entsoeOverlayUahMode={eurUahRate > 0}
+                        isDark={isDark}
                       />
                     )}
                   />
@@ -2480,7 +2583,7 @@ export default function DamChartPanel({
             {renderSectionDateBar(tradeDayGridInputRef, 'grid', 'dam-date-bar--above-chart')}
             <ResponsiveContainer width="100%" height={gridBarH}>
               <ComposedChart data={rows} syncId="dam-day" margin={damComposedChartMargin} isAnimationActive={false}>
-                <CartesianGrid stroke="rgba(252, 1, 155, 0.08)" strokeDasharray="3 3" vertical={false} />
+                <CartesianGrid stroke={CHART.gridStrokeFaint} strokeDasharray="3 3" vertical={false} />
                 <XAxis
                   dataKey="hour"
                   type="number"
@@ -2488,7 +2591,7 @@ export default function DamChartPanel({
                   ticks={DAM_HOUR_X_TICKS}
                   allowDecimals={false}
                   padding={{ left: 0, right: 0 }}
-                  tick={{ fill: 'rgba(255,248,252,0.75)', fontSize: 11 }}
+                  tick={{ fill: CHART.axisText, fontSize: 11 }}
                   tickLine={false}
                   hide={damChartMobile}
                   label={{
@@ -2504,7 +2607,7 @@ export default function DamChartPanel({
                   ticks={gridYTicks}
                   width={DAM_LEFT_Y_AXIS_WIDTH}
                   hide={damChartMobile}
-                  tick={{ fill: 'rgba(255,248,252,0.72)', fontSize: 10 }}
+                  tick={{ fill: CHART.axisTextMuted, fontSize: 10 }}
                   tickLine={false}
                   tickFormatter={v => fmtGridKwTick.format(v)}
                   label={{
@@ -2538,7 +2641,7 @@ export default function DamChartPanel({
                     axisLine={false}
                   />
                 ) : null}
-                <ReferenceLine y={0} stroke="rgba(255,248,252,0.35)" strokeDasharray="4 4" />
+                <ReferenceLine y={0} stroke={CHART.refLineStroke} strokeDasharray="4 4" />
                 <Tooltip
                   wrapperStyle={{ outline: 'none' }}
                   content={({ active, payload, label }) => {
@@ -2556,16 +2659,16 @@ export default function DamChartPanel({
                       }
                     }
                     return (
-                      <div className="recharts-default-tooltip" style={DAM_BAR_TOOLTIP_BOX_STYLE}>
+                      <div className="recharts-default-tooltip" style={barTooltipStyle}>
                         <p
                           className="recharts-tooltip-label"
-                          style={{ color: 'rgba(255, 248, 252, 0.95)', margin: 0 }}
+                          style={{ color: CHART.tooltipLabelColor, margin: 0 }}
                         >
                           {formatDamBarTooltipClockHour(label)}
                         </p>
                         <p
                           className="recharts-tooltip-item"
-                          style={{ color: 'rgba(255, 248, 252, 0.95)', margin: '4px 0 0' }}
+                          style={{ color: CHART.tooltipLabelColor, margin: '4px 0 0' }}
                         >
                           {valueLine}
                         </p>
@@ -2604,7 +2707,7 @@ export default function DamChartPanel({
                     if (v == null || !Number.isFinite(v) || cx == null || cy == null) return null;
                     const fill = v >= 0 ? '#f59e0b' : '#38bdf8';
                     return (
-                      <circle cx={cx} cy={cy} r={5.5} fill={fill} stroke="rgba(255,255,255,0.45)" strokeWidth={1.2} />
+                      <circle cx={cx} cy={cy} r={5.5} fill={fill} stroke={CHART.circleBorder} strokeWidth={1.2} />
                     );
                   }}
                 />
@@ -2657,7 +2760,7 @@ export default function DamChartPanel({
             {renderSectionDateBar(tradeDayPvInputRef, 'pv', 'dam-date-bar--above-chart')}
             <ResponsiveContainer width="100%" height={gridBarH}>
               <ComposedChart data={rows} syncId="dam-day" margin={damComposedChartMargin} isAnimationActive={false}>
-                <CartesianGrid stroke="rgba(252, 1, 155, 0.08)" strokeDasharray="3 3" vertical={false} />
+                <CartesianGrid stroke={CHART.gridStrokeFaint} strokeDasharray="3 3" vertical={false} />
                 <XAxis
                   dataKey="hour"
                   type="number"
@@ -2665,7 +2768,7 @@ export default function DamChartPanel({
                   ticks={DAM_HOUR_X_TICKS}
                   allowDecimals={false}
                   padding={{ left: 0, right: 0 }}
-                  tick={{ fill: 'rgba(255,248,252,0.75)', fontSize: 11 }}
+                  tick={{ fill: CHART.axisText, fontSize: 11 }}
                   tickLine={false}
                   hide={damChartMobile}
                   label={{
@@ -2681,7 +2784,7 @@ export default function DamChartPanel({
                   ticks={pvLoadYTicks}
                   width={DAM_LEFT_Y_AXIS_WIDTH}
                   hide={damChartMobile}
-                  tick={{ fill: 'rgba(255,248,252,0.72)', fontSize: 10 }}
+                  tick={{ fill: CHART.axisTextMuted, fontSize: 10 }}
                   tickLine={false}
                   tickFormatter={v => fmtKwhTick.format(v)}
                   label={{
@@ -2714,7 +2817,7 @@ export default function DamChartPanel({
                     axisLine={false}
                   />
                 ) : null}
-                <ReferenceLine y={0} stroke="rgba(255,248,252,0.35)" strokeDasharray="4 4" />
+                <ReferenceLine y={0} stroke={CHART.refLineStroke} strokeDasharray="4 4" />
                 <Tooltip
                   wrapperStyle={{ outline: 'none' }}
                   content={({ active, payload, label }) => {
@@ -2736,22 +2839,22 @@ export default function DamChartPanel({
                     const genLine = `${t('damPvLoadTooltipGen')}: ${genVal}`;
                     const consLine = `${t('damPvLoadTooltipCons')}: ${consVal}`;
                     return (
-                      <div className="recharts-default-tooltip" style={DAM_BAR_TOOLTIP_BOX_STYLE}>
+                      <div className="recharts-default-tooltip" style={barTooltipStyle}>
                         <p
                           className="recharts-tooltip-label"
-                          style={{ color: 'rgba(255, 248, 252, 0.95)', margin: 0 }}
+                          style={{ color: CHART.tooltipLabelColor, margin: 0 }}
                         >
                           {formatDamBarTooltipClockHour(label)}
                         </p>
                         <p
                           className="recharts-tooltip-item"
-                          style={{ color: 'rgba(255, 248, 252, 0.95)', margin: '4px 0 0' }}
+                          style={{ color: CHART.tooltipLabelColor, margin: '4px 0 0' }}
                         >
                           {genLine}
                         </p>
                         <p
                           className="recharts-tooltip-item"
-                          style={{ color: 'rgba(255, 248, 252, 0.95)', margin: '2px 0 0' }}
+                          style={{ color: CHART.tooltipLabelColor, margin: '2px 0 0' }}
                         >
                           {consLine}
                         </p>
@@ -2799,7 +2902,7 @@ export default function DamChartPanel({
                     const v = payload?.pvKwh;
                     if (v == null || !Number.isFinite(v) || cx == null || cy == null) return null;
                     return (
-                      <circle cx={cx} cy={cy} r={5} fill="#22c55e" stroke="rgba(255,255,255,0.45)" strokeWidth={1.2} />
+                      <circle cx={cx} cy={cy} r={5} fill="#22c55e" stroke={CHART.circleBorder} strokeWidth={1.2} />
                     );
                   }}
                 />
@@ -2813,7 +2916,7 @@ export default function DamChartPanel({
                     const v = payload?.consKwhNeg;
                     if (v == null || !Number.isFinite(v) || cx == null || cy == null) return null;
                     return (
-                      <circle cx={cx} cy={cy} r={5} fill="#fb923c" stroke="rgba(255,255,255,0.45)" strokeWidth={1.2} />
+                      <circle cx={cx} cy={cy} r={5} fill="#fb923c" stroke={CHART.circleBorder} strokeWidth={1.2} />
                     );
                   }}
                 />
@@ -2870,16 +2973,16 @@ export default function DamChartPanel({
                     margin={{ top: 8, right: 10, left: 52, bottom: 8 }}
                     aria-label={t('damIndexesTitle')}
                   >
-                    <CartesianGrid stroke="rgba(252, 1, 155, 0.1)" strokeDasharray="3 3" vertical={false} />
+                    <CartesianGrid stroke={CHART.gridStrokeIndexes} strokeDasharray="3 3" vertical={false} />
                     <XAxis
                       dataKey="label"
-                      tick={{ fill: 'rgba(255,248,252,0.78)', fontSize: 11 }}
+                      tick={{ fill: CHART.axisText, fontSize: 11 }}
                       tickLine={false}
                       axisLine={{ stroke: 'rgba(252, 1, 155, 0.25)' }}
                     />
                     <YAxis
                       width={72}
-                      tick={{ fill: 'rgba(255,248,252,0.85)', fontSize: 11 }}
+                      tick={{ fill: CHART.axisText, fontSize: 11 }}
                       tickLine={false}
                       axisLine={{ stroke: 'rgba(252, 1, 155, 0.25)' }}
                       tickFormatter={v => fmtIndexKwh.format(v)}
@@ -2897,16 +3000,16 @@ export default function DamChartPanel({
                       }}
                     />
                     <Tooltip
-                      cursor={{ fill: 'rgba(252, 1, 155, 0.06)' }}
+                      cursor={{ fill: CHART.tooltipCursor }}
                       wrapperClassName="dam-indexes-tooltip-wrap"
                       contentStyle={{
-                        background: 'rgba(24, 8, 32, 0.96)',
-                        border: '1px solid rgba(252, 1, 155, 0.35)',
+                        background: CHART.tooltipBg,
+                        border: CHART.tooltipBorder,
                         borderRadius: 10,
-                        color: '#ffffff',
+                        color: CHART.tooltipColor,
                       }}
-                      labelStyle={{ color: '#ffffff', fontWeight: 600 }}
-                      itemStyle={{ color: '#ffffff' }}
+                      labelStyle={{ color: CHART.tooltipLabelColor, fontWeight: 600 }}
+                      itemStyle={{ color: CHART.tooltipColor }}
                       formatter={(value, _name, item) => {
                         const row = item?.payload;
                         const pct =
@@ -2948,6 +3051,16 @@ export default function DamChartPanel({
               />
             </div>
           </section>
+        ) : null}
+
+        {effectiveHuaweiStation ? (
+          <HuaweiTotalsPanel
+            stationCode={effectiveHuaweiStation}
+            tradeDay={tradeDay}
+            apiUrl={apiUrl}
+            t={t}
+            getBcp47Locale={getBcp47Locale}
+          />
         ) : null}
       </div>
     </>

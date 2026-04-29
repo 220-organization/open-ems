@@ -24,6 +24,7 @@ from app.huawei_api import (
     list_stations,
 )
 from app.huawei_power_service import get_station_hourly_chart_from_db, run_huawei_power_snapshot
+from app.huawei_station_energy_service import get_or_refresh_totals
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -269,4 +270,53 @@ async def get_plant_status_route(
         )
     except Exception as exc:
         _log_huawei_route_error("GET /api/huawei/plant-status", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/station-energy")
+async def get_station_energy_route(
+    stationCodes: str = Query(
+        ...,
+        min_length=1,
+        max_length=512,
+        description="Plant stationCode (single code; comma list reserved for future).",
+    ),
+    period: str = Query(
+        "day",
+        pattern="^(day|month|year)$",
+        description="Aggregation period: day | month | year",
+    ),
+    date: Optional[str] = Query(
+        None,
+        min_length=10,
+        max_length=10,
+        description="YYYY-MM-DD Kyiv calendar date (selects the period). Default: today Europe/Kyiv.",
+    ),
+    session: AsyncSession = Depends(get_db),
+):
+    """
+    Station energy KPIs (getKpiStationDay/Month/Year) — DB-backed cache.
+
+    UI reads from `huawei_station_energy_totals`; on miss / stale row the route lazily refreshes
+    from FusionSolar Northbound and upserts. Background scheduler keeps rows fresh.
+    """
+    station_code = (stationCodes or "").split(",")[0].strip()
+    if not station_code:
+        return JSONResponse(
+            content={"ok": False, "reason": "missing_station"},
+            headers=_NO_STORE_CACHE,
+        )
+    date_iso = date or datetime.now(ZoneInfo("Europe/Kyiv")).date().isoformat()
+    try:
+        body = await get_or_refresh_totals(session, station_code, period, date_iso)
+        body.setdefault("configured", huawei_configured())
+        return JSONResponse(content=body, headers=_NO_STORE_CACHE)
+    except HuaweiAuthError as exc:
+        _log_huawei_route_error("GET /api/huawei/station-energy", exc)
+        return JSONResponse(
+            content={"ok": False, "configured": True, "reason": "huawei_login_failed", "detail": str(exc)[:400]},
+            headers=_NO_STORE_CACHE,
+        )
+    except Exception as exc:
+        _log_huawei_route_error("GET /api/huawei/station-energy", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
