@@ -223,6 +223,7 @@
   "addDeyeMessengerPrefill": "Hola, me gustaría añadir un inversor Deye a Open EMS.\n\n#addDeyeInverter",
   "addDeyeMessengerTelegramAria": "Telegram (nueva pestaña)",
   "addDeyeMessengerWhatsAppAria": "WhatsApp (nueva pestaña)",
+  "addDeyeModalCloseAria": "Cerrar",
   "damLoading": "Loading…",
   "damCompareSelectAria": "DAM average comparison period",
   "damCompareOptionHour": "Prev hour vs current hour",
@@ -287,5 +288,19 @@
   "selfConsumptionToggle": "Autoconsumo",
   "selfConsumptionToggleAria": "Activado — la batería se descarga libremente para cubrir la carga (ZERO_EXPORT_TO_CT, TOU SoC = 5%). La descarga en hora punta usa el SoC restante.",
   "selfConsumptionToggleHint": "La batería cubre primero la carga; la venta en pico usa lo que queda. Almacenado en el servidor (Flyway V21).",
-  "selfConsumptionSaveError": "No se pudo guardar la preferencia de autoconsumo"
+  "selfConsumptionSaveError": "No se pudo guardar la preferencia de autoconsumo",
+  "seoMetaDescription": "Open EMS — open-source EMS for solar, battery storage, and EV charging in Ukraine. Integrates OREE DAM (day-ahead / РДН), intraday (ВДР), and power arbitrage on the integrated power system (IPS / ОЕС). Real-time power flow, Deye and Huawei support.",
+  "seoMetaKeywords": "Open EMS, EMS Ukraine, DAM, IDM, RDN, VDR, electricity arbitrage, OREE, IPS, integrated power system, day-ahead market, intraday market, Deye inverter, Huawei FusionSolar, smart charging, DER, 220-km",
+  "rdnCallbackSectionAria": "Consultation request — Ukraine DAM (RDN)",
+  "rdnCallbackFormTitle": "Request a consultation on DAM (Ukraine)",
+  "rdnCallbackNameLabel": "Name",
+  "rdnCallbackNamePlaceholder": "Enter name",
+  "rdnCallbackPhoneLabel": "Phone",
+  "rdnCallbackPhonePlaceholder": "Enter phone number",
+  "rdnCallbackMessengerHint": "Send your request via a messenger — we will call you back.",
+  "rdnCallbackTelegramBtn": "Telegram",
+  "rdnCallbackWhatsAppBtn": "WhatsApp",
+  "rdnCallbackTelegramAria": "Send consultation request via Telegram",
+  "rdnCallbackWhatsAppAria": "Send consultation request via WhatsApp",
+  "rdnCallbackMessageBody": "Request a callback about DAM (Ukraine spot market).\nName: {{name}}\nPhone: {{phone}}"
 }

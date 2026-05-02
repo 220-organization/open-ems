@@ -95,16 +95,26 @@ export default function DeyeInverterMessengerModal({ open, onClose, t }) {
   const node = (
     <div className="pf-messenger-scrim" role="presentation" onClick={onClose}>
       <div
-        className="pf-messenger-dialog"
+        className="pf-messenger-dialog pf-messenger-dialog--deye-add"
         role="dialog"
         aria-modal="true"
         aria-labelledby="pf-add-deye-messenger-title"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="pf-messenger-panel">
-          <p id="pf-add-deye-messenger-title" className="pf-messenger-title">
-            {t('addDeyeInstructionTitle')}
-          </p>
+          <header className="pf-messenger-deye-header">
+            <p id="pf-add-deye-messenger-title" className="pf-messenger-title--deye">
+              {t('addDeyeInstructionTitle')}
+            </p>
+            <button
+              type="button"
+              className="pf-messenger-close"
+              aria-label={t('addDeyeModalCloseAria')}
+              onClick={onClose}
+            >
+              <span aria-hidden>×</span>
+            </button>
+          </header>
           <div className="pf-add-deye-carousel" aria-live="polite">
             <img
               className="pf-add-deye-carousel__image"
@@ -165,6 +175,10 @@ export default function DeyeInverterMessengerModal({ open, onClose, t }) {
               <WhatsAppIcon />
             </button>
           </div>
+
+          <button type="button" className="pf-messenger-close-footer" onClick={onClose}>
+            {t('addDeyeModalCloseAria')}
+          </button>
         </div>
       </div>
     </div>

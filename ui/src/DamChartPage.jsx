@@ -1,7 +1,8 @@
-import { useEffect } from 'react';
 import './power-flow.css';
 import './dam-chart.css';
 import DamChartPanel from './DamChartPanel';
+import RdnConsultationCallback from './RdnConsultationCallback';
+import { useOpenEmsSeo } from './useOpenEmsSeo';
 
 export default function DamChartPage({
   t,
@@ -11,10 +12,7 @@ export default function DamChartPage({
   LOCALE_NAMES,
   onLangSelectChange,
 }) {
-  useEffect(() => {
-    document.title = t('damPageTitle');
-    document.documentElement.lang = locale === 'uk' ? 'uk' : locale;
-  }, [t, locale]);
+  useOpenEmsSeo(t('damPageTitle'), locale, t);
 
   return (
     <div className="pf-body dam-page">
@@ -28,6 +26,9 @@ export default function DamChartPage({
           LOCALE_NAMES={LOCALE_NAMES}
           onLangSelectChange={onLangSelectChange}
         />
+        <section className="pf-rdn-callback-section pf-rdn-callback-section--page-end" aria-label={t('rdnCallbackSectionAria')}>
+          <RdnConsultationCallback t={t} />
+        </section>
       </div>
     </div>
   );

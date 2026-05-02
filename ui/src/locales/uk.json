@@ -243,6 +243,7 @@
   "addDeyeMessengerPrefill": "Доброго дня! Хочу додати інвертор до open ems\n\n#addInverterToOpenEms",
   "addDeyeMessengerTelegramAria": "Telegram (відкриється в новій вкладці)",
   "addDeyeMessengerWhatsAppAria": "WhatsApp (відкриється в новій вкладці)",
+  "addDeyeModalCloseAria": "Закрити",
   "damLoading": "Завантаження…",
   "damCompareSelectAria": "Період порівняння середньої ціни РДН",
   "damCompareOptionHour": "Попередня година vs поточна",
@@ -317,5 +318,19 @@
   "huaweiTotalsError": "Не вдалось завантажити",
   "huaweiTotalsNotConfigured": "Huawei не налаштовано",
   "huaweiTotalsRateLimited": "FusionSolar: ліміт запитів — спробуйте через кілька хвилин",
-  "huaweiTotalsNoData": "Немає даних за цей період"
+  "huaweiTotalsNoData": "Немає даних за цей період",
+  "seoMetaDescription": "Open EMS — відкрита система керування енергією для сонячних станцій, АКБ та зарядки електромобілів в Україні. Інтеграція з ОРЕЄ: РДН (ринок доба наперед), ВДР (внутрішньодобовий ринок), арбітраж електроенергії, ОЕС України. Моніторинг потоків потужності, Deye, Huawei.",
+  "seoMetaKeywords": "Open EMS, EMS Україна, РДН, ВДР, арбітраж електроенергії, ОРЕЄ, ОЕС України, ринок доба наперед, внутрішньодобовий ринок, ціна РДН, Deye, Huawei FusionSolar, VPP, розумна зарядка, 220-km",
+  "rdnCallbackSectionAria": "Замовлення консультації по РДН",
+  "rdnCallbackFormTitle": "Замовити консультацію по РДН",
+  "rdnCallbackNameLabel": "Ім'я",
+  "rdnCallbackNamePlaceholder": "Введіть ім'я",
+  "rdnCallbackPhoneLabel": "Телефон",
+  "rdnCallbackPhonePlaceholder": "Введіть номер телефону",
+  "rdnCallbackMessengerHint": "Надішліть заявку через месенджер — ми передзвонимо.",
+  "rdnCallbackTelegramBtn": "Telegram",
+  "rdnCallbackWhatsAppBtn": "WhatsApp",
+  "rdnCallbackTelegramAria": "Надіслати заявку на консультацію через Telegram",
+  "rdnCallbackWhatsAppAria": "Надіслати заявку на консультацію через WhatsApp",
+  "rdnCallbackMessageBody": "Замовляю зворотний дзвінок щодо консультації по РДН.\nІм'я: {{name}}\nТелефон: {{phone}}"
 }

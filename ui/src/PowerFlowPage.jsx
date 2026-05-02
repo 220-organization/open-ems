@@ -12,6 +12,7 @@ import {
   formatPowerValueOnly,
 } from './powerFlowEngine';
 import DamChartPanel from './DamChartPanel';
+import RdnConsultationCallback from './RdnConsultationCallback';
 import DeyeInverterMessengerModal from './DeyeInverterMessengerModal';
 import PeakExportHourlyChartModal from './PeakExportHourlyChartModal';
 import RoiStackStatistics from './RoiStackStatistics';
@@ -23,6 +24,7 @@ import PfScrollNumber from './PfScrollNumber';
 import './power-flow.css';
 import './dam-chart.css';
 import { useTheme } from './useTheme';
+import { useOpenEmsSeo } from './useOpenEmsSeo';
 
 const INVERTER_STORAGE = 'pf-deye-inverter';
 
@@ -732,10 +734,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     };
   }, []);
 
-  useEffect(() => {
-    document.title = t('pageTitle');
-    document.documentElement.lang = locale === 'uk' ? 'uk' : locale;
-  }, [t, locale]);
+  useOpenEmsSeo(t('pageTitle'), locale, t);
 
   useEffect(() => {
     return () => {
@@ -3733,6 +3732,10 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
               </div>
             </div>
           ) : null}
+
+          <section className="pf-rdn-callback-section pf-rdn-callback-section--page-end" aria-label={t('rdnCallbackSectionAria')}>
+            <RdnConsultationCallback t={t} />
+          </section>
         </div>
 
         {dischargeConfirmOpen && essSocPercent != null && Number.isFinite(Number(essSocPercent)) ? (

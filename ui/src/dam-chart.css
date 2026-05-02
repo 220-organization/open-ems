@@ -9,6 +9,125 @@
   align-self: center;
 }
 
+.pf-rdn-callback-section {
+  width: 100%;
+  max-width: 1100px;
+  margin: 20px auto 0;
+  padding: 0 4px 8px;
+  align-self: center;
+}
+
+.pf-rdn-callback-section--page-end {
+  margin-top: 24px;
+  margin-bottom: max(24px, env(safe-area-inset-bottom));
+}
+
+.rdn-callback-card {
+  box-sizing: border-box;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 16px 18px 18px;
+  border-radius: 14px;
+  border: 1px solid var(--pf-border, rgba(255, 255, 255, 0.12));
+  background: linear-gradient(
+    165deg,
+    rgba(30, 10, 45, 0.92) 0%,
+    rgba(12, 4, 22, 0.96) 100%
+  );
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+}
+
+.rdn-callback-card__title {
+  margin: 0 0 14px;
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--pf-label, #f5e6ff);
+  text-align: center;
+}
+
+.rdn-callback-card__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rdn-callback-card__label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--pf-text-secondary, rgba(245, 230, 255, 0.78));
+}
+
+.rdn-callback-card__input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--pf-border, rgba(255, 255, 255, 0.14));
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--pf-text, #fff);
+  font-size: 1rem;
+}
+
+.rdn-callback-card__input::placeholder {
+  color: rgba(255, 255, 255, 0.38);
+}
+
+.rdn-callback-card__input:focus {
+  outline: 2px solid rgba(252, 1, 155, 0.55);
+  outline-offset: 1px;
+}
+
+.rdn-callback-card__hint {
+  margin: 12px 0 10px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--pf-text-hint, rgba(255, 255, 255, 0.52));
+  text-align: center;
+}
+
+.rdn-callback-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+
+.rdn-callback-card__btn {
+  flex: 1 1 140px;
+  min-height: 46px;
+  padding: 0 16px;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  color: #fff;
+  transition: opacity 0.15s ease, transform 0.12s ease;
+}
+
+.rdn-callback-card__btn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.rdn-callback-card__btn:not(:disabled):active {
+  transform: scale(0.98);
+}
+
+.rdn-callback-card__btn--telegram {
+  background: linear-gradient(145deg, #2aabee 0%, #0088cc 100%);
+  border-color: #0077b5;
+}
+
+.rdn-callback-card__btn--whatsapp {
+  background: linear-gradient(145deg, #3fe27c 0%, #25d366 55%, #128c7e 100%);
+  border-color: #1da851;
+}
+
 .dam-embedded-head {
   display: flex;
   flex-wrap: wrap;

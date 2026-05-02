@@ -2655,8 +2655,12 @@ a.pf-node {
   inset: 0;
   z-index: 10000;
   display: flex;
-  align-items: center;
+  /* Top-align so tall modals are not clipped above the fold (center would cut off header + close). */
+  align-items: flex-start;
   justify-content: center;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
   padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px))
     max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
   box-sizing: border-box;
@@ -2671,12 +2675,102 @@ a.pf-node {
   box-sizing: border-box;
 }
 
+.pf-messenger-dialog--deye-add {
+  max-width: min(96vw, 420px);
+  flex: 0 0 auto;
+  margin-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+}
+
 .pf-messenger-panel {
+  position: relative;
   padding: 24px 20px;
   text-align: center;
   background: #2d2d33;
   border-radius: 12px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+.pf-messenger-deye-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  text-align: left;
+}
+
+.pf-messenger-title--deye {
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #fff;
+  text-align: left;
+}
+
+.pf-messenger-close {
+  position: static;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 12px;
+  background: rgba(48, 48, 56, 0.98);
+  color: #fff;
+  font-size: 28px;
+  font-weight: 300;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.pf-messenger-close:hover {
+  background: rgba(252, 1, 155, 0.28);
+  border-color: rgba(252, 1, 155, 0.65);
+  color: #fff;
+}
+
+.pf-messenger-close:focus-visible {
+  outline: 2px solid rgba(252, 1, 155, 0.75);
+  outline-offset: 2px;
+}
+
+.pf-messenger-close-footer {
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(24, 8, 32, 0.85);
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.pf-messenger-close-footer:hover {
+  border-color: rgba(252, 1, 155, 0.45);
+  background: rgba(252, 1, 155, 0.12);
+}
+
+.pf-messenger-close-footer:focus-visible {
+  outline: 2px solid rgba(252, 1, 155, 0.75);
+  outline-offset: 2px;
 }
 
 .pf-messenger-title {
@@ -2823,6 +2917,7 @@ a.pf-node {
 }
 
 .pf-messenger-scrim.pf-messenger-scrim--220km {
+  align-items: center;
   background: rgba(0, 0, 0, 0.65);
   -webkit-backdrop-filter: blur(3px);
   backdrop-filter: blur(3px);
