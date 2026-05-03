@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
@@ -19,6 +20,7 @@ from app.lost_solar_deye import (
     sum_lost_solar_all_sample_kyiv_days,
 )
 from app.models import DeyeManualDischargeSession, DeyePeakAutoDischargeFired, OreeDamPrice
+from app.nbu_fx_service import fetch_usd_uah_rate_for_date
 from app.oree_dam_service import KYIV, oree_dam_configured
 from app import settings
 
@@ -27,6 +29,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/power-flow", tags=["power-flow"])
 
 _NO_STORE = {"Cache-Control": "no-store, max-age=0, must-revalidate"}
+
+_REFERENCE_LCOE_TTL_SEC = 6 * 3600
+_reference_lcoe_mono = 0.0
+_reference_lcoe_body: Optional[dict[str, Any]] = None
 
 
 def _kyiv_today() -> date:
@@ -1081,3 +1087,53 @@ async def lost_solar_hourly_bars(
             content={"ok": False, "error": "lost_solar_hourly_bars_failed"},
             headers=_NO_STORE,
         )
+
+
+@router.get("/reference-lcoe")
+async def reference_lcoe() -> JSONResponse:
+    """
+    Illustrative UAH/kWh for Power-flow nodes: LiFePO4 (8000 equiv. cycles) and tier-1 PV (20y),
+    from reference USD CAPEX assumptions × NBU UAH/USD. Tune via POWER_FLOW_* env vars — not a site quote.
+    """
+    global _reference_lcoe_mono, _reference_lcoe_body
+    now = time.monotonic()
+    if _reference_lcoe_body is not None and now - _reference_lcoe_mono < _REFERENCE_LCOE_TTL_SEC:
+        return JSONResponse(content=_reference_lcoe_body, headers=_NO_STORE)
+
+    today = date.today()
+    uah_per_usd = await fetch_usd_uah_rate_for_date(today)
+    if uah_per_usd is None or not math.isfinite(uah_per_usd) or uah_per_usd <= 0:
+        err: dict[str, Any] = {"ok": False, "detail": "nbu_usd_unavailable"}
+        return JSONResponse(content=err, headers=_NO_STORE)
+
+    dod = float(settings.POWER_FLOW_BATTERY_USABLE_DOD)
+    cyc = max(1, int(settings.POWER_FLOW_BATTERY_EQUIV_CYCLES))
+    denom_bat = max(1e-12, dod * float(cyc))
+    pack = float(settings.POWER_FLOW_REF_LIFEPO4_USD_PER_KWH)
+    bop = float(settings.POWER_FLOW_BATTERY_BOP_MULT)
+    battery_uah = pack * bop * uah_per_usd / denom_bat
+
+    pv_w = float(settings.POWER_FLOW_REF_PV_USD_PER_W)
+    years = max(1, int(settings.POWER_FLOW_PV_LIFE_YEARS))
+    yld = float(settings.POWER_FLOW_PV_YIELD_KWH_PER_KW_YEAR)
+    denom_pv = max(1e-12, yld * float(years))
+    solar_uah = (pv_w * 1000.0 * uah_per_usd) / denom_pv
+
+    body: dict[str, Any] = {
+        "ok": True,
+        "nbuUahPerUsd": round(uah_per_usd, 4),
+        "batteryAmortizedUahPerKwh": round(battery_uah, 4),
+        "solarAmortizedUahPerKwh": round(solar_uah, 4),
+        "assumptions": {
+            "lifepo4RefUsdPerKwhNominal": pack,
+            "batteryBopMultiplier": bop,
+            "batteryUsableDod": dod,
+            "batteryEquivCycles": cyc,
+            "pvInstalledUsdPerW": pv_w,
+            "pvLifetimeYears": years,
+            "pvYieldKwhPerKwYear": yld,
+        },
+    }
+    _reference_lcoe_mono = now
+    _reference_lcoe_body = body
+    return JSONResponse(content=body, headers=_NO_STORE)

@@ -93,6 +93,17 @@ def _env_int(name: str, default: int, min_v: int, max_v: int) -> int:
     return max(min_v, min(max_v, v))
 
 
+def _env_float(name: str, default: float, min_v: float, max_v: float) -> float:
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        v = float(raw)
+    except ValueError:
+        return default
+    return max(min_v, min(max_v, v))
+
+
 # Max age of a cached getStationList row before refreshing from Northbound; also used to skip getStationList
 # while the Postgres/RAM snapshot is younger than this (reduces failCode 407 on shared Northbound accounts).
 # Env var name kept for compatibility.
@@ -324,4 +335,19 @@ CORS_ALLOW_ORIGINS: tuple[str, ...] = (
 _cors_regex_explicit = (os.environ.get("CORS_ALLOW_ORIGIN_REGEX") or "").strip()
 CORS_ALLOW_ORIGIN_REGEX: str = (
     _cors_regex_explicit if _cors_regex_explicit else r"https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+)
+
+# Power-flow node: illustrative LCOE (UAH/kWh) from reference CAPEX + NBU USD/UAH (not site-specific).
+# LiFePO4: pack reference $/kWh (nominal cell/pack tier) × BOP multiplier, amortised over usable DOD × equivalent cycles.
+POWER_FLOW_REF_LIFEPO4_USD_PER_KWH: float = _env_float(
+    "POWER_FLOW_REF_LIFEPO4_USD_PER_KWH", 105.0, 40.0, 400.0
+)
+POWER_FLOW_BATTERY_BOP_MULT: float = _env_float("POWER_FLOW_BATTERY_BOP_MULT", 2.45, 1.0, 5.0)
+POWER_FLOW_BATTERY_USABLE_DOD: float = _env_float("POWER_FLOW_BATTERY_USABLE_DOD", 0.9, 0.5, 1.0)
+POWER_FLOW_BATTERY_EQUIV_CYCLES: int = _env_int("POWER_FLOW_BATTERY_EQUIV_CYCLES", 8000, 1000, 20_000)
+# Tier-1 PV: installed $/W (modules+BOS), amortised over yield kWh/kWp/year × lifetime years.
+POWER_FLOW_REF_PV_USD_PER_W: float = _env_float("POWER_FLOW_REF_PV_USD_PER_W", 0.30, 0.08, 1.5)
+POWER_FLOW_PV_LIFE_YEARS: int = _env_int("POWER_FLOW_PV_LIFE_YEARS", 20, 5, 40)
+POWER_FLOW_PV_YIELD_KWH_PER_KW_YEAR: float = _env_float(
+    "POWER_FLOW_PV_YIELD_KWH_PER_KW_YEAR", 900.0, 700.0, 2000.0
 )

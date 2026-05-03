@@ -96,10 +96,13 @@ export function flowMotionPath(x1, y1, x2, y2) {
 /**
  * Distance from graph edge to outer node center (px). Wider on narrow containers so
  * tiles stay inside the square; must match CSS --pf-graph-anchor-pct on .pf-graph.
+ * On wide desktop tiles (~140px) need a larger inset so half-width does not spill past the graph.
  */
 export function edgeInsetPx(containerW) {
   const w = Math.max(containerW, 1);
-  if (w >= 560) return 34;
+  if (w >= 560) {
+    return Math.min(90, Math.max(48, Math.round(0.074 * w + 19)));
+  }
   const t = Math.max(0, Math.min(1, (560 - w) / 220));
   return 34 + t * 44;
 }

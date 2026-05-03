@@ -1234,6 +1234,27 @@ body {
   flex-shrink: 0;
 }
 
+/* Desktop: cap graph by viewport height so hub + six tiles stay inside the column, and keep the block visually centered */
+@media (min-width: 1024px) {
+  .pf-graph-wrap {
+    padding-block: 10px;
+  }
+
+  .pf-graph {
+    --pf-side: min(
+      min(calc((100vw - 32px) * 0.85), max(260px, calc(100svh - 340px))),
+      860px
+    );
+    max-width: 860px;
+  }
+
+  @supports (height: 100dvh) {
+    .pf-graph {
+      --pf-side: min(min(calc((100vw - 32px) * 0.85), max(260px, calc(100dvh - 340px))), 860px);
+    }
+  }
+}
+
 /* Padding-bottom % is relative to width — stable square height with only absolute children */
 .pf-graph-sizer {
   display: block;
@@ -1498,6 +1519,11 @@ a.pf-node {
   font-size: 9px;
   margin-top: 2px;
   opacity: 0.78;
+}
+
+/* UAH/kWh line is last in node stack — keep a bit of air after forecast / SoC */
+.pf-node-sub + .pf-node-meta {
+  margin-top: 4px;
 }
 
 .pf-ess-status {

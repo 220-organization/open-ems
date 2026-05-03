@@ -845,6 +845,38 @@ def _ensure_power_flow_export_flags(body: dict[str, Any]) -> None:
         body["essSocPercent"] = None
 
 
+# Huawei-only: treat grid import as zero when PV and load are kW-scale and nearly equal.
+# Mitigates Northbound kW-vs-W heuristics (_normalize_maybe_kw_to_w) blowing up small imports.
+_HUAWEI_SELF_CONSUMPTION_MIN_PV_LOAD_W = 2500.0
+_HUAWEI_SELF_CONSUMPTION_MAX_PV_LOAD_DIFF_W = 1000.0
+
+
+def _huawei_zero_grid_import_when_pv_meets_load(
+    pv_w: Optional[float],
+    load_w: Optional[float],
+    grid_ui: Optional[float],
+) -> Optional[float]:
+    """
+    If PV and load are both ~3+ kW and within ~1 kW of each other, force grid import to 0 W.
+
+    Keeps grid export (negative grid_ui) unchanged. Only applies to Huawei get_power_flow.
+    """
+    if grid_ui is None or grid_ui <= 0:
+        return grid_ui
+    if pv_w is None or load_w is None:
+        return grid_ui
+    try:
+        pv_f = float(pv_w)
+        load_f = float(load_w)
+    except (TypeError, ValueError):
+        return grid_ui
+    if pv_f < _HUAWEI_SELF_CONSUMPTION_MIN_PV_LOAD_W or load_f < _HUAWEI_SELF_CONSUMPTION_MIN_PV_LOAD_W:
+        return grid_ui
+    if abs(pv_f - load_f) > _HUAWEI_SELF_CONSUMPTION_MAX_PV_LOAD_DIFF_W:
+        return grid_ui
+    return 0.0
+
+
 async def get_power_flow(station_code: str) -> dict[str, Any]:
     """
     Instantaneous PV / grid / load (W) via getDevList + getDevRealKpi (meter + inverter).
@@ -881,6 +913,8 @@ async def get_power_flow(station_code: str) -> dict[str, Any]:
             load_w: Optional[float] = None
             if inv_raw is not None and meter_raw is not None:
                 load_w = max(0.0, float(inv_raw) - float(meter_raw))
+
+            grid_ui = _huawei_zero_grid_import_when_pv_meets_load(pv_w, load_w, grid_ui)
 
             has_battery_kpi = _has_battery_device_in_dev_list(dev_rows) if dev_rows else False
             ess_soc = _ess_soc_percent_from_inverter_dim(inv_dim)

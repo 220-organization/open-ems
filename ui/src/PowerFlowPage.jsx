@@ -54,6 +54,37 @@ function apiUrl(path) {
   return `${base}${path}`;
 }
 
+/** Kyiv calendar date YYYY-MM-DD for OREE DAM trade day (aligned with DamChartPanel /api/dam/chart-day). */
+function kyivCalendarIsoForDam() {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Kyiv',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+/** Kyiv local wall-clock hour 0–23 (Europe/Kyiv); indexes hourlyPriceDamUahPerKwh[0..23] (period 1..24). */
+function kyivWallHour0to23() {
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/Kyiv',
+      hour: 'numeric',
+      hour12: false,
+    }).formatToParts(new Date());
+    const hp = parts.find(p => p.type === 'hour');
+    if (!hp) return null;
+    const h = parseInt(hp.value, 10);
+    return Number.isFinite(h) ? h % 24 : null;
+  } catch {
+    return null;
+  }
+}
+
 function EvCarMark({ className = '' }) {
   return (
     <svg
@@ -422,6 +453,35 @@ function landingRetailUahPerKwh(damAvgUahPerKwh) {
   return (x + LANDING_TARIFF_DISTRIBUTION_UAH_PER_KWH) * LANDING_TARIFF_VAT_MULTIPLIER;
 }
 
+/**
+ * Power-weighted mean UAH/kWh from active EV sessions (charging-ports items).
+ * ``costPerKwt`` is kopecks/kWh (see 220-km ChargingPage: UAH/kWh = costPerKwt/100).
+ * Weights by live ``powerWt`` (W); sessions without power fall back to a simple mean.
+ */
+function volumeWeightedActiveEvSessionTariffUahPerKwh(items) {
+  if (!Array.isArray(items) || items.length === 0) return null;
+  let wsum = 0;
+  let wtot = 0;
+  const unweighted = [];
+  for (const it of items) {
+    const ck = Number(it?.costPerKwt);
+    if (!Number.isFinite(ck) || ck <= 0) continue;
+    const uah = ck / 100.0;
+    const pw = Number(it?.powerWt);
+    if (Number.isFinite(pw) && pw > 0) {
+      wsum += uah * pw;
+      wtot += pw;
+    } else {
+      unweighted.push(uah);
+    }
+  }
+  if (wtot > 1e-6) return wsum / wtot;
+  if (unweighted.length > 0) {
+    return unweighted.reduce((a, b) => a + b, 0) / unweighted.length;
+  }
+  return null;
+}
+
 /** Fleet totals block: kWh exported + DAM tariff line (Kyiv current month vs previous month). */
 function formatLandingTotalsDisplay(landingTotals, bcp47, t) {
   if (!landingTotals?.ok) return null;
@@ -671,6 +731,25 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   /** Charging power (W) from GET /api/b2b/station-status for the selected EV port; null = unknown / error. */
   const [evStationPowerW, setEvStationPowerW] = useState(null);
   const [evStationPowerLoading, setEvStationPowerLoading] = useState(false);
+  /**
+   * Fallback: network-wide volume-weighted avg UAH/kWh from GET /api/b2b/charging-network-tariff-avg (past UTC days).
+   * EV node prefers live session tariffs from charging-ports when any active job includes costPerKwt.
+   */
+  const [evChargingNetworkTariff, setEvChargingNetworkTariff] = useState({ loading: true, value: null });
+  /** Reference LCOE (UAH/kWh) from GET /api/power-flow/reference-lcoe — illustrative, not site-specific. */
+  const [referenceLcoe, setReferenceLcoe] = useState({
+    loading: true,
+    ok: false,
+    solarUahPerKwh: null,
+    batteryUahPerKwh: null,
+  });
+  /** Kyiv-today OREE hourly DAM (UAH/kWh) from GET /api/dam/chart-day — for grid node's current hour. */
+  const [damKyivTodayHourly, setDamKyivTodayHourly] = useState({
+    loading: true,
+    tradeDayIso: null,
+    hourlyUahPerKwh: null,
+    oreeConfigured: false,
+  });
   const [simTick, setSimTick] = useState(0);
   const [deyeMessengerOpen, setDeyeMessengerOpen] = useState(false);
   const [shareFeedback, setShareFeedback] = useState(null);
@@ -695,6 +774,20 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
         maximumFractionDigits: 1,
       }),
     [bcp47]
+  );
+
+  const formatUahPerKwhTariffLine = useCallback(
+    v => {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return '';
+      return t('tariffKwh', {
+        value: new Intl.NumberFormat(bcp47, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        }).format(Math.max(0, n)),
+      });
+    },
+    [bcp47, t]
   );
 
   /** Dropdown CAPEX: plain amount + space + $ (no locale currency symbol / grouping). */
@@ -764,6 +857,93 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
 
     load();
     const id = setInterval(load, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const r = await fetch(apiUrl('/api/b2b/charging-network-tariff-avg?days=7'), { cache: 'no-store' });
+        const d = await r.json();
+        if (cancelled) return;
+        const v = d?.avgUahPerKwh;
+        if (d?.ok && typeof v === 'number' && Number.isFinite(v)) {
+          setEvChargingNetworkTariff({ loading: false, value: v });
+        } else {
+          setEvChargingNetworkTariff({ loading: false, value: null });
+        }
+      } catch {
+        if (!cancelled) setEvChargingNetworkTariff({ loading: false, value: null });
+      }
+    };
+    void load();
+    const id = setInterval(load, 3_600_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const r = await fetch(apiUrl('/api/power-flow/reference-lcoe'), { cache: 'no-store' });
+        const d = await r.json();
+        if (cancelled) return;
+        const s = Number(d?.solarAmortizedUahPerKwh);
+        const b = Number(d?.batteryAmortizedUahPerKwh);
+        if (d?.ok && Number.isFinite(s) && Number.isFinite(b)) {
+          setReferenceLcoe({ loading: false, ok: true, solarUahPerKwh: s, batteryUahPerKwh: b });
+        } else {
+          setReferenceLcoe({ loading: false, ok: false, solarUahPerKwh: null, batteryUahPerKwh: null });
+        }
+      } catch {
+        if (!cancelled) {
+          setReferenceLcoe({ loading: false, ok: false, solarUahPerKwh: null, batteryUahPerKwh: null });
+        }
+      }
+    };
+    void load();
+    const id = setInterval(load, 6 * 3_600_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const day = kyivCalendarIsoForDam();
+      try {
+        const r = await fetch(apiUrl(`/api/dam/chart-day?date=${encodeURIComponent(day)}`), { cache: 'no-store' });
+        const d = await r.json();
+        if (cancelled) return;
+        const hourly = Array.isArray(d?.hourlyPriceDamUahPerKwh) ? d.hourlyPriceDamUahPerKwh : null;
+        setDamKyivTodayHourly({
+          loading: false,
+          tradeDayIso: typeof d?.date === 'string' ? d.date : day,
+          hourlyUahPerKwh: hourly,
+          oreeConfigured: Boolean(d?.oreeConfigured),
+        });
+      } catch {
+        if (!cancelled) {
+          setDamKyivTodayHourly({
+            loading: false,
+            tradeDayIso: day,
+            hourlyUahPerKwh: null,
+            oreeConfigured: false,
+          });
+        }
+      }
+    };
+    void load();
+    const id = setInterval(load, 300_000);
     return () => {
       cancelled = true;
       clearInterval(id);
@@ -1937,6 +2117,20 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   }, [chargingPorts.items, stationFilter]);
   const evPortsUsedCount = chargingPorts.items.length;
 
+  /** Prefer power-weighted tariff across current IN_PROGRESS sessions; else 7-day public network average. */
+  const evDisplayTariffUahPerKwh = useMemo(() => {
+    const fromSessions = volumeWeightedActiveEvSessionTariffUahPerKwh(chargingPorts.items);
+    if (fromSessions != null && Number.isFinite(fromSessions)) return fromSessions;
+    if (
+      !evChargingNetworkTariff.loading &&
+      evChargingNetworkTariff.value != null &&
+      Number.isFinite(evChargingNetworkTariff.value)
+    ) {
+      return evChargingNetworkTariff.value;
+    }
+    return null;
+  }, [chargingPorts.items, evChargingNetworkTariff.loading, evChargingNetworkTariff.value]);
+
   const consumptionMw = realtimePower?.powerMw ?? 0;
   const liveMinerW =
     minerSnap?.configured && minerSnap.powerW != null && Number.isFinite(minerSnap.powerW)
@@ -2101,6 +2295,31 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     graphMinerFlowW > 0;
   const geom = useMemo(() => computeWideGeometry(graphWidth), [graphWidth]);
   const graphAnchorPct = useMemo(() => (edgeInsetPx(graphWidth) / Math.max(graphWidth, 1)) * 100, [graphWidth]);
+  const gridDamMonthAvgUahPerKwh = useMemo(() => {
+    const dam = landingTotals?.dam;
+    if (!dam?.configured) return null;
+    const x = dam.currentAvgUahPerKwh;
+    return typeof x === 'number' && Number.isFinite(x) ? x : null;
+  }, [landingTotals]);
+
+  const gridDamTariffUahPerKwh = useMemo(() => {
+    const today = kyivCalendarIsoForDam();
+    const h = kyivWallHour0to23();
+    const snap = damKyivTodayHourly;
+    if (
+      !snap.loading &&
+      snap.oreeConfigured &&
+      snap.tradeDayIso === today &&
+      snap.hourlyUahPerKwh &&
+      snap.hourlyUahPerKwh.length >= 24 &&
+      h != null
+    ) {
+      const raw = snap.hourlyUahPerKwh[h];
+      const n = Number(raw);
+      if (Number.isFinite(n)) return n;
+    }
+    return gridDamMonthAvgUahPerKwh;
+  }, [damKyivTodayHourly, gridDamMonthAvgUahPerKwh]);
 
   const gBuy = geom.gridLine;
   const gSell = geom.gridLineSelling;
@@ -3361,6 +3580,11 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                       )}
                     </span>
                   ) : null}
+                  <div className="pf-node-meta" id="pf-solar-lcoe" title={t('lcoeSolarMetaTitle')}>
+                    {!referenceLcoe.loading && referenceLcoe.ok
+                      ? formatUahPerKwhTariffLine(referenceLcoe.solarUahPerKwh)
+                      : ''}
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -3395,6 +3619,9 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                     <span className="pf-ess-status" id="pf-grid-selling" hidden={!gridSelling}>
                       {t('gridSelling')}
                     </span>
+                    <div className="pf-node-meta" id="pf-grid-tariff" title={t('gridDamTariffNodeTitle')}>
+                      {formatUahPerKwhTariffLine(gridDamTariffUahPerKwh)}
+                    </div>
                   </button>
                 </div>
                 <div
@@ -3512,6 +3739,11 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                       {t('essSocLoading')}
                     </span>
                   ) : null}
+                  <div className="pf-node-meta" id="pf-ess-lcoe" title={t('lcoeBatteryMetaTitle')}>
+                    {!referenceLcoe.loading && referenceLcoe.ok
+                      ? formatUahPerKwhTariffLine(referenceLcoe.batteryUahPerKwh)
+                      : ''}
+                  </div>
                 </button>
                 <a
                   className="pf-node"
@@ -3534,14 +3766,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                       : formatPower(graphDisplayMinerW, t, bcp47)}
                   </span>
                   <div className="pf-node-meta" id="pf-miner-tariff">
-                    {tf != null && Number.isFinite(tf)
-                      ? t('tariffKwh', {
-                          value: new Intl.NumberFormat(bcp47, {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          }).format(Math.max(0, tf)),
-                        })
-                      : ''}
+                    {formatUahPerKwhTariffLine(tf)}
                   </div>
                 </a>
                 {stationFilter.trim() ? (
@@ -3564,6 +3789,11 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                         ? '…'
                         : formatPower(evStationPowerW, t, bcp47)}
                     </span>
+                    <div className="pf-node-meta" id="pf-ev-tariff">
+                      {evDisplayTariffUahPerKwh != null
+                        ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh)
+                        : ''}
+                    </div>
                   </a>
                 ) : showEvAggregate ? (
                   <a
@@ -3582,6 +3812,11 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                     <span className="pf-node-value" id="pf-val-ev">
                       {evBusy ? '…' : formatPower(aggregateEvFlowW, t, bcp47)}
                     </span>
+                    <div className="pf-node-meta" id="pf-ev-tariff">
+                      {evDisplayTariffUahPerKwh != null
+                        ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh)
+                        : ''}
+                    </div>
                   </a>
                 ) : (
                   <div
@@ -3598,6 +3833,11 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                     <span className="pf-node-value" id="pf-val-ev">
                       {formatPower(null, t, bcp47)}
                     </span>
+                    <div className="pf-node-meta" id="pf-ev-tariff">
+                      {evDisplayTariffUahPerKwh != null
+                        ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh)
+                        : ''}
+                    </div>
                   </div>
                 )}
               </div>
