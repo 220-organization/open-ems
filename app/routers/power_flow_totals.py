@@ -1106,12 +1106,17 @@ async def reference_lcoe() -> JSONResponse:
         err: dict[str, Any] = {"ok": False, "detail": "nbu_usd_unavailable"}
         return JSONResponse(content=err, headers=_NO_STORE)
 
+    from app.ref_battery_lcoe import compute_reference_battery_uah_per_kwh
+
+    battery_uah = await compute_reference_battery_uah_per_kwh(today)
+    if battery_uah is None:
+        err = {"ok": False, "detail": "nbu_usd_unavailable"}
+        return JSONResponse(content=err, headers=_NO_STORE)
+
     dod = float(settings.POWER_FLOW_BATTERY_USABLE_DOD)
     cyc = max(1, int(settings.POWER_FLOW_BATTERY_EQUIV_CYCLES))
-    denom_bat = max(1e-12, dod * float(cyc))
     pack = float(settings.POWER_FLOW_REF_LIFEPO4_USD_PER_KWH)
     bop = float(settings.POWER_FLOW_BATTERY_BOP_MULT)
-    battery_uah = pack * bop * uah_per_usd / denom_bat
 
     pv_w = float(settings.POWER_FLOW_REF_PV_USD_PER_W)
     years = max(1, int(settings.POWER_FLOW_PV_LIFE_YEARS))

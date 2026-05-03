@@ -157,6 +157,18 @@ class DeyeSelfConsumptionPref(Base):
     )
 
 
+class DeyeSelfConsumptionAutoDamPref(Base):
+    """Per-inverter: when enabled, server toggles self-consumption from DAM (Kyiv hour) vs reference battery LCOE."""
+
+    __tablename__ = "deye_self_consumption_auto_dam_pref"
+
+    device_sn: Mapped[str] = mapped_column(String(64), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    updated_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
 class DeyeLowDamChargePref(Base):
     """Per-inverter: low-DAM auto charge flag and SoC rise % (10/20/50/100)."""
 

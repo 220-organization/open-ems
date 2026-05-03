@@ -30,6 +30,11 @@ from app.deye_low_dam_charge_service import (
     set_low_dam_charge_from_ui,
 )
 from app.deye_night_charge_service import get_night_charge_pref, set_night_charge_from_ui
+from app.deye_self_consumption_auto_dam_service import (
+    get_self_consumption_auto_dam_pref,
+    set_self_consumption_auto_dam_from_ui,
+    sync_self_consumption_auto_dam_for_device,
+)
 from app.deye_self_consumption_service import (
     get_self_consumption_pref,
     set_self_consumption_from_ui,
@@ -131,6 +136,12 @@ class NightChargeBody(BaseModel):
 
 
 class SelfConsumptionBody(BaseModel):
+    deviceSn: str = Field(..., min_length=6, max_length=64)
+    enabled: bool
+    pin: Optional[str] = Field(default=None, max_length=12)
+
+
+class SelfConsumptionAutoDamBody(BaseModel):
     deviceSn: str = Field(..., min_length=6, max_length=64)
     enabled: bool
     pin: Optional[str] = Field(default=None, max_length=12)
@@ -1089,5 +1100,76 @@ async def post_self_consumption(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return JSONResponse(
         content={"ok": True, "configured": True, "deviceSn": sn, "enabled": body.enabled},
+        headers=_NO_STORE_CACHE,
+    )
+
+
+@router.get("/self-consumption-auto-dam")
+async def get_self_consumption_auto_dam(
+    deviceSn: str = Query(
+        ...,
+        min_length=6,
+        max_length=32,
+        pattern=r"^[0-9]+$",
+        description="Deye inverter serial",
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Per-device: auto self-consumption from current Kyiv hour DAM vs reference battery LCOE."""
+    if not deye_configured():
+        return JSONResponse(
+            content={"ok": False, "configured": False, "enabled": False},
+            headers=_NO_STORE_CACHE,
+        )
+    enabled = await get_self_consumption_auto_dam_pref(db, deviceSn.strip())
+    return JSONResponse(
+        content={"ok": True, "configured": True, "deviceSn": deviceSn.strip(), "enabled": enabled},
+        headers=_NO_STORE_CACHE,
+    )
+
+
+@router.post("/self-consumption-auto-dam")
+async def post_self_consumption_auto_dam(
+    body: SelfConsumptionAutoDamBody,
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Upsert auto DAM vs LCOE rule; applies one sync in the same transaction when enabling."""
+    if not deye_configured():
+        missing = deye_missing_env_names()
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": False,
+                "enabled": False,
+                "detail": "DEYE_* not set"
+                + (f" (missing: {', '.join(missing)})" if missing else ""),
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    sn = body.deviceSn.strip()
+    try:
+        await assert_deye_write_pin(sn, body.pin)
+        await set_self_consumption_auto_dam_from_ui(db, sn, body.enabled)
+        await sync_self_consumption_auto_dam_for_device(db, sn)
+        sc_after = await get_self_consumption_pref(db, sn)
+        await db.commit()
+    except HTTPException:
+        await db.rollback()
+        raise
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        await db.rollback()
+        logger.exception("POST /api/deye/self-consumption-auto-dam — failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return JSONResponse(
+        content={
+            "ok": True,
+            "configured": True,
+            "deviceSn": sn,
+            "enabled": body.enabled,
+            "selfConsumptionEnabled": bool(sc_after),
+        },
         headers=_NO_STORE_CACHE,
     )

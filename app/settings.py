@@ -302,6 +302,14 @@ DEYE_LOW_DAM_CHARGE_INTERVAL_SEC: int = _env_int("DEYE_LOW_DAM_CHARGE_INTERVAL_S
 DEYE_NIGHT_CHARGE_SCHEDULER_ENABLED: bool = _env_bool("DEYE_NIGHT_CHARGE_SCHEDULER_ENABLED", True)
 DEYE_NIGHT_CHARGE_INTERVAL_SEC: int = _env_int("DEYE_NIGHT_CHARGE_INTERVAL_SEC", 600, 20, 600)
 
+# Backend: toggle self-consumption when current Kyiv hour DAM (UAH/kWh) exceeds reference battery LCOE (per-device pref).
+DEYE_SELF_CONSUMPTION_AUTO_DAM_SCHEDULER_ENABLED: bool = _env_bool(
+    "DEYE_SELF_CONSUMPTION_AUTO_DAM_SCHEDULER_ENABLED", True
+)
+DEYE_SELF_CONSUMPTION_AUTO_DAM_INTERVAL_SEC: int = _env_int(
+    "DEYE_SELF_CONSUMPTION_AUTO_DAM_INTERVAL_SEC", 300, 30, 3600
+)
+
 # EV port binding: inverter label must contain ``evport<station>`` (e.g. ``evport738``). Poll 220-km station status and
 # match export power to job powerWt while state is IN_PROGRESS (see deye_ev_port_export_service). Active only when DEYE_* is set.
 DEYE_EV_PORT_EXPORT_INTERVAL_SEC: int = _env_int("DEYE_EV_PORT_EXPORT_INTERVAL_SEC", 30, 15, 300)

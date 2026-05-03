@@ -1409,6 +1409,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const [lowDamChargeEnabled, setLowDamChargeEnabled] = useState(false);
   const [chargeSocDeltaPct, setChargeSocDeltaPct] = useState(10);
   const [selfConsumptionEnabled, setSelfConsumptionEnabled] = useState(false);
+  const [selfConsumptionAutoDamEnabled, setSelfConsumptionAutoDamEnabled] = useState(false);
   const [nightChargeEnabled, setNightChargeEnabled] = useState(false);
   const [toolbarPrefsLoading, setToolbarPrefsLoading] = useState(false);
   /** Fleet or per-inverter totals from GET /api/power-flow/landing-totals. */
@@ -1535,6 +1536,9 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     if (typeof snap.peakDamDischargeEnabled === 'boolean') setPeakDamDischargeEnabled(snap.peakDamDischargeEnabled);
     if (typeof snap.lowDamChargeEnabled === 'boolean') setLowDamChargeEnabled(snap.lowDamChargeEnabled);
     if (typeof snap.selfConsumptionEnabled === 'boolean') setSelfConsumptionEnabled(snap.selfConsumptionEnabled);
+    if (typeof snap.selfConsumptionAutoDamEnabled === 'boolean') {
+      setSelfConsumptionAutoDamEnabled(snap.selfConsumptionAutoDamEnabled);
+    }
     if (snap.chargeSocDeltaPct != null && Number.isFinite(Number(snap.chargeSocDeltaPct))) {
       setChargeSocDeltaPct(normalizeChargeSocDeltaPct(snap.chargeSocDeltaPct));
     }
@@ -1562,6 +1566,8 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       setDischargeSocDeltaPct(80);
       setLowDamChargeEnabled(false);
       setChargeSocDeltaPct(10);
+      setSelfConsumptionEnabled(false);
+      setSelfConsumptionAutoDamEnabled(false);
       setNightChargeEnabled(false);
       setToolbarPrefsLoading(false);
       return undefined;
@@ -1575,6 +1581,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       setLowDamChargeEnabled(false);
       setChargeSocDeltaPct(10);
       setSelfConsumptionEnabled(false);
+      setSelfConsumptionAutoDamEnabled(false);
       setNightChargeEnabled(false);
       setToolbarPrefsLoading(false);
       return undefined;
@@ -1584,16 +1591,18 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       setToolbarPrefsLoading(true);
       try {
         const q = new URLSearchParams({ deviceSn: selInverterSn });
-        const [rPeak, rLow, rSc, rNight] = await Promise.all([
+        const [rPeak, rLow, rSc, rNight, rAutoDam] = await Promise.all([
           fetch(`${apiUrl('/api/deye/peak-auto-discharge')}?${q}`, { cache: 'no-store' }),
           fetch(`${apiUrl('/api/deye/low-dam-charge')}?${q}`, { cache: 'no-store' }),
           fetch(`${apiUrl('/api/deye/self-consumption')}?${q}`, { cache: 'no-store' }),
           fetch(`${apiUrl('/api/deye/night-charge')}?${q}`, { cache: 'no-store' }),
+          fetch(`${apiUrl('/api/deye/self-consumption-auto-dam')}?${q}`, { cache: 'no-store' }),
         ]);
         const dataPeak = await rPeak.json().catch(() => ({}));
         const dataLow = await rLow.json().catch(() => ({}));
         const dataSc = await rSc.json().catch(() => ({}));
         const dataNight = await rNight.json().catch(() => ({}));
+        const dataAutoDam = await rAutoDam.json().catch(() => ({}));
         if (cancelled) return;
         if (rPeak.ok && dataPeak.ok && dataPeak.configured && typeof dataPeak.enabled === 'boolean') {
           setPeakDamDischargeEnabled(dataPeak.enabled);
@@ -1634,6 +1643,11 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
         } else {
           setNightChargeEnabled(false);
         }
+        if (rAutoDam.ok && dataAutoDam.ok && dataAutoDam.configured && typeof dataAutoDam.enabled === 'boolean') {
+          setSelfConsumptionAutoDamEnabled(dataAutoDam.enabled);
+        } else {
+          setSelfConsumptionAutoDamEnabled(false);
+        }
       } catch {
         if (!cancelled) {
           setPeakDamDischargeEnabled(false);
@@ -1641,6 +1655,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
           setLowDamChargeEnabled(false);
           setChargeSocDeltaPct(10);
           setSelfConsumptionEnabled(false);
+          setSelfConsumptionAutoDamEnabled(false);
           setNightChargeEnabled(false);
         }
       } finally {
@@ -1795,6 +1810,43 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       if (p) {
         rememberInverterPin(sn, p);
         setPinCacheBust(x => x + 1);
+      }
+      return data;
+    },
+    [selInverterSn]
+  );
+
+  const saveSelfConsumptionAutoDamPref = useCallback(
+    async (nextEnabled, pin) => {
+      const sn = selInverterSn?.trim();
+      if (!sn) return null;
+      const body = { deviceSn: sn, enabled: nextEnabled };
+      const p = pin != null ? String(pin).trim() : '';
+      if (p) body.pin = p;
+      const r = await fetch(apiUrl('/api/deye/self-consumption-auto-dam'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        cache: 'no-store',
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        if (r.status === 403) {
+          clearInverterPinCache(sn);
+          setPinCacheBust(x => x + 1);
+        }
+        let msg = data.detail ?? r.statusText;
+        if (Array.isArray(msg)) {
+          msg = msg.map(x => (x && typeof x === 'object' ? x.msg || JSON.stringify(x) : x)).join('; ');
+        }
+        throw new Error(String(msg || 'Save failed'));
+      }
+      if (p) {
+        rememberInverterPin(sn, p);
+        setPinCacheBust(x => x + 1);
+      }
+      if (data && typeof data.selfConsumptionEnabled === 'boolean') {
+        setSelfConsumptionEnabled(data.selfConsumptionEnabled);
       }
       return data;
     },
@@ -2708,6 +2760,14 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
         if (data && typeof data.enabled === 'boolean') {
           setSelfConsumptionEnabled(data.enabled);
         }
+      } else if (g.kind === 'selfConsumptionAutoDam') {
+        const data = await saveSelfConsumptionAutoDamPref(g.nextEnabled, pin);
+        if (data && typeof data.enabled === 'boolean') {
+          setSelfConsumptionAutoDamEnabled(data.enabled);
+        }
+        if (data && typeof data.selfConsumptionEnabled === 'boolean') {
+          setSelfConsumptionEnabled(data.selfConsumptionEnabled);
+        }
       } else if (g.kind === 'nightCharge') {
         const data = await saveNightChargePref(g.nextEnabled, g.nextPct, pin);
         applyNightChargeToolbarSnap(data);
@@ -2725,6 +2785,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     savePeakAutoPref,
     saveLowDamChargePref,
     saveSelfConsumptionPref,
+    saveSelfConsumptionAutoDamPref,
     saveNightChargePref,
     applyNightChargeToolbarSnap,
     selInverterEvportBound,
@@ -4089,7 +4150,11 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                               <input
                                 type="checkbox"
                                 checked={selfConsumptionEnabled}
-                                disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
+                                disabled={
+                                  deyeWritesHardBlocked ||
+                                  toolbarLockedByNightCharge ||
+                                  selfConsumptionAutoDamEnabled
+                                }
                                 onChange={async e => {
                                   if (!remoteWriteConfigured) {
                                     setRemoteWriteNeedsPinOpen(true);
@@ -4136,6 +4201,65 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                               />
                               <span className="pf-peak-dam-toggle-label" title={t('selfConsumptionToggleHint')}>
                                 {t('selfConsumptionToggle')}
+                              </span>
+                            </label>
+                            <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
+                              <input
+                                type="checkbox"
+                                checked={selfConsumptionAutoDamEnabled}
+                                disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
+                                onChange={async e => {
+                                  if (!remoteWriteConfigured) {
+                                    setRemoteWriteNeedsPinOpen(true);
+                                    return;
+                                  }
+                                  const v = e.target.checked;
+                                  const sn = selInverterSn?.trim();
+                                  if (!sn) return;
+                                  const prev = selfConsumptionAutoDamEnabled;
+                                  const cached = readCachedInverterPin(sn);
+                                  if (cached) {
+                                    setSelfConsumptionAutoDamEnabled(v);
+                                    setDischarge2Feedback('');
+                                    try {
+                                      const data = await saveSelfConsumptionAutoDamPref(v, cached);
+                                      if (data && typeof data.enabled === 'boolean') {
+                                        setSelfConsumptionAutoDamEnabled(data.enabled);
+                                      }
+                                      if (data && typeof data.selfConsumptionEnabled === 'boolean') {
+                                        setSelfConsumptionEnabled(data.selfConsumptionEnabled);
+                                      }
+                                    } catch (err) {
+                                      setSelfConsumptionAutoDamEnabled(prev);
+                                      const m = err instanceof Error ? err.message : String(err);
+                                      setDischarge2Feedback(`${t('selfConsumptionAutoDamSaveError')}: ${m}`);
+                                    }
+                                    return;
+                                  }
+                                  if (selInverterEvportBound) {
+                                    setSelfConsumptionAutoDamEnabled(v);
+                                    setDischarge2Feedback('');
+                                    try {
+                                      const data = await saveSelfConsumptionAutoDamPref(v, '');
+                                      if (data && typeof data.enabled === 'boolean') {
+                                        setSelfConsumptionAutoDamEnabled(data.enabled);
+                                      }
+                                      if (data && typeof data.selfConsumptionEnabled === 'boolean') {
+                                        setSelfConsumptionEnabled(data.selfConsumptionEnabled);
+                                      }
+                                    } catch (err) {
+                                      setSelfConsumptionAutoDamEnabled(prev);
+                                      const m = err instanceof Error ? err.message : String(err);
+                                      setDischarge2Feedback(`${t('selfConsumptionAutoDamSaveError')}: ${m}`);
+                                    }
+                                    return;
+                                  }
+                                  setWritePinGate({ kind: 'selfConsumptionAutoDam', nextEnabled: v });
+                                }}
+                                aria-label={t('selfConsumptionAutoDamToggleAria')}
+                              />
+                              <span className="pf-peak-dam-toggle-label" title={t('selfConsumptionAutoDamToggleHint')}>
+                                {t('selfConsumptionAutoDamToggle')}
                               </span>
                             </label>
                           </div>
@@ -4566,9 +4690,11 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                         ? t('deyeWritePinTitleLowPct')
                         : writePinGate.kind === 'selfConsumption'
                           ? t('deyeWritePinTitleSelfConsumption')
-                          : writePinGate.kind === 'nightCharge'
-                            ? t('deyeWritePinTitleNightCharge')
-                            : t('deyeWritePinTitleLowPct')}
+                          : writePinGate.kind === 'selfConsumptionAutoDam'
+                            ? t('deyeWritePinTitleSelfConsumptionAutoDam')
+                            : writePinGate.kind === 'nightCharge'
+                              ? t('deyeWritePinTitleNightCharge')
+                              : t('deyeWritePinTitleLowPct')}
               </p>
               <div className="pf-modal-pin-row">
                 <label htmlFor="pf-write-pin-input" className="pf-modal-pin-label">

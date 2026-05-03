@@ -26,6 +26,10 @@ from app.deye_low_dam_charge_service import (
     upsert_low_dam_charge_pref,
 )
 from app.deye_peak_auto_service import get_peak_auto_pref, upsert_peak_auto_pref
+from app.deye_self_consumption_auto_dam_service import (
+    get_self_consumption_auto_dam_pref,
+    upsert_self_consumption_auto_dam_pref,
+)
 from app.deye_self_consumption_service import get_self_consumption_pref, upsert_self_consumption_pref
 from app.models import DeyeNightChargeFired, DeyeNightChargePref
 from app.oree_dam_service import KYIV
@@ -95,6 +99,7 @@ async def toolbar_snapshot_after_night_change(session: AsyncSession, sn: str) ->
     p_en, p_pct = await get_peak_auto_pref(session, sn)
     l_en, l_pct = await get_low_dam_charge_pref(session, sn)
     sc = await get_self_consumption_pref(session, sn)
+    auto_dam = await get_self_consumption_auto_dam_pref(session, sn)
     return {
         "nightChargeEnabled": n_en,
         "chargeSocDeltaPct": int(n_pct if n_en else l_pct),
@@ -102,6 +107,7 @@ async def toolbar_snapshot_after_night_change(session: AsyncSession, sn: str) ->
         "dischargeSocDeltaPct": int(p_pct),
         "lowDamChargeEnabled": bool(l_en),
         "selfConsumptionEnabled": bool(sc),
+        "selfConsumptionAutoDamEnabled": bool(auto_dam),
     }
 
 
@@ -129,6 +135,7 @@ async def set_night_charge_from_ui(
         await upsert_night_charge_pref(session, sn, True, pct)
         await upsert_peak_auto_pref(session, sn, False, dp)
         await upsert_low_dam_charge_pref(session, sn, False, cp)
+        await upsert_self_consumption_auto_dam_pref(session, sn, False)
         await upsert_self_consumption_pref(session, sn, True)
         await apply_self_consumption_zero_export_ct(sn)
         if en_p:
