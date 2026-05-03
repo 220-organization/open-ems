@@ -9,7 +9,6 @@ import {
   edgeInsetPx,
   flowMotionPath,
   formatPower,
-  formatPowerValueOnly,
 } from './powerFlowEngine';
 import DamChartPanel from './DamChartPanel';
 import RdnConsultationCallback from './RdnConsultationCallback';
@@ -93,7 +92,16 @@ function EvCarMark({ className = '' }) {
         <rect x="6" y="14" width="14" height="3.5" rx="1.75" fill="rgba(255,255,255,0.25)" />
         <rect x="7" y="20" width="1.2" height="31" rx="0.6" fill="rgba(255,255,255,0.25)" />
         <rect x="8.5" y="20" width="9" height="11.5" rx="1.8" fill="#0a0118" />
-        <rect x="9" y="20.5" width="8" height="10.5" rx="1.3" fill="none" stroke="rgba(255,127,222,0.4)" strokeWidth="0.45" />
+        <rect
+          x="9"
+          y="20.5"
+          width="8"
+          height="10.5"
+          rx="1.3"
+          fill="none"
+          stroke="rgba(255,127,222,0.4)"
+          strokeWidth="0.45"
+        />
         <path d="M13.5 22.5 L11 26.5 L13.1 26.5 L11.4 29.6 L14.7 25.4 L12.7 25.4 L14.2 22.5 Z" fill="#fff5fb" />
         <circle cx="13" cy="35" r="1.1" fill="#22ff88">
           <animate attributeName="opacity" values="1;0.3;1" dur="1.6s" repeatCount="indefinite" />
@@ -105,7 +113,14 @@ function EvCarMark({ className = '' }) {
 
       {/* === Charging cable === */}
       <path d="M22 30.5 C28 30 33 33 38.5 34" stroke="#2d0336" strokeWidth="2.8" fill="none" strokeLinecap="round" />
-      <path d="M22 30.5 C28 30 33 33 38.5 34" stroke="#fc019b" strokeWidth="1.4" fill="none" strokeLinecap="round" opacity="0.75" />
+      <path
+        d="M22 30.5 C28 30 33 33 38.5 34"
+        stroke="#fc019b"
+        strokeWidth="1.4"
+        fill="none"
+        strokeLinecap="round"
+        opacity="0.75"
+      />
       <path className="pf-node-icon__ev-flow-line" d="M22 30.5 C28 30 33 33 38.5 34" />
       <circle className="pf-node-icon__ev-flow-dot" r="1.4" fill="#ffffff">
         <animateMotion dur="1.4s" repeatCount="indefinite" path="M 22 30.5 C 28 30 33 33 38.5 34" />
@@ -159,7 +174,14 @@ function EvCarMark({ className = '' }) {
       <rect x="31.8" y="35.5" width="2" height="7" rx="0.9" fill="rgba(255,180,240,0.4)" />
 
       {/* Front DRL — Leaf "boomerang" daytime running light */}
-      <path d="M89.5 33 L92.5 36.5 L91.5 40.5" stroke="#fffbe0" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M89.5 33 L92.5 36.5 L91.5 40.5"
+        stroke="#fffbe0"
+        strokeWidth="2"
+        fill="none"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
 
       {/* Charging port inlet (rear quarter) */}
       <rect x="37" y="32.5" width="3.2" height="3" rx="0.7" fill="rgba(255,245,251,0.9)" />
@@ -530,32 +552,29 @@ function formatLandingTotalsDisplay(landingTotals, bcp47, t) {
   };
 }
 
-const DISCHARGE_SOC_DELTA_OPTIONS = Object.freeze([2, 10, 20]);
-/** Full discharge: UI `full` ↔ API/DB `100` (resolved to current SoC at run time). */
-const FULL_DISCHARGE = 'full';
+/** Target SoC (%) after discharge; same order as the toolbar dropdown. */
+const DISCHARGE_TARGET_SOC_OPTIONS = Object.freeze([80, 50, 20, 10, 5]);
 
 function peakPrefDischargePctForApi(pct) {
-  return pct === FULL_DISCHARGE ? 100 : pct;
+  return normalizeDischargeSocDeltaPct(pct);
 }
 
-/** SoC drop sent to POST /api/deye/discharge-2pct (1–100). */
-function effectiveDischargeDeltaForApi(pct, currentSoc) {
-  if (pct === FULL_DISCHARGE) {
-    const c = Number(currentSoc);
-    if (!Number.isFinite(c)) return 2;
-    return Math.min(100, Math.max(1, Math.round(c * 100) / 100));
-  }
-  return pct;
+/** SoC drop (percentage points) sent to POST /api/deye/discharge-2pct from current SoC to target floor. */
+function effectiveDischargeDeltaForApi(targetSocPct, currentSoc) {
+  const c = Number(currentSoc);
+  const t = Math.round(Number(targetSocPct));
+  if (!Number.isFinite(c) || !Number.isFinite(t)) return 2;
+  const d = Math.round(c - t);
+  return Math.min(100, Math.max(1, d));
 }
 
 function normalizeDischargeSocDeltaPct(p) {
-  const s = String(p).trim().toLowerCase();
-  if (s === FULL_DISCHARGE) return FULL_DISCHARGE;
   const n = Math.round(Number(p));
-  if (!Number.isFinite(n)) return 2;
-  if (n === 100) return FULL_DISCHARGE;
-  if (DISCHARGE_SOC_DELTA_OPTIONS.includes(n)) return n;
-  return DISCHARGE_SOC_DELTA_OPTIONS.reduce((best, x) => (Math.abs(x - n) < Math.abs(best - n) ? x : best));
+  if (!Number.isFinite(n)) return 80;
+  if (DISCHARGE_TARGET_SOC_OPTIONS.includes(n)) return n;
+  const legacy = { 2: 80, 10: 50, 20: 20, 100: 5 };
+  if (legacy[n] != null) return legacy[n];
+  return DISCHARGE_TARGET_SOC_OPTIONS.reduce((best, x) => (Math.abs(x - n) < Math.abs(best - n) ? x : best));
 }
 
 const CHARGE_SOC_DELTA_OPTIONS = Object.freeze([2, 10, 20, 50, 100]);
@@ -612,6 +631,23 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   });
   const [loadError, setLoadError] = useState('');
   const [realtimePower, setRealtimePower] = useState(null);
+  /** Sum of latest /api/deye/ess-power samples across all Deye inverters (no ESS selected). */
+  const [fleetDeyeAggregate, setFleetDeyeAggregate] = useState({
+    loading: false,
+    okResponses: 0,
+    pvW: 0,
+    gridW: 0,
+    batteryW: 0,
+    loadW: 0,
+  });
+  /** Sums from GET /api/huawei/power-flow across all plants (no ESS selected). */
+  const [fleetHuaweiAggregate, setFleetHuaweiAggregate] = useState({
+    loading: false,
+    okResponses: 0,
+    pvW: 0,
+    loadW: 0,
+    batteryW: 0,
+  });
   const [minerSnap, setMinerSnap] = useState(null);
   const [inverterRows, setInverterRows] = useState({
     loading: true,
@@ -981,6 +1017,153 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const selHuaweiStationCode = essSel.provider === 'huawei' ? essSel.id.trim() : '';
   const essAnySelected = Boolean(selInverterSn || selHuaweiStationCode);
 
+  const inverterSnsKey = useMemo(
+    () =>
+      inverterRows.items
+        .map(r => r.deviceSn)
+        .filter(Boolean)
+        .sort()
+        .join(','),
+    [inverterRows.items]
+  );
+
+  useEffect(() => {
+    if (essAnySelected || !inverterRows.configured || inverterRows.error) {
+      setFleetDeyeAggregate({
+        loading: false,
+        okResponses: 0,
+        pvW: 0,
+        gridW: 0,
+        batteryW: 0,
+        loadW: 0,
+      });
+      return undefined;
+    }
+    const sns = inverterRows.items.map(r => String(r.deviceSn || '').trim()).filter(Boolean);
+    if (sns.length === 0) {
+      setFleetDeyeAggregate({
+        loading: false,
+        okResponses: 0,
+        pvW: 0,
+        gridW: 0,
+        batteryW: 0,
+        loadW: 0,
+      });
+      return undefined;
+    }
+    let cancelled = false;
+    const poll = async () => {
+      setFleetDeyeAggregate(prev => ({ ...prev, loading: true }));
+      let ok = 0;
+      let pv = 0;
+      let grid = 0;
+      let bat = 0;
+      let load = 0;
+      await Promise.all(
+        sns.map(async sn => {
+          try {
+            const q = new URLSearchParams({ deviceSn: sn });
+            const r = await fetch(`${apiUrl('/api/deye/ess-power')}?${q}`, { cache: 'no-store' });
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok || !data.ok || data.configured === false) return;
+            ok += 1;
+            const batv = data.batteryPowerW;
+            const loadW = data.loadPowerW;
+            const pvW = data.pvPowerW;
+            const gridW = data.gridPowerW;
+            if (batv != null && Number.isFinite(Number(batv))) bat += Number(batv);
+            if (loadW != null && Number.isFinite(Number(loadW))) load += Math.max(0, Number(loadW));
+            if (pvW != null && Number.isFinite(Number(pvW))) pv += Math.max(0, Number(pvW));
+            if (gridW != null && Number.isFinite(Number(gridW))) grid += Number(gridW);
+          } catch {
+            /* ignore per device */
+          }
+        })
+      );
+      if (!cancelled) {
+        setFleetDeyeAggregate({
+          loading: false,
+          okResponses: ok,
+          pvW: pv,
+          gridW: grid,
+          batteryW: bat,
+          loadW: load,
+        });
+      }
+    };
+    void poll();
+    const id = setInterval(() => void poll(), 20_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [essAnySelected, inverterRows.configured, inverterRows.error, inverterSnsKey]);
+
+  const huaweiStationCodesKey = useMemo(
+    () =>
+      huaweiRows.items
+        .map(r => String(r.stationCode || '').trim())
+        .filter(Boolean)
+        .sort()
+        .join(','),
+    [huaweiRows.items]
+  );
+
+  /** Poll all Huawei plants for fleet PV/load when no single ESS is selected (slower interval — Northbound limits). */
+  useEffect(() => {
+    if (essAnySelected || !huaweiRows.configured || huaweiRows.error || huaweiRows.authFailed) {
+      setFleetHuaweiAggregate({ loading: false, okResponses: 0, pvW: 0, loadW: 0, batteryW: 0 });
+      return undefined;
+    }
+    const codes = huaweiRows.items.map(r => String(r.stationCode || '').trim()).filter(Boolean);
+    if (codes.length === 0) {
+      setFleetHuaweiAggregate({ loading: false, okResponses: 0, pvW: 0, loadW: 0, batteryW: 0 });
+      return undefined;
+    }
+    let cancelled = false;
+    const poll = async () => {
+      setFleetHuaweiAggregate(prev => ({ ...prev, loading: true }));
+      let ok = 0;
+      let pv = 0;
+      let load = 0;
+      let bat = 0;
+      await Promise.all(
+        codes.map(async stationCode => {
+          try {
+            const q = new URLSearchParams({ stationCodes: stationCode });
+            const r = await fetch(`${apiUrl('/api/huawei/power-flow')}?${q}`, { cache: 'no-store' });
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok || !data.ok || data.configured === false) return;
+            ok += 1;
+            const pvW = data.pvPowerW;
+            if (pvW != null && Number.isFinite(Number(pvW))) pv += Math.max(0, Number(pvW));
+            const loadW = data.loadPowerW;
+            if (loadW != null && Number.isFinite(Number(loadW))) load += Math.max(0, Number(loadW));
+            const batW = data.batteryPowerW;
+            if (batW != null && Number.isFinite(Number(batW))) bat += Number(batW);
+          } catch {
+            /* ignore per plant */
+          }
+        })
+      );
+      if (!cancelled) {
+        setFleetHuaweiAggregate({
+          loading: false,
+          okResponses: ok,
+          pvW: pv,
+          loadW: load,
+          batteryW: bat,
+        });
+      }
+    };
+    void poll();
+    const id = setInterval(() => void poll(), 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [essAnySelected, huaweiRows.configured, huaweiRows.error, huaweiRows.authFailed, huaweiStationCodesKey]);
+
   const selInverterPinRequired = useMemo(() => {
     const sn = selInverterSn.trim();
     if (!sn) return false;
@@ -1042,10 +1225,11 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   /** Previous Deye ``selInverterSn`` (Huawei mode uses empty SN); used to reset metric to total export on inverter change. */
   const prevSelInverterSnForMetricRef = useRef(null);
   const [peakDamDischargeEnabled, setPeakDamDischargeEnabled] = useState(false);
-  const [dischargeSocDeltaPct, setDischargeSocDeltaPct] = useState(2);
+  const [dischargeSocDeltaPct, setDischargeSocDeltaPct] = useState(80);
   const [lowDamChargeEnabled, setLowDamChargeEnabled] = useState(false);
   const [chargeSocDeltaPct, setChargeSocDeltaPct] = useState(10);
   const [selfConsumptionEnabled, setSelfConsumptionEnabled] = useState(false);
+  const [nightChargeEnabled, setNightChargeEnabled] = useState(false);
   const [toolbarPrefsLoading, setToolbarPrefsLoading] = useState(false);
   /** Fleet or per-inverter totals from GET /api/power-flow/landing-totals. */
   const [landingTotals, setLandingTotals] = useState(null);
@@ -1135,6 +1319,8 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
 
   /** No serial or prefs still loading — controls stay disabled (no click). Missing PIN in name: enabled, click opens modal. */
   const deyeWritesHardBlocked = !selInverterSn || toolbarPrefsLoading;
+  /** Night charge mode: server forces self-consumption and disables peak / low DAM; UI locks other toolbar controls. */
+  const toolbarLockedByNightCharge = nightChargeEnabled;
 
   const closeRemoteWriteNeedsPinModal = useCallback(() => {
     setRemoteWriteNeedsPinOpen(false);
@@ -1163,6 +1349,20 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     lowDamEnabledRef.current = lowDamChargeEnabled;
   }, [lowDamChargeEnabled]);
 
+  const applyNightChargeToolbarSnap = useCallback(snap => {
+    if (!snap || typeof snap !== 'object') return;
+    if (typeof snap.nightChargeEnabled === 'boolean') setNightChargeEnabled(snap.nightChargeEnabled);
+    if (typeof snap.peakDamDischargeEnabled === 'boolean') setPeakDamDischargeEnabled(snap.peakDamDischargeEnabled);
+    if (typeof snap.lowDamChargeEnabled === 'boolean') setLowDamChargeEnabled(snap.lowDamChargeEnabled);
+    if (typeof snap.selfConsumptionEnabled === 'boolean') setSelfConsumptionEnabled(snap.selfConsumptionEnabled);
+    if (snap.chargeSocDeltaPct != null && Number.isFinite(Number(snap.chargeSocDeltaPct))) {
+      setChargeSocDeltaPct(normalizeChargeSocDeltaPct(snap.chargeSocDeltaPct));
+    }
+    if (snap.dischargeSocDeltaPct != null && Number.isFinite(Number(snap.dischargeSocDeltaPct))) {
+      setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(snap.dischargeSocDeltaPct));
+    }
+  }, []);
+
   useEffect(() => {
     setDischarge2Feedback('');
     setDeyeCommandModal(null);
@@ -1179,9 +1379,10 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     }
     if (!selInverterSn || inverterRows.error) {
       setPeakDamDischargeEnabled(false);
-      setDischargeSocDeltaPct(2);
+      setDischargeSocDeltaPct(80);
       setLowDamChargeEnabled(false);
       setChargeSocDeltaPct(10);
+      setNightChargeEnabled(false);
       setToolbarPrefsLoading(false);
       return undefined;
     }
@@ -1190,10 +1391,11 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     }
     if (!inverterRows.configured) {
       setPeakDamDischargeEnabled(false);
-      setDischargeSocDeltaPct(2);
+      setDischargeSocDeltaPct(80);
       setLowDamChargeEnabled(false);
       setChargeSocDeltaPct(10);
       setSelfConsumptionEnabled(false);
+      setNightChargeEnabled(false);
       setToolbarPrefsLoading(false);
       return undefined;
     }
@@ -1202,14 +1404,16 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       setToolbarPrefsLoading(true);
       try {
         const q = new URLSearchParams({ deviceSn: selInverterSn });
-        const [rPeak, rLow, rSc] = await Promise.all([
+        const [rPeak, rLow, rSc, rNight] = await Promise.all([
           fetch(`${apiUrl('/api/deye/peak-auto-discharge')}?${q}`, { cache: 'no-store' }),
           fetch(`${apiUrl('/api/deye/low-dam-charge')}?${q}`, { cache: 'no-store' }),
           fetch(`${apiUrl('/api/deye/self-consumption')}?${q}`, { cache: 'no-store' }),
+          fetch(`${apiUrl('/api/deye/night-charge')}?${q}`, { cache: 'no-store' }),
         ]);
         const dataPeak = await rPeak.json().catch(() => ({}));
         const dataLow = await rLow.json().catch(() => ({}));
         const dataSc = await rSc.json().catch(() => ({}));
+        const dataNight = await rNight.json().catch(() => ({}));
         if (cancelled) return;
         if (rPeak.ok && dataPeak.ok && dataPeak.configured && typeof dataPeak.enabled === 'boolean') {
           setPeakDamDischargeEnabled(dataPeak.enabled);
@@ -1220,7 +1424,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
         if (p != null && Number.isFinite(Number(p))) {
           setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
         } else {
-          setDischargeSocDeltaPct(2);
+          setDischargeSocDeltaPct(80);
         }
         if (rLow.ok && dataLow.ok && dataLow.configured && typeof dataLow.enabled === 'boolean') {
           setLowDamChargeEnabled(dataLow.enabled);
@@ -1238,13 +1442,26 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
         } else {
           setSelfConsumptionEnabled(false);
         }
+        if (rNight.ok && dataNight.ok && dataNight.configured && typeof dataNight.nightChargeEnabled === 'boolean') {
+          setNightChargeEnabled(dataNight.nightChargeEnabled);
+          if (
+            dataNight.nightChargeEnabled &&
+            dataNight.chargeSocDeltaPct != null &&
+            Number.isFinite(Number(dataNight.chargeSocDeltaPct))
+          ) {
+            setChargeSocDeltaPct(normalizeChargeSocDeltaPct(dataNight.chargeSocDeltaPct));
+          }
+        } else {
+          setNightChargeEnabled(false);
+        }
       } catch {
         if (!cancelled) {
           setPeakDamDischargeEnabled(false);
-          setDischargeSocDeltaPct(2);
+          setDischargeSocDeltaPct(80);
           setLowDamChargeEnabled(false);
           setChargeSocDeltaPct(10);
           setSelfConsumptionEnabled(false);
+          setNightChargeEnabled(false);
         }
       } finally {
         if (!cancelled) setToolbarPrefsLoading(false);
@@ -1332,6 +1549,44 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     [selInverterSn]
   );
 
+  const saveNightChargePref = useCallback(
+    async (nextEnabled, nextPct, pin) => {
+      const sn = selInverterSn?.trim();
+      if (!sn) return null;
+      const body = {
+        deviceSn: sn,
+        enabled: nextEnabled,
+        chargeSocDeltaPct: nextPct,
+      };
+      const p = pin != null ? String(pin).trim() : '';
+      if (p) body.pin = p;
+      const r = await fetch(apiUrl('/api/deye/night-charge'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        cache: 'no-store',
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        if (r.status === 403) {
+          clearInverterPinCache(sn);
+          setPinCacheBust(x => x + 1);
+        }
+        let msg = data.detail ?? r.statusText;
+        if (Array.isArray(msg)) {
+          msg = msg.map(x => (x && typeof x === 'object' ? x.msg || JSON.stringify(x) : x)).join('; ');
+        }
+        throw new Error(String(msg || 'Save failed'));
+      }
+      if (p) {
+        rememberInverterPin(sn, p);
+        setPinCacheBust(x => x + 1);
+      }
+      return data;
+    },
+    [selInverterSn]
+  );
+
   const saveSelfConsumptionPref = useCallback(
     async (nextEnabled, pin) => {
       const sn = selInverterSn?.trim();
@@ -1364,16 +1619,6 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       return data;
     },
     [selInverterSn]
-  );
-
-  const inverterSnsKey = useMemo(
-    () =>
-      inverterRows.items
-        .map(r => r.deviceSn)
-        .filter(Boolean)
-        .sort()
-        .join(','),
-    [inverterRows.items]
   );
 
   useEffect(() => {
@@ -1705,6 +1950,39 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     : computeSimulatedSources(consumptionMw, liveMinerW);
 
   const { solarW, gridW, essW, minerW, consumptionW } = sim;
+
+  const fleetDeyeAggregateActive =
+    !essAnySelected && inverterRows.configured && !inverterRows.error && fleetDeyeAggregate.okResponses > 0;
+  const fleetHuaweiTelemetryActive =
+    !essAnySelected &&
+    huaweiRows.configured &&
+    !huaweiRows.error &&
+    !huaweiRows.authFailed &&
+    fleetHuaweiAggregate.okResponses > 0;
+  /** Live fleet PV: sum Deye + Huawei (and future backends — extend fleetSolarPvW). */
+  const fleetSolarTelemetryActive = fleetDeyeAggregateActive || fleetHuaweiTelemetryActive;
+  const fleetSolarPvW =
+    (fleetDeyeAggregateActive ? fleetDeyeAggregate.pvW : 0) +
+    (fleetHuaweiTelemetryActive ? fleetHuaweiAggregate.pvW : 0);
+  /** Live fleet load: sum Deye + Huawei (extend fleetLoadW for new ESS backends). */
+  const fleetLoadTelemetryActive = fleetDeyeAggregateActive || fleetHuaweiTelemetryActive;
+  const fleetLoadW =
+    (fleetDeyeAggregateActive ? fleetDeyeAggregate.loadW : 0) +
+    (fleetHuaweiTelemetryActive ? fleetHuaweiAggregate.loadW : 0);
+  /** Live fleet battery (signed): sum Deye + Huawei batteryPowerW when present on power-flow. */
+  const fleetBatteryTelemetryActive = fleetDeyeAggregateActive || fleetHuaweiTelemetryActive;
+  const fleetBatteryW =
+    (fleetDeyeAggregateActive ? fleetDeyeAggregate.batteryW : 0) +
+    (fleetHuaweiTelemetryActive ? fleetHuaweiAggregate.batteryW : 0);
+
+  /** B2B aggregate charging power (W) from 220-km when /realtime-power has been received (powerMw in MW). */
+  const b2bAggregateEvChargingW =
+    realtimePower != null && Number.isFinite(Number(realtimePower.powerMw))
+      ? Math.max(0, Number(realtimePower.powerMw) * 1e6)
+      : null;
+  /** Fleet aggregate EV: 220-km B2B only (no inverter grid emulation). */
+  const aggregateEvFlowW = !essAnySelected ? (b2bAggregateEvChargingW != null ? b2bAggregateEvChargingW : 0) : 0;
+
   const useLivePvDeye = Boolean(selInverterSn) && deyeLive?.pvPowerW != null && Number.isFinite(deyeLive.pvPowerW);
   const useLivePvHuawei =
     Boolean(selHuaweiStationCode) && huaweiLive?.pvPowerW != null && Number.isFinite(huaweiLive.pvPowerW);
@@ -1714,7 +1992,13 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     : useLivePvHuawei
       ? Math.max(0, huaweiLive.pvPowerW)
       : null;
-  const rawDisplaySolarW = essAnySelected ? (useLivePv ? rawPvW : null) : solarW;
+  const rawDisplaySolarW = essAnySelected
+    ? useLivePv
+      ? rawPvW
+      : null
+    : fleetSolarTelemetryActive
+      ? fleetSolarPvW
+      : solarW;
   const displaySolarW =
     rawDisplaySolarW != null && usesDeyeFlowBalance(selInverterSn)
       ? rawDisplaySolarW * DEYE_FLOW_BALANCE_PV_FACTOR
@@ -1725,6 +2009,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     Boolean(selInverterSn) && deyeLive?.gridPowerW != null && Number.isFinite(deyeLive.gridPowerW);
   const useLiveGridHuawei =
     Boolean(selHuaweiStationCode) && huaweiLive?.gridPowerW != null && Number.isFinite(huaweiLive.gridPowerW);
+  /** No fleet ESS selected: do not sum inverter grid — hub grid is derived from balance below. */
   const effectiveGridW = essAnySelected
     ? useLiveGridHuawei
       ? huaweiLive.gridPowerW
@@ -1734,22 +2019,64 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     : gridW;
   const useLiveEss =
     Boolean(selInverterSn) && deyeLive?.batteryPowerW != null && Number.isFinite(deyeLive.batteryPowerW);
-  const displayEssW = essAnySelected ? (useLiveEss ? deyeLive.batteryPowerW : null) : essW;
-  const displayEssCharging = displayEssW != null && displayEssW < 0;
-  /** Fake miner/consumption sim only when no inverter / plant is selected; live miner power otherwise. */
-  const displayMinerW = essAnySelected ? liveMinerW : minerW;
-  const minerFlowW = essAnySelected ? (liveMinerW ?? 0) : minerW;
-  const displayLoadW =
-    Boolean(selHuaweiStationCode) && huaweiLive?.loadPowerW != null && Number.isFinite(huaweiLive.loadPowerW)
+  const displayEssW = essAnySelected
+    ? useLiveEss
+      ? deyeLive.batteryPowerW
+      : null
+    : fleetBatteryTelemetryActive
+      ? fleetBatteryW
+      : essW;
+  /** Miner: B2B /api/b2b/miner-power (220-km) only — no simulated miner in fleet view. */
+  const displayMinerW = liveMinerW;
+  const minerFlowW = liveMinerW ?? 0;
+  const displayLoadW = fleetLoadTelemetryActive
+    ? fleetLoadW
+    : Boolean(selHuaweiStationCode) && huaweiLive?.loadPowerW != null && Number.isFinite(huaweiLive.loadPowerW)
       ? Math.max(0, huaweiLive.loadPowerW)
       : Boolean(selInverterSn) && deyeLive?.loadPowerW != null && Number.isFinite(deyeLive.loadPowerW)
         ? Math.max(0, deyeLive.loadPowerW)
         : null;
   const useSpecialGridBalance =
     usesDeyeFlowBalance(selInverterSn) && displaySolarW != null && displayEssW != null && displayLoadW != null;
-  const displayGridW = useSpecialGridBalance ? displayLoadW - displaySolarW - displayEssW : effectiveGridW;
-  const loadFlowActive = displayLoadW != null && displayLoadW > 0;
-  const solarFlowActive = displaySolarW != null && displaySolarW > 0;
+  /**
+   * Fleet hub: Deye ``batteryPowerW`` signed (+ discharge, − charge). Card uses ``abs(battery)``.
+   * Closure: solar + grid + battery = load + EV + miner  ⇔  grid = load + EV + miner − battery − solar.
+   */
+  const fleetCompensatedGridW =
+    !essAnySelected &&
+    fleetSolarTelemetryActive &&
+    fleetLoadTelemetryActive &&
+    fleetBatteryTelemetryActive &&
+    displaySolarW != null &&
+    Number.isFinite(displaySolarW) &&
+    displayLoadW != null &&
+    Number.isFinite(displayLoadW) &&
+    displayEssW != null &&
+    Number.isFinite(displayEssW)
+      ? displayLoadW + aggregateEvFlowW + minerFlowW - displayEssW - displaySolarW
+      : null;
+  const displayGridW = useSpecialGridBalance
+    ? displayLoadW - displaySolarW - displayEssW
+    : fleetCompensatedGridW != null
+      ? fleetCompensatedGridW
+      : effectiveGridW;
+
+  /** B2B EV port selected without a site ESS: diagram is virtual grid → EV only (220-km station power). */
+  const evPortFocusMode = !essAnySelected && Boolean(stationFilter.trim());
+  const graphDisplaySolarW = evPortFocusMode ? null : displaySolarW;
+  const graphDisplayLoadW = evPortFocusMode ? null : displayLoadW;
+  const graphDisplayEssW = evPortFocusMode ? null : displayEssW;
+  const graphDisplayMinerW = evPortFocusMode ? null : displayMinerW;
+  const graphMinerFlowW = evPortFocusMode ? 0 : minerFlowW;
+  const graphDisplayGridW = evPortFocusMode
+    ? evStationPowerLoading && evStationPowerW == null
+      ? null
+      : Math.max(0, Number(evStationPowerW ?? 0))
+    : displayGridW;
+  const graphDisplayEssCharging = graphDisplayEssW != null && graphDisplayEssW < 0;
+
+  const loadFlowActive = graphDisplayLoadW != null && graphDisplayLoadW > 0;
+  const solarFlowActive = graphDisplaySolarW != null && graphDisplaySolarW > 0;
   const solarForecastIconChar =
     selInverterSn && !solarForecast.loading && solarForecast.todayCloudy === true ? '🌤️' : '☀️';
   const solarForecastIconAria =
@@ -1758,16 +2085,20 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
         ? t('solarForecastIconAriaCloudy')
         : t('solarForecastIconAriaClear')
       : undefined;
-  const gridFlowActive = displayGridW != null && Math.abs(displayGridW) > 0;
-  const gridSelling = displayGridW != null && displayGridW < 0;
+  const gridFlowActive = graphDisplayGridW != null && Math.abs(graphDisplayGridW) > 0;
+  const gridSelling = graphDisplayGridW != null && graphDisplayGridW < 0;
   const stationEvFlowActive = !showEvAggregate && Boolean(stationFilter.trim()) && (evStationPowerW ?? 0) > 0;
+  const evFlowActive =
+    (evPortFocusMode && (evStationPowerW ?? 0) > 0) ||
+    (showEvAggregate && !evPortFocusMode && aggregateEvFlowW > 0) ||
+    stationEvFlowActive;
   const hasFlow =
-    (showEvAggregate && consumptionW > 0) ||
-    stationEvFlowActive ||
-    minerFlowW > 0 ||
-    (displayEssW != null && Math.abs(displayEssW) > 0) ||
+    evFlowActive ||
     gridFlowActive ||
-    loadFlowActive;
+    solarFlowActive ||
+    loadFlowActive ||
+    (graphDisplayEssW != null && Math.abs(graphDisplayEssW) > 0) ||
+    graphMinerFlowW > 0;
   const geom = useMemo(() => computeWideGeometry(graphWidth), [graphWidth]);
   const graphAnchorPct = useMemo(() => (edgeInsetPx(graphWidth) / Math.max(graphWidth, 1)) * 100, [graphWidth]);
 
@@ -1782,12 +2113,12 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     ? flowMotionPath(gSell.start.x, gSell.start.y, gSell.end.x, gSell.end.y)
     : flowMotionPath(gBuy.start.x, gBuy.start.y, gBuy.end.x, gBuy.end.y);
 
-  const essActive = hasFlow && displayEssW != null && Math.abs(displayEssW) > 0;
+  const essActive = hasFlow && graphDisplayEssW != null && Math.abs(graphDisplayEssW) > 0;
   /** Motion dots that travel *into* the hub (line ends at EMS): solar, grid import, ESS discharge. */
   const hubLogoInboundFlow =
-    solarFlowActive || (!gridSelling && gridLineCoords.active) || (essActive && !displayEssCharging);
-  const essCoords = displayEssCharging ? geom.essLineCharging : geom.essLine;
-  const essPath = displayEssCharging
+    solarFlowActive || (!gridSelling && gridLineCoords.active) || (essActive && !graphDisplayEssCharging);
+  const essCoords = graphDisplayEssCharging ? geom.essLineCharging : geom.essLine;
+  const essPath = graphDisplayEssCharging
     ? flowMotionPath(
         geom.essLineCharging.start.x,
         geom.essLineCharging.start.y,
@@ -1799,8 +2130,15 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const tf = minerSnap?.tariffUahPerKwh;
   const minerLabel = t('nodeMiner');
 
-  const evBusy = showEvAggregate && realtimePower == null && loadError === '';
-  const evFlowActive = (showEvAggregate && consumptionW > 0) || stationEvFlowActive;
+  const fleetDeyePollBusy =
+    showEvAggregate &&
+    !essAnySelected &&
+    inverterRows.configured &&
+    !inverterRows.error &&
+    inverterRows.items.some(r => String(r.deviceSn || '').trim()) &&
+    fleetDeyeAggregate.loading &&
+    fleetDeyeAggregate.okResponses === 0;
+  const evBusy = fleetDeyePollBusy;
   const qrBase = process.env.PUBLIC_URL || '';
 
   const essSocHasKey = Boolean(selInverterSn) && Object.prototype.hasOwnProperty.call(socBySn, selInverterSn);
@@ -1992,15 +2330,13 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       return;
     }
     const cur = Number(essSocPercent);
-    const deltaNeeded =
-      dischargeSocDeltaPct === FULL_DISCHARGE
-        ? effectiveDischargeDeltaForApi(FULL_DISCHARGE, cur)
-        : dischargeSocDeltaPct;
-    if (cur < deltaNeeded) {
+    const targetSoc = Math.round(Number(dischargeSocDeltaPct));
+    const deltaNeeded = effectiveDischargeDeltaForApi(targetSoc, cur);
+    if (deltaNeeded < 1 || cur <= targetSoc + 0.05) {
       setDischarge2Feedback(
         t('dischargeConfirmInsufficientSoc', {
           current: inverterSocFmt.format(cur),
-          delta: deltaNeeded,
+          target: inverterSocFmt.format(targetSoc),
         })
       );
       return;
@@ -2153,6 +2489,9 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
         if (data && typeof data.enabled === 'boolean') {
           setSelfConsumptionEnabled(data.enabled);
         }
+      } else if (g.kind === 'nightCharge') {
+        const data = await saveNightChargePref(g.nextEnabled, g.nextPct, pin);
+        applyNightChargeToolbarSnap(data);
       }
       setWritePinGate(null);
       setWritePinValue('');
@@ -2160,7 +2499,17 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       const m = err instanceof Error ? err.message : String(err);
       setWritePinError(m);
     }
-  }, [writePinGate, writePinValue, t, savePeakAutoPref, saveLowDamChargePref, saveSelfConsumptionPref, selInverterEvportBound]);
+  }, [
+    writePinGate,
+    writePinValue,
+    t,
+    savePeakAutoPref,
+    saveLowDamChargePref,
+    saveSelfConsumptionPref,
+    saveNightChargePref,
+    applyNightChargeToolbarSnap,
+    selInverterEvportBound,
+  ]);
 
   const closeDeyeCommandModal = useCallback(() => {
     setDeyeCommandModal(null);
@@ -2300,7 +2649,16 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     inverterRows.loading ||
     huaweiRows.loading ||
     chargingPorts.loading ||
-    (realtimePower === null && loadError === '') ||
+    (realtimePower === null &&
+      loadError === '' &&
+      !(
+        !essAnySelected &&
+        ((inverterRows.configured && !inverterRows.error && fleetDeyeAggregate.okResponses > 0) ||
+          (huaweiRows.configured &&
+            !huaweiRows.error &&
+            !huaweiRows.authFailed &&
+            fleetHuaweiAggregate.okResponses > 0))
+      )) ||
     (inverterListReady && landingTotalsLoading) ||
     (Boolean(selInverterSn) &&
       deyeListReady &&
@@ -2894,7 +3252,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   <line
                     id="pf-line-miner"
                     className="pf-line"
-                    data-active={hasFlow && minerFlowW > 0 ? 'true' : 'false'}
+                    data-active={hasFlow && graphMinerFlowW > 0 ? 'true' : 'false'}
                     x1={geom.minerLine.start.x}
                     y1={geom.minerLine.start.y}
                     x2={geom.minerLine.end.x}
@@ -2937,7 +3295,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   <g id="pf-dot-ess" style={{ display: essActive ? undefined : 'none' }}>
                     <MotionDot pathD={essPath} />
                   </g>
-                  <g id="pf-dot-miner" style={{ display: hasFlow && minerFlowW > 0 ? undefined : 'none' }}>
+                  <g id="pf-dot-miner" style={{ display: hasFlow && graphMinerFlowW > 0 ? undefined : 'none' }}>
                     <MotionDot
                       pathD={flowMotionPath(
                         geom.minerLine.start.x,
@@ -2984,7 +3342,9 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   </div>
                   <span className="pf-node-label">{t('nodeSolar')}</span>
                   <span className="pf-node-value" id="pf-val-solar">
-                    {formatPower(displaySolarW, t, bcp47)}
+                    {evPortFocusMode && evStationPowerLoading && evStationPowerW == null
+                      ? '…'
+                      : formatPower(graphDisplaySolarW, t, bcp47)}
                   </span>
                   {selInverterSn ? (
                     <span className="pf-node-sub pf-node-solar-forecast" id="pf-solar-insolation-forecast">
@@ -3026,9 +3386,11 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                     </span>
                     <span className="pf-node-label">{t('nodeGrid')}</span>
                     <span className="pf-node-value" id="pf-val-grid">
-                      {gridSelling
-                        ? `↓ ${formatPower(Math.abs(displayGridW), t, bcp47)}`
-                        : formatPower(displayGridW, t, bcp47)}
+                      {evPortFocusMode && evStationPowerLoading && evStationPowerW == null
+                        ? '…'
+                        : gridSelling
+                          ? `↓ ${formatPower(Math.abs(graphDisplayGridW), t, bcp47)}`
+                          : formatPower(graphDisplayGridW, t, bcp47)}
                     </span>
                     <span className="pf-ess-status" id="pf-grid-selling" hidden={!gridSelling}>
                       {t('gridSelling')}
@@ -3047,7 +3409,15 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   <span className="pf-node-label">{t('nodeLoad')}</span>
                   <span className="pf-node-value" id="pf-val-load">
                     {!essAnySelected
-                      ? formatPower(null, t, bcp47)
+                      ? evPortFocusMode
+                        ? evStationPowerLoading && evStationPowerW == null
+                          ? '…'
+                          : formatPower(graphDisplayLoadW, t, bcp47)
+                        : fleetDeyePollBusy
+                          ? '…'
+                          : fleetLoadTelemetryActive
+                            ? formatPower(displayLoadW, t, bcp47)
+                            : formatPower(null, t, bcp47)
                       : selHuaweiStationCode
                         ? huaweiLiveLoading
                           ? '…'
@@ -3112,7 +3482,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   data-active={essActive ? 'true' : 'false'}
                 >
                   <span className="pf-node-icon" id="pf-ess-icon" aria-hidden>
-                    {displayEssCharging ? (
+                    {graphDisplayEssCharging ? (
                       <span className="pf-ess-icon-charging">
                         <span className="pf-ess-icon-charging-bat">🔋</span>
                         <span className="pf-ess-icon-charging-bolt">⚡</span>
@@ -3123,7 +3493,9 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   </span>
                   <span className="pf-node-label">{t('nodeEss')}</span>
                   <span className="pf-node-value" id="pf-val-ess">
-                    {formatPower(displayEssW != null ? Math.abs(displayEssW) : null, t, bcp47)}
+                    {evPortFocusMode && evStationPowerLoading && evStationPowerW == null
+                      ? '…'
+                      : formatPower(graphDisplayEssW != null ? Math.abs(graphDisplayEssW) : null, t, bcp47)}
                   </span>
                   {selInverterSn && essSocPercent != null && Number.isFinite(essSocPercent) ? (
                     <span
@@ -3148,7 +3520,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   href={BINANCE_MINER_URL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  data-active={hasFlow && minerFlowW > 0 ? 'true' : 'false'}
+                  data-active={hasFlow && graphMinerFlowW > 0 ? 'true' : 'false'}
                 >
                   <span className="pf-node-icon" aria-hidden>
                     💠
@@ -3157,7 +3529,9 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                     {minerLabel}
                   </span>
                   <span className="pf-node-value" id="pf-val-miner">
-                    {formatPower(displayMinerW, t, bcp47)}
+                    {evPortFocusMode && evStationPowerLoading && evStationPowerW == null
+                      ? '…'
+                      : formatPower(graphDisplayMinerW, t, bcp47)}
                   </span>
                   <div className="pf-node-meta" id="pf-miner-tariff">
                     {tf != null && Number.isFinite(tf)
@@ -3170,29 +3544,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                       : ''}
                   </div>
                 </a>
-                {showEvAggregate ? (
-                  <a
-                    className="pf-node"
-                    data-pos="right-bottom"
-                    id="pf-node-ev"
-                    href={
-                      stationFilter.trim()
-                        ? `${EV_START_URL}?station=${encodeURIComponent(stationFilter.trim())}`
-                        : SITE_220KM_HOME
-                    }
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    data-active={evFlowActive ? 'true' : 'false'}
-                  >
-                    <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
-                      <EvCarMark className="pf-node-icon__tesla" />
-                    </span>
-                    <span className="pf-node-label">{t('nodeEv')}</span>
-                    <span className="pf-node-value" id="pf-val-ev">
-                      {evBusy ? '…' : formatPower(consumptionW, t, bcp47)}
-                    </span>
-                  </a>
-                ) : stationFilter.trim() ? (
+                {stationFilter.trim() ? (
                   <a
                     className="pf-node"
                     data-pos="right-bottom"
@@ -3200,7 +3552,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                     href={`${EV_START_URL}?station=${encodeURIComponent(stationFilter.trim())}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    data-active={stationEvFlowActive ? 'true' : 'false'}
+                    data-active={evFlowActive ? 'true' : 'false'}
                     title={t('stationLabel')}
                   >
                     <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
@@ -3210,7 +3562,25 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                     <span className="pf-node-value" id="pf-val-ev">
                       {evStationPowerLoading && evStationPowerW == null
                         ? '…'
-                        : formatPowerValueOnly(evStationPowerW, bcp47)}
+                        : formatPower(evStationPowerW, t, bcp47)}
+                    </span>
+                  </a>
+                ) : showEvAggregate ? (
+                  <a
+                    className="pf-node"
+                    data-pos="right-bottom"
+                    id="pf-node-ev"
+                    href={SITE_220KM_HOME}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    data-active={evFlowActive ? 'true' : 'false'}
+                  >
+                    <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
+                      <EvCarMark className="pf-node-icon__tesla" />
+                    </span>
+                    <span className="pf-node-label">{t('nodeEv')}</span>
+                    <span className="pf-node-value" id="pf-val-ev">
+                      {evBusy ? '…' : formatPower(aggregateEvFlowW, t, bcp47)}
                     </span>
                   </a>
                 ) : (
@@ -3258,10 +3628,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   {portSelectOptions.map(row => {
                     const num = String(row.number);
                     const maxW = Number(row.maxPowerWt);
-                    const maxLabel =
-                      Number.isFinite(maxW) && maxW > 0
-                        ? ` · ${formatPower(maxW, t, bcp47)}`
-                        : '';
+                    const maxLabel = Number.isFinite(maxW) && maxW > 0 ? ` · ${formatPower(maxW, t, bcp47)}` : '';
                     return (
                       <option key={num} value={num}>
                         {num}
@@ -3326,7 +3693,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                                 type="button"
                                 className="pf-discharge-btn pf-discharge-go-btn"
                                 onClick={requestDischarge2Pct}
-                                disabled={deyeWritesHardBlocked}
+                                disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
                                 title={t('dischargeSoc2Hint')}
                                 aria-label={t('dischargeGoAria')}
                               >
@@ -3335,21 +3702,15 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                               <select
                                 id="pf-discharge-delta-select"
                                 className="pf-discharge-delta-select pf-discharge-delta-select--header"
-                                value={
-                                  dischargeSocDeltaPct === FULL_DISCHARGE
-                                    ? FULL_DISCHARGE
-                                    : String(dischargeSocDeltaPct)
-                                }
-                                disabled={deyeWritesHardBlocked}
+                                value={String(dischargeSocDeltaPct)}
+                                disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
                                 aria-label={t('dischargeSocDeltaAria')}
                                 onChange={e => {
                                   if (!remoteWriteConfigured) {
                                     setRemoteWriteNeedsPinOpen(true);
                                     return;
                                   }
-                                  const raw = e.target.value;
-                                  const n =
-                                    raw === FULL_DISCHARGE ? FULL_DISCHARGE : normalizeDischargeSocDeltaPct(raw);
+                                  const n = normalizeDischargeSocDeltaPct(e.target.value);
                                   const apiPct = peakPrefDischargePctForApi(n);
                                   const cached = readCachedInverterPin(selInverterSn?.trim() || '');
                                   if (cached) {
@@ -3393,19 +3754,18 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                                   setWritePinGate({ kind: 'peakPct', nextPct: apiPct });
                                 }}
                               >
-                                {DISCHARGE_SOC_DELTA_OPTIONS.map(o => (
+                                {DISCHARGE_TARGET_SOC_OPTIONS.map(o => (
                                   <option key={o} value={o}>
-                                    {t('dischargeSocDeltaValue', { pct: o })}
+                                    {t('dischargeTillSocOption', { pct: o })}
                                   </option>
                                 ))}
-                                <option value={FULL_DISCHARGE}>{t('dischargeSocDeltaValueFull')}</option>
                               </select>
                             </div>
                             <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
                               <input
                                 type="checkbox"
                                 checked={peakDamDischargeEnabled}
-                                disabled={deyeWritesHardBlocked}
+                                disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
                                 onChange={async e => {
                                   if (!remoteWriteConfigured) {
                                     setRemoteWriteNeedsPinOpen(true);
@@ -3489,7 +3849,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                               <input
                                 type="checkbox"
                                 checked={selfConsumptionEnabled}
-                                disabled={deyeWritesHardBlocked}
+                                disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
                                 onChange={async e => {
                                   if (!remoteWriteConfigured) {
                                     setRemoteWriteNeedsPinOpen(true);
@@ -3545,7 +3905,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                                 type="button"
                                 className="pf-discharge-btn pf-discharge-go-btn pf-charge-go-btn"
                                 onClick={requestCharge2Pct}
-                                disabled={deyeWritesHardBlocked}
+                                disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
                                 title={t('chargeSoc2Hint')}
                                 aria-label={t('chargeGoAria')}
                               >
@@ -3555,7 +3915,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                                 id="pf-charge-delta-select"
                                 className="pf-discharge-delta-select pf-discharge-delta-select--header"
                                 value={chargeSocDeltaPct}
-                                disabled={deyeWritesHardBlocked}
+                                disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
                                 aria-label={t('chargeSocDeltaAria')}
                                 onChange={e => {
                                   if (!remoteWriteConfigured) {
@@ -3616,7 +3976,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                               <input
                                 type="checkbox"
                                 checked={lowDamChargeEnabled}
-                                disabled={deyeWritesHardBlocked}
+                                disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
                                 onChange={async e => {
                                   if (!remoteWriteConfigured) {
                                     setRemoteWriteNeedsPinOpen(true);
@@ -3688,6 +4048,90 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                                 {t('lowDamChargeToggle')}
                               </span>
                             </label>
+                            <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
+                              <input
+                                type="checkbox"
+                                checked={nightChargeEnabled}
+                                disabled={deyeWritesHardBlocked}
+                                onChange={async e => {
+                                  if (!remoteWriteConfigured) {
+                                    setRemoteWriteNeedsPinOpen(true);
+                                    return;
+                                  }
+                                  const v = e.target.checked;
+                                  const sn = selInverterSn?.trim();
+                                  if (!sn) return;
+                                  const prevNight = nightChargeEnabled;
+                                  const prevPeak = peakDamDischargeEnabled;
+                                  const prevLow = lowDamChargeEnabled;
+                                  const prevSc = selfConsumptionEnabled;
+                                  const prevChargePct = chargeSocDeltaPct;
+                                  if (peakPrefSaveTimerRef.current != null) {
+                                    clearTimeout(peakPrefSaveTimerRef.current);
+                                    peakPrefSaveTimerRef.current = null;
+                                  }
+                                  if (chargePrefSaveTimerRef.current != null) {
+                                    clearTimeout(chargePrefSaveTimerRef.current);
+                                    chargePrefSaveTimerRef.current = null;
+                                  }
+                                  const cached = readCachedInverterPin(sn);
+                                  const pct = chargeSocDeltaPct;
+                                  if (cached) {
+                                    setNightChargeEnabled(v);
+                                    if (v) {
+                                      setPeakDamDischargeEnabled(false);
+                                      setLowDamChargeEnabled(false);
+                                      setSelfConsumptionEnabled(true);
+                                    }
+                                    setDischarge2Feedback('');
+                                    try {
+                                      const data = await saveNightChargePref(v, pct, cached);
+                                      applyNightChargeToolbarSnap(data);
+                                    } catch (err) {
+                                      setNightChargeEnabled(prevNight);
+                                      setPeakDamDischargeEnabled(prevPeak);
+                                      setLowDamChargeEnabled(prevLow);
+                                      setSelfConsumptionEnabled(prevSc);
+                                      setChargeSocDeltaPct(prevChargePct);
+                                      const m = err instanceof Error ? err.message : String(err);
+                                      setDischarge2Feedback(`${t('nightChargeSaveError')}: ${m}`);
+                                    }
+                                    return;
+                                  }
+                                  if (selInverterEvportBound) {
+                                    setNightChargeEnabled(v);
+                                    if (v) {
+                                      setPeakDamDischargeEnabled(false);
+                                      setLowDamChargeEnabled(false);
+                                      setSelfConsumptionEnabled(true);
+                                    }
+                                    setDischarge2Feedback('');
+                                    try {
+                                      const data = await saveNightChargePref(v, pct, '');
+                                      applyNightChargeToolbarSnap(data);
+                                    } catch (err) {
+                                      setNightChargeEnabled(prevNight);
+                                      setPeakDamDischargeEnabled(prevPeak);
+                                      setLowDamChargeEnabled(prevLow);
+                                      setSelfConsumptionEnabled(prevSc);
+                                      setChargeSocDeltaPct(prevChargePct);
+                                      const m = err instanceof Error ? err.message : String(err);
+                                      setDischarge2Feedback(`${t('nightChargeSaveError')}: ${m}`);
+                                    }
+                                    return;
+                                  }
+                                  setWritePinGate({
+                                    kind: 'nightCharge',
+                                    nextEnabled: v,
+                                    nextPct: pct,
+                                  });
+                                }}
+                                aria-label={t('nightChargeToggleAria')}
+                              />
+                              <span className="pf-peak-dam-toggle-label" title={t('nightChargeToggleHint')}>
+                                {t('nightChargeToggle')}
+                              </span>
+                            </label>
                           </div>
                         </div>
                       </div>
@@ -3733,7 +4177,10 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
             </div>
           ) : null}
 
-          <section className="pf-rdn-callback-section pf-rdn-callback-section--page-end" aria-label={t('rdnCallbackSectionAria')}>
+          <section
+            className="pf-rdn-callback-section pf-rdn-callback-section--page-end"
+            aria-label={t('rdnCallbackSectionAria')}
+          >
             <RdnConsultationCallback t={t} />
           </section>
         </div>
@@ -3750,11 +4197,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
               <p id="pf-discharge-confirm-title" className="pf-modal-message">
                 {t('dischargeConfirmMessage', {
                   from: inverterSocFmt.format(Number(essSocPercent)),
-                  to: inverterSocFmt.format(
-                    dischargeSocDeltaPct === FULL_DISCHARGE
-                      ? 0
-                      : Math.max(0, Number(essSocPercent) - dischargeSocDeltaPct)
-                  ),
+                  to: inverterSocFmt.format(Math.round(Number(dischargeSocDeltaPct))),
                 })}
               </p>
               {selInverterPinRequired && !cachedWritePin ? (
@@ -3879,7 +4322,13 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                     ? t('deyeWritePinTitleLow')
                     : writePinGate.kind === 'peakPct'
                       ? t('deyeWritePinTitlePeakPct')
-                      : t('deyeWritePinTitleLowPct')}
+                      : writePinGate.kind === 'lowPct'
+                        ? t('deyeWritePinTitleLowPct')
+                        : writePinGate.kind === 'selfConsumption'
+                          ? t('deyeWritePinTitleSelfConsumption')
+                          : writePinGate.kind === 'nightCharge'
+                            ? t('deyeWritePinTitleNightCharge')
+                            : t('deyeWritePinTitleLowPct')}
               </p>
               <div className="pf-modal-pin-row">
                 <label htmlFor="pf-write-pin-input" className="pf-modal-pin-label">

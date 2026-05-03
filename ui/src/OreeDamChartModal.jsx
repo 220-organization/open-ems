@@ -6,7 +6,7 @@ export const OREE_DAM_CHART_URL =
   'https://www.oree.com.ua/index.php/control/results_mo/DAM';
 
 /**
- * Full-screen style dialog embedding the official OREE DAM chart page.
+ * Dialog with a link to the official OREE DAM results page (no iframe).
  */
 export default function OreeDamChartModal({ open, onClose, t }) {
   useEffect(() => {
@@ -42,15 +42,7 @@ export default function OreeDamChartModal({ open, onClose, t }) {
             ×
           </button>
         </div>
-        <div className="dam-oree-modal-frame-wrap">
-          <iframe
-            title={t('damOreeChartIframeTitle')}
-            src={OREE_DAM_CHART_URL}
-            className="dam-oree-modal-iframe"
-            referrerPolicy="no-referrer-when-downgrade"
-          />
-        </div>
-        <p className="dam-oree-modal-footer">
+        <p className="dam-oree-modal-body">
           <a
             href={OREE_DAM_CHART_URL}
             target="_blank"

@@ -26,6 +26,7 @@ from app.deye_soc_scheduler import deye_soc_snapshot_loop
 from app.huawei_power_scheduler import huawei_power_snapshot_loop
 from app.huawei_station_energy_scheduler import huawei_station_energy_loop
 from app.deye_low_dam_charge_scheduler import deye_low_dam_charge_loop
+from app.deye_night_charge_scheduler import deye_night_charge_loop
 from app.deye_peak_auto_scheduler import deye_peak_auto_discharge_loop
 from app.deye_ev_port_scheduler import deye_ev_port_export_loop
 from app.rate_limit_middleware import InMemoryIpRateLimiter, PerIpRateLimitMiddleware
@@ -146,6 +147,16 @@ async def lifespan(app: FastAPI):
             settings.DEYE_LOW_DAM_CHARGE_INTERVAL_SEC,
         )
 
+    stop_night_charge: Optional[asyncio.Event] = None
+    night_charge_task: Optional[asyncio.Task[None]] = None
+    if settings.DEYE_NIGHT_CHARGE_SCHEDULER_ENABLED:
+        stop_night_charge = asyncio.Event()
+        night_charge_task = asyncio.create_task(deye_night_charge_loop(stop_night_charge))
+        logger.info(
+            "Deye night-window auto charge: tick every %ss when DEYE_* is set (DEYE_NIGHT_CHARGE_*)",
+            settings.DEYE_NIGHT_CHARGE_INTERVAL_SEC,
+        )
+
     stop_ev_port: Optional[asyncio.Event] = None
     ev_port_task: Optional[asyncio.Task[None]] = None
     if deye_configured():
@@ -206,6 +217,13 @@ async def lifespan(app: FastAPI):
         low_dam_charge_task.cancel()
         try:
             await low_dam_charge_task
+        except asyncio.CancelledError:
+            pass
+    if night_charge_task is not None and stop_night_charge is not None:
+        stop_night_charge.set()
+        night_charge_task.cancel()
+        try:
+            await night_charge_task
         except asyncio.CancelledError:
             pass
     if ev_port_task is not None and stop_ev_port is not None:

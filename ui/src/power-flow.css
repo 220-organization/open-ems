@@ -36,6 +36,7 @@ body {
 
   /* Text */
   --pf-label: rgba(255, 248, 252, 0.98);
+  --pf-text: rgba(255, 248, 252, 0.98);
   --pf-value: #f9a8ef;
   --pf-icon: #ff4db8;
 
@@ -3126,6 +3127,172 @@ a.pf-node {
   --km220-text-muted: #6b5b7b;
   --km220-input-bg: #f0e8ff;
   --km220-input-border: #c8b0e0;
+  --pf-text: rgba(20, 5, 30, 0.92);
+}
+
+[data-theme="light"] .pf-roi-bar {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.94) 0%,
+    rgba(247, 240, 255, 0.9) 100%
+  );
+  border: 1px solid rgba(193, 0, 185, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] .pf-discharge-toolbar {
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(193, 0, 185, 0.22);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.98),
+    0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] .pf-discharge-feedback {
+  color: var(--pf-label);
+  background: var(--pf-surface);
+  border: 1px solid var(--pf-border);
+}
+
+[data-theme="light"] .pf-peak-dam-toggle-label {
+  color: var(--pf-text-secondary);
+}
+
+[data-theme="light"] .pf-huawei-toolbar-fallback-msg {
+  color: var(--pf-text-secondary);
+}
+
+[data-theme="light"] .pf-deye-command-line--charge {
+  border-top-color: rgba(193, 0, 185, 0.14);
+}
+
+[data-theme="light"] .pf-grid-discharge-actions--header .pf-discharge-go-btn {
+  border-color: rgba(193, 0, 185, 0.32);
+  background: linear-gradient(
+    180deg,
+    rgba(252, 1, 155, 0.08) 0%,
+    rgba(255, 255, 255, 0.96) 100%
+  );
+  color: var(--pf-label);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+[data-theme="light"] .pf-grid-discharge-actions--header .pf-discharge-go-btn:hover:not(:disabled) {
+  border-color: rgba(252, 1, 155, 0.42);
+  background: linear-gradient(
+    180deg,
+    rgba(252, 1, 155, 0.12) 0%,
+    rgba(255, 255, 255, 1) 100%
+  );
+}
+
+[data-theme="light"] .pf-charge-go-btn.pf-discharge-go-btn {
+  border-color: rgba(34, 197, 94, 0.38);
+  background: linear-gradient(
+    180deg,
+    rgba(34, 197, 94, 0.12) 0%,
+    rgba(255, 255, 255, 0.96) 100%
+  );
+  color: var(--pf-label);
+}
+
+[data-theme="light"] .pf-charge-go-btn.pf-discharge-go-btn:hover:not(:disabled) {
+  border-color: rgba(34, 197, 94, 0.52);
+  background: linear-gradient(
+    180deg,
+    rgba(34, 197, 94, 0.18) 0%,
+    rgba(255, 255, 255, 1) 100%
+  );
+}
+
+[data-theme="light"] .pf-roi-prev-month-delta {
+  color: var(--pf-text-secondary);
+  text-shadow: none;
+}
+
+[data-theme="light"] .pf-roi-hint {
+  color: var(--pf-text-muted);
+}
+
+[data-theme="light"] .pf-roi-stack-seg-sub,
+[data-theme="light"] .pf-roi-stack-seg-rate {
+  color: var(--pf-text-secondary);
+}
+
+[data-theme="light"] .pf-roi-stack-seg--placeholder {
+  background: rgba(20, 5, 30, 0.06);
+}
+
+[data-theme="light"] .pf-roi-modal-label {
+  color: var(--pf-label);
+}
+
+[data-theme="light"] .pf-roi-modal-input {
+  border: 1px solid var(--km220-input-border);
+  background: #ffffff;
+  color: var(--pf-label);
+}
+
+[data-theme="light"] .pf-messenger-scrim {
+  background: rgba(40, 20, 55, 0.32);
+}
+
+[data-theme="light"] .pf-messenger-panel {
+  background: #ffffff;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="light"] .pf-messenger-title--deye,
+[data-theme="light"] .pf-messenger-title {
+  color: var(--pf-label);
+}
+
+[data-theme="light"] .pf-messenger-subtitle {
+  color: var(--pf-text-secondary);
+}
+
+[data-theme="light"] .pf-messenger-close {
+  border-color: rgba(20, 5, 30, 0.16);
+  background: rgba(247, 240, 255, 0.98);
+  color: var(--pf-label);
+}
+
+[data-theme="light"] .pf-messenger-close:hover {
+  background: rgba(252, 1, 155, 0.12);
+  border-color: rgba(252, 1, 155, 0.45);
+  color: var(--pf-label);
+}
+
+[data-theme="light"] .pf-messenger-close-footer {
+  border-color: rgba(20, 5, 30, 0.12);
+  background: rgba(247, 240, 255, 0.96);
+  color: var(--pf-label);
+}
+
+[data-theme="light"] .pf-ukraine-qr {
+  border-color: rgba(193, 0, 185, 0.26);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 0 16px rgba(252, 1, 155, 0.1),
+    0 4px 18px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .pf-hub-opensource {
+  color: var(--pf-text-secondary);
+  border-color: rgba(193, 0, 185, 0.22);
+  background: rgba(255, 255, 255, 0.82);
+}
+
+[data-theme="light"] .pf-hub-opensource:hover {
+  color: var(--pf-label);
+}
+
+[data-theme="light"] .pf-roi-years-neon {
+  animation: none;
+  color: var(--pf-value);
+  text-shadow: 0 0 10px rgba(252, 1, 155, 0.22);
 }
 
 @media (prefers-color-scheme: light) {
@@ -3153,5 +3320,171 @@ a.pf-node {
     --km220-text-muted: #6b5b7b;
     --km220-input-bg: #f0e8ff;
     --km220-input-border: #c8b0e0;
+    --pf-text: rgba(20, 5, 30, 0.92);
+  }
+
+  :root:not([data-theme]) .pf-roi-bar {
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.94) 0%,
+      rgba(247, 240, 255, 0.9) 100%
+    );
+    border: 1px solid rgba(193, 0, 185, 0.18);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.95),
+      0 1px 4px rgba(0, 0, 0, 0.06);
+  }
+
+  :root:not([data-theme]) .pf-discharge-toolbar {
+    background: rgba(255, 255, 255, 0.94);
+    border: 1px solid rgba(193, 0, 185, 0.22);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.98),
+      0 1px 4px rgba(0, 0, 0, 0.06);
+  }
+
+  :root:not([data-theme]) .pf-discharge-feedback {
+    color: var(--pf-label);
+    background: var(--pf-surface);
+    border: 1px solid var(--pf-border);
+  }
+
+  :root:not([data-theme]) .pf-peak-dam-toggle-label {
+    color: var(--pf-text-secondary);
+  }
+
+  :root:not([data-theme]) .pf-huawei-toolbar-fallback-msg {
+    color: var(--pf-text-secondary);
+  }
+
+  :root:not([data-theme]) .pf-deye-command-line--charge {
+    border-top-color: rgba(193, 0, 185, 0.14);
+  }
+
+  :root:not([data-theme]) .pf-grid-discharge-actions--header .pf-discharge-go-btn {
+    border-color: rgba(193, 0, 185, 0.32);
+    background: linear-gradient(
+      180deg,
+      rgba(252, 1, 155, 0.08) 0%,
+      rgba(255, 255, 255, 0.96) 100%
+    );
+    color: var(--pf-label);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  }
+
+  :root:not([data-theme]) .pf-grid-discharge-actions--header .pf-discharge-go-btn:hover:not(:disabled) {
+    border-color: rgba(252, 1, 155, 0.42);
+    background: linear-gradient(
+      180deg,
+      rgba(252, 1, 155, 0.12) 0%,
+      rgba(255, 255, 255, 1) 100%
+    );
+  }
+
+  :root:not([data-theme]) .pf-charge-go-btn.pf-discharge-go-btn {
+    border-color: rgba(34, 197, 94, 0.38);
+    background: linear-gradient(
+      180deg,
+      rgba(34, 197, 94, 0.12) 0%,
+      rgba(255, 255, 255, 0.96) 100%
+    );
+    color: var(--pf-label);
+  }
+
+  :root:not([data-theme]) .pf-charge-go-btn.pf-discharge-go-btn:hover:not(:disabled) {
+    border-color: rgba(34, 197, 94, 0.52);
+    background: linear-gradient(
+      180deg,
+      rgba(34, 197, 94, 0.18) 0%,
+      rgba(255, 255, 255, 1) 100%
+    );
+  }
+
+  :root:not([data-theme]) .pf-roi-prev-month-delta {
+    color: var(--pf-text-secondary);
+    text-shadow: none;
+  }
+
+  :root:not([data-theme]) .pf-roi-hint {
+    color: var(--pf-text-muted);
+  }
+
+  :root:not([data-theme]) .pf-roi-stack-seg-sub,
+  :root:not([data-theme]) .pf-roi-stack-seg-rate {
+    color: var(--pf-text-secondary);
+  }
+
+  :root:not([data-theme]) .pf-roi-stack-seg--placeholder {
+    background: rgba(20, 5, 30, 0.06);
+  }
+
+  :root:not([data-theme]) .pf-roi-modal-label {
+    color: var(--pf-label);
+  }
+
+  :root:not([data-theme]) .pf-roi-modal-input {
+    border: 1px solid var(--km220-input-border);
+    background: #ffffff;
+    color: var(--pf-label);
+  }
+
+  :root:not([data-theme]) .pf-messenger-scrim {
+    background: rgba(40, 20, 55, 0.32);
+  }
+
+  :root:not([data-theme]) .pf-messenger-panel {
+    background: #ffffff;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
+  }
+
+  :root:not([data-theme]) .pf-messenger-title--deye,
+  :root:not([data-theme]) .pf-messenger-title {
+    color: var(--pf-label);
+  }
+
+  :root:not([data-theme]) .pf-messenger-subtitle {
+    color: var(--pf-text-secondary);
+  }
+
+  :root:not([data-theme]) .pf-messenger-close {
+    border-color: rgba(20, 5, 30, 0.16);
+    background: rgba(247, 240, 255, 0.98);
+    color: var(--pf-label);
+  }
+
+  :root:not([data-theme]) .pf-messenger-close:hover {
+    background: rgba(252, 1, 155, 0.12);
+    border-color: rgba(252, 1, 155, 0.45);
+    color: var(--pf-label);
+  }
+
+  :root:not([data-theme]) .pf-messenger-close-footer {
+    border-color: rgba(20, 5, 30, 0.12);
+    background: rgba(247, 240, 255, 0.96);
+    color: var(--pf-label);
+  }
+
+  :root:not([data-theme]) .pf-ukraine-qr {
+    border-color: rgba(193, 0, 185, 0.26);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.92),
+      0 0 16px rgba(252, 1, 155, 0.1),
+      0 4px 18px rgba(0, 0, 0, 0.08);
+  }
+
+  :root:not([data-theme]) .pf-hub-opensource {
+    color: var(--pf-text-secondary);
+    border-color: rgba(193, 0, 185, 0.22);
+    background: rgba(255, 255, 255, 0.82);
+  }
+
+  :root:not([data-theme]) .pf-hub-opensource:hover {
+    color: var(--pf-label);
+  }
+
+  :root:not([data-theme]) .pf-roi-years-neon {
+    animation: none;
+    color: var(--pf-value);
+    text-shadow: 0 0 10px rgba(252, 1, 155, 0.22);
   }
 }

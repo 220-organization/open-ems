@@ -3,6 +3,7 @@ import './dam-chart.css';
 import DamChartPanel from './DamChartPanel';
 import RdnConsultationCallback from './RdnConsultationCallback';
 import { useOpenEmsSeo } from './useOpenEmsSeo';
+import { useTheme } from './useTheme';
 
 export default function DamChartPage({
   t,
@@ -12,6 +13,7 @@ export default function DamChartPage({
   LOCALE_NAMES,
   onLangSelectChange,
 }) {
+  useTheme();
   useOpenEmsSeo(t('damPageTitle'), locale, t);
 
   return (

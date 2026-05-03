@@ -92,7 +92,7 @@ class OreeDamLazyFetch(Base):
 
 
 class DeyePeakAutoDischargePref(Base):
-    """Per-inverter: peak-DAM auto flag; discharge_soc_delta_pct is 2, 10, 20, or 100 (full → ~0% SoC at run time)."""
+    """Per-inverter: peak-DAM auto flag; discharge_soc_delta_pct is target SoC % (5, 10, 20, 50, or 80) after discharge."""
 
     __tablename__ = "deye_peak_auto_discharge_pref"
 
@@ -178,6 +178,31 @@ class DeyeLowDamChargeFired(Base):
     trade_day: Mapped[datetime.date] = mapped_column(Date, primary_key=True)
     device_sn: Mapped[str] = mapped_column(String(64), primary_key=True)
     low_hour: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    success_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class DeyeNightChargePref(Base):
+    """Per-inverter: night-window (Kyiv 23:00–06:59) auto charge flag and SoC rise % (same set as low-DAM charge)."""
+
+    __tablename__ = "deye_night_charge_pref"
+
+    device_sn: Mapped[str] = mapped_column(String(64), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    charge_soc_delta_pct: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=10)
+    updated_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class DeyeNightChargeFired(Base):
+    """Successful night-window auto charge (one row per night anchor / device)."""
+
+    __tablename__ = "deye_night_charge_fired"
+
+    night_window_start: Mapped[datetime.date] = mapped_column(Date, primary_key=True)
+    device_sn: Mapped[str] = mapped_column(String(64), primary_key=True)
     success_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

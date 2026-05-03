@@ -29,6 +29,7 @@ from app.deye_low_dam_charge_service import (
     get_low_dam_charge_pref,
     set_low_dam_charge_from_ui,
 )
+from app.deye_night_charge_service import get_night_charge_pref, set_night_charge_from_ui
 from app.deye_self_consumption_service import (
     get_self_consumption_pref,
     set_self_consumption_from_ui,
@@ -72,7 +73,7 @@ _NO_STORE_CACHE = {"Cache-Control": "no-store, max-age=0, must-revalidate"}
 
 _MAX_INVERTER_SOCS = 200
 
-DischargeSocDeltaPctOption = Literal[2, 10, 20, 100]
+DischargeSocDeltaPctOption = Literal[5, 10, 20, 50, 80]
 ChargeSocDeltaPctOption = Literal[2, 10, 20, 50, 100]
 
 
@@ -81,9 +82,9 @@ class InverterSocsBody(BaseModel):
 
 
 class Discharge2PctBody(BaseModel):
-    """socDeltaPercent: optional; when omitted, uses stored per-device prefs (2, 10, or 20).
+    """socDeltaPercent: optional; when omitted, uses stored per-device target SoC % (resolved to a delta at run time).
 
-    Manual discharge accepts 1–100 percentage points (use current SoC for a full discharge to ~0%).
+    Manual discharge accepts 1–100 percentage points (explicit delta in percentage points).
 
     respondAfterStart: return immediately after the inverter accepts the command; polling + restore run in background.
     """
@@ -93,7 +94,7 @@ class Discharge2PctBody(BaseModel):
         default=None,
         ge=1,
         le=100,
-        description="SoC drop in percentage points (1–100). Peak-auto prefs: 2/10/20 or 100 (full).",
+        description="SoC drop in percentage points (1–100). Peak-auto prefs: target SoC 5/10/20/50/80 (%).",
     )
     respondAfterStart: bool = False
     pin: Optional[str] = Field(default=None, max_length=12)
@@ -102,7 +103,7 @@ class Discharge2PctBody(BaseModel):
 class PeakAutoDischargeBody(BaseModel):
     deviceSn: str = Field(..., min_length=6, max_length=64)
     enabled: bool
-    dischargeSocDeltaPct: DischargeSocDeltaPctOption = 2
+    dischargeSocDeltaPct: DischargeSocDeltaPctOption = 80
     pin: Optional[str] = Field(default=None, max_length=12)
 
 
@@ -116,6 +117,13 @@ class Charge2PctBody(BaseModel):
 
 
 class LowDamChargeBody(BaseModel):
+    deviceSn: str = Field(..., min_length=6, max_length=64)
+    enabled: bool
+    chargeSocDeltaPct: ChargeSocDeltaPctOption = 10
+    pin: Optional[str] = Field(default=None, max_length=12)
+
+
+class NightChargeBody(BaseModel):
     deviceSn: str = Field(..., min_length=6, max_length=64)
     enabled: bool
     chargeSocDeltaPct: ChargeSocDeltaPctOption = 10
@@ -707,7 +715,7 @@ async def get_peak_auto_discharge(
                 "ok": False,
                 "configured": False,
                 "enabled": False,
-                "dischargeSocDeltaPct": 2,
+                "dischargeSocDeltaPct": 80,
             },
             headers=_NO_STORE_CACHE,
         )
@@ -776,7 +784,7 @@ async def post_discharge_2pct(
 ) -> JSONResponse:
     """
     Set Deye strategy to SELLING_FIRST, wait until SoC drops by socDeltaPercent (1–100 points) or timeout,
-    then ZERO_EXPORT_TO_CT. If socDeltaPercent is omitted, uses stored per-device prefs (2, 10, 20, or 100=full).
+    then ZERO_EXPORT_TO_CT. If socDeltaPercent is omitted, uses stored per-device target SoC % (5–80).
     Overwrites device TOU template per Deye /strategy/dynamicControl (see Deye sample scripts).
     Long-running: ensure reverse-proxy read timeout > DEYE_DISCHARGE_SOC_TIMEOUT_SEC.
     """
@@ -894,6 +902,88 @@ async def post_low_dam_charge(
             "deviceSn": sn,
             "enabled": body.enabled,
             "chargeSocDeltaPct": body.chargeSocDeltaPct,
+        },
+        headers=_NO_STORE_CACHE,
+    )
+
+
+@router.get("/night-charge")
+async def get_night_charge(
+    deviceSn: str = Query(
+        ...,
+        min_length=6,
+        max_length=32,
+        pattern=r"^[0-9]+$",
+        description="Deye inverter serial",
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Per-device preference: auto charge during Kyiv 23:00–06:59 (Europe/Kyiv)."""
+    if not deye_configured():
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": False,
+                "nightChargeEnabled": False,
+                "chargeSocDeltaPct": 10,
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    en, pct = await get_night_charge_pref(db, deviceSn.strip())
+    return JSONResponse(
+        content={
+            "ok": True,
+            "configured": True,
+            "deviceSn": deviceSn.strip(),
+            "nightChargeEnabled": en,
+            "chargeSocDeltaPct": pct,
+        },
+        headers=_NO_STORE_CACHE,
+    )
+
+
+@router.post("/night-charge")
+async def post_night_charge(
+    body: NightChargeBody,
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Upsert night-window charge; enabling turns off peak + low DAM prefs and enables self-consumption."""
+    if not deye_configured():
+        missing = deye_missing_env_names()
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": False,
+                "nightChargeEnabled": False,
+                "detail": "DEYE_* not set"
+                + (f" (missing: {', '.join(missing)})" if missing else ""),
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    sn = body.deviceSn.strip()
+    try:
+        await assert_deye_write_pin(sn, body.pin)
+        snap = await set_night_charge_from_ui(db, sn, body.enabled, int(body.chargeSocDeltaPct))
+        await db.commit()
+    except HTTPException:
+        await db.rollback()
+        raise
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        await db.rollback()
+        logger.exception("POST /api/deye/night-charge — failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return JSONResponse(
+        content={
+            "ok": True,
+            "configured": True,
+            "deviceSn": sn,
+            **snap,
         },
         headers=_NO_STORE_CACHE,
     )
