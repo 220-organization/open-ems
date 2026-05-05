@@ -817,6 +817,43 @@ def _active_power_w_from_dev_dim(dim: dict[str, Any]) -> Optional[float]:
     return None
 
 
+def _normalize_meter_scale_if_implausible(
+    meter_raw_w: Optional[float],
+    inverter_raw_w: Optional[float],
+) -> Optional[float]:
+    """
+    Fix occasional meter x1000 scaling artifacts for Huawei power flow snapshots.
+
+    In some responses, meter power appears to already be in watts but still passes the
+    generic kW->W heuristic and becomes 1000x too large (e.g. ~496 kW import while
+    inverter output is ~44 kW). If the meter value is extremely high and dividing by
+    1000 keeps it in a realistic range relative to inverter power, use the downscaled
+    value.
+    """
+    if meter_raw_w is None:
+        return None
+    if inverter_raw_w is None:
+        return meter_raw_w
+    try:
+        meter_abs = abs(float(meter_raw_w))
+        inv_abs = abs(float(inverter_raw_w))
+    except (TypeError, ValueError):
+        return meter_raw_w
+
+    # Trigger only for clearly implausible meter spikes.
+    if meter_abs < 300_000.0:
+        return meter_raw_w
+
+    meter_div_1k = meter_abs / 1000.0
+    # Accept the correction only when the reduced value is still in a plausible envelope
+    # for the current inverter power.
+    plausibility_limit = max(200_000.0, inv_abs * 3.0 + 20_000.0)
+    if meter_div_1k <= plausibility_limit:
+        sign = -1.0 if float(meter_raw_w) < 0.0 else 1.0
+        return sign * meter_div_1k
+    return meter_raw_w
+
+
 async def _fetch_dev_real_kpi_dim(
     client: httpx.AsyncClient, dev_id: str, dev_type_id: int
 ) -> dict[str, Any]:
@@ -907,6 +944,7 @@ async def get_power_flow(station_code: str) -> dict[str, Any]:
 
             meter_raw = _active_power_w_from_dev_dim(meter_dim)
             inv_raw = _active_power_w_from_dev_dim(inv_dim)
+            meter_raw = _normalize_meter_scale_if_implausible(meter_raw, inv_raw)
 
             pv_w = max(0.0, float(inv_raw)) if inv_raw is not None else None
             grid_ui: Optional[float] = -float(meter_raw) if meter_raw is not None else None
