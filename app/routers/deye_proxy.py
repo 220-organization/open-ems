@@ -1053,15 +1053,23 @@ async def get_self_consumption(
     ),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    """Per-device preference: battery discharges freely to cover home load (ZERO_EXPORT_TO_CT, TOU SoC=5%)."""
+    """Per-device preference: auto discharge by DAM > battery LCOE rule."""
     if not deye_configured():
         return JSONResponse(
             content={"ok": False, "configured": False, "enabled": False},
             headers=_NO_STORE_CACHE,
         )
-    enabled = await get_self_consumption_pref(db, deviceSn.strip())
+    sn = deviceSn.strip()
+    enabled = await get_self_consumption_auto_dam_pref(db, sn)
+    self_consumption_enabled = await get_self_consumption_pref(db, sn)
     return JSONResponse(
-        content={"ok": True, "configured": True, "deviceSn": deviceSn.strip(), "enabled": enabled},
+        content={
+            "ok": True,
+            "configured": True,
+            "deviceSn": sn,
+            "enabled": enabled,
+            "selfConsumptionEnabled": bool(self_consumption_enabled),
+        },
         headers=_NO_STORE_CACHE,
     )
 
@@ -1071,7 +1079,7 @@ async def post_self_consumption(
     body: SelfConsumptionBody,
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    """Upsert self-consumption preference; enabling sends ZERO_EXPORT_TO_CT with TOU SoC=5% immediately."""
+    """Single toggle: enable/disable auto DAM > LCOE self-consumption mode."""
     if not deye_configured():
         missing = deye_missing_env_names()
         return JSONResponse(
@@ -1086,7 +1094,13 @@ async def post_self_consumption(
     sn = body.deviceSn.strip()
     try:
         await assert_deye_write_pin(sn, body.pin)
-        await set_self_consumption_from_ui(db, sn, body.enabled)
+        # Keep a single UI toggle: "Self consumption" now controls DAM > LCOE auto mode.
+        await set_self_consumption_auto_dam_from_ui(db, sn, body.enabled)
+        if body.enabled:
+            await sync_self_consumption_auto_dam_for_device(db, sn)
+        else:
+            await set_self_consumption_from_ui(db, sn, False)
+        sc_after = await get_self_consumption_pref(db, sn)
         await db.commit()
     except HTTPException:
         await db.rollback()
@@ -1099,7 +1113,13 @@ async def post_self_consumption(
         logger.exception("POST /api/deye/self-consumption — failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return JSONResponse(
-        content={"ok": True, "configured": True, "deviceSn": sn, "enabled": body.enabled},
+        content={
+            "ok": True,
+            "configured": True,
+            "deviceSn": sn,
+            "enabled": body.enabled,
+            "selfConsumptionEnabled": bool(sc_after),
+        },
         headers=_NO_STORE_CACHE,
     )
 

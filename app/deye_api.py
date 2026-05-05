@@ -1284,8 +1284,7 @@ async def _discharge_soc_delta_poll_loop_and_restore(
     """Poll until SoC at target; then restore ZERO_EXPORT_TO_CT.
 
     Restore TOU SoC:
-    - Normal mode: max(5%, discharge target) — holds battery at that level for next peak.
-    - Self-consumption mode: 5% — battery continues freely discharging to cover load.
+    - Always max(5%, discharge target) — keeps the selected floor (for example, 20%).
 
     Restore keeps solar sell off (same as EV-port export) for zero-export / Solar Sell disabled sites.
     """
@@ -1309,10 +1308,7 @@ async def _discharge_soc_delta_poll_loop_and_restore(
         raise
     finally:
         try:
-            if self_consumption:
-                tou_soc_rest = _ZERO_EXPORT_CT_DEFAULT_TOU_SOC_PCT
-            else:
-                tou_soc_rest = max(_ZERO_EXPORT_CT_DEFAULT_TOU_SOC_PCT, round(float(target), 2))
+            tou_soc_rest = max(_ZERO_EXPORT_CT_DEFAULT_TOU_SOC_PCT, round(float(target), 2))
             await _post_strategy_dynamic_control(
                 _body_zero_export_target_soc(sn, tou_soc_rest, rated, solar_sell_action="off")
             )
@@ -1337,8 +1333,7 @@ async def discharge_soc_delta_then_zero_export_ct(
     1) Set workMode SELLING_FIRST via dynamicControl (discharge-friendly TOU template).
     2) Poll SoC until it drops by soc_delta_pct points or timeout.
     3) Set ZERO_EXPORT_TO_CT.
-       - Normal mode: TOU SoC = max(5%, discharge target) — holds battery at that level.
-       - Self-consumption mode: TOU SoC = 5% — battery continues discharging to cover load.
+       - TOU SoC = max(5%, discharge target) — holds battery at the selected level.
 
     soc_delta_pct: 1..100 (percentage points of SoC to shed; use ~100% of current SoC for full discharge).
 
