@@ -349,5 +349,9 @@
   "rdnCallbackWhatsAppBtn": "WhatsApp",
   "rdnCallbackTelegramAria": "Надіслати заявку на консультацію через Telegram",
   "rdnCallbackWhatsAppAria": "Надіслати заявку на консультацію через WhatsApp",
-  "rdnCallbackMessageBody": "Замовляю зворотний дзвінок щодо консультації по РДН.\nІм'я: {{name}}\nТелефон: {{phone}}"
+  "rdnCallbackMessageBody": "Замовляю зворотний дзвінок щодо консультації по РДН.\nІм'я: {{name}}\nТелефон: {{phone}}",
+  "refreshInvertorCacheButton": "Refresh Invertor Cache",
+  "refreshInvertorCachePinPrompt": "Enter admin PIN to refresh inverter cache",
+  "refreshInvertorCacheOk": "Invertor cache refreshed successfully",
+  "refreshInvertorCacheFailed": "Failed to refresh invertor cache"
 }

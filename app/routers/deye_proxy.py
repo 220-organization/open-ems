@@ -23,6 +23,7 @@ from app.deye_api import (
     get_live_metrics_cached,
     get_soc_map_cached,
     list_inverter_devices,
+    station_cluster_device_sns,
 )
 from app.deye_low_dam_charge_service import (
     get_charge_soc_delta_stored,
@@ -53,14 +54,20 @@ from app.deye_roi_capex_service import (
 )
 from app.deye_roi_service import (
     compute_roi_pv_kwh_and_value_uah,
+    compute_roi_pv_kwh_and_value_uah_cluster,
     compute_roi_pv_kwh_and_value_uah_previous_kyiv_month,
+    compute_roi_pv_kwh_and_value_uah_previous_kyiv_month_cluster,
 )
-from app.deye_soc_service import hourly_inverter_history_for_kyiv_day
+from app.deye_soc_service import (
+    hourly_inverter_history_for_kyiv_day,
+    hourly_inverter_history_for_kyiv_day_cluster,
+)
 from app.solar_clear_sky import kyiv_day_hourly_clear_sky_weights
 from app.solar_forecast_open_meteo import (
     fetch_today_tomorrow_insolation_forecast,
     fetch_tomorrow_insolation_percent,
 )
+from app import settings
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -283,14 +290,21 @@ async def get_soc_history_day(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD") from exc
     try:
-        hourly_soc, hourly_grid_w, hourly_grid_hz, hourly_pv_kwh, hourly_load_kwh = (
-            await hourly_inverter_history_for_kyiv_day(db, deviceSn, trade_day)
-        )
+        cluster = await station_cluster_device_sns(deviceSn.strip())
+        if len(cluster) > 1:
+            hourly_soc, hourly_grid_w, hourly_grid_hz, hourly_pv_kwh, hourly_load_kwh = (
+                await hourly_inverter_history_for_kyiv_day_cluster(db, cluster, trade_day)
+            )
+        else:
+            hourly_soc, hourly_grid_w, hourly_grid_hz, hourly_pv_kwh, hourly_load_kwh = (
+                await hourly_inverter_history_for_kyiv_day(db, deviceSn, trade_day)
+            )
         return JSONResponse(
             content={
                 "ok": True,
                 "configured": True,
                 "deviceSn": deviceSn,
+                "clusterDeviceSns": cluster,
                 "date": date,
                 "hourlySocPercent": hourly_soc,
                 "hourlyGridPowerW": hourly_grid_w,
@@ -346,13 +360,23 @@ async def get_roi_stats(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
-        data = await compute_roi_pv_kwh_and_value_uah(db, sn, startIso)
-        previous_month = await compute_roi_pv_kwh_and_value_uah_previous_kyiv_month(db, sn, startIso)
+        cluster = await station_cluster_device_sns(sn)
+        if len(cluster) > 1:
+            data = await compute_roi_pv_kwh_and_value_uah_cluster(db, cluster, startIso)
+            previous_month = await compute_roi_pv_kwh_and_value_uah_previous_kyiv_month_cluster(
+                db, cluster, startIso
+            )
+        else:
+            data = await compute_roi_pv_kwh_and_value_uah(db, sn, startIso)
+            previous_month = await compute_roi_pv_kwh_and_value_uah_previous_kyiv_month(
+                db, sn, startIso
+            )
         return JSONResponse(
             content={
                 "ok": True,
                 "configured": True,
                 "deviceSn": sn,
+                "clusterDeviceSns": cluster,
                 **data,
                 "previousMonth": previous_month,
             },

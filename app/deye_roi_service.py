@@ -412,6 +412,60 @@ def _merge_load_and_pv_roi(load_data: dict[str, Any], pv_data: dict[str, Any]) -
     }
 
 
+def _merge_cluster_load_pv_roi(load_parts: list[dict[str, Any]], pv_parts: list[dict[str, Any]]) -> dict[str, Any]:
+    """Sum load/PV integration results per device; combine daily load rows by Kyiv calendar day."""
+    total_pv = sum(float(p.get("totalPvKwh") or 0.0) for p in pv_parts)
+    total_cons = sum(float(l.get("totalConsumptionKwh") or 0.0) for l in load_parts)
+    sample_count = sum(int(l.get("sampleCount") or 0) for l in load_parts)
+    segment_count = sum(int(l.get("segmentCount") or 0) for l in load_parts)
+    missing_dam = sum(int(l.get("missingDamSlices") or 0) for l in load_parts)
+
+    daily_map: dict[str, dict[str, float]] = {}
+    for ld in load_parts:
+        for row in ld.get("dailyConsumptionKwh") or []:
+            d = str(row.get("dayIso") or "")
+            if not d:
+                continue
+            daily_map.setdefault(d, {"kwh": 0.0, "valueUah": 0.0})
+            daily_map[d]["kwh"] += float(row.get("kwh") or 0.0)
+            daily_map[d]["valueUah"] += float(row.get("valueUah") or 0.0)
+    daily_rows: list[dict[str, Any]] = [
+        {
+            "dayIso": k,
+            "kwh": round(v["kwh"], 4),
+            "valueUah": round(v["valueUah"], 4),
+        }
+        for k, v in sorted(daily_map.items())
+    ]
+
+    ld_errs = [l.get("detail") for l in load_parts]
+    if ld_errs and all(e == "insufficient_load_samples" for e in ld_errs):
+        detail = None
+    else:
+        detail = next((e for e in ld_errs if e and e != "insufficient_load_samples"), None)
+
+    starts = [l.get("startUsedIso") for l in load_parts if l.get("startUsedIso")]
+    ends = [l.get("endUsedIso") for l in load_parts if l.get("endUsedIso")]
+    if not starts:
+        starts = [p.get("startUsedIso") for p in pv_parts if p.get("startUsedIso")]
+    if not ends:
+        ends = [p.get("endUsedIso") for p in pv_parts if p.get("endUsedIso")]
+
+    return {
+        "totalPvKwh": total_pv,
+        "totalConsumptionKwh": total_cons,
+        "totalValueUah": 0.0,
+        "effectiveRateUahPerKwh": None,
+        "sampleCount": sample_count,
+        "segmentCount": segment_count,
+        "missingDamSlices": missing_dam,
+        "detail": detail,
+        "startUsedIso": min(starts) if starts else None,
+        "endUsedIso": max(ends) if ends else None,
+        "dailyConsumptionKwh": daily_rows,
+    }
+
+
 async def compute_roi_pv_kwh_and_value_uah(
     session: AsyncSession,
     device_sn: str,
@@ -449,6 +503,64 @@ async def compute_roi_pv_kwh_and_value_uah(
     merged["effectiveRateUahPerKwh"] = None
     merged["missingDamSlices"] = 0
     if load_data.get("detail") == "insufficient_load_samples":
+        merged["detail"] = None
+    return merged
+
+
+async def compute_roi_pv_kwh_and_value_uah_cluster(
+    session: AsyncSession,
+    device_sns: list[str],
+    start_iso: str,
+) -> dict[str, Any]:
+    """
+    Same as ``compute_roi_pv_kwh_and_value_uah`` but sums load/PV kWh and grid arbitrage UAH across
+    all serials (one physical station with multiple Deye devices).
+    """
+    sns = sorted({(s or "").strip() for s in device_sns if (s or "").strip()})
+    empty = _empty_roi_payload()
+    if not sns:
+        return {**empty, "detail": "invalid_start"}
+    if len(sns) == 1:
+        return await compute_roi_pv_kwh_and_value_uah(session, sns[0], start_iso)
+
+    start_utc = _parse_start_utc(start_iso)
+    now_utc = datetime.now(timezone.utc)
+    if start_utc is None:
+        return {**empty, "detail": "invalid_start"}
+    if start_utc >= now_utc:
+        return {**empty, "detail": "start_in_future"}
+
+    extras = await deye_soc_balance_input_columns_ready(session)
+    if not extras:
+        return {**empty, "detail": "pv_columns_unavailable"}
+
+    load_parts: list[dict[str, Any]] = []
+    pv_parts: list[dict[str, Any]] = []
+    for s in sns:
+        load_parts.append(
+            await _compute_roi_load_kwh_value_uah_window(
+                session, s, start_utc, now_utc, end_exclusive=False
+            )
+        )
+        pv_parts.append(
+            await _compute_roi_pv_kwh_value_uah_window(
+                session, s, start_utc, now_utc, end_exclusive=False
+            )
+        )
+    merged = _merge_cluster_load_pv_roi(load_parts, pv_parts)
+    try:
+        arb = 0.0
+        for s in sns:
+            arb += await _sum_arbitrage_revenue_uah_window(
+                session, s, start_utc, now_utc, end_exclusive=False
+            )
+    except Exception as exc:
+        logger.exception("ROI arbitrage sum (cluster full window): %s", exc)
+        arb = 0.0
+    merged["totalValueUah"] = arb
+    merged["effectiveRateUahPerKwh"] = None
+    merged["missingDamSlices"] = 0
+    if load_parts and all(lp.get("detail") == "insufficient_load_samples" for lp in load_parts):
         merged["detail"] = None
     return merged
 
@@ -517,6 +629,85 @@ async def compute_roi_pv_kwh_and_value_uah_previous_kyiv_month(
     data["effectiveRateUahPerKwh"] = None
     data["missingDamSlices"] = 0
     if load_data.get("detail") == "insufficient_load_samples":
+        data["detail"] = None
+    data["year"] = y
+    data["month"] = m
+    data["daysInMonth"] = days_in_month
+    return data
+
+
+async def compute_roi_pv_kwh_and_value_uah_previous_kyiv_month_cluster(
+    session: AsyncSession,
+    device_sns: list[str],
+    start_iso: str,
+) -> dict[str, Any]:
+    """Previous Kyiv calendar month ROI, aggregated across ``device_sns`` (same station cluster)."""
+    sns = sorted({(s or "").strip() for s in device_sns if (s or "").strip()})
+    roi_start = _parse_start_utc(start_iso)
+    now_utc = datetime.now(timezone.utc)
+    empty = _empty_roi_payload()
+    out: dict[str, Any] = {
+        **empty,
+        "year": None,
+        "month": None,
+        "daysInMonth": None,
+    }
+    if not sns or roi_start is None:
+        return {**out, "detail": "invalid_start"}
+
+    if len(sns) == 1:
+        return await compute_roi_pv_kwh_and_value_uah_previous_kyiv_month(session, sns[0], start_iso)
+
+    ms, me, y, m = _kyiv_previous_month_bounds_utc(now_utc)
+    eff_start = max(roi_start, ms)
+    eff_end = min(now_utc, me)
+    if eff_start >= eff_end:
+        return {
+            **out,
+            "detail": "no_overlap",
+            "year": y,
+            "month": m,
+            "daysInMonth": calendar.monthrange(y, m)[1],
+        }
+
+    extras = await deye_soc_balance_input_columns_ready(session)
+    if not extras:
+        return {
+            **out,
+            "detail": "pv_columns_unavailable",
+            "year": y,
+            "month": m,
+            "daysInMonth": calendar.monthrange(y, m)[1],
+        }
+
+    days_in_month = calendar.monthrange(y, m)[1]
+    load_parts: list[dict[str, Any]] = []
+    pv_parts: list[dict[str, Any]] = []
+    for s in sns:
+        load_parts.append(
+            await _compute_roi_load_kwh_value_uah_window(
+                session, s, eff_start, eff_end, end_exclusive=True
+            )
+        )
+        pv_parts.append(
+            await _compute_roi_pv_kwh_value_uah_window(
+                session, s, eff_start, eff_end, end_exclusive=True
+            )
+        )
+    data = _merge_cluster_load_pv_roi(load_parts, pv_parts)
+    try:
+        arb = 0.0
+        for s in sns:
+            arb += await _sum_arbitrage_revenue_uah_window(
+                session, s, eff_start, eff_end, end_exclusive=True
+            )
+    except Exception as exc:
+        logger.exception("ROI arbitrage sum (cluster prev month): %s", exc)
+        arb = 0.0
+    data["totalValueUah"] = arb
+    data["effectiveRateUahPerKwh"] = None
+    data["missingDamSlices"] = 0
+    if load_parts and all(lp.get("detail") == "insufficient_load_samples" for lp in load_parts):
         data["detail"] = None
     data["year"] = y
     data["month"] = m

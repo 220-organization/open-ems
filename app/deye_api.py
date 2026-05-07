@@ -34,7 +34,14 @@ _live_cache: dict[
     str,
     tuple[Optional[float], Optional[float], Optional[float], Optional[float], Optional[float], float],
 ] = {}
+_station_live_cache: dict[
+    str,
+    tuple[Optional[float], Optional[float], Optional[float], Optional[float], Optional[float], float],
+] = {}
 _soc_lock = asyncio.Lock()
+_inverter_rows_cache: Optional[list["_InverterListRow"]] = None
+_inverter_rows_cache_at_mono: float = 0.0
+_inverter_rows_lock = asyncio.Lock()
 SOC_CACHE_TTL_SEC = 300.0
 ESS_POWER_CACHE_TTL_SEC = 25.0
 
@@ -155,8 +162,9 @@ def _devices_from_station(st: dict[str, Any]) -> list[dict[str, Any]]:
         if not sn:
             continue
         dt = str(d.get("deviceType") or "").upper()
-        # Request already filters INVERTER; keep rows with missing type.
-        if dt and dt != "INVERTER":
+        # Some plants expose ESS serials as FEED_IN_LIMIT (without explicit INVERTER rows).
+        # Keep inverter-like rows and this fallback; keep rows with missing type.
+        if dt and ("INVERTER" not in dt) and (dt != "FEED_IN_LIMIT"):
             continue
         out.append(d)
     return out
@@ -300,12 +308,23 @@ class _InverterListRow:
     pin: Optional[str]
     lat: Optional[float]
     lon: Optional[float]
+    station_id: Optional[str]
 
 
 async def _list_inverter_rows() -> list[_InverterListRow]:
     """Raw inverter rows including optional PIN parsed from device name (not exposed in list API)."""
+    global _inverter_rows_cache, _inverter_rows_cache_at_mono
     if not deye_configured():
         return []
+
+    ttl = float(max(0, settings.DEYE_INVERTER_LIST_CACHE_TTL_SEC))
+    now_mono = time.monotonic()
+    if ttl > 0:
+        async with _inverter_rows_lock:
+            cached = _inverter_rows_cache
+            if cached is not None and (now_mono - _inverter_rows_cache_at_mono) < ttl:
+                logger.info("Deye: using cached inverter list (%s items, ttl=%ss)", len(cached), int(ttl))
+                return list(cached)
 
     base = settings.DEYE_API_BASE_URL
     t0 = time.perf_counter()
@@ -329,7 +348,6 @@ async def _list_inverter_rows() -> list[_InverterListRow]:
             req_body = {
                 "page": page,
                 "size": page_size,
-                "deviceType": "INVERTER",
             }
             list_url = f"{base}/station/listWithDevice"
             r = await client.post(list_url, headers=headers, json=req_body)
@@ -380,7 +398,10 @@ async def _list_inverter_rows() -> list[_InverterListRow]:
                     dev_lat, dev_lon = _parse_geo_from_dict(dev)
                     lat = dev_lat if dev_lat is not None else st_lat
                     lon = dev_lon if dev_lon is not None else st_lon
-                    items.append(_InverterListRow(sn, label, pin_code, lat, lon))
+                    st_id_raw = st.get("id")
+                    station_id = str(st_id_raw).strip() if st_id_raw is not None else None
+                    station_id = station_id or None
+                    items.append(_InverterListRow(sn, label, pin_code, lat, lon, station_id))
                     page_inverter_count += 1
             logger.info(
                 "Deye: listWithDevice page=%s new_inverters_added=%s (total_so_far=%s)",
@@ -401,7 +422,22 @@ async def _list_inverter_rows() -> list[_InverterListRow]:
             pages_fetched,
             elapsed,
         )
+        if ttl > 0:
+            async with _inverter_rows_lock:
+                _inverter_rows_cache = list(items)
+                _inverter_rows_cache_at_mono = time.monotonic()
         return items
+
+
+async def clear_inverter_list_cache() -> int:
+    """Clear in-memory inverter list cache; returns number of cached rows before clear."""
+    global _inverter_rows_cache, _inverter_rows_cache_at_mono
+    async with _inverter_rows_lock:
+        prev_count = len(_inverter_rows_cache or [])
+        _inverter_rows_cache = None
+        _inverter_rows_cache_at_mono = 0.0
+    logger.info("Deye: inverter list cache cleared (previous_rows=%s)", prev_count)
+    return prev_count
 
 
 async def list_inverter_devices() -> list[dict[str, Any]]:
@@ -434,6 +470,69 @@ async def assert_deye_write_pin(device_sn: str, pin: Optional[str]) -> None:
     if row is None:
         return
     assert_inverter_write_pin(pin, row.pin, row.label)
+
+
+def _to_float_or_none(v: Any) -> Optional[float]:
+    if v is None:
+        return None
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return None
+    return n if math.isfinite(n) else None
+
+
+async def _station_id_for_device_sn(device_sn: str) -> Optional[str]:
+    sn = (device_sn or "").strip()
+    if not sn:
+        return None
+    rows = await _list_inverter_rows()
+    row = next((r for r in rows if r.device_sn == sn), None)
+    return row.station_id if row is not None else None
+
+
+async def station_cluster_device_sns(device_sn: str) -> list[str]:
+    """
+    All inverter serials on the same Deye station (plant id from listWithDevice) as ``device_sn``.
+    Single-device stations return a one-element list. Unknown serial returns ``[device_sn]``.
+    """
+    sn = (device_sn or "").strip()
+    if not sn:
+        return []
+    rows = await _list_inverter_rows()
+    row = next((r for r in rows if r.device_sn == sn), None)
+    if row is None:
+        return [sn]
+    st_id = row.station_id
+    if not st_id:
+        return [sn]
+    return sorted({r.device_sn for r in rows if r.station_id == st_id})
+
+
+async def _fetch_station_latest_metrics(
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    base: str,
+    station_id: str,
+) -> tuple[Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]]:
+    """Fallback metrics for plants where device/latest lacks inverter-like registers."""
+    r = await client.post(f"{base}/station/latest", headers=headers, json={"stationId": station_id})
+    if r.status_code >= 400:
+        logger.warning("Deye: station/latest HTTP %s stationId=%s — %s", r.status_code, station_id, (r.text or "")[:500])
+        return None, None, None, None, None
+    payload = r.json() if r.content else {}
+    if isinstance(payload, dict) and payload.get("success") is False:
+        logger.warning("Deye: station/latest success=false stationId=%s msg=%s", station_id, str(payload.get("msg") or "")[:300])
+        return None, None, None, None, None
+    pv_w = _to_float_or_none(payload.get("generationPower"))
+    load_w = _to_float_or_none(payload.get("consumptionPower"))
+    bat_w = _to_float_or_none(payload.get("batteryPower"))
+    # Prefer explicit grid power; fallback to wirePower when missing.
+    grid_w = _to_float_or_none(payload.get("gridPower"))
+    if grid_w is None:
+        grid_w = _to_float_or_none(payload.get("wirePower"))
+    freq_hz = _to_float_or_none(payload.get("gridFrequency"))
+    return bat_w, load_w, pv_w, grid_w, freq_hz
 
 
 _SOC_KEYS = frozenset({"SOC", "BMS_SOC", "BATTERY_SOC"})
@@ -1044,7 +1143,9 @@ async def get_live_metrics_cached(
         hit = _live_cache.get(sn)
         if hit is not None:
             bat, load_w, pv_w, grid_w, freq_hz, ts = hit
-            if now - ts < ESS_POWER_CACHE_TTL_SEC:
+            has_any_live = bat is not None or load_w is not None or pv_w is not None or grid_w is not None
+            # Do not keep returning cached all-null snapshots: try fresh /device/latest + /station/latest fallback.
+            if (now - ts < ESS_POWER_CACHE_TTL_SEC) and has_any_live:
                 return _finalize_live_metrics_for_sn(sn, bat, load_w, pv_w, grid_w, freq_hz)
 
     base = settings.DEYE_API_BASE_URL.rstrip("/")
@@ -1058,6 +1159,31 @@ async def get_live_metrics_cached(
 
     fetch_time = time.monotonic()
     soc, pwr, load_w, pv_w, grid_w, freq_hz = merged.get(sn, (None, None, None, None, None, None))
+    # For some plants (e.g. FEED_IN_LIMIT-only) /device/latest returns empty metrics.
+    # Fallback to /station/latest for realtime flow values.
+    if pwr is None and load_w is None and pv_w is None and grid_w is None:
+        station_id = await _station_id_for_device_sn(sn)
+        if station_id:
+            async with _soc_lock:
+                now = time.monotonic()
+                st_hit = _station_live_cache.get(station_id)
+                if st_hit is not None:
+                    sbat, sload, spv, sgrid, sfreq, sts = st_hit
+                    if now - sts < ESS_POWER_CACHE_TTL_SEC:
+                        pwr, load_w, pv_w, grid_w, freq_hz = sbat, sload, spv, sgrid, sfreq
+            if pwr is None and load_w is None and pv_w is None and grid_w is None:
+                async with httpx.AsyncClient(timeout=45.0) as client:
+                    token = await _ensure_token(client)
+                    hdrs = {
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {token}",
+                    }
+                    pwr, load_w, pv_w, grid_w, freq_hz = await _fetch_station_latest_metrics(
+                        client, hdrs, base, station_id
+                    )
+                async with _soc_lock:
+                    _station_live_cache[station_id] = (pwr, load_w, pv_w, grid_w, freq_hz, fetch_time)
+
     async with _soc_lock:
         _soc_cache[sn] = (soc, fetch_time)
         obat: Optional[float] = None
@@ -1263,8 +1389,12 @@ async def assert_inverter_owned(device_sn: str) -> None:
     sn = (device_sn or "").strip()
     items = await list_inverter_devices()
     allowed = {str(it.get("deviceSn") or "").strip() for it in items if it.get("deviceSn")}
-    if sn not in allowed:
-        raise ValueError(f"Inverter serial not in this account: {sn}")
+    if sn in allowed:
+        return
+    cluster = await station_cluster_device_sns(sn)
+    if any(c in allowed for c in cluster):
+        return
+    raise ValueError(f"Inverter serial not in this account: {sn}")
 
 
 _DISCHARGE_SOC_DELTA_MIN = 1.0

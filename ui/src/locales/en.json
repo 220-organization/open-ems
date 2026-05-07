@@ -349,5 +349,9 @@
   "rdnCallbackWhatsAppBtn": "WhatsApp",
   "rdnCallbackTelegramAria": "Send consultation request via Telegram",
   "rdnCallbackWhatsAppAria": "Send consultation request via WhatsApp",
-  "rdnCallbackMessageBody": "Request a callback about DAM (Ukraine spot market).\nName: {{name}}\nPhone: {{phone}}"
+  "rdnCallbackMessageBody": "Request a callback about DAM (Ukraine spot market).\nName: {{name}}\nPhone: {{phone}}",
+  "refreshInvertorCacheButton": "Refresh Invertor Cache",
+  "refreshInvertorCachePinPrompt": "Enter admin PIN to refresh inverter cache",
+  "refreshInvertorCacheOk": "Invertor cache refreshed successfully",
+  "refreshInvertorCacheFailed": "Failed to refresh invertor cache"
 }

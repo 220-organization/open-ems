@@ -331,7 +331,6 @@ const LANDING_EXPORT_METRIC_URL_KEYS = ['exportMetric', 'landingExport'];
 
 /** One preference for the whole UI session — survives inverter / station changes (still normalized for Huawei / fleet). */
 const LANDING_EXPORT_METRIC_STORAGE_GLOBAL = 'pf-landing-export-metric-v2-global';
-
 function normalizeLandingExportMetricForContext(metric, inverterSn, huaweiStationCode) {
   if (!LANDING_EXPORT_METRIC_VALUES.has(metric)) return LANDING_EXPORT_METRIC.TOTAL;
   const h = String(huaweiStationCode || '').trim();
@@ -1151,6 +1150,41 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   }, [loadHuaweiStations]);
 
   const [inverterValue, setInverterValue] = useState('');
+  const deyeCombinedItems = useMemo(() => {
+    const byKey = new Map();
+    for (const row of inverterRows.items) {
+      const sn = String(row?.deviceSn || '').trim();
+      if (!sn) continue;
+      const shortLabel = inverterSelectShortLabel(row.label, row.deviceSn);
+      const key = shortLabel || sn;
+      const prev = byKey.get(key);
+      if (!prev) {
+        byKey.set(key, {
+          key,
+          shortLabel: key,
+          representativeSn: sn,
+          clusterSns: [sn],
+          capexUsd: row?.capexUsd ?? null,
+          pinRequired: !!row?.pinRequired,
+        });
+        continue;
+      }
+      prev.clusterSns.push(sn);
+      // Keep representative stable: smallest serial.
+      if (sn < prev.representativeSn) prev.representativeSn = sn;
+      if (prev.capexUsd == null && row?.capexUsd != null) prev.capexUsd = row.capexUsd;
+      prev.pinRequired = prev.pinRequired || !!row?.pinRequired;
+    }
+    return Array.from(byKey.values()).sort((a, b) => a.shortLabel.localeCompare(b.shortLabel));
+  }, [inverterRows.items]);
+  const deyeSnToRepresentative = useMemo(() => {
+    const m = new Map();
+    for (const it of deyeCombinedItems) {
+      m.set(it.representativeSn, it.representativeSn);
+      for (const sn of it.clusterSns) m.set(sn, it.representativeSn);
+    }
+    return m;
+  }, [deyeCombinedItems]);
 
   useEffect(() => {
     if (inverterRows.loading || huaweiRows.loading) return;
@@ -1165,18 +1199,19 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     if (!want) return;
     const parsed = parseEssSelection(want);
     if (parsed.provider === 'deye' && inverterRows.configured && !inverterRows.error) {
-      if (inverterRows.items.some(r => r.deviceSn === parsed.id)) {
-        setInverterValue(want);
+      const rep = deyeSnToRepresentative.get(parsed.id) || parsed.id;
+      if (deyeCombinedItems.some(r => r.representativeSn === rep)) {
+        setInverterValue(`${ESS_PREFIX_DEYE}${rep}`);
       }
     } else if (parsed.provider === 'huawei' && huaweiRows.configured && !huaweiRows.error) {
       if (huaweiRows.items.some(r => r.stationCode === parsed.id)) {
         setInverterValue(want);
       }
     }
-  }, [inverterRows, huaweiRows]);
+  }, [inverterRows, huaweiRows, deyeCombinedItems, deyeSnToRepresentative]);
 
   const onInverterChange = useCallback(e => {
-    const v = normalizeEssSelectionValue(e.target.value.trim());
+    const v = normalizeEssSelectionValue(e.target.value);
     setInverterValue(v);
     setStationFilter('');
     try {
@@ -1347,17 +1382,28 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const selInverterPinRequired = useMemo(() => {
     const sn = selInverterSn.trim();
     if (!sn) return false;
-    const row = inverterRows.items.find(r => r.deviceSn === sn);
+    const row = deyeCombinedItems.find(r => r.representativeSn === sn);
     return Boolean(row?.pinRequired);
-  }, [selInverterSn, inverterRows.items]);
+  }, [selInverterSn, deyeCombinedItems]);
 
   /** Composed list label for the selected inverter (includes evport<N> when bound). */
   const selInverterLabel = useMemo(() => {
     const sn = selInverterSn.trim();
     if (!sn) return '';
-    const row = inverterRows.items.find(r => r.deviceSn === sn);
-    return row?.label != null ? String(row.label) : '';
-  }, [selInverterSn, inverterRows.items]);
+    const row = deyeCombinedItems.find(r => r.representativeSn === sn);
+    return row?.shortLabel != null ? String(row.shortLabel) : '';
+  }, [selInverterSn, deyeCombinedItems]);
+  /**
+   * Some Deye plants expose multiple ESS serials under one station label (e.g. "Холод Склад 1").
+   * For realtime graph values we aggregate all serials that share the same select short-label.
+   */
+  const selDeyeClusterSns = useMemo(() => {
+    const sn = selInverterSn.trim();
+    if (!sn) return [];
+    const grouped = deyeCombinedItems.find(r => r.representativeSn === sn);
+    if (!grouped) return [sn];
+    return grouped.clusterSns.length > 0 ? grouped.clusterSns : [sn];
+  }, [selInverterSn, deyeCombinedItems]);
 
   /** EV port binding in Deye name — remote writes allowed without a trailing `` pin`` suffix (server-side). */
   const selInverterEvportBound = useMemo(() => Boolean(parseEvPortStationNumber(selInverterLabel)), [selInverterLabel]);
@@ -1860,20 +1906,56 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     const loadLive = async () => {
       setDeyeLiveLoading(true);
       try {
-        const q = new URLSearchParams({ deviceSn: selInverterSn });
-        const r = await fetch(`${apiUrl('/api/deye/ess-power')}?${q}`, { cache: 'no-store' });
-        const data = await r.json().catch(() => ({}));
+        const sns = selDeyeClusterSns.length > 0 ? selDeyeClusterSns : [selInverterSn];
+        const rows = await Promise.all(
+          sns.map(async sn => {
+            const q = new URLSearchParams({ deviceSn: sn });
+            const r = await fetch(`${apiUrl('/api/deye/ess-power')}?${q}`, { cache: 'no-store' });
+            const data = await r.json().catch(() => ({}));
+            return { ok: r.ok && data?.ok && data?.configured, data };
+          })
+        );
         if (cancelled) return;
-        if (r.ok && data.ok && data.configured) {
-          const bat = data.batteryPowerW;
-          const loadW = data.loadPowerW;
-          const pvW = data.pvPowerW;
-          const gridW = data.gridPowerW;
+        const okRows = rows.filter(x => x.ok).map(x => x.data);
+        if (okRows.length > 0) {
+          // station/latest fallback can return identical metrics for each serial in the same plant.
+          // Deduplicate exact tuples to avoid multiplying plant-level totals.
+          const uniqRows = [];
+          const seenTuple = new Set();
+          for (const row of okRows) {
+            const key = [
+              row?.batteryPowerW ?? 'n',
+              row?.loadPowerW ?? 'n',
+              row?.pvPowerW ?? 'n',
+              row?.gridPowerW ?? 'n',
+              row?.gridFrequencyHz ?? 'n',
+            ].join('|');
+            if (seenTuple.has(key)) continue;
+            seenTuple.add(key);
+            uniqRows.push(row);
+          }
+          const sumField = (key, floorZero = false) => {
+            let has = false;
+            let sum = 0;
+            for (const row of uniqRows) {
+              const v = row?.[key];
+              if (v != null && Number.isFinite(Number(v))) {
+                has = true;
+                sum += Number(v);
+              }
+            }
+            if (!has) return null;
+            return floorZero ? Math.max(0, sum) : sum;
+          };
+          const bat = sumField('batteryPowerW', false);
+          const loadW = sumField('loadPowerW', true);
+          const pvW = sumField('pvPowerW', true);
+          const gridW = sumField('gridPowerW', false);
           setDeyeLive({
-            batteryPowerW: bat != null && Number.isFinite(Number(bat)) ? Number(bat) : null,
-            loadPowerW: loadW != null && Number.isFinite(Number(loadW)) ? Number(loadW) : null,
-            pvPowerW: pvW != null && Number.isFinite(Number(pvW)) ? Math.max(0, Number(pvW)) : null,
-            gridPowerW: gridW != null && Number.isFinite(Number(gridW)) ? Number(gridW) : null,
+            batteryPowerW: bat,
+            loadPowerW: loadW,
+            pvPowerW: pvW,
+            gridPowerW: gridW,
           });
         } else {
           setDeyeLive(null);
@@ -1890,7 +1972,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       cancelled = true;
       clearInterval(id);
     };
-  }, [selInverterSn, inverterRows.configured, inverterRows.error]);
+  }, [selInverterSn, selDeyeClusterSns, inverterRows.configured, inverterRows.error]);
 
   useLayoutEffect(() => {
     setDeyeHydratedSn('');
@@ -2961,18 +3043,17 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   ) : (
                     <>
                       <option value="">{t('inverterSelectLabel')}</option>
-                      {deyeListReady && inverterRows.items.length > 0 ? (
+                      {deyeListReady && deyeCombinedItems.length > 0 ? (
                         <optgroup label={t('essDeyeCloud')}>
-                          {inverterRows.items.map(row => {
-                            const p = socBySn[row.deviceSn];
+                          {deyeCombinedItems.map(row => {
+                            const p = socBySn[row.representativeSn];
                             const socSuffix = p != null && Number.isFinite(p) ? ` · ${inverterSocFmt.format(p)}%` : '';
                             const c = row.capexUsd;
                             const capexSuffix =
                               c != null && Number.isFinite(Number(c)) ? ` · ${formatInverterCapexUsd(Number(c))}` : '';
-                            const shortLabel = inverterSelectShortLabel(row.label, row.deviceSn);
                             return (
-                              <option key={`deye-${row.deviceSn}`} value={`${ESS_PREFIX_DEYE}${row.deviceSn}`}>
-                                {shortLabel + socSuffix + capexSuffix}
+                              <option key={`deye-${row.representativeSn}`} value={`${ESS_PREFIX_DEYE}${row.representativeSn}`}>
+                                {row.shortLabel + socSuffix + capexSuffix}
                               </option>
                             );
                           })}

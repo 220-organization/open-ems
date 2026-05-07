@@ -355,3 +355,44 @@ async def hourly_inverter_history_for_kyiv_day(
         load_kwh_out = [None] * 24
 
     return soc_out, grid_out, freq_out, pv_kwh_out, load_kwh_out
+
+
+async def hourly_inverter_history_for_kyiv_day_cluster(
+    session: AsyncSession,
+    device_sns: list[str],
+    trade_day: date,
+) -> tuple[
+    list[Optional[float]],
+    list[Optional[float]],
+    list[Optional[float]],
+    list[Optional[float]],
+    list[Optional[float]],
+]:
+    """
+    Same shape as ``hourly_inverter_history_for_kyiv_day``, but for multiple serials on one station:
+    hourly SoC and frequency are averaged across devices; grid / PV kWh / load kWh are summed
+    (plant-level aggregates when each line has its own telemetry).
+    """
+    sns = sorted({(s or "").strip() for s in device_sns if (s or "").strip()})
+    if not sns:
+        empty = [None] * 24
+        return empty, empty, empty, empty, empty
+    if len(sns) == 1:
+        return await hourly_inverter_history_for_kyiv_day(session, sns[0], trade_day)
+
+    parts = [await hourly_inverter_history_for_kyiv_day(session, sn, trade_day) for sn in sns]
+
+    def hour_mean(idx: int, series_idx: int) -> Optional[float]:
+        vals = [float(p[series_idx][idx]) for p in parts if p[series_idx][idx] is not None]
+        return _mean_or_none(vals) if vals else None
+
+    def hour_sum(idx: int, series_idx: int) -> Optional[float]:
+        vals = [float(p[series_idx][idx]) for p in parts if p[series_idx][idx] is not None]
+        return sum(vals) if vals else None
+
+    soc_out = [hour_mean(i, 0) for i in range(24)]
+    grid_out = [hour_sum(i, 1) for i in range(24)]
+    freq_out = [hour_mean(i, 2) for i in range(24)]
+    pv_kwh_out = [hour_sum(i, 3) for i in range(24)]
+    load_kwh_out = [hour_sum(i, 4) for i in range(24)]
+    return soc_out, grid_out, freq_out, pv_kwh_out, load_kwh_out

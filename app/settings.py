@@ -38,8 +38,6 @@ DEYE_APP_SECRET: str = (os.environ.get("DEYE_APP_SECRET") or "").strip()
 DEYE_EMAIL: str = (os.environ.get("DEYE_EMAIL") or "").strip()
 DEYE_PASSWORD: str = os.environ.get("DEYE_PASSWORD") or ""
 DEYE_COMPANY_ID: str = (os.environ.get("DEYE_COMPANY_ID") or "0").strip()
-
-
 def _parse_dev_mock_device_sns() -> tuple[str, ...]:
     """
     Comma-separated Deye serials (digits) for local UI when DEYE_* is unset.
@@ -258,6 +256,8 @@ ENTSOE_CHART_DAY_LAZY_FETCH: bool = _env_bool("ENTSOE_CHART_DAY_LAZY_FETCH", Tru
 # Persist Deye SoC to DB on a fixed interval (all inverters from listWithDevice; UTC 5-min buckets).
 DEYE_SOC_SNAPSHOT_ENABLED: bool = _env_bool("DEYE_SOC_SNAPSHOT_ENABLED", True)
 DEYE_SOC_SNAPSHOT_INTERVAL_SEC: int = _env_int("DEYE_SOC_SNAPSHOT_INTERVAL_SEC", 300, 60, 3600)
+# Cache TTL for Deye inverter listWithDevice rows (0 disables cache; UI still sends no-store).
+DEYE_INVERTER_LIST_CACHE_TTL_SEC: int = _env_int("DEYE_INVERTER_LIST_CACHE_TTL_SEC", 300, 0, 3600)
 
 # Persist Huawei PV/grid/load (getDevRealKpi via get_power_flow) to Postgres — UTC 5-minute buckets (same as Deye) for hourly charts.
 HUAWEI_POWER_SNAPSHOT_ENABLED: bool = _env_bool("HUAWEI_POWER_SNAPSHOT_ENABLED", True)
