@@ -34,9 +34,18 @@ _live_cache: dict[
     str,
     tuple[Optional[float], Optional[float], Optional[float], Optional[float], Optional[float], float],
 ] = {}
+# Station-level /station/latest: SoC + same power fields as device path, monotonic fetch time.
 _station_live_cache: dict[
     str,
-    tuple[Optional[float], Optional[float], Optional[float], Optional[float], Optional[float], float],
+    tuple[
+        Optional[float],
+        Optional[float],
+        Optional[float],
+        Optional[float],
+        Optional[float],
+        Optional[float],
+        float,
+    ],
 ] = {}
 _soc_lock = asyncio.Lock()
 _inverter_rows_cache: Optional[list["_InverterListRow"]] = None
@@ -509,21 +518,65 @@ async def station_cluster_device_sns(device_sn: str) -> list[str]:
     return sorted({r.device_sn for r in rows if r.station_id == st_id})
 
 
+def _parse_soc_percent_value(raw: Any) -> Optional[float]:
+    """SoC 0..100 %; Deye sometimes exposes a 0..1 fraction (e.g. 0.89 → 89 %)."""
+    v = _to_float_or_none(raw)
+    if v is None:
+        return None
+    if 0.0 < v <= 1.0:
+        return v * 100.0
+    if 0.0 <= v <= 100.0:
+        return v
+    return None
+
+
+def _soc_percent_from_station_payload(payload: Any) -> Optional[float]:
+    """Battery SoC from POST /station/latest JSON (plant-level; used when device/latest has no SOC registers)."""
+    if not isinstance(payload, dict):
+        return None
+    for key in (
+        "batterySoc",
+        "batterySOC",
+        "batSoc",
+        "bmsSoc",
+        "BmsSoc",
+        "soc",
+        "SOC",
+        "batteryPercent",
+        "batteryCapacitySoc",
+        "remainSoc",
+        "remainCapacitySoc",
+    ):
+        if key in payload:
+            got = _parse_soc_percent_value(payload.get(key))
+            if got is not None:
+                return got
+    return None
+
+
 async def _fetch_station_latest_metrics(
     client: httpx.AsyncClient,
     headers: dict[str, str],
     base: str,
     station_id: str,
-) -> tuple[Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]]:
+) -> tuple[
+    Optional[float],
+    Optional[float],
+    Optional[float],
+    Optional[float],
+    Optional[float],
+    Optional[float],
+]:
     """Fallback metrics for plants where device/latest lacks inverter-like registers."""
     r = await client.post(f"{base}/station/latest", headers=headers, json={"stationId": station_id})
     if r.status_code >= 400:
         logger.warning("Deye: station/latest HTTP %s stationId=%s — %s", r.status_code, station_id, (r.text or "")[:500])
-        return None, None, None, None, None
+        return None, None, None, None, None, None
     payload = r.json() if r.content else {}
     if isinstance(payload, dict) and payload.get("success") is False:
         logger.warning("Deye: station/latest success=false stationId=%s msg=%s", station_id, str(payload.get("msg") or "")[:300])
-        return None, None, None, None, None
+        return None, None, None, None, None, None
+    soc_pct = _soc_percent_from_station_payload(payload)
     pv_w = _to_float_or_none(payload.get("generationPower"))
     load_w = _to_float_or_none(payload.get("consumptionPower"))
     bat_w = _to_float_or_none(payload.get("batteryPower"))
@@ -532,10 +585,27 @@ async def _fetch_station_latest_metrics(
     if grid_w is None:
         grid_w = _to_float_or_none(payload.get("wirePower"))
     freq_hz = _to_float_or_none(payload.get("gridFrequency"))
-    return bat_w, load_w, pv_w, grid_w, freq_hz
+    return soc_pct, bat_w, load_w, pv_w, grid_w, freq_hz
 
 
-_SOC_KEYS = frozenset({"SOC", "BMS_SOC", "BATTERY_SOC"})
+_SOC_KEYS_EXACT = frozenset(
+    {
+        "SOC",
+        "BMS_SOC",
+        "BATTERY_SOC",
+        "BAT_SOC",
+        "TOTAL_SOC",
+        "MASTER_SOC",
+        "SLAVE_SOC",
+        "UPS_SOC",
+        "LI_BATTERY_SOC",
+        "LITHIUM_BATTERY_SOC",
+        "ENERGY_STORAGE_SOC",
+        "STORAGE_SOC",
+        "BATTERY_PERCENT",
+        "BAT_PERCENT",
+    }
+)
 
 
 def _soc_percent_from_device_data_entry(dev_entry: Any) -> Optional[float]:
@@ -547,14 +617,57 @@ def _soc_percent_from_device_data_entry(dev_entry: Any) -> Optional[float]:
     for row in dl:
         if not isinstance(row, dict):
             continue
-        raw_key = str(row.get("key") or "").strip().upper()
-        if raw_key not in _SOC_KEYS:
+        k = _metric_key(row.get("key"))
+        if k in _SOC_KEYS_EXACT:
+            got = _parse_soc_percent_value(row.get("value"))
+            if got is not None:
+                return got
             continue
-        try:
-            return float(row.get("value"))
-        except (TypeError, ValueError):
-            continue
+        if k.endswith("_SOC") and "GRID" not in k and "GENERATION" not in k and "GEN_" not in k:
+            got = _parse_soc_percent_value(row.get("value"))
+            if got is not None:
+                return got
     return None
+
+
+async def _fill_missing_soc_from_station_latest(
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    base: str,
+    merged_fetch: dict[
+        str,
+        tuple[
+            Optional[float],
+            Optional[float],
+            Optional[float],
+            Optional[float],
+            Optional[float],
+            Optional[float],
+        ],
+    ],
+) -> None:
+    """When /device/latest leaves SoC empty, fill from /station/latest (one request per distinct station)."""
+    missing = [sn for sn, t in merged_fetch.items() if t[0] is None]
+    if not missing:
+        return
+    rows = await _list_inverter_rows()
+    sn_to_station: dict[str, str] = {
+        r.device_sn: str(r.station_id).strip() for r in rows if r.station_id and str(r.station_id).strip()
+    }
+    station_to_sns: dict[str, list[str]] = {}
+    for sn in missing:
+        st = sn_to_station.get(sn)
+        if st:
+            station_to_sns.setdefault(st, []).append(sn)
+    for st_id, sns in station_to_sns.items():
+        st_soc, _, _, _, _, _ = await _fetch_station_latest_metrics(client, headers, base, st_id)
+        if st_soc is None:
+            continue
+        for sn in sns:
+            if sn not in merged_fetch:
+                continue
+            old = merged_fetch[sn]
+            merged_fetch[sn] = (st_soc, old[1], old[2], old[3], old[4], old[5])
 
 
 def _row_value_to_watts(row: dict) -> Optional[float]:
@@ -1006,6 +1119,7 @@ async def get_soc_map_cached(device_sns: list[str]) -> dict[str, Optional[float]
                 chunk = to_fetch[off : off + 10]
                 part = await _post_latest_metrics_map(client, hdrs, base, chunk)
                 merged_fetch.update(part)
+            await _fill_missing_soc_from_station_latest(client, hdrs, base, merged_fetch)
 
         fetch_time = time.monotonic()
         async with _soc_lock:
@@ -1089,6 +1203,7 @@ async def refresh_device_latest_batches(
             chunk = unique[off : off + 10]
             part = await _post_latest_metrics_map(client, hdrs, base, chunk)
             merged_fetch.update(part)
+        await _fill_missing_soc_from_station_latest(client, hdrs, base, merged_fetch)
 
     fetch_time = time.monotonic()
     async with _soc_lock:
@@ -1159,30 +1274,47 @@ async def get_live_metrics_cached(
 
     fetch_time = time.monotonic()
     soc, pwr, load_w, pv_w, grid_w, freq_hz = merged.get(sn, (None, None, None, None, None, None))
-    # For some plants (e.g. FEED_IN_LIMIT-only) /device/latest returns empty metrics.
-    # Fallback to /station/latest for realtime flow values.
-    if pwr is None and load_w is None and pv_w is None and grid_w is None:
-        station_id = await _station_id_for_device_sn(sn)
-        if station_id:
+    station_id = await _station_id_for_device_sn(sn)
+    need_power = pwr is None and load_w is None and pv_w is None and grid_w is None
+    need_soc = soc is None
+    # FEED_IN_LIMIT-only plants: /device/latest may omit power and/or SoC; /station/latest has plant totals.
+    if station_id and (need_power or need_soc):
+        async with _soc_lock:
+            now = time.monotonic()
+            st_hit = _station_live_cache.get(station_id)
+            if st_hit is not None:
+                st_soc, st_bat, st_load, st_pv, st_grid, st_freq, sts = st_hit
+                if now - sts < ESS_POWER_CACHE_TTL_SEC:
+                    if need_power:
+                        pwr, load_w, pv_w, grid_w, freq_hz = st_bat, st_load, st_pv, st_grid, st_freq
+                    if need_soc and st_soc is not None:
+                        soc = st_soc
+        need_power = pwr is None and load_w is None and pv_w is None and grid_w is None
+        need_soc = soc is None
+        if need_power or need_soc:
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                token = await _ensure_token(client)
+                hdrs = {
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {token}",
+                }
+                st_soc, st_bat, st_load, st_pv, st_grid, st_freq = await _fetch_station_latest_metrics(
+                    client, hdrs, base, station_id
+                )
             async with _soc_lock:
-                now = time.monotonic()
-                st_hit = _station_live_cache.get(station_id)
-                if st_hit is not None:
-                    sbat, sload, spv, sgrid, sfreq, sts = st_hit
-                    if now - sts < ESS_POWER_CACHE_TTL_SEC:
-                        pwr, load_w, pv_w, grid_w, freq_hz = sbat, sload, spv, sgrid, sfreq
-            if pwr is None and load_w is None and pv_w is None and grid_w is None:
-                async with httpx.AsyncClient(timeout=45.0) as client:
-                    token = await _ensure_token(client)
-                    hdrs = {
-                        "Content-Type": "application/json",
-                        "Authorization": f"Bearer {token}",
-                    }
-                    pwr, load_w, pv_w, grid_w, freq_hz = await _fetch_station_latest_metrics(
-                        client, hdrs, base, station_id
-                    )
-                async with _soc_lock:
-                    _station_live_cache[station_id] = (pwr, load_w, pv_w, grid_w, freq_hz, fetch_time)
+                _station_live_cache[station_id] = (
+                    st_soc,
+                    st_bat,
+                    st_load,
+                    st_pv,
+                    st_grid,
+                    st_freq,
+                    fetch_time,
+                )
+            if need_power:
+                pwr, load_w, pv_w, grid_w, freq_hz = st_bat, st_load, st_pv, st_grid, st_freq
+            if need_soc and st_soc is not None:
+                soc = st_soc
 
     async with _soc_lock:
         _soc_cache[sn] = (soc, fetch_time)

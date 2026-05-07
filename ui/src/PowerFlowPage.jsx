@@ -417,6 +417,21 @@ function writeStoredLandingExportMetric(inverterSn, huaweiStationCode, value) {
   }
 }
 
+/** First known SoC for a merged Deye row (representative, then other cluster serials). */
+function firstFiniteSocForDeyeRow(row, socBySn) {
+  if (!row || !socBySn) return null;
+  const rep = String(row.representativeSn || '').trim();
+  const sns = Array.isArray(row.clusterSns)
+    ? row.clusterSns.map(s => String(s || '').trim()).filter(Boolean)
+    : [];
+  const order = rep ? [rep, ...sns.filter(s => s !== rep)] : sns;
+  for (const s of order) {
+    const v = socBySn[s];
+    if (v != null && Number.isFinite(Number(v))) return Number(v);
+  }
+  return null;
+}
+
 /** Append localized unit for landing export counters (skip placeholders). */
 function formatLandingKwhCounterText(displayText, t) {
   const s = displayText == null ? '' : String(displayText).trim();
@@ -2454,9 +2469,27 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const evBusy = fleetDeyePollBusy;
   const qrBase = process.env.PUBLIC_URL || '';
 
-  const essSocHasKey = Boolean(selInverterSn) && Object.prototype.hasOwnProperty.call(socBySn, selInverterSn);
-  const essSocPercent = essSocHasKey ? socBySn[selInverterSn] : undefined;
-  const essSocPending = Boolean(selInverterSn && !essSocHasKey && socListLoading);
+  const essSocPercent = useMemo(() => {
+    const sn = selInverterSn.trim();
+    if (!sn) return undefined;
+    const row = deyeCombinedItems.find(r => r.representativeSn === sn);
+    const order = row
+      ? [
+          sn,
+          ...row.clusterSns
+            .map(x => String(x || '').trim())
+            .filter(Boolean)
+            .filter(x => x !== sn),
+        ]
+      : [sn];
+    for (const s of order) {
+      const v = socBySn[s];
+      if (v != null && Number.isFinite(Number(v))) return Number(v);
+    }
+    return undefined;
+  }, [selInverterSn, deyeCombinedItems, socBySn]);
+  const essSocHasKey = essSocPercent != null && Number.isFinite(essSocPercent);
+  const essSocPending = Boolean(selInverterSn.trim() && essSocPercent == null && socListLoading);
 
   const executeDischarge2Pct = useCallback(
     async (commandPin = '') => {
@@ -3057,7 +3090,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                       {deyeListReady && deyeCombinedItems.length > 0 ? (
                         <optgroup label={t('essDeyeCloud')}>
                           {deyeCombinedItems.map(row => {
-                            const p = socBySn[row.representativeSn];
+                            const p = firstFiniteSocForDeyeRow(row, socBySn);
                             const socSuffix = p != null && Number.isFinite(p) ? ` · ${inverterSocFmt.format(p)}%` : '';
                             const c = row.capexUsd;
                             const capexSuffix =
