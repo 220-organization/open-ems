@@ -1242,6 +1242,17 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     [inverterRows.items]
   );
 
+  /** One poll per merged Deye dropdown row — avoids summing duplicate plant telemetry for every raw serial. */
+  const fleetDeyeRepresentativeSnsKey = useMemo(
+    () =>
+      deyeCombinedItems
+        .map(r => String(r.representativeSn || '').trim())
+        .filter(Boolean)
+        .sort()
+        .join(','),
+    [deyeCombinedItems]
+  );
+
   useEffect(() => {
     if (essAnySelected || !inverterRows.configured || inverterRows.error) {
       setFleetDeyeAggregate({
@@ -1254,7 +1265,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       });
       return undefined;
     }
-    const sns = inverterRows.items.map(r => String(r.deviceSn || '').trim()).filter(Boolean);
+    const sns = deyeCombinedItems.map(r => String(r.representativeSn || '').trim()).filter(Boolean);
     if (sns.length === 0) {
       setFleetDeyeAggregate({
         loading: false,
@@ -1312,7 +1323,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       cancelled = true;
       clearInterval(id);
     };
-  }, [essAnySelected, inverterRows.configured, inverterRows.error, inverterSnsKey]);
+  }, [essAnySelected, inverterRows.configured, inverterRows.error, fleetDeyeRepresentativeSnsKey]);
 
   const huaweiStationCodesKey = useMemo(
     () =>
