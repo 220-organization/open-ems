@@ -1,7 +1,19 @@
 import datetime
 from typing import Any, Optional
 
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, Double, Integer, SmallInteger, String, Text, func
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    Date,
+    DateTime,
+    Double,
+    Integer,
+    SmallInteger,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -92,9 +104,15 @@ class OreeDamLazyFetch(Base):
 
 
 class DeyePeakAutoDischargePref(Base):
-    """Per-inverter: peak-DAM auto flag; discharge_soc_delta_pct is target SoC % (5, 10, 20, 50, or 80) after discharge."""
+    """Per-inverter: peak-DAM auto flag; discharge_soc_delta_pct is target SoC % (5, 10, 20, 50, 80, or 95) after discharge."""
 
     __tablename__ = "deye_peak_auto_discharge_pref"
+    __table_args__ = (
+        CheckConstraint(
+            "discharge_soc_delta_pct IN (5, 10, 20, 50, 80, 95)",
+            name="chk_peak_pref_discharge_soc_delta_pct",
+        ),
+    )
 
     device_sn: Mapped[str] = mapped_column(String(64), primary_key=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
