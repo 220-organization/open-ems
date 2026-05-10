@@ -72,7 +72,7 @@
   "nightChargeToggleHint": "Stored on the server (Flyway V23). Uses Europe/Kyiv local time.",
   "nightChargeSaveError": "Could not save night charge preference",
   "peakDamDischargeToggle": "Peak DAM",
-  "peakDamDischargeToggleAria": "Zapnuto — server spustí prodej do sítě (vybití) v kyjevské hodině s nejvyšší dnešní cenou DAM. Vybíjení končí u {{tillSoc}} (rozsah výběru 5–80 %). Jedna úspěšná akce denně na měnič v té hodině; opakování po chybě.",
+  "peakDamDischargeToggleAria": "Zapnuto — server spustí prodej do sítě (vybití) v kyjevské hodině s nejvyšší dnešní cenou DAM. Vybíjení končí u {{tillSoc}} (rozsah výběru 5–95 %). Jedna úspěšná akce denně na měnič v té hodině; opakování po chybě.",
   "peakDamDischargeToggleHint": "Baterie prodává energii do sítě v hodině dnešního vrcholu DAM (čas Kyjeva), dokud nedosáhne {{tillSoc}}.",
   "peakDamDischargeSaveError": "Could not save peak DAM preference",
   "graphAriaLabel": "Schéma toku výkonu",

@@ -72,7 +72,7 @@
   "nightChargeToggleHint": "Stored on the server (Flyway V23). Uses Europe/Kyiv local time.",
   "nightChargeSaveError": "Could not save night charge preference",
   "peakDamDischargeToggle": "Peak DAM",
-  "peakDamDischargeToggleAria": "Ingeschakeld — server start verkoop naar het net (ontlading) in het Kyiv-uur met de hoogste DAM-prijs van vandaag. Ontlading stopt bij {{tillSoc}} (selectiebereik 5–80 %). Eén geslaagde run per dag per omvormer in dat uur; opnieuw bij fout.",
+  "peakDamDischargeToggleAria": "Ingeschakeld — server start verkoop naar het net (ontlading) in het Kyiv-uur met de hoogste DAM-prijs van vandaag. Ontlading stopt bij {{tillSoc}} (selectiebereik 5–95 %). Eén geslaagde run per dag per omvormer in dat uur; opnieuw bij fout.",
   "peakDamDischargeToggleHint": "De batterij levert energie aan het net in het piek-DAM-uur van vandaag (Kyiv-tijd) tot {{tillSoc}}.",
   "peakDamDischargeSaveError": "Could not save peak DAM preference",
   "graphAriaLabel": "Diagram van vermogensstromen",

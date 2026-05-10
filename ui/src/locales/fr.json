@@ -72,7 +72,7 @@
   "nightChargeToggleHint": "Stored on the server (Flyway V23). Uses Europe/Kyiv local time.",
   "nightChargeSaveError": "Could not save night charge preference",
   "peakDamDischargeToggle": "Peak DAM",
-  "peakDamDischargeToggleAria": "Activé — le serveur lance une vente au réseau (décharge) à l’heure de Kyiv où le DAM du jour est le plus haut. La décharge s’arrête à {{tillSoc}} (plage du sélecteur 5–80 %). Une exécution réussie par jour et par onduleur à cette heure ; nouvel essai après échec.",
+  "peakDamDischargeToggleAria": "Activé — le serveur lance une vente au réseau (décharge) à l’heure de Kyiv où le DAM du jour est le plus haut. La décharge s’arrête à {{tillSoc}} (plage du sélecteur 5–95 %). Une exécution réussie par jour et par onduleur à cette heure ; nouvel essai après échec.",
   "peakDamDischargeToggleHint": "La batterie vend de l’énergie au réseau à l’heure de pic DAM du jour (heure de Kyiv) jusqu’à {{tillSoc}}.",
   "peakDamDischargeSaveError": "Could not save peak DAM preference",
   "graphAriaLabel": "Schéma des flux de puissance",

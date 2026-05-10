@@ -1234,6 +1234,19 @@ body {
   flex-shrink: 0;
 }
 
+/*
+ * Graph sizing: .pf-graph is a square (--pf-side width = height via .pf-graph-sizer). Nodes use
+ * top / 50% / bottom anchors; if --pf-side shrinks too far (e.g. short viewport + wide window),
+ * the six tiles and hub overlap. Tablet/desktop rules below enforce a higher minimum side so the
+ * layout stays usable without changing SVG geometry (powerFlowEngine.computeWideGeometry).
+ */
+/* Tablet / small-window: vmin alone can shrink the square until the six tiles overlap — keep a sane floor */
+@media (min-width: 721px) and (max-width: 1023px) {
+  .pf-graph {
+    --pf-side: min(calc((100vw - 16px) * 0.9), max(400px, calc(100vmin * 0.92)), 920px);
+  }
+}
+
 /* Desktop: cap graph by viewport height so hub + six tiles stay inside the column, and keep the block visually centered */
 @media (min-width: 1024px) {
   .pf-graph-wrap {
@@ -1241,8 +1254,9 @@ body {
   }
 
   .pf-graph {
+    /* ~3 stacked node cards need vertical room; short wide viewports must not drop below this floor */
     --pf-side: min(
-      min(calc((100vw - 32px) * 0.85), max(260px, calc(100svh - 340px))),
+      min(calc((100vw - 32px) * 0.85), max(440px, calc(100svh - 260px))),
       860px
     );
     max-width: 860px;
@@ -1250,7 +1264,7 @@ body {
 
   @supports (height: 100dvh) {
     .pf-graph {
-      --pf-side: min(min(calc((100vw - 32px) * 0.85), max(260px, calc(100dvh - 340px))), 860px);
+      --pf-side: min(min(calc((100vw - 32px) * 0.85), max(440px, calc(100dvh - 260px))), 860px);
     }
   }
 }

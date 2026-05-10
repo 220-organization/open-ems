@@ -85,7 +85,7 @@ _NO_STORE_CACHE = {"Cache-Control": "no-store, max-age=0, must-revalidate"}
 
 _MAX_INVERTER_SOCS = 200
 
-DischargeSocDeltaPctOption = Literal[5, 10, 20, 50, 80]
+DischargeSocDeltaPctOption = Literal[5, 10, 20, 50, 80, 95]
 ChargeSocDeltaPctOption = Literal[2, 10, 20, 50, 100]
 
 
@@ -106,7 +106,7 @@ class Discharge2PctBody(BaseModel):
         default=None,
         ge=1,
         le=100,
-        description="SoC drop in percentage points (1–100). Peak-auto prefs: target SoC 5/10/20/50/80 (%).",
+        description="SoC drop in percentage points (1–100). Peak-auto prefs: target SoC 5/10/20/50/80/95 (%).",
     )
     respondAfterStart: bool = False
     pin: Optional[str] = Field(default=None, max_length=12)
@@ -819,7 +819,7 @@ async def post_discharge_2pct(
 ) -> JSONResponse:
     """
     Set Deye strategy to SELLING_FIRST, wait until SoC drops by socDeltaPercent (1–100 points) or timeout,
-    then ZERO_EXPORT_TO_CT. If socDeltaPercent is omitted, uses stored per-device target SoC % (5–80).
+    then ZERO_EXPORT_TO_CT. If socDeltaPercent is omitted, uses stored per-device target SoC % (5–95).
     Overwrites device TOU template per Deye /strategy/dynamicControl (see Deye sample scripts).
     Long-running: ensure reverse-proxy read timeout > DEYE_DISCHARGE_SOC_TIMEOUT_SEC.
     """

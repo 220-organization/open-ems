@@ -71,7 +71,7 @@
   "nightChargeToggleHint": "Stored on the server (Flyway V23). Uses Europe/Kyiv local time.",
   "nightChargeSaveError": "Could not save night charge preference",
   "peakDamDischargeToggle": "Peak DAM",
-  "peakDamDischargeToggleAria": "Włączone — serwer uruchamia sprzedaż do sieci (rozładunek) w godzinie czasu Kijowa z najwyższą ceną DAM danego dnia. Rozładunek kończy się przy {{tillSoc}} (zakres listy 5–80 %). Jedna udana sesja dziennie na falownik w tej godzinie; ponowienie po błędzie.",
+  "peakDamDischargeToggleAria": "Włączone — serwer uruchamia sprzedaż do sieci (rozładunek) w godzinie czasu Kijowa z najwyższą ceną DAM danego dnia. Rozładunek kończy się przy {{tillSoc}} (zakres listy 5–95 %). Jedna udana sesja dziennie na falownik w tej godzinie; ponowienie po błędzie.",
   "peakDamDischargeToggleHint": "Akumulator sprzedaje energię do sieci w godzinie szczytu DAM danego dnia (czas kijowski), aż do {{tillSoc}}.",
   "peakDamDischargeSaveError": "Could not save peak DAM preference",
   "graphAriaLabel": "Schemat przepływu mocy",
