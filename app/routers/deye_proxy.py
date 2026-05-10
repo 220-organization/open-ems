@@ -1049,7 +1049,8 @@ async def post_charge_2pct(
         await assert_deye_write_pin(sn, body.pin)
         delta = body.socDeltaPercent
         if delta is None:
-            delta = await get_charge_soc_delta_stored(db, sn)
+            n_en, n_pct = await get_night_charge_pref(db, sn)
+            delta = int(n_pct) if n_en else await get_charge_soc_delta_stored(db, sn)
         result = await charge_soc_delta_then_zero_export_ct(
             sn, float(delta), return_after_start=body.respondAfterStart
         )

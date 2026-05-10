@@ -131,10 +131,11 @@ async def set_night_charge_from_ui(
         if not deye_configured():
             raise RuntimeError("Deye API credentials not configured")
         en_p, dp = await get_peak_auto_pref(session, sn)
-        _, cp = await get_low_dam_charge_pref(session, sn)
         await upsert_night_charge_pref(session, sn, True, pct)
         await upsert_peak_auto_pref(session, sn, False, dp)
-        await upsert_low_dam_charge_pref(session, sn, False, cp)
+        # Keep the same charge depth % on the low-DAM row (disabled) so toolbar + Low DAM auto stay aligned
+        # with the single UI selector after night is turned off (avoids stale e.g. 100% while night used 10%).
+        await upsert_low_dam_charge_pref(session, sn, False, pct)
         await upsert_self_consumption_auto_dam_pref(session, sn, False)
         await upsert_self_consumption_pref(session, sn, True)
         await apply_self_consumption_zero_export_ct(sn)
