@@ -1,10 +1,10 @@
-"""Self-consumption mode: battery discharges freely to cover home load (ZERO_EXPORT_TO_CT, TOU SoC = 5%).
+"""Self-consumption mode: battery discharges to cover home load (ZERO_EXPORT_TO_CT).
 
 When enabled:
-- Sends ZERO_EXPORT_TO_CT with TOU SoC = 5% immediately so the battery can discharge to load.
+- Sends ZERO_EXPORT_TO_CT with TOU SoC = max(5%, user's "till SoC X%" from peak pref) so the battery
+  can cover load without draining below that floor.
 - Peak export (peak auto) still fires at peak hour using whatever SoC remains after self-consumption.
-- After peak export completes, restores to ZERO_EXPORT_TO_CT with TOU SoC = 5% (not the discharge target),
-  so the battery continues covering load until the next peak.
+- After peak export completes, restores to ZERO_EXPORT_TO_CT with TOU SoC = max(5%, discharge target).
 """
 
 from __future__ import annotations
@@ -20,11 +20,10 @@ from app.deye_api import (
     apply_self_consumption_zero_export_ct,
     deye_configured,
 )
+from app.deye_peak_auto_service import get_peak_auto_pref
 from app.models import DeyeSelfConsumptionPref
 
 logger = logging.getLogger(__name__)
-
-_SELF_CONSUMPTION_TOU_SOC_PCT = 5.0
 
 
 async def get_self_consumption_pref(session: AsyncSession, device_sn: str) -> bool:
@@ -70,4 +69,5 @@ async def set_self_consumption_from_ui(
         await assert_inverter_owned(sn)
     await upsert_self_consumption_pref(session, sn, enabled)
     if enabled:
-        await apply_self_consumption_zero_export_ct(sn)
+        _, floor_pct = await get_peak_auto_pref(session, sn)
+        await apply_self_consumption_zero_export_ct(sn, tou_soc_floor_pct=float(floor_pct))

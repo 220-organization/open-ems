@@ -760,6 +760,8 @@ export default function DamChartPanel({
   const [indexesError, setIndexesError] = useState('');
   const [indexesYesterdayPayload, setIndexesYesterdayPayload] = useState(null);
   const [indexesYesterdayLoading, setIndexesYesterdayLoading] = useState(false);
+  /** OREE `<details>`: defer iframe ``src`` until expanded (default collapsed). */
+  const [oreeDamMarketDetailsOpen, setOreeDamMarketDetailsOpen] = useState(false);
   const [urlInverterOnce] = useState(readInverterFromSearchOnce);
   /** NBU UAH per 1 EUR — scales ENTSO-E EUR/kWh onto the same axis as Ukraine DAM (UAH/kWh). */
   const [eurUahRate, setEurUahRate] = useState(null);
@@ -2734,7 +2736,10 @@ export default function DamChartPanel({
         ) : null}
 
         {damMarket === 'oree' ? (
-          <details className="dam-oree-market-details">
+          <details
+            className="dam-oree-market-details"
+            onToggle={e => setOreeDamMarketDetailsOpen(e.currentTarget.open)}
+          >
             <summary className="dam-oree-market-summary">
               <span className="dam-oree-market-summary-label">{t('damOreeWebsiteLink')}</span>
             </summary>
@@ -2849,18 +2854,28 @@ export default function DamChartPanel({
                 </div>
               ) : null}
               <section className="dam-oree-embed dam-oree-embed--in-details" aria-labelledby="dam-oree-embed-title">
-                <div className="dam-oree-embed-header dam-oree-embed-header--link-only">
+                <div className="dam-oree-embed-header">
                   <h3 id="dam-oree-embed-title" className="dam-oree-embed-title">
-                    <a
-                      className="dam-oree-embed-external"
-                      href={OREE_DAM_CHART_URL}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-label={t('damOreeWebsiteAria')}
-                    >
-                      {t('damOreeWebsiteLink')}
-                    </a>
+                    {t('damOreeWebsiteLink')}
                   </h3>
+                  <a
+                    className="dam-oree-embed-external"
+                    href={OREE_DAM_CHART_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={t('damOreeWebsiteAria')}
+                  >
+                    oree.com.ua
+                  </a>
+                </div>
+                <div className="dam-oree-embed-frame-wrap">
+                  <iframe
+                    title={t('damOreeEmbedIframeTitle')}
+                    src={oreeDamMarketDetailsOpen ? OREE_DAM_CHART_URL : undefined}
+                    className="dam-oree-embed-iframe"
+                    referrerPolicy="no-referrer-when-downgrade"
+                    loading="lazy"
+                  />
                 </div>
               </section>
             </div>

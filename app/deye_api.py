@@ -1505,15 +1505,29 @@ async def restore_zero_export_ct_current_soc(device_sn: str) -> None:
     )
 
 
-async def apply_self_consumption_zero_export_ct(device_sn: str) -> None:
-    """ZERO_EXPORT_TO_CT with TOU SoC = 5% — allows battery to discharge freely to cover home load.
+async def apply_self_consumption_zero_export_ct(
+    device_sn: str,
+    *,
+    tou_soc_floor_pct: Optional[float] = None,
+) -> None:
+    """ZERO_EXPORT_TO_CT for self-consumption: bias battery toward a minimum SoC.
+
+    When ``tou_soc_floor_pct`` is set (user's "till SoC X%" from peak pref row), TOU SoC is
+    ``max(5%, floor)``. When omitted, uses 5% only (legacy / callers without a floor).
 
     Used when self-consumption mode is enabled and after peak export completes in self-consumption mode.
     """
     sn = (device_sn or "").strip()
     rated = settings.DEYE_DYNAMIC_CONTROL_RATED_POWER_W
+    if tou_soc_floor_pct is None:
+        tou_soc = _ZERO_EXPORT_CT_DEFAULT_TOU_SOC_PCT
+    else:
+        tou_soc = max(
+            _ZERO_EXPORT_CT_DEFAULT_TOU_SOC_PCT,
+            round(float(tou_soc_floor_pct), 2),
+        )
     await _post_strategy_dynamic_control(
-        _body_zero_export_target_soc(sn, _ZERO_EXPORT_CT_DEFAULT_TOU_SOC_PCT, rated, solar_sell_action="off")
+        _body_zero_export_target_soc(sn, tou_soc, rated, solar_sell_action="off")
     )
 
 

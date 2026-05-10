@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   BINANCE_MINER_URL,
   EV_START_URL,
@@ -421,9 +421,7 @@ function writeStoredLandingExportMetric(inverterSn, huaweiStationCode, value) {
 function firstFiniteSocForDeyeRow(row, socBySn) {
   if (!row || !socBySn) return null;
   const rep = String(row.representativeSn || '').trim();
-  const sns = Array.isArray(row.clusterSns)
-    ? row.clusterSns.map(s => String(s || '').trim()).filter(Boolean)
-    : [];
+  const sns = Array.isArray(row.clusterSns) ? row.clusterSns.map(s => String(s || '').trim()).filter(Boolean) : [];
   const order = rep ? [rep, ...sns.filter(s => s !== rep)] : sns;
   for (const s of order) {
     const v = socBySn[s];
@@ -667,6 +665,52 @@ function essSocBandClassName(pct) {
   if (n < 20) return 'pf-ess-soc--low';
   if (n < 70) return 'pf-ess-soc--mid';
   return 'pf-ess-soc--high';
+}
+
+const TOOLBAR_HINT_HOVER_MS = 1000;
+
+/** Hint popup after hover delay (native ``title`` is instant and weak on nested controls). */
+function DelayedHintTooltip({ hintText, children }) {
+  const tipId = useId();
+  const [open, setOpen] = useState(false);
+  const [shown, setShown] = useState('');
+  const timerRef = useRef(null);
+  const hintRef = useRef(hintText);
+  hintRef.current = hintText;
+
+  const clearTimer = useCallback(() => {
+    if (timerRef.current != null) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
+  const onEnter = useCallback(() => {
+    clearTimer();
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null;
+      setShown(hintRef.current);
+      setOpen(true);
+    }, TOOLBAR_HINT_HOVER_MS);
+  }, [clearTimer]);
+
+  const onLeave = useCallback(() => {
+    clearTimer();
+    setOpen(false);
+  }, [clearTimer]);
+
+  useEffect(() => () => clearTimer(), [clearTimer]);
+
+  return (
+    <span className="pf-delayed-hint-wrap" onMouseEnter={onEnter} onMouseLeave={onLeave}>
+      {open ? (
+        <span id={tipId} role="tooltip" className="pf-discharge-go-tooltip">
+          {shown}
+        </span>
+      ) : null}
+      {children}
+    </span>
+  );
 }
 
 function MotionDot({ pathD }) {
@@ -1472,6 +1516,9 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const [remoteWriteNeedsPinOpen, setRemoteWriteNeedsPinOpen] = useState(false);
   const discharge2BusyRef = useRef(false);
   const charge2BusyRef = useRef(false);
+  const [dischargeHoverTipOpen, setDischargeHoverTipOpen] = useState(false);
+  const [dischargeHoverTipText, setDischargeHoverTipText] = useState('');
+  const dischargeHoverTipTimerRef = useRef(null);
   /** After first load, inverter/station changes keep ``landingExportMetric`` unless URL overrides or context forbids it. */
   const landingExportMetricHydratedRef = useRef(false);
   /** Previous Deye ``selInverterSn`` (Huawei mode uses empty SN); used to reset metric to total export on inverter change. */
@@ -1487,6 +1534,42 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const [landingTotals, setLandingTotals] = useState(null);
   const [landingTotalsLoading, setLandingTotalsLoading] = useState(false);
   const [landingExportMetric, setLandingExportMetric] = useState(LANDING_EXPORT_METRIC.TOTAL);
+
+  /** Self-consumption hint / aria: reference LCOE + same till-SoC label as the discharge dropdown. */
+  const selfConsumptionHintWithLcoe = useMemo(() => {
+    const lcoeStr =
+      !referenceLcoe.loading &&
+      referenceLcoe.ok &&
+      referenceLcoe.batteryUahPerKwh != null &&
+      Number.isFinite(Number(referenceLcoe.batteryUahPerKwh))
+        ? formatUahPerKwhTariffLine(referenceLcoe.batteryUahPerKwh)
+        : '—';
+    const tillSocLabel = t('dischargeTillSocOption', {
+      pct: Math.round(Number(dischargeSocDeltaPct)),
+    });
+    return {
+      hint: t('selfConsumptionToggleHint', { lcoe: lcoeStr, tillSoc: tillSocLabel }),
+      aria: t('selfConsumptionToggleAria', { lcoe: lcoeStr, tillSoc: tillSocLabel }),
+    };
+  }, [
+    referenceLcoe.loading,
+    referenceLcoe.ok,
+    referenceLcoe.batteryUahPerKwh,
+    formatUahPerKwhTariffLine,
+    dischargeSocDeltaPct,
+    t,
+  ]);
+
+  /** Peak DAM hint / aria: same till-SoC label as the discharge dropdown. */
+  const peakDamHintWithTillSoc = useMemo(() => {
+    const tillSocLabel = t('dischargeTillSocOption', {
+      pct: Math.round(Number(dischargeSocDeltaPct)),
+    });
+    return {
+      hint: t('peakDamDischargeToggleHint', { tillSoc: tillSocLabel }),
+      aria: t('peakDamDischargeToggleAria', { tillSoc: tillSocLabel }),
+    };
+  }, [t, dischargeSocDeltaPct]);
 
   useEffect(() => {
     const fromUrl = readLandingExportMetricFromUrl(selInverterSn, selHuaweiStationCode);
@@ -2491,6 +2574,65 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const essSocHasKey = essSocPercent != null && Number.isFinite(essSocPercent);
   const essSocPending = Boolean(selInverterSn.trim() && essSocPercent == null && socListLoading);
 
+  /** Same rule as ``requestDischarge2Pct``: no headroom to discharge toward the selected floor. */
+  const dischargeGoDisabledInsufficientSoc = useMemo(() => {
+    if (!essSocHasKey || essSocPercent == null || !Number.isFinite(Number(essSocPercent))) {
+      return false;
+    }
+    const cur = Number(essSocPercent);
+    const targetSoc = Math.round(Number(dischargeSocDeltaPct));
+    return cur <= targetSoc + 0.05;
+  }, [essSocHasKey, essSocPercent, dischargeSocDeltaPct]);
+
+  const dischargeGoHoverTitle = useMemo(() => {
+    const sn = selInverterSn.trim();
+    if (sn && !essSocHasKey) {
+      return t('dischargeConfirmNoSoc');
+    }
+    if (dischargeGoDisabledInsufficientSoc && essSocHasKey) {
+      return t('dischargeGoDisabledTooltip', {
+        target: inverterSocFmt.format(Math.round(Number(dischargeSocDeltaPct))),
+      });
+    }
+    return t('dischargeSoc2Hint');
+  }, [
+    selInverterSn,
+    essSocHasKey,
+    dischargeGoDisabledInsufficientSoc,
+    essSocPercent,
+    dischargeSocDeltaPct,
+    inverterSocFmt,
+    t,
+  ]);
+
+  const clearDischargeHoverTipTimer = useCallback(() => {
+    if (dischargeHoverTipTimerRef.current != null) {
+      clearTimeout(dischargeHoverTipTimerRef.current);
+      dischargeHoverTipTimerRef.current = null;
+    }
+  }, []);
+
+  const onDischargeGoWrapMouseEnter = useCallback(() => {
+    clearDischargeHoverTipTimer();
+    dischargeHoverTipTimerRef.current = window.setTimeout(() => {
+      dischargeHoverTipTimerRef.current = null;
+      setDischargeHoverTipText(dischargeGoHoverTitle);
+      setDischargeHoverTipOpen(true);
+    }, 1000);
+  }, [clearDischargeHoverTipTimer, dischargeGoHoverTitle]);
+
+  const onDischargeGoWrapMouseLeave = useCallback(() => {
+    clearDischargeHoverTipTimer();
+    setDischargeHoverTipOpen(false);
+  }, [clearDischargeHoverTipTimer]);
+
+  useEffect(() => () => clearDischargeHoverTipTimer(), [clearDischargeHoverTipTimer]);
+
+  useEffect(() => {
+    clearDischargeHoverTipTimer();
+    setDischargeHoverTipOpen(false);
+  }, [selInverterSn, clearDischargeHoverTipTimer]);
+
   const executeDischarge2Pct = useCallback(
     async (commandPin = '') => {
       const deviceSn = selInverterSn?.trim();
@@ -3096,7 +3238,10 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                             const capexSuffix =
                               c != null && Number.isFinite(Number(c)) ? ` · ${formatInverterCapexUsd(Number(c))}` : '';
                             return (
-                              <option key={`deye-${row.representativeSn}`} value={`${ESS_PREFIX_DEYE}${row.representativeSn}`}>
+                              <option
+                                key={`deye-${row.representativeSn}`}
+                                value={`${ESS_PREFIX_DEYE}${row.representativeSn}`}
+                              >
                                 {row.shortLabel + socSuffix + capexSuffix}
                               </option>
                             );
@@ -3911,14 +4056,10 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                     </span>
                     <span className="pf-node-label">{t('nodeEv')}</span>
                     <span className="pf-node-value" id="pf-val-ev">
-                      {evStationPowerLoading && evStationPowerW == null
-                        ? '…'
-                        : formatPower(evStationPowerW, t, bcp47)}
+                      {evStationPowerLoading && evStationPowerW == null ? '…' : formatPower(evStationPowerW, t, bcp47)}
                     </span>
                     <div className="pf-node-meta" id="pf-ev-tariff">
-                      {evDisplayTariffUahPerKwh != null
-                        ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh)
-                        : ''}
+                      {evDisplayTariffUahPerKwh != null ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh) : ''}
                     </div>
                   </a>
                 ) : showEvAggregate ? (
@@ -3939,9 +4080,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                       {evBusy ? '…' : formatPower(aggregateEvFlowW, t, bcp47)}
                     </span>
                     <div className="pf-node-meta" id="pf-ev-tariff">
-                      {evDisplayTariffUahPerKwh != null
-                        ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh)
-                        : ''}
+                      {evDisplayTariffUahPerKwh != null ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh) : ''}
                     </div>
                   </a>
                 ) : (
@@ -3960,9 +4099,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                       {formatPower(null, t, bcp47)}
                     </span>
                     <div className="pf-node-meta" id="pf-ev-tariff">
-                      {evDisplayTariffUahPerKwh != null
-                        ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh)
-                        : ''}
+                      {evDisplayTariffUahPerKwh != null ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh) : ''}
                     </div>
                   </div>
                 )}
@@ -4055,16 +4192,36 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                         <div className="pf-deye-command-stack">
                           <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header pf-deye-command-line">
                             <div className="pf-discharge-delta-controls">
-                              <button
-                                type="button"
-                                className="pf-discharge-btn pf-discharge-go-btn"
-                                onClick={requestDischarge2Pct}
-                                disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
-                                title={t('dischargeSoc2Hint')}
-                                aria-label={t('dischargeGoAria')}
+                              <span
+                                className="pf-discharge-go-hover-wrap"
+                                onMouseEnter={onDischargeGoWrapMouseEnter}
+                                onMouseLeave={onDischargeGoWrapMouseLeave}
                               >
-                                {t('dischargeGoButton')}
-                              </button>
+                                {dischargeHoverTipOpen ? (
+                                  <span
+                                    id="pf-discharge-go-tooltip"
+                                    role="tooltip"
+                                    className="pf-discharge-go-tooltip"
+                                  >
+                                    {dischargeHoverTipText}
+                                  </span>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  className="pf-discharge-btn pf-discharge-go-btn"
+                                  onClick={requestDischarge2Pct}
+                                  disabled={
+                                    deyeWritesHardBlocked ||
+                                    toolbarLockedByNightCharge ||
+                                    dischargeGoDisabledInsufficientSoc ||
+                                    (Boolean(selInverterSn.trim()) && !essSocHasKey)
+                                  }
+                                  aria-label={t('dischargeGoAria')}
+                                  aria-describedby={dischargeHoverTipOpen ? 'pf-discharge-go-tooltip' : undefined}
+                                >
+                                  {t('dischargeGoButton')}
+                                </button>
+                              </span>
                               <select
                                 id="pf-discharge-delta-select"
                                 className="pf-discharge-delta-select pf-discharge-delta-select--header"
@@ -4127,8 +4284,9 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                                 ))}
                               </select>
                             </div>
-                            <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
-                              <input
+                            <DelayedHintTooltip hintText={peakDamHintWithTillSoc.hint}>
+                              <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
+                                <input
                                 type="checkbox"
                                 checked={peakDamDischargeEnabled}
                                 disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
@@ -4205,20 +4363,17 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                                     nextPct: peakPrefDischargePctForApi(dischargeSocDeltaPct),
                                   });
                                 }}
-                                aria-label={t('peakDamDischargeToggleAria')}
+                                aria-label={peakDamHintWithTillSoc.aria}
                               />
-                              <span className="pf-peak-dam-toggle-label" title={t('peakDamDischargeToggleHint')}>
-                                {t('peakDamDischargeToggle')}
-                              </span>
-                            </label>
-                            <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
-                              <input
+                                <span className="pf-peak-dam-toggle-label">{t('peakDamDischargeToggle')}</span>
+                              </label>
+                            </DelayedHintTooltip>
+                            <DelayedHintTooltip hintText={selfConsumptionHintWithLcoe.hint}>
+                              <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
+                                <input
                                 type="checkbox"
                                 checked={selfConsumptionEnabled}
-                                disabled={
-                                  deyeWritesHardBlocked ||
-                                  toolbarLockedByNightCharge
-                                }
+                                disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
                                 onChange={async e => {
                                   if (!remoteWriteConfigured) {
                                     setRemoteWriteNeedsPinOpen(true);
@@ -4261,12 +4416,11 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                                   }
                                   setWritePinGate({ kind: 'selfConsumption', nextEnabled: v });
                                 }}
-                                aria-label={t('selfConsumptionToggleAria')}
+                                aria-label={selfConsumptionHintWithLcoe.aria}
                               />
-                              <span className="pf-peak-dam-toggle-label" title={t('selfConsumptionToggleHint')}>
-                                {t('selfConsumptionToggle')}
-                              </span>
-                            </label>
+                                <span className="pf-peak-dam-toggle-label">{t('selfConsumptionToggle')}</span>
+                              </label>
+                            </DelayedHintTooltip>
                           </div>
                           <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header pf-deye-command-line pf-deye-command-line--charge">
                             <div className="pf-discharge-delta-controls">
@@ -4696,8 +4850,8 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                         : writePinGate.kind === 'selfConsumption'
                           ? t('deyeWritePinTitleSelfConsumption')
                           : writePinGate.kind === 'nightCharge'
-                              ? t('deyeWritePinTitleNightCharge')
-                              : t('deyeWritePinTitleLowPct')}
+                            ? t('deyeWritePinTitleNightCharge')
+                            : t('deyeWritePinTitleLowPct')}
               </p>
               <div className="pf-modal-pin-row">
                 <label htmlFor="pf-write-pin-input" className="pf-modal-pin-label">

@@ -6,7 +6,8 @@ export const OREE_DAM_CHART_URL =
   'https://www.oree.com.ua/index.php/control/results_mo/DAM';
 
 /**
- * Dialog with a link to the official OREE DAM results page (no iframe).
+ * Dialog with a link to the official OREE DAM results page.
+ * The chart page is also embedded in ``DamChartPanel`` (OREE market) when the section is expanded.
  */
 export default function OreeDamChartModal({ open, onClose, t }) {
   useEffect(() => {

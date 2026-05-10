@@ -1760,6 +1760,56 @@ a.pf-node {
   cursor: pointer;
 }
 
+/* Wrapper: delayed custom tooltip (native ``title`` would show immediately or not on ``disabled``). */
+.pf-discharge-go-hover-wrap {
+  display: inline-flex;
+  max-width: 100%;
+  position: relative;
+  vertical-align: middle;
+}
+
+.pf-delayed-hint-wrap {
+  display: inline-flex;
+  max-width: 100%;
+  position: relative;
+  vertical-align: middle;
+}
+
+.pf-discharge-go-tooltip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  z-index: 90;
+  min-width: 200px;
+  max-width: min(320px, 92vw);
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+  text-align: center;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(252, 1, 155, 0.35);
+  background: rgba(24, 8, 32, 0.96);
+  color: rgba(255, 248, 252, 0.96);
+  pointer-events: none;
+}
+
+[data-theme="light"] .pf-discharge-go-tooltip {
+  border: 1px solid rgba(193, 0, 185, 0.28);
+  background: rgba(255, 255, 255, 0.98);
+  color: rgba(20, 5, 30, 0.92);
+  box-shadow: 0 8px 28px rgba(40, 10, 50, 0.12);
+}
+
+:root:not([data-theme]) .pf-discharge-go-tooltip {
+  border: 1px solid rgba(193, 0, 185, 0.28);
+  background: rgba(255, 255, 255, 0.98);
+  color: rgba(20, 5, 30, 0.92);
+  box-shadow: 0 8px 28px rgba(40, 10, 50, 0.12);
+}
+
 .pf-discharge-go-btn {
   flex: 0 0 auto;
   max-width: none;

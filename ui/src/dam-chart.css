@@ -822,6 +822,31 @@
   margin-bottom: 0;
 }
 
+.dam-oree-embed-frame-wrap {
+  position: relative;
+  width: 100%;
+  height: 520px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(24, 8, 32, 0.45);
+  border: 1px solid rgba(252, 1, 155, 0.12);
+}
+
+.dam-oree-embed-iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+@media (max-width: 600px) {
+  .dam-oree-embed-frame-wrap {
+    height: 400px;
+  }
+}
+
 .dam-oree-embed-title {
   margin: 0;
   font-size: 1rem;
@@ -921,6 +946,11 @@ a.dam-oree-embed-external:hover {
   border-color: rgba(21, 128, 61, 0.38);
 }
 
+[data-theme="light"] .dam-oree-embed-frame-wrap {
+  background: rgba(245, 235, 255, 0.5);
+  border-color: rgba(193, 0, 185, 0.1);
+}
+
 /* Recharts tooltip text — light mode */
 [data-theme="light"] .dam-indexes-tooltip-wrap .recharts-default-tooltip,
 [data-theme="light"] .dam-indexes-tooltip-wrap .recharts-tooltip-label,
@@ -947,6 +977,11 @@ a.dam-oree-embed-external:hover {
     color: #14532d;
     background: rgba(240, 255, 247, 0.85);
     border-color: rgba(21, 128, 61, 0.38);
+  }
+
+  :root:not([data-theme]) .dam-oree-embed-frame-wrap {
+    background: rgba(245, 235, 255, 0.5);
+    border-color: rgba(193, 0, 185, 0.1);
   }
 
   :root:not([data-theme]) .dam-indexes-tooltip-wrap .recharts-default-tooltip,

@@ -14,6 +14,7 @@ from sqlalchemy.sql import func
 
 from app import settings
 from app.deye_api import (
+    apply_self_consumption_zero_export_ct,
     assert_inverter_owned,
     deye_configured,
     discharge_soc_delta_then_zero_export_ct,
@@ -240,4 +241,15 @@ async def set_peak_auto_from_ui(
         raise ValueError("device_sn required")
     if enabled:
         await assert_inverter_owned(sn)
-    await upsert_peak_auto_pref(session, sn, enabled, discharge_soc_delta_pct)
+    p = normalize_discharge_soc_delta_pct(int(discharge_soc_delta_pct))
+    await upsert_peak_auto_pref(session, sn, enabled, p)
+
+    # Re-template inverter when self-consumption is already on so the new floor applies immediately.
+    from app.deye_self_consumption_service import get_self_consumption_pref
+
+    if await get_self_consumption_pref(session, sn):
+        from app.deye_night_charge_service import get_night_charge_pref
+
+        night_on, _ = await get_night_charge_pref(session, sn)
+        if not night_on:
+            await apply_self_consumption_zero_export_ct(sn, tou_soc_floor_pct=float(p))
