@@ -19,6 +19,7 @@ from app.deye_api import (
     assert_inverter_owned,
     apply_self_consumption_zero_export_ct,
     deye_configured,
+    restore_zero_export_ct_current_soc,
 )
 from app.deye_peak_auto_service import get_peak_auto_pref
 from app.models import DeyeSelfConsumptionPref
@@ -59,7 +60,7 @@ async def set_self_consumption_from_ui(
     device_sn: str,
     enabled: bool,
 ) -> None:
-    """Validate ownership when enabling; upsert pref; apply ZERO_EXPORT_TO_CT when enabling."""
+    """Validate ownership when enabling; upsert pref; push Deye strategy when enabling or disabling."""
     sn = (device_sn or "").strip()
     if not sn:
         raise ValueError("device_sn required")
@@ -71,3 +72,6 @@ async def set_self_consumption_from_ui(
     if enabled:
         _, floor_pct = await get_peak_auto_pref(session, sn)
         await apply_self_consumption_zero_export_ct(sn, tou_soc_floor_pct=float(floor_pct))
+    else:
+        # Clear self-consumption TOU bias on the inverter (DB pref alone left the device unchanged).
+        await restore_zero_export_ct_current_soc(sn)

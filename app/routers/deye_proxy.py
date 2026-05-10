@@ -1098,14 +1098,17 @@ async def get_self_consumption(
             headers=_NO_STORE_CACHE,
         )
     sn = deviceSn.strip()
-    enabled = await get_self_consumption_auto_dam_pref(db, sn)
+    auto_dam = await get_self_consumption_auto_dam_pref(db, sn)
     self_consumption_enabled = await get_self_consumption_pref(db, sn)
     return JSONResponse(
         content={
             "ok": True,
             "configured": True,
             "deviceSn": sn,
-            "enabled": enabled,
+            # enabled / autoDamEnabled: DAM-vs-LCOE rule armed (UI toggle). May be true while
+            # selfConsumptionEnabled is false (e.g. current hour DAM not above LCOE yet).
+            "enabled": auto_dam,
+            "autoDamEnabled": bool(auto_dam),
             "selfConsumptionEnabled": bool(self_consumption_enabled),
         },
         headers=_NO_STORE_CACHE,
@@ -1138,6 +1141,7 @@ async def post_self_consumption(
             await sync_self_consumption_auto_dam_for_device(db, sn)
         else:
             await set_self_consumption_from_ui(db, sn, False)
+        auto_dam_after = await get_self_consumption_auto_dam_pref(db, sn)
         sc_after = await get_self_consumption_pref(db, sn)
         await db.commit()
     except HTTPException:
@@ -1155,7 +1159,8 @@ async def post_self_consumption(
             "ok": True,
             "configured": True,
             "deviceSn": sn,
-            "enabled": body.enabled,
+            "enabled": bool(auto_dam_after),
+            "autoDamEnabled": bool(auto_dam_after),
             "selfConsumptionEnabled": bool(sc_after),
         },
         headers=_NO_STORE_CACHE,
