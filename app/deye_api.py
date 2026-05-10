@@ -630,7 +630,7 @@ def _soc_percent_from_device_data_entry(dev_entry: Any) -> Optional[float]:
     return None
 
 
-async def _fill_missing_soc_from_station_latest(
+async def _fill_missing_metrics_from_station_latest(
     client: httpx.AsyncClient,
     headers: dict[str, str],
     base: str,
@@ -646,8 +646,14 @@ async def _fill_missing_soc_from_station_latest(
         ],
     ],
 ) -> None:
-    """When /device/latest leaves SoC empty, fill from /station/latest (one request per distinct station)."""
-    missing = [sn for sn, t in merged_fetch.items() if t[0] is None]
+    """Fill missing SoC/power from /station/latest when /device/latest has gaps (one call per station)."""
+    missing: list[str] = []
+    for sn, t in merged_fetch.items():
+        soc, bat_w, load_w, pv_w, grid_w, _freq_hz = t
+        need_soc = soc is None
+        need_power = bat_w is None and load_w is None and pv_w is None and grid_w is None
+        if need_soc or need_power:
+            missing.append(sn)
     if not missing:
         return
     rows = await _list_inverter_rows()
@@ -660,14 +666,23 @@ async def _fill_missing_soc_from_station_latest(
         if st:
             station_to_sns.setdefault(st, []).append(sn)
     for st_id, sns in station_to_sns.items():
-        st_soc, _, _, _, _, _ = await _fetch_station_latest_metrics(client, headers, base, st_id)
-        if st_soc is None:
-            continue
+        st_soc, st_bat, st_load, st_pv, st_grid, st_freq = await _fetch_station_latest_metrics(
+            client, headers, base, st_id
+        )
         for sn in sns:
             if sn not in merged_fetch:
                 continue
-            old = merged_fetch[sn]
-            merged_fetch[sn] = (st_soc, old[1], old[2], old[3], old[4], old[5])
+            old_soc, old_bat, old_load, old_pv, old_grid, old_freq = merged_fetch[sn]
+            need_soc = old_soc is None
+            need_power = old_bat is None and old_load is None and old_pv is None and old_grid is None
+            merged_fetch[sn] = (
+                st_soc if need_soc else old_soc,
+                st_bat if need_power else old_bat,
+                st_load if need_power else old_load,
+                st_pv if need_power else old_pv,
+                st_grid if need_power else old_grid,
+                st_freq if (need_power and old_freq is None) else old_freq,
+            )
 
 
 def _row_value_to_watts(row: dict) -> Optional[float]:
@@ -1119,7 +1134,7 @@ async def get_soc_map_cached(device_sns: list[str]) -> dict[str, Optional[float]
                 chunk = to_fetch[off : off + 10]
                 part = await _post_latest_metrics_map(client, hdrs, base, chunk)
                 merged_fetch.update(part)
-            await _fill_missing_soc_from_station_latest(client, hdrs, base, merged_fetch)
+            await _fill_missing_metrics_from_station_latest(client, hdrs, base, merged_fetch)
 
         fetch_time = time.monotonic()
         async with _soc_lock:
@@ -1203,7 +1218,7 @@ async def refresh_device_latest_batches(
             chunk = unique[off : off + 10]
             part = await _post_latest_metrics_map(client, hdrs, base, chunk)
             merged_fetch.update(part)
-        await _fill_missing_soc_from_station_latest(client, hdrs, base, merged_fetch)
+        await _fill_missing_metrics_from_station_latest(client, hdrs, base, merged_fetch)
 
     fetch_time = time.monotonic()
     async with _soc_lock:
