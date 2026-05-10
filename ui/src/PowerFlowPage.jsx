@@ -2027,20 +2027,35 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
         if (cancelled) return;
         const okRows = rows.filter(x => x.ok).map(x => x.data);
         if (okRows.length > 0) {
-          // station/latest fallback can return identical metrics for each serial in the same plant.
-          // Deduplicate exact tuples to avoid multiplying plant-level totals.
+          /*
+           * Two cluster modes for multi-inverter Deye stations:
+           *   1) Per-inverter mode — each /device/latest returns distinct watts → SUM across cluster.
+           *   2) /station/latest fallback — every serial in the plant returns the same plant total.
+           *      Backend marks these rows with stationFallback=true and stationId; we dedupe by
+           *      stationId (one row per plant) so a 1 MWh station with N serials shows the plant
+           *      total once instead of N × plant total. Falling back to exact-tuple dedup keeps
+           *      the previous behaviour for older API versions that omit the new fields.
+           */
           const uniqRows = [];
+          const seenStationFallback = new Set();
           const seenTuple = new Set();
           for (const row of okRows) {
-            const key = [
+            const stId = row?.stationId == null ? '' : String(row.stationId).trim();
+            if (row?.stationFallback === true && stId) {
+              if (seenStationFallback.has(stId)) continue;
+              seenStationFallback.add(stId);
+              uniqRows.push(row);
+              continue;
+            }
+            const tupleKey = [
               row?.batteryPowerW ?? 'n',
               row?.loadPowerW ?? 'n',
               row?.pvPowerW ?? 'n',
               row?.gridPowerW ?? 'n',
               row?.gridFrequencyHz ?? 'n',
             ].join('|');
-            if (seenTuple.has(key)) continue;
-            seenTuple.add(key);
+            if (seenTuple.has(tupleKey)) continue;
+            seenTuple.add(tupleKey);
             uniqRows.push(row);
           }
           const sumField = (key, floorZero = false) => {

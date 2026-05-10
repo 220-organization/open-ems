@@ -357,6 +357,13 @@ async def hourly_inverter_history_for_kyiv_day(
     return soc_out, grid_out, freq_out, pv_kwh_out, load_kwh_out
 
 
+def _round_for_dedup(value: Optional[float]) -> Optional[float]:
+    """Bucket-level dedup key — round to 6 decimals so float noise doesn't defeat tuple match."""
+    if value is None:
+        return None
+    return round(float(value), 6)
+
+
 async def hourly_inverter_history_for_kyiv_day_cluster(
     session: AsyncSession,
     device_sns: list[str],
@@ -369,9 +376,16 @@ async def hourly_inverter_history_for_kyiv_day_cluster(
     list[Optional[float]],
 ]:
     """
-    Same shape as ``hourly_inverter_history_for_kyiv_day``, but for multiple serials on one station:
-    hourly SoC and frequency are averaged across devices; grid / PV kWh / load kWh are summed
-    (plant-level aggregates when each line has its own telemetry).
+    Same shape as ``hourly_inverter_history_for_kyiv_day``, but for multiple serials on one station.
+
+    Per-bucket aggregation across cluster serials:
+
+    - SoC + grid frequency: averaged within each 5-minute bucket, then averaged within the hour.
+    - Power (grid / PV / load): identical (pv, load, grid, battery) tuples within a 5-minute bucket
+      are deduped before summing — every serial in a 1 MWh-class plant that records the same
+      ``/station/latest`` plant-aggregate values would otherwise produce ``N × plant-total`` per
+      hour. Distinct per-inverter values still sum (per-inverter mode), so summed cluster output
+      always equals the actual plant total.
     """
     sns = sorted({(s or "").strip() for s in device_sns if (s or "").strip()})
     if not sns:
@@ -380,19 +394,121 @@ async def hourly_inverter_history_for_kyiv_day_cluster(
     if len(sns) == 1:
         return await hourly_inverter_history_for_kyiv_day(session, sns[0], trade_day)
 
-    parts = [await hourly_inverter_history_for_kyiv_day(session, sn, trade_day) for sn in sns]
+    start_kyiv, end_kyiv = _kyiv_day_bounds(trade_day)
+    start_utc = start_kyiv.astimezone(timezone.utc)
+    end_utc = end_kyiv.astimezone(timezone.utc)
 
-    def hour_mean(idx: int, series_idx: int) -> Optional[float]:
-        vals = [float(p[series_idx][idx]) for p in parts if p[series_idx][idx] is not None]
-        return _mean_or_none(vals) if vals else None
+    extras = await deye_soc_balance_input_columns_ready(session)
+    if extras:
+        result = await session.execute(
+            select(
+                DeyeSocSample.device_sn,
+                DeyeSocSample.bucket_start,
+                DeyeSocSample.soc_percent,
+                DeyeSocSample.grid_power_w,
+                DeyeSocSample.grid_frequency_hz,
+                DeyeSocSample.load_power_w,
+                DeyeSocSample.pv_power_w,
+                DeyeSocSample.pv_generation_w,
+                DeyeSocSample.battery_power_w,
+            ).where(
+                DeyeSocSample.device_sn.in_(sns),
+                DeyeSocSample.bucket_start >= start_utc,
+                DeyeSocSample.bucket_start < end_utc,
+            )
+        )
+        rows = result.all()
+    else:
+        result = await session.execute(
+            select(
+                DeyeSocSample.device_sn,
+                DeyeSocSample.bucket_start,
+                DeyeSocSample.soc_percent,
+                DeyeSocSample.grid_power_w,
+                DeyeSocSample.grid_frequency_hz,
+            ).where(
+                DeyeSocSample.device_sn.in_(sns),
+                DeyeSocSample.bucket_start >= start_utc,
+                DeyeSocSample.bucket_start < end_utc,
+            )
+        )
+        rows = [
+            (sn, bs, soc, grid, freq, None, None, None, None)
+            for (sn, bs, soc, grid, freq) in result.all()
+        ]
 
-    def hour_sum(idx: int, series_idx: int) -> Optional[float]:
-        vals = [float(p[series_idx][idx]) for p in parts if p[series_idx][idx] is not None]
-        return sum(vals) if vals else None
+    by_bucket: dict[datetime, list[tuple]] = {}
+    for sn, bucket_start, soc, grid_w, freq_hz, load_w, pv_w, pv_gen_w, bat_w in rows:
+        by_bucket.setdefault(bucket_start, []).append(
+            (sn, soc, grid_w, freq_hz, load_w, pv_w, pv_gen_w, bat_w)
+        )
 
-    soc_out = [hour_mean(i, 0) for i in range(24)]
-    grid_out = [hour_sum(i, 1) for i in range(24)]
-    freq_out = [hour_mean(i, 2) for i in range(24)]
-    pv_kwh_out = [hour_sum(i, 3) for i in range(24)]
-    load_kwh_out = [hour_sum(i, 4) for i in range(24)]
+    soc_buckets: list[list[float]] = [[] for _ in range(24)]
+    grid_buckets: list[list[float]] = [[] for _ in range(24)]
+    freq_buckets: list[list[float]] = [[] for _ in range(24)]
+    pv_w_buckets: list[list[float]] = [[] for _ in range(24)]
+    load_w_buckets: list[list[float]] = [[] for _ in range(24)]
+
+    for bucket_start, group in by_bucket.items():
+        local = bucket_start.astimezone(KYIV)
+        h = int(local.hour)
+        if not (0 <= h <= 23):
+            continue
+
+        soc_vals = [float(r[1]) for r in group if r[1] is not None]
+        if soc_vals:
+            soc_buckets[h].append(sum(soc_vals) / len(soc_vals))
+        freq_vals = [float(r[3]) for r in group if r[3] is not None]
+        if freq_vals:
+            freq_buckets[h].append(sum(freq_vals) / len(freq_vals))
+
+        # Per-bucket dedup of identical (pv, load, grid, battery) tuples — every serial whose
+        # row was filled from /station/latest plant aggregate collapses to one entry.
+        seen_power: set[tuple[Optional[float], Optional[float], Optional[float], Optional[float]]] = set()
+        unique_power_rows: list[tuple] = []
+        for r in group:
+            sn, _soc, grid_w, _freq_hz, load_w, pv_w, pv_gen_w, bat_w = r
+            if grid_w is None and load_w is None and pv_w is None and bat_w is None:
+                continue
+            sig = (
+                _round_for_dedup(pv_w),
+                _round_for_dedup(load_w),
+                _round_for_dedup(grid_w),
+                _round_for_dedup(bat_w),
+            )
+            if sig in seen_power:
+                continue
+            seen_power.add(sig)
+            unique_power_rows.append(r)
+
+        sum_grid = 0.0
+        has_grid = False
+        sum_pv = 0.0
+        has_pv = False
+        sum_load = 0.0
+        has_load = False
+        for sn, _soc, grid_w, _freq_hz, load_w, pv_w, pv_gen_w, bat_w in unique_power_rows:
+            if grid_w is not None:
+                sum_grid += float(grid_w)
+                has_grid = True
+            eff_pv = _effective_pv_watts_for_sample(sn, pv_w, pv_gen_w)
+            if eff_pv is not None:
+                sum_pv += eff_pv
+                has_pv = True
+            if load_w is not None:
+                sum_load += float(load_w)
+                has_load = True
+
+        if has_grid:
+            grid_buckets[h].append(sum_grid)
+        if has_pv:
+            pv_w_buckets[h].append(sum_pv)
+        if has_load:
+            load_w_buckets[h].append(sum_load)
+
+    soc_out = [_mean_or_none(soc_buckets[i]) for i in range(24)]
+    grid_out = [_mean_or_none(grid_buckets[i]) for i in range(24)]
+    freq_out = [_mean_or_none(freq_buckets[i]) for i in range(24)]
+    pv_kwh_out = [_mean_power_w_to_kwh_hour(_mean_or_none(pv_w_buckets[i])) for i in range(24)]
+    load_kwh_out = [_mean_power_w_to_kwh_hour(_mean_or_none(load_w_buckets[i])) for i in range(24)]
     return soc_out, grid_out, freq_out, pv_kwh_out, load_kwh_out

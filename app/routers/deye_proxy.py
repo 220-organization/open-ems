@@ -21,6 +21,7 @@ from app.deye_api import (
     fetch_device_soc_percent,
     get_inverter_station_coordinates,
     get_live_metrics_cached,
+    get_live_metrics_with_source_cached,
     get_soc_map_cached,
     list_inverter_devices,
     station_cluster_device_sns,
@@ -653,6 +654,10 @@ async def get_ess_power(
     Live metrics from POST /device/latest (same response): batteryPowerW signed (positive = discharge),
     loadPowerW non-negative (home/AC load), pvPowerW non-negative (PV production),
     gridPowerW signed (positive import from grid, negative export). Cached ~25s.
+
+    For multi-inverter (1 MWh-class) Deye stations where /device/latest omits power, values fall
+    back to /station/latest plant totals — ``stationFallback=true`` and ``stationId`` mark such
+    rows so the UI can dedupe them by station instead of summing N copies of the same plant total.
     """
     if not deye_configured():
         return JSONResponse(
@@ -664,19 +669,25 @@ async def get_ess_power(
                 "pvPowerW": None,
                 "gridPowerW": None,
                 "gridFrequencyHz": None,
+                "stationId": None,
+                "stationFallback": False,
             },
             headers=_NO_STORE_CACHE,
         )
     try:
-        bat, load_w, pv_w, grid_w, grid_hz = await get_live_metrics_cached(deviceSn)
+        bat, load_w, pv_w, grid_w, grid_hz, station_id, station_fallback = (
+            await get_live_metrics_with_source_cached(deviceSn)
+        )
         logger.info(
-            "GET /api/deye/ess-power — sn=%s batteryW=%s loadW=%s pvW=%s gridW=%s gridHz=%s",
+            "GET /api/deye/ess-power — sn=%s batteryW=%s loadW=%s pvW=%s gridW=%s gridHz=%s stationId=%s stationFallback=%s",
             deviceSn,
             bat,
             load_w,
             pv_w,
             grid_w,
             grid_hz,
+            station_id,
+            station_fallback,
         )
         return JSONResponse(
             content={
@@ -687,6 +698,8 @@ async def get_ess_power(
                 "pvPowerW": pv_w,
                 "gridPowerW": grid_w,
                 "gridFrequencyHz": grid_hz,
+                "stationId": station_id,
+                "stationFallback": bool(station_fallback),
             },
             headers=_NO_STORE_CACHE,
         )

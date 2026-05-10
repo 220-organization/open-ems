@@ -34,6 +34,10 @@ _live_cache: dict[
     str,
     tuple[Optional[float], Optional[float], Optional[float], Optional[float], Optional[float], float],
 ] = {}
+# Marks serials whose currently cached power came from /station/latest plant fallback (not /device/latest).
+# Cluster aggregation (UI / hourly history) must dedupe by station for these — otherwise plant totals
+# get multiplied by the cluster size. Cleared / set in lockstep with ``_live_cache`` writes.
+_live_from_station_fallback: dict[str, bool] = {}
 # Station-level /station/latest: SoC + same power fields as device path, monotonic fetch time.
 _station_live_cache: dict[
     str,
@@ -645,44 +649,98 @@ async def _fill_missing_metrics_from_station_latest(
             Optional[float],
         ],
     ],
+    station_fallback_marks: Optional[set[str]] = None,
 ) -> None:
-    """Fill missing SoC/power from /station/latest when /device/latest has gaps (one call per station)."""
-    missing: list[str] = []
-    for sn, t in merged_fetch.items():
-        soc, bat_w, load_w, pv_w, grid_w, _freq_hz = t
-        need_soc = soc is None
-        need_power = bat_w is None and load_w is None and pv_w is None and grid_w is None
-        if need_soc or need_power:
-            missing.append(sn)
-    if not missing:
+    """Fill missing SoC/power from /station/latest when /device/latest has gaps (one call per station).
+
+    Important: ``/station/latest`` is plant-aggregated (totals for the whole Deye station). If the
+    same plant-aggregated values are written for every cluster serial, callers that SUM across the
+    cluster (snapshot persistence + ``hourly_inverter_history_for_kyiv_day_cluster`` + live UI)
+    multiply the plant total by the cluster size. Therefore this function fills POWER on at most
+    ONE representative serial per station — the lexicographically smallest serial in the batch
+    that lacks /device/latest power — and only when no other serial in the same station has
+    /device/latest power. SoC fallback is still applied to every missing serial because per-device
+    SoC is meaningful (cluster aggregation averages SoC).
+
+    ``station_fallback_marks`` (optional) is mutated to include serials that received POWER from
+    the station fallback so callers can flag them in the live cache / API response.
+    """
+    if not merged_fetch:
         return
     rows = await _list_inverter_rows()
     sn_to_station: dict[str, str] = {
         r.device_sn: str(r.station_id).strip() for r in rows if r.station_id and str(r.station_id).strip()
     }
-    station_to_sns: dict[str, list[str]] = {}
-    for sn in missing:
+
+    # Group every batch serial (not just missing ones) by station to detect mixed
+    # per-inverter / fallback states (per-inverter wins — never overlay plant totals).
+    station_to_batch_sns: dict[str, list[str]] = {}
+    for sn in merged_fetch.keys():
         st = sn_to_station.get(sn)
         if st:
-            station_to_sns.setdefault(st, []).append(sn)
-    for st_id, sns in station_to_sns.items():
+            station_to_batch_sns.setdefault(st, []).append(sn)
+
+    for st_id, all_sns in station_to_batch_sns.items():
+        sns_missing_soc: list[str] = []
+        sns_missing_power: list[str] = []
+        any_device_power = False
+        for sn in all_sns:
+            soc, bat_w, load_w, pv_w, grid_w, _freq_hz = merged_fetch[sn]
+            has_device_power = (
+                bat_w is not None
+                or load_w is not None
+                or pv_w is not None
+                or grid_w is not None
+            )
+            if has_device_power:
+                any_device_power = True
+            else:
+                sns_missing_power.append(sn)
+            if soc is None:
+                sns_missing_soc.append(sn)
+
+        # Skip /station/latest entirely when nothing is missing for this plant.
+        need_power_fallback = bool(sns_missing_power) and not any_device_power
+        if not sns_missing_soc and not need_power_fallback:
+            continue
+
         st_soc, st_bat, st_load, st_pv, st_grid, st_freq = await _fetch_station_latest_metrics(
             client, headers, base, st_id
         )
-        for sn in sns:
-            if sn not in merged_fetch:
-                continue
+
+        # SoC fallback applies to every missing serial (per-device SoC is meaningful).
+        for sn in sns_missing_soc:
             old_soc, old_bat, old_load, old_pv, old_grid, old_freq = merged_fetch[sn]
-            need_soc = old_soc is None
-            need_power = old_bat is None and old_load is None and old_pv is None and old_grid is None
             merged_fetch[sn] = (
-                st_soc if need_soc else old_soc,
-                st_bat if need_power else old_bat,
-                st_load if need_power else old_load,
-                st_pv if need_power else old_pv,
-                st_grid if need_power else old_grid,
-                st_freq if (need_power and old_freq is None) else old_freq,
+                st_soc if old_soc is None else old_soc,
+                old_bat,
+                old_load,
+                old_pv,
+                old_grid,
+                old_freq,
             )
+
+        # Power fallback only when no serial in this station has /device/latest power, and
+        # only on ONE representative serial (smallest sorted serial) so cluster sums equal
+        # the plant total instead of N × plant total.
+        if need_power_fallback:
+            rep = min(sns_missing_power)
+            old_soc, old_bat, old_load, old_pv, old_grid, old_freq = merged_fetch[rep]
+            merged_fetch[rep] = (
+                old_soc,
+                st_bat if old_bat is None else old_bat,
+                st_load if old_load is None else old_load,
+                st_pv if old_pv is None else old_pv,
+                st_grid if old_grid is None else old_grid,
+                st_freq if old_freq is None else old_freq,
+            )
+            if station_fallback_marks is not None and (
+                st_bat is not None
+                or st_load is not None
+                or st_pv is not None
+                or st_grid is not None
+            ):
+                station_fallback_marks.add(rep)
 
 
 def _row_value_to_watts(row: dict) -> Optional[float]:
@@ -1122,6 +1180,7 @@ async def get_soc_map_cached(device_sns: list[str]) -> dict[str, Optional[float]
             Optional[float],
         ],
     ] = {}
+    fallback_marks: set[str] = set()
     if to_fetch:
         base = settings.DEYE_API_BASE_URL.rstrip("/")
         async with httpx.AsyncClient(timeout=45.0) as client:
@@ -1134,7 +1193,9 @@ async def get_soc_map_cached(device_sns: list[str]) -> dict[str, Optional[float]
                 chunk = to_fetch[off : off + 10]
                 part = await _post_latest_metrics_map(client, hdrs, base, chunk)
                 merged_fetch.update(part)
-            await _fill_missing_metrics_from_station_latest(client, hdrs, base, merged_fetch)
+            await _fill_missing_metrics_from_station_latest(
+                client, hdrs, base, merged_fetch, fallback_marks
+            )
 
         fetch_time = time.monotonic()
         async with _soc_lock:
@@ -1154,6 +1215,11 @@ async def get_soc_map_cached(device_sns: list[str]) -> dict[str, Optional[float]
                 ngrid = grid_w if grid_w is not None else ogrid
                 nfreq = freq_hz if freq_hz is not None else ofreq
                 _live_cache[sn] = (nbat, nload, npv, ngrid, nfreq, fetch_time)
+                if sn in fallback_marks:
+                    _live_from_station_fallback[sn] = True
+                elif pwr is not None or load_w is not None or pv_w is not None or grid_w is not None:
+                    # Fresh /device/latest power overrides any stale fallback flag.
+                    _live_from_station_fallback.pop(sn, None)
 
     for sn in unique:
         if sn in result:
@@ -1208,6 +1274,7 @@ async def refresh_device_latest_batches(
         ],
     ] = {}
     base = settings.DEYE_API_BASE_URL.rstrip("/")
+    fallback_marks: set[str] = set()
     async with httpx.AsyncClient(timeout=45.0) as client:
         token = await _ensure_token(client)
         hdrs = {
@@ -1218,7 +1285,9 @@ async def refresh_device_latest_batches(
             chunk = unique[off : off + 10]
             part = await _post_latest_metrics_map(client, hdrs, base, chunk)
             merged_fetch.update(part)
-        await _fill_missing_metrics_from_station_latest(client, hdrs, base, merged_fetch)
+        await _fill_missing_metrics_from_station_latest(
+            client, hdrs, base, merged_fetch, fallback_marks
+        )
 
     fetch_time = time.monotonic()
     async with _soc_lock:
@@ -1238,6 +1307,11 @@ async def refresh_device_latest_batches(
             ngrid = grid_w if grid_w is not None else ogrid
             nfreq = freq_hz if freq_hz is not None else ofreq
             _live_cache[sn] = (nbat, nload, npv, ngrid, nfreq, fetch_time)
+            if sn in fallback_marks:
+                _live_from_station_fallback[sn] = True
+            elif pwr is not None or load_w is not None or pv_w is not None or grid_w is not None:
+                # Fresh /device/latest power overrides any stale fallback flag.
+                _live_from_station_fallback.pop(sn, None)
 
     empty = (None, None, None, None, None, None)
     return {sn: merged_fetch.get(sn, empty) for sn in unique}
@@ -1264,9 +1338,36 @@ async def get_live_metrics_cached(
     Latest (battery W signed, load W, pv W, grid W signed, grid frequency Hz) for one inverter.
     TTL ESS_POWER_CACHE_TTL_SEC. Same Deye call fills both.
     """
+    bat, load_w, pv_w, grid_w, freq_hz, _station_id, _from_fallback = (
+        await get_live_metrics_with_source_cached(device_sn)
+    )
+    return bat, load_w, pv_w, grid_w, freq_hz
+
+
+async def get_live_metrics_with_source_cached(
+    device_sn: str,
+) -> tuple[
+    Optional[float],
+    Optional[float],
+    Optional[float],
+    Optional[float],
+    Optional[float],
+    Optional[str],
+    bool,
+]:
+    """
+    Latest live metrics for one inverter plus source info for cluster aggregation.
+
+    Returns (battery W signed, load W, pv W, grid W signed, grid frequency Hz, station_id,
+    from_station_fallback). When ``from_station_fallback`` is True the returned power values
+    come from /station/latest (plant aggregate, not per-inverter). UI cluster aggregation must
+    dedupe such rows by ``station_id`` to avoid multiplying plant totals by the cluster size.
+    """
     sn = (device_sn or "").strip()
     if not sn or not deye_configured():
-        return None, None, None, None, None
+        return None, None, None, None, None, None, False
+
+    station_id = await _station_id_for_device_sn(sn)
 
     async with _soc_lock:
         now = time.monotonic()
@@ -1276,7 +1377,18 @@ async def get_live_metrics_cached(
             has_any_live = bat is not None or load_w is not None or pv_w is not None or grid_w is not None
             # Do not keep returning cached all-null snapshots: try fresh /device/latest + /station/latest fallback.
             if (now - ts < ESS_POWER_CACHE_TTL_SEC) and has_any_live:
-                return _finalize_live_metrics_for_sn(sn, bat, load_w, pv_w, grid_w, freq_hz)
+                fbat, fload, fpv, fgrid, ffreq = _finalize_live_metrics_for_sn(
+                    sn, bat, load_w, pv_w, grid_w, freq_hz
+                )
+                return (
+                    fbat,
+                    fload,
+                    fpv,
+                    fgrid,
+                    ffreq,
+                    station_id,
+                    bool(_live_from_station_fallback.get(sn, False)),
+                )
 
     base = settings.DEYE_API_BASE_URL.rstrip("/")
     async with httpx.AsyncClient(timeout=45.0) as client:
@@ -1289,7 +1401,7 @@ async def get_live_metrics_cached(
 
     fetch_time = time.monotonic()
     soc, pwr, load_w, pv_w, grid_w, freq_hz = merged.get(sn, (None, None, None, None, None, None))
-    station_id = await _station_id_for_device_sn(sn)
+    from_station_fallback = False
     need_power = pwr is None and load_w is None and pv_w is None and grid_w is None
     need_soc = soc is None
     # FEED_IN_LIMIT-only plants: /device/latest may omit power and/or SoC; /station/latest has plant totals.
@@ -1302,6 +1414,13 @@ async def get_live_metrics_cached(
                 if now - sts < ESS_POWER_CACHE_TTL_SEC:
                     if need_power:
                         pwr, load_w, pv_w, grid_w, freq_hz = st_bat, st_load, st_pv, st_grid, st_freq
+                        if (
+                            st_bat is not None
+                            or st_load is not None
+                            or st_pv is not None
+                            or st_grid is not None
+                        ):
+                            from_station_fallback = True
                     if need_soc and st_soc is not None:
                         soc = st_soc
         need_power = pwr is None and load_w is None and pv_w is None and grid_w is None
@@ -1328,6 +1447,13 @@ async def get_live_metrics_cached(
                 )
             if need_power:
                 pwr, load_w, pv_w, grid_w, freq_hz = st_bat, st_load, st_pv, st_grid, st_freq
+                if (
+                    st_bat is not None
+                    or st_load is not None
+                    or st_pv is not None
+                    or st_grid is not None
+                ):
+                    from_station_fallback = True
             if need_soc and st_soc is not None:
                 soc = st_soc
 
@@ -1347,17 +1473,30 @@ async def get_live_metrics_cached(
         ngrid = grid_w if grid_w is not None else ogrid
         nfreq = freq_hz if freq_hz is not None else ofreq
         _live_cache[sn] = (nbat, nload, npv, ngrid, nfreq, fetch_time)
+        if from_station_fallback:
+            _live_from_station_fallback[sn] = True
+        elif pwr is not None or load_w is not None or pv_w is not None or grid_w is not None:
+            _live_from_station_fallback.pop(sn, None)
     fbat, fload, fpv, fgrid, ffreq = _finalize_live_metrics_for_sn(sn, nbat, nload, npv, ngrid, nfreq)
     logger.info(
-        "Deye: live metrics sn=%s batteryW=%s loadW=%s pvW=%s gridW=%s gridHz=%s",
+        "Deye: live metrics sn=%s batteryW=%s loadW=%s pvW=%s gridW=%s gridHz=%s stationFallback=%s",
         sn,
         fbat,
         fload,
         fpv,
         fgrid,
         ffreq,
+        from_station_fallback,
     )
-    return fbat, fload, fpv, fgrid, ffreq
+    return (
+        fbat,
+        fload,
+        fpv,
+        fgrid,
+        ffreq,
+        station_id,
+        bool(_live_from_station_fallback.get(sn, False)),
+    )
 
 
 async def get_battery_power_w_cached(device_sn: str) -> Optional[float]:
