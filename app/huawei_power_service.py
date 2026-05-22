@@ -42,6 +42,64 @@ def _kyiv_day_bounds(trade_day: date) -> tuple[datetime, datetime]:
     return start, end
 
 
+def _kyiv_period_bounds(d: date, period: str) -> Optional[tuple[datetime, datetime]]:
+    """Inclusive Kyiv start, exclusive end for day | month | year."""
+    if period == "day":
+        return _kyiv_day_bounds(d)
+    if period == "month":
+        start = datetime.combine(date(d.year, d.month, 1), time.min, tzinfo=KYIV)
+        if d.month == 12:
+            end = datetime.combine(date(d.year + 1, 1, 1), time.min, tzinfo=KYIV)
+        else:
+            end = datetime.combine(date(d.year, d.month + 1, 1), time.min, tzinfo=KYIV)
+        return start, end
+    if period == "year":
+        start = datetime.combine(date(d.year, 1, 1), time.min, tzinfo=KYIV)
+        end = datetime.combine(date(d.year + 1, 1, 1), time.min, tzinfo=KYIV)
+        return start, end
+    return None
+
+
+def _totals_from_sample_rows(
+    rows: list[tuple[datetime, Optional[float], Optional[float], Optional[float]]],
+    *,
+    hourly: bool,
+) -> dict[str, Any]:
+    """Sum 5-minute power samples into kWh totals (optional 24h breakdown)."""
+    imp_h = [0.0] * 24
+    exp_h = [0.0] * 24
+    gen_h = [0.0] * 24
+    cons_h = [0.0] * 24
+    for bucket_start, pv_w, grid_w, load_w in rows:
+        local = bucket_start.astimezone(KYIV)
+        h = int(local.hour)
+        _add_sample_to_hourly(imp_h, exp_h, gen_h, cons_h, h, pv_w, grid_w, load_w)
+
+    totals = {
+        "gridImportKwh": round(sum(imp_h), 4),
+        "gridExportKwh": round(sum(exp_h), 4),
+        "generationKwh": round(sum(gen_h), 4),
+        "consumptionKwh": round(sum(cons_h), 4),
+    }
+    if not hourly:
+        return totals
+
+    hours = []
+    for h in range(24):
+        ek = -exp_h[h] if exp_h[h] else 0.0
+        ck = -cons_h[h] if cons_h[h] else 0.0
+        hours.append(
+            {
+                "hour": h + 1,
+                "gridImportKwh": round(imp_h[h], 4),
+                "gridExportKwh": round(ek, 4),
+                "generationKwh": round(gen_h[h], 4),
+                "consumptionKwh": round(ck, 4),
+            }
+        )
+    return {"hours": hours, "totals": totals}
+
+
 def _parse_date_iso(date_iso: str) -> Optional[date]:
     s = (date_iso or "").strip()
     if len(s) != 10 or s[4] != "-" or s[7] != "-":
@@ -107,7 +165,7 @@ async def run_huawei_power_snapshot(session: AsyncSession) -> int:
         if not code:
             continue
         try:
-            pf = await get_power_flow(code)
+            pf = await get_power_flow(code, for_storage=True)
         except Exception:
             logger.debug("Huawei power snapshot: get_power_flow failed for %s", code, exc_info=True)
             continue
@@ -195,29 +253,7 @@ async def get_station_hourly_chart_from_db(
         )
     )
     rows = result.all()
-
-    imp_h = [0.0] * 24
-    exp_h = [0.0] * 24
-    gen_h = [0.0] * 24
-    cons_h = [0.0] * 24
-    for bucket_start, pv_w, grid_w, load_w in rows:
-        local = bucket_start.astimezone(KYIV)
-        h = int(local.hour)
-        _add_sample_to_hourly(imp_h, exp_h, gen_h, cons_h, h, pv_w, grid_w, load_w)
-
-    hours = []
-    for h in range(24):
-        ek = -exp_h[h] if exp_h[h] else 0.0
-        ck = -cons_h[h] if cons_h[h] else 0.0
-        hours.append(
-            {
-                "hour": h + 1,
-                "gridImportKwh": round(imp_h[h], 4),
-                "gridExportKwh": round(ek, 4),
-                "generationKwh": round(gen_h[h], 4),
-                "consumptionKwh": round(ck, 4),
-            }
-        )
+    agg = _totals_from_sample_rows(rows, hourly=True)
 
     out: dict[str, Any] = {
         "ok": True,
@@ -228,13 +264,74 @@ async def get_station_hourly_chart_from_db(
         "source": "huawei_power_sample",
         "sampleIntervalMinutes": 5,
         "northboundRateLimited": False,
-        "hours": hours,
-        "totals": {
-            "gridImportKwh": round(sum(imp_h), 4),
-            "gridExportKwh": round(sum(exp_h), 4),
-            "generationKwh": round(sum(gen_h), 4),
-            "consumptionKwh": round(sum(cons_h), 4),
-        },
+        "hours": agg["hours"],
+        "totals": agg["totals"],
+    }
+    if not rows:
+        out["empty"] = True
+    return out
+
+
+async def get_station_period_totals_from_db(
+    session: AsyncSession,
+    station_code: str,
+    period: str,
+    date_iso: str,
+) -> dict[str, Any]:
+    """
+    Sum kWh totals for day | month | year from huawei_power_sample (Kyiv calendar).
+
+    Same source as the day DAM chart so the Huawei totals card stays consistent
+    across Day / Month / Year tabs.
+    """
+    st = (station_code or "").strip()
+    d = _parse_date_iso(date_iso)
+    if not st:
+        return {"ok": False, "configured": bool(huawei_configured()), "reason": "missing_station"}
+    if d is None:
+        return {"ok": False, "configured": bool(huawei_configured()), "reason": "bad_date"}
+    if period not in ("day", "month", "year"):
+        return {"ok": False, "configured": bool(huawei_configured()), "reason": "invalid_period"}
+    if not huawei_configured():
+        return {"ok": False, "configured": False, "reason": "not_configured"}
+
+    bounds = _kyiv_period_bounds(d, period)
+    if bounds is None:
+        return {"ok": False, "configured": True, "reason": "invalid_period"}
+    start_kyiv, end_kyiv = bounds
+    start_utc = start_kyiv.astimezone(timezone.utc)
+    end_utc = end_kyiv.astimezone(timezone.utc)
+
+    result = await session.execute(
+        select(
+            HuaweiPowerSample.bucket_start,
+            HuaweiPowerSample.pv_power_w,
+            HuaweiPowerSample.grid_power_w,
+            HuaweiPowerSample.load_power_w,
+        ).where(
+            HuaweiPowerSample.station_code == st,
+            HuaweiPowerSample.bucket_start >= start_utc,
+            HuaweiPowerSample.bucket_start < end_utc,
+        )
+    )
+    rows = result.all()
+    totals = _totals_from_sample_rows(rows, hourly=False)
+    if period == "day":
+        period_key = d.isoformat()
+    elif period == "month":
+        period_key = f"{d.year:04d}-{d.month:02d}"
+    else:
+        period_key = f"{d.year:04d}"
+
+    out: dict[str, Any] = {
+        "ok": True,
+        "configured": True,
+        "stationCode": st,
+        "period": period,
+        "periodKey": period_key,
+        "timezone": "Europe/Kyiv",
+        "source": "huawei_power_sample",
+        "totals": totals,
     }
     if not rows:
         out["empty"] = True

@@ -914,13 +914,16 @@ def _huawei_zero_grid_import_when_pv_meets_load(
     return 0.0
 
 
-async def get_power_flow(station_code: str) -> dict[str, Any]:
+async def get_power_flow(station_code: str, *, for_storage: bool = False) -> dict[str, Any]:
     """
     Instantaneous PV / grid / load (W) via getDevList + getDevRealKpi (meter + inverter).
 
     gridPowerW uses the same sign convention as Deye in PowerFlowPage: positive = grid import,
     negative = export. Huawei meter active_power is typically negative on import, so we negate it.
     loadPowerW = inverter_active_power - meter_active_power (both raw W from API).
+
+    When ``for_storage`` is True, grid import is left as read from the meter (no PV≈load zeroing).
+    Use that for ``huawei_power_sample`` so month/year kWh totals are not understated.
     """
     st = (station_code or "").strip()
     if not st:
@@ -952,7 +955,8 @@ async def get_power_flow(station_code: str) -> dict[str, Any]:
             if inv_raw is not None and meter_raw is not None:
                 load_w = max(0.0, float(inv_raw) - float(meter_raw))
 
-            grid_ui = _huawei_zero_grid_import_when_pv_meets_load(pv_w, load_w, grid_ui)
+            if not for_storage:
+                grid_ui = _huawei_zero_grid_import_when_pv_meets_load(pv_w, load_w, grid_ui)
 
             has_battery_kpi = _has_battery_device_in_dev_list(dev_rows) if dev_rows else False
             ess_soc = _ess_soc_percent_from_inverter_dim(inv_dim)

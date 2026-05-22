@@ -12,7 +12,7 @@ import time
 from datetime import date, datetime, timezone
 from typing import Any, Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,7 +26,10 @@ from app.huawei_api import (
     huawei_configured,
     list_stations,
 )
-from app.huawei_power_service import get_station_hourly_chart_from_db
+from app.huawei_power_service import (
+    get_station_hourly_chart_from_db,
+    get_station_period_totals_from_db,
+)
 from app.models import HuaweiStationEnergyTotals
 
 logger = logging.getLogger(__name__)
@@ -85,6 +88,111 @@ def _row_to_payload(row: HuaweiStationEnergyTotals) -> dict[str, Any]:
         "radiationKwhM2": row.radiation_kwh_m2,
         "theoryKwh": row.theory_kwh,
         "perpowerRatioKwhKwp": row.perpower_ratio,
+    }
+
+
+def _sample_grid_import_kwh(totals: dict[str, Any]) -> float:
+    try:
+        return float(totals.get("gridImportKwh") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+async def _sum_daily_grid_import_kwh_from_cache(
+    session: AsyncSession, station_code: str, d: date, period: str
+) -> Optional[float]:
+    """
+    Sum FusionSolar daily KPI grid import (``huawei_station_energy_totals`` period=day) for a month or year.
+    Background snapshot fills these from getKpiStationDay buyEnergy — often non-zero when 5‑min samples show 0.
+    """
+    if period == "month":
+        like_pat = f"{d.year:04d}-{d.month:02d}-%"
+    elif period == "year":
+        like_pat = f"{d.year:04d}-%"
+    else:
+        return None
+    stmt = select(func.coalesce(func.sum(HuaweiStationEnergyTotals.grid_import_kwh), 0.0)).where(
+        HuaweiStationEnergyTotals.station_code == station_code,
+        HuaweiStationEnergyTotals.period == "day",
+        HuaweiStationEnergyTotals.period_key.like(like_pat),
+        HuaweiStationEnergyTotals.grid_import_kwh.is_not(None),
+    )
+    res = await session.execute(stmt)
+    total = float(res.scalar_one() or 0.0)
+    return total if total > 1e-6 else None
+
+
+async def _period_grid_import_from_kpi_cache(
+    session: AsyncSession,
+    station_code: str,
+    period: str,
+    period_key: str,
+    date_iso: str,
+) -> Optional[float]:
+    """Grid import from cached or freshly fetched FusionSolar month/year KPI (buyEnergy)."""
+    row = await read_totals_row(session, station_code, period, period_key)
+    if row is not None and row.grid_import_kwh is not None:
+        v = float(row.grid_import_kwh)
+        if v > 1e-6:
+            return v
+    if not huawei_configured():
+        return None
+    item = await refresh_from_api(session, station_code, period, date_iso)
+    if item is None:
+        return None
+    g = item.get("gridImportKwh")
+    if g is None:
+        return None
+    try:
+        v = float(g)
+    except (TypeError, ValueError):
+        return None
+    return v if v > 1e-6 else None
+
+
+async def _enrich_period_grid_import(
+    session: AsyncSession,
+    station_code: str,
+    period: str,
+    date_iso: str,
+    period_key: str,
+    item: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Month/year totals from ``huawei_power_sample`` often show 0 import when snapshots used the
+    live PV≈load display heuristic. Prefer summed daily FusionSolar KPI, then month/year KPI.
+    """
+    if period not in ("month", "year"):
+        return item
+    if _sample_grid_import_kwh(item) > 1e-6:
+        return item
+    d = parse_date_iso(date_iso)
+    if d is None:
+        return item
+    alt = await _sum_daily_grid_import_kwh_from_cache(session, station_code, d, period)
+    if alt is None:
+        alt = await _period_grid_import_from_kpi_cache(
+            session, station_code, period, period_key, date_iso
+        )
+    if alt is None:
+        return item
+    out = dict(item)
+    out["gridImportKwh"] = round(alt, 4)
+    return out
+
+
+def _item_from_power_sample_totals(station_code: str, totals: dict[str, Any]) -> dict[str, Any]:
+    """Map huawei_power_sample totals to the station-energy KPI item shape."""
+    return {
+        "stationCode": station_code,
+        "pvKwh": totals.get("generationKwh"),
+        "consumptionKwh": totals.get("consumptionKwh"),
+        "gridImportKwh": totals.get("gridImportKwh"),
+        "gridExportKwh": totals.get("gridExportKwh"),
+        "selfConsumptionKwh": None,
+        "radiationKwhM2": None,
+        "theoryKwh": None,
+        "perpowerRatioKwhKwp": None,
     }
 
 
@@ -201,31 +309,36 @@ async def get_or_refresh_totals(
     if d is None:
         return {"ok": False, "reason": "invalid_date"}
 
-    # For day view, use the same DB source as DAM bars (`huawei_power_sample`) to avoid
-    # drift between "FusionSolar totals" card and Open EMS chart totals.
-    if period == "day":
-        day_body = await get_station_hourly_chart_from_db(session, station_code, date_iso)
-        if day_body.get("ok") and isinstance(day_body.get("totals"), dict):
-            t = day_body["totals"]
-            item = {
-                "stationCode": station_code,
-                "pvKwh": t.get("generationKwh"),
-                "consumptionKwh": t.get("consumptionKwh"),
-                "gridImportKwh": t.get("gridImportKwh"),
-                "gridExportKwh": t.get("gridExportKwh"),
-                "selfConsumptionKwh": None,
-                "radiationKwhM2": None,
-                "theoryKwh": None,
-                "perpowerRatioKwhKwp": None,
-            }
-            return {
-                "ok": True,
-                "period": "day",
-                "periodKey": d.isoformat(),
-                "source": "huawei_power_sample",
-                "cacheAgeSec": 0.0,
-                "items": [item],
-            }
+    # Day / month / year: prefer `huawei_power_sample` (same source as DAM bars) so the
+    # FusionSolar totals card matches the chart. FusionSolar getKpiStationMonth/Year often
+    # omits consumption_energy and reports buyEnergy=0 even when daily import exists.
+    if period in VALID_PERIODS:
+        if period == "day":
+            sample_body = await get_station_hourly_chart_from_db(session, station_code, date_iso)
+        else:
+            sample_body = await get_station_period_totals_from_db(
+                session, station_code, period, date_iso
+            )
+        if sample_body.get("ok") and not sample_body.get("empty"):
+            t = sample_body.get("totals") or {}
+            if isinstance(t, dict):
+                pkey = sample_body.get("periodKey") or period_key_for(d, period)
+                item = _item_from_power_sample_totals(station_code, t)
+                item = await _enrich_period_grid_import(
+                    session, station_code, period, date_iso, pkey, item
+                )
+                source = "huawei_power_sample"
+                if period in ("month", "year") and _sample_grid_import_kwh(t) <= 1e-6:
+                    if item.get("gridImportKwh") is not None and float(item["gridImportKwh"]) > 1e-6:
+                        source = "huawei_power_sample+fusionsolar_kpi"
+                return {
+                    "ok": True,
+                    "period": period,
+                    "periodKey": pkey,
+                    "source": source,
+                    "cacheAgeSec": 0.0,
+                    "items": [item],
+                }
 
     pkey = period_key_for(d, period)
     row = await read_totals_row(session, station_code, period, pkey)
