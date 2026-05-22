@@ -243,7 +243,7 @@ body {
   width: 100%;
   max-width: 1100px;
   margin: 4px auto 0;
-  padding: 0 4px;
+  padding: 0 12px;
   box-sizing: border-box;
 }
 
@@ -255,7 +255,7 @@ body {
   align-items: stretch;
   gap: 10px;
   width: 100%;
-  padding: 8px 4px 12px;
+  padding: 8px 8px 12px;
   box-sizing: border-box;
 }
 
@@ -287,6 +287,7 @@ body {
   min-width: min(168px, 46vw);
   max-width: min(220px, 88vw);
   text-align: left;
+  padding: 8px 14px 8px 12px;
 }
 
 .pf-landing-totals__metric-row .pf-landing-totals__counter-wrap {
@@ -308,6 +309,63 @@ body {
 
 .pf-landing-totals__export-value--with-arbitrage-mom {
   justify-content: flex-end;
+}
+
+.pf-landing-totals__export-value--monthly-rates {
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px 14px;
+}
+
+.pf-landing-totals__export-value--with-monthly-rates-mom {
+  justify-content: center;
+}
+
+.pf-landing-totals__monthly-rates-month {
+  flex: 0 0 auto;
+  font-size: clamp(0.95rem, 2.4vw, 1.1rem);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.88);
+  white-space: nowrap;
+}
+
+.pf-landing-totals__monthly-rates-unit {
+  flex: 0 0 auto;
+  font-size: clamp(1rem, 2.8vw, 1.25rem);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #e040e0;
+  text-shadow:
+    0 0 10px rgba(224, 64, 224, 0.45),
+    0 0 20px rgba(200, 61, 197, 0.22);
+  white-space: nowrap;
+}
+
+.pf-landing-totals__monthly-rates-mom-out {
+  flex: 0 0 auto;
+  font-size: clamp(0.8rem, 2.6vw, 0.95rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.03em;
+  line-height: 1.25;
+  white-space: nowrap;
+  padding: 0;
+  margin: 0;
+}
+
+.pf-landing-totals__monthly-rates-mom-out--up {
+  color: #fca5a5;
+}
+
+.pf-landing-totals__monthly-rates-mom-out--down {
+  color: #86efac;
+}
+
+.pf-landing-totals__monthly-rates-mom-out--flat {
+  color: var(--pf-text-secondary);
 }
 
 .pf-landing-totals__metric-row > .pf-landing-totals__export-value .pf-landing-totals__counter-wrap {
@@ -344,6 +402,103 @@ body {
     0 0 14px rgba(94, 234, 212, 0.55),
     0 0 28px rgba(45, 212, 191, 0.28),
     0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.pf-landing-totals__metric-row > .pf-landing-totals__export-value .pf-landing-totals__counter-wrap--monthly-rates {
+  max-width: min(100%, 28rem);
+  flex-shrink: 0;
+}
+
+.pf-landing-totals__counter-wrap--monthly-rates,
+.pf-landing-totals__counter-wrap--export-chart-trigger.pf-landing-totals__counter-wrap--monthly-rates {
+  padding: 14px 22px 16px;
+  max-width: 100%;
+  justify-content: center;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+.pf-landing-totals__counter-wrap--monthly-rates .pf-landing-totals__counter-scroll {
+  padding-block: 6px;
+  padding-inline: 10px;
+  min-width: max-content;
+}
+
+.pf-landing-totals__monthly-rates-inner {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: max-content;
+  max-width: 100%;
+  padding: 4px 12px;
+  box-sizing: border-box;
+}
+
+.pf-landing-totals__monthly-rates-mom {
+  flex: 0 0 auto;
+  font-size: clamp(0.8rem, 2.6vw, 0.95rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.03em;
+  line-height: 1.25;
+  white-space: nowrap;
+  padding: 0 6px 2px;
+}
+
+.pf-landing-totals__monthly-rates-mom--up {
+  color: #fca5a5;
+}
+
+.pf-landing-totals__monthly-rates-mom--down {
+  color: #86efac;
+}
+
+.pf-landing-totals__monthly-rates-mom--flat {
+  color: var(--pf-text-secondary);
+}
+
+.pf-landing-totals__counter--monthly-rates {
+  font-size: clamp(20px, 4.5vw, 30px);
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+/* Desktop: monthly-rates pill holds only «rate ₴»; month/unit/MoM stay outside */
+@media (min-width: 601px) {
+  .pf-landing-totals__export-value--monthly-rates {
+    gap: 12px 18px;
+  }
+
+  .pf-landing-totals__metric-row > .pf-landing-totals__export-value .pf-landing-totals__counter-wrap--monthly-rates {
+    flex: 0 0 auto;
+    flex-shrink: 0;
+    min-width: max-content;
+    max-width: none;
+    width: auto;
+  }
+
+  .pf-landing-totals__metric-row .pf-landing-totals__counter-wrap--monthly-rates {
+    flex: 0 0 auto;
+    flex-shrink: 0;
+  }
+
+  .pf-landing-totals__counter-wrap--monthly-rates,
+  .pf-landing-totals__counter-wrap--export-chart-trigger.pf-landing-totals__counter-wrap--monthly-rates {
+    padding: 16px 28px 18px;
+    width: auto;
+    min-width: max-content;
+  }
+
+  .pf-landing-totals__counter-wrap--monthly-rates .pf-landing-totals__counter-scroll {
+    padding-block: 6px;
+    padding-inline: 10px;
+  }
+
+  .pf-landing-totals__counter--monthly-rates {
+    font-size: clamp(22px, 1.65vw, 28px);
+  }
 }
 
 .pf-landing-totals__counter-wrap--arbitrage {
@@ -424,7 +579,7 @@ body {
   min-width: min(100%, max(10ch, max-content));
   min-height: 1.25em;
   padding-block: 0.2em;
-  padding-inline: 0.15em;
+  padding-inline: 0.25em;
   overflow: visible;
   flex: 0 0 auto;
   flex-shrink: 0;
@@ -522,6 +677,27 @@ body {
     max-width: 100%;
     padding: 0.48em 0.55em;
     border-radius: 16px;
+  }
+
+  .pf-landing-totals__counter-wrap--monthly-rates,
+  .pf-landing-totals__counter-wrap--export-chart-trigger.pf-landing-totals__counter-wrap--monthly-rates {
+    padding: 14px 22px 16px;
+  }
+
+  .pf-landing-totals__monthly-rates-inner {
+    gap: 8px;
+    padding: 2px 8px;
+  }
+
+  .pf-landing-totals__counter-wrap--monthly-rates .pf-landing-totals__counter-scroll {
+    padding-block: 5px;
+    padding-inline: 8px;
+  }
+
+  .pf-landing-totals__counter--monthly-rates {
+    font-size: clamp(18px, 5vw, 26px);
+    white-space: nowrap;
+    text-align: center;
   }
 
   .pf-landing-totals__counter-scroll {
@@ -2990,15 +3166,14 @@ a.pf-node {
 
 .pf-landing-totals__counter-wrap--export-chart-trigger {
   appearance: none;
-  border: none;
   margin: 0;
-  background: transparent;
-  padding: 0;
   cursor: pointer;
   font: inherit;
   text-align: inherit;
-  width: 100%;
-  display: block;
+  width: auto;
+  max-width: 100%;
+  display: inline-flex;
+  box-sizing: border-box;
 }
 
 .pf-landing-totals__counter-wrap--export-chart-trigger:focus-visible {

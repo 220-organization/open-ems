@@ -30,6 +30,10 @@ router = APIRouter(prefix="/api/power-flow", tags=["power-flow"])
 
 _NO_STORE = {"Cache-Control": "no-store, max-age=0, must-revalidate"}
 
+# Same retail formula as PowerFlowPage landing tariff (DAM avg + distribution + VAT).
+_LANDING_TARIFF_DISTRIBUTION_UAH_PER_KWH = 3.5
+_LANDING_TARIFF_VAT_MULTIPLIER = 1.2
+
 _REFERENCE_LCOE_TTL_SEC = 6 * 3600
 _reference_lcoe_mono = 0.0
 _reference_lcoe_body: Optional[dict[str, Any]] = None
@@ -398,37 +402,22 @@ def _clamp_session_cumulative_to_total_export(payload: dict[str, Any]) -> None:
             block["exportSessionKwh"] = t
 
 
-async def _avg_dam_uah_per_kwh(
-    session: AsyncSession, zone: str, start: date, end: date
-) -> Optional[float]:
-    r = await session.execute(
-        select(func.avg(OreeDamPrice.price_uah_mwh), func.count()).where(
-            OreeDamPrice.zone_eic == zone,
-            OreeDamPrice.trade_day >= start,
-            OreeDamPrice.trade_day <= end,
-        )
-    )
-    avg_mwh, cnt = r.one()
-    if (cnt or 0) == 0 or avg_mwh is None:
+def _landing_retail_uah_per_kwh(dam_avg_uah_per_kwh: Optional[float]) -> Optional[float]:
+    if dam_avg_uah_per_kwh is None:
         return None
-    return float(avg_mwh) / 1000.0
+    x = float(dam_avg_uah_per_kwh)
+    if not math.isfinite(x):
+        return None
+    return (x + _LANDING_TARIFF_DISTRIBUTION_UAH_PER_KWH) * _LANDING_TARIFF_VAT_MULTIPLIER
 
 
-async def _device_import_weighted_dam_mtd_kyiv(
-    session: AsyncSession, device_sn: str
+async def _deye_import_weighted_dam_kyiv(
+    session: AsyncSession, device_sn: str, d0: date, d1: date
 ) -> tuple[float, Optional[float]]:
-    """
-    Kyiv calendar month-to-date: grid import kWh from 5‑min samples (grid_power_w > 0, W/12000)
-    joined to OREE DAM UAH/kWh for that sample's Kyiv day and hour.
-
-    Returns (import_kwh_matched, weighted_avg_dam_uah_per_kwh). Averages only buckets with a DAM row
-    (INNER JOIN). Weighted avg is None when import_kwh_matched is negligible.
-    """
+    """Grid import kWh and import-weighted DAM UAH/kWh for one Deye inverter over a Kyiv date range."""
     sn = (device_sn or "").strip()
     if not sn:
         return 0.0, None
-    today = _kyiv_today()
-    first_mtd = _month_first(today)
     zone = settings.OREE_COMPARE_ZONE_EIC
     sql = """
         SELECT
@@ -449,7 +438,7 @@ async def _device_import_weighted_dam_mtd_kyiv(
           AND ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date) >= :d0
           AND ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date) <= :d1
     """
-    r = await session.execute(text(sql), {"sn": sn, "zone": zone, "d0": first_mtd, "d1": today})
+    r = await session.execute(text(sql), {"sn": sn, "zone": zone, "d0": d0, "d1": d1})
     row = r.one()
     import_kwh = float(row[0] or 0.0)
     cost_uah = float(row[1] or 0.0)
@@ -458,18 +447,13 @@ async def _device_import_weighted_dam_mtd_kyiv(
     return import_kwh, cost_uah / import_kwh
 
 
-async def _huawei_station_import_weighted_dam_mtd_kyiv(
-    session: AsyncSession, station_code: str
+async def _huawei_import_weighted_dam_kyiv(
+    session: AsyncSession, station_code: str, d0: date, d1: date
 ) -> tuple[float, Optional[float]]:
-    """
-    Same semantics as ``_device_import_weighted_dam_mtd_kyiv`` for Deye, but using ``huawei_power_sample``
-    for one FusionSolar plant (``station_code``). Grid import: ``grid_power_w > 0`` (W/12000 per bucket).
-    """
+    """Same as ``_deye_import_weighted_dam_kyiv`` for ``huawei_power_sample`` (grid_power_w > 0)."""
     st = (station_code or "").strip()
     if not st:
         return 0.0, None
-    today = _kyiv_today()
-    first_mtd = _month_first(today)
     zone = settings.OREE_COMPARE_ZONE_EIC
     sql = """
         SELECT
@@ -490,13 +474,109 @@ async def _huawei_station_import_weighted_dam_mtd_kyiv(
           AND ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date) >= :d0
           AND ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date) <= :d1
     """
-    r = await session.execute(text(sql), {"st": st, "zone": zone, "d0": first_mtd, "d1": today})
+    r = await session.execute(text(sql), {"st": st, "zone": zone, "d0": d0, "d1": d1})
     row = r.one()
     import_kwh = float(row[0] or 0.0)
     cost_uah = float(row[1] or 0.0)
     if import_kwh <= 1e-12:
         return import_kwh, None
     return import_kwh, cost_uah / import_kwh
+
+
+async def _monthly_retail_tariff_bars(
+    session: AsyncSession,
+    months: int = 12,
+    *,
+    device_sn: Optional[str] = None,
+    huawei_station_code: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    """
+    One bar per Kyiv calendar month: retail incl. distribution + VAT.
+
+    Fleet (no device): plain average DAM over the month.
+    Per inverter/plant: volume-weighted DAM from grid-import 5‑min samples (import × hourly DAM).
+    Oldest month first.
+    """
+    if not oree_dam_configured():
+        return []
+    today = _kyiv_today()
+    zone = settings.OREE_COMPARE_ZONE_EIC
+    sn = (device_sn or "").strip()
+    hw = (huawei_station_code or "").strip()
+    device_scope = bool(sn or hw)
+    n = max(1, min(int(months), 36))
+    raw_bars: list[dict[str, Any]] = []
+    y, m = today.year, today.month
+    for i in range(n):
+        first = date(y, m, 1)
+        if i == 0:
+            end = today
+            partial = True
+        else:
+            if m == 12:
+                end = date(y, 12, 31)
+            else:
+                end = date(y, m + 1, 1) - timedelta(days=1)
+            partial = False
+        dam_avg: Optional[float] = None
+        import_kwh: Optional[float] = None
+        if device_scope:
+            if sn:
+                import_kwh, dam_avg = await _deye_import_weighted_dam_kyiv(session, sn, first, end)
+            else:
+                import_kwh, dam_avg = await _huawei_import_weighted_dam_kyiv(session, hw, first, end)
+        else:
+            dam_avg = await _avg_dam_uah_per_kwh(session, zone, first, end)
+        retail = _landing_retail_uah_per_kwh(dam_avg)
+        raw_bars.append(
+            {
+                "monthStart": first.isoformat(),
+                "monthLabel": f"{y:04d}-{m:02d}",
+                "damAvgUahPerKwh": dam_avg,
+                "retailUahPerKwh": retail,
+                "gridImportKwh": import_kwh,
+                "partialMonth": partial,
+                "importWeighted": device_scope and dam_avg is not None,
+            }
+        )
+        last_prev = first - timedelta(days=1)
+        y, m = last_prev.year, last_prev.month
+    raw_bars.reverse()
+    return raw_bars
+
+
+async def _avg_dam_uah_per_kwh(
+    session: AsyncSession, zone: str, start: date, end: date
+) -> Optional[float]:
+    r = await session.execute(
+        select(func.avg(OreeDamPrice.price_uah_mwh), func.count()).where(
+            OreeDamPrice.zone_eic == zone,
+            OreeDamPrice.trade_day >= start,
+            OreeDamPrice.trade_day <= end,
+        )
+    )
+    avg_mwh, cnt = r.one()
+    if (cnt or 0) == 0 or avg_mwh is None:
+        return None
+    return float(avg_mwh) / 1000.0
+
+
+async def _device_import_weighted_dam_mtd_kyiv(
+    session: AsyncSession, device_sn: str
+) -> tuple[float, Optional[float]]:
+    """Kyiv MTD import-weighted DAM for one Deye inverter."""
+    today = _kyiv_today()
+    return await _deye_import_weighted_dam_kyiv(session, device_sn, _month_first(today), today)
+
+
+async def _huawei_station_import_weighted_dam_mtd_kyiv(
+    session: AsyncSession, station_code: str
+) -> tuple[float, Optional[float]]:
+    """Kyiv MTD import-weighted DAM for one Huawei plant."""
+    today = _kyiv_today()
+    return await _huawei_import_weighted_dam_kyiv(
+        session, station_code, _month_first(today), today
+    )
 
 
 async def _finalize_landing_response(
@@ -551,6 +631,11 @@ async def _finalize_landing_response(
                 imp_kwh, wavg = await _device_import_weighted_dam_mtd_kyiv(session, sn_imp)
                 dam["currentMonthDeviceGridImportKwhMtd"] = imp_kwh
                 dam["currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd"] = wavg
+                prev_imp, prev_wavg = await _deye_import_weighted_dam_kyiv(
+                    session, sn_imp, prev_start, prev_end
+                )
+                dam["prevMonthDeviceGridImportKwh"] = prev_imp
+                dam["prevMonthDeviceImportWeightedAvgDamUahPerKwh"] = prev_wavg
             except Exception as exc:
                 logger.exception("landing-totals device import weighted DAM: %s", exc)
                 dam["currentMonthDeviceGridImportKwhMtd"] = None
@@ -561,6 +646,11 @@ async def _finalize_landing_response(
                 imp_kwh, wavg = await _huawei_station_import_weighted_dam_mtd_kyiv(session, hw_imp)
                 dam["currentMonthDeviceGridImportKwhMtd"] = imp_kwh
                 dam["currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd"] = wavg
+                prev_imp, prev_wavg = await _huawei_import_weighted_dam_kyiv(
+                    session, hw_imp, prev_start, prev_end
+                )
+                dam["prevMonthDeviceGridImportKwh"] = prev_imp
+                dam["prevMonthDeviceImportWeightedAvgDamUahPerKwh"] = prev_wavg
             except Exception as exc:
                 logger.exception("landing-totals Huawei station import weighted DAM: %s", exc)
                 dam["currentMonthDeviceGridImportKwhMtd"] = None
@@ -1003,6 +1093,83 @@ async def _lost_solar_hourly_bars_kyiv(
         "days": n,
         "bars": bars,
     }
+
+
+@router.get("/monthly-retail-tariff-bars")
+async def monthly_retail_tariff_bars(
+    months: int = Query(
+        default=12,
+        ge=1,
+        le=36,
+        description="Number of Kyiv calendar months ending with the current month (MTD).",
+    ),
+    device_sn: Optional[str] = Query(
+        default=None,
+        alias="deviceSn",
+        min_length=6,
+        max_length=32,
+        pattern=r"^[0-9]+$",
+        description="Deye inverter — import-weighted DAM per month from deye_soc_sample.",
+    ),
+    huawei_station_code: Optional[str] = Query(
+        default=None,
+        alias="huaweiStationCode",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[\w\-.=]+$",
+        description="Huawei plant — import-weighted DAM per month from huawei_power_sample.",
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """
+    Monthly retail tariff (DAM + distribution + VAT) for the landing «Monthly rates» bar chart.
+
+    Without deviceSn/huaweiStationCode: fleet average DAM per month.
+    With device: volume-weighted DAM from that inverter's grid import × hourly DAM.
+    """
+    sn = (device_sn or "").strip()
+    hw = (huawei_station_code or "").strip()
+    if sn and hw:
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "device_sn_and_huawei_mutually_exclusive"},
+            headers=_NO_STORE,
+        )
+    if not oree_dam_configured():
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": False,
+                "zoneEic": settings.OREE_COMPARE_ZONE_EIC,
+                "months": months,
+                "bars": [],
+            },
+            headers=_NO_STORE,
+        )
+    try:
+        bars = await _monthly_retail_tariff_bars(
+            db, months=months, device_sn=sn or None, huawei_station_code=hw or None
+        )
+        return JSONResponse(
+            content={
+                "ok": True,
+                "configured": True,
+                "zoneEic": settings.OREE_COMPARE_ZONE_EIC,
+                "months": len(bars),
+                "scope": "import_weighted_dam" if (sn or hw) else "fleet_dam_avg",
+                "deviceSn": sn or None,
+                "huaweiStationCode": hw or None,
+                "bars": bars,
+            },
+            headers=_NO_STORE,
+        )
+    except Exception as exc:
+        logger.exception("monthly-retail-tariff-bars: %s", exc)
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": "monthly_retail_tariff_bars_failed"},
+            headers=_NO_STORE,
+        )
 
 
 @router.get("/export-hourly-bars")
