@@ -900,7 +900,7 @@ function MotionDot({ pathD }) {
 }
 
 export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LOCALE_NAMES, onLangSelectChange }) {
-  const { theme, cycleTheme } = useTheme();
+  const { theme, isDark, cycleTheme } = useTheme();
   const graphRef = useRef(null);
   const shareFeedbackTimerRef = useRef(null);
   const [graphWidth, setGraphWidth] = useState(400);
@@ -5185,6 +5185,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
         fetchUrl={monthlyRatesChartFetchUrl}
         bcp47={bcp47}
         t={t}
+        isDark={isDark}
       />
       {shareFeedback ? (
         <div className="pf-share-toast" role="status" aria-live="polite">

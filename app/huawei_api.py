@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from datetime import date, datetime, timezone
 from typing import Any, Optional
@@ -817,6 +818,64 @@ def _active_power_w_from_dev_dim(dim: dict[str, Any]) -> Optional[float]:
     return None
 
 
+def _pv_power_w_from_dev_dim(dim: dict[str, Any]) -> Optional[float]:
+    """
+    Prefer explicit PV-side KPIs for Huawei inverters.
+
+    Hybrid inverters can report positive ``active_power`` while supplying load from the battery,
+    which would otherwise look like fake solar generation after sunset.
+    """
+    if not dim:
+        return None
+    lower_map = {str(k).lower(): v for k, v in dim.items()}
+    explicit_candidates = (
+        "mppt_power",
+        "mpptpower",
+        "pv_power",
+        "pvpower",
+        "generation_power",
+        "generationpower",
+        "string_power",
+        "stringpower",
+        "total_pv_power",
+        "totalpvpower",
+        "solar_power",
+        "solarpower",
+    )
+    for ck in explicit_candidates:
+        wanted = ck.replace("_", "")
+        for mk, mv in lower_map.items():
+            if mk.replace("_", "") != wanted:
+                continue
+            try:
+                v = float(mv)
+            except (TypeError, ValueError):
+                continue
+            if v != v:
+                continue
+            return max(0.0, _normalize_maybe_kw_to_w(v))
+
+    # Fallback for device models that expose only per-string DC voltage/current instead of PV power.
+    pv_vi_sum_w = 0.0
+    pv_vi_pairs = 0
+    for mk, mv in lower_map.items():
+        m = re.fullmatch(r"pv(\d+)_u", mk)
+        if not m:
+            continue
+        try:
+            volts = float(mv)
+            amps = float(lower_map.get(f"pv{m.group(1)}_i"))
+        except (TypeError, ValueError):
+            continue
+        if volts != volts or amps != amps or volts <= 0.0 or amps <= 0.0:
+            continue
+        pv_vi_sum_w += volts * amps
+        pv_vi_pairs += 1
+    if pv_vi_pairs > 0:
+        return pv_vi_sum_w
+    return None
+
+
 def _normalize_meter_scale_if_implausible(
     meter_raw_w: Optional[float],
     inverter_raw_w: Optional[float],
@@ -949,7 +1008,13 @@ async def get_power_flow(station_code: str, *, for_storage: bool = False) -> dic
             inv_raw = _active_power_w_from_dev_dim(inv_dim)
             meter_raw = _normalize_meter_scale_if_implausible(meter_raw, inv_raw)
 
-            pv_w = max(0.0, float(inv_raw)) if inv_raw is not None else None
+            pv_raw = _pv_power_w_from_dev_dim(inv_dim)
+            if pv_raw is not None:
+                pv_w = max(0.0, float(pv_raw))
+            elif inv_raw is not None:
+                pv_w = max(0.0, float(inv_raw))
+            else:
+                pv_w = None
             grid_ui: Optional[float] = -float(meter_raw) if meter_raw is not None else None
             load_w: Optional[float] = None
             if inv_raw is not None and meter_raw is not None:
