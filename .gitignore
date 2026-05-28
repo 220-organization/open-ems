@@ -21,3 +21,11 @@ venv/
 ui/node_modules/
 ui/build/
 
+# Capacitor mobile wrapper (app-mobile/)
+app-mobile/node_modules/
+app-mobile/build/
+app-mobile/android/.gradle/
+app-mobile/android/app/build/
+app-mobile/android/local.properties
+dist-apk/
+

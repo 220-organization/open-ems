@@ -1,0 +1,11 @@
+node_modules/
+.DS_Store
+*.log
+*.xcuserstate
+ios/App/App.xcworkspace/xcuserdata/
+android/local.properties
+android/.gradle/
+android/app/build/
+android/build/
+build/
+dist-apk/

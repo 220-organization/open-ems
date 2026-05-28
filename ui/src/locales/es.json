@@ -324,5 +324,8 @@
   "refreshInvertorCacheButton": "Refresh Invertor Cache",
   "refreshInvertorCachePinPrompt": "Enter admin PIN to refresh inverter cache",
   "refreshInvertorCacheOk": "Invertor cache refreshed successfully",
-  "refreshInvertorCacheFailed": "Failed to refresh invertor cache"
+  "refreshInvertorCacheFailed": "Failed to refresh invertor cache",
+  "androidInstallBannerLabel": "Install app",
+  "androidInstallBannerAria": "Download Open EMS Android app",
+  "androidInstallBannerClose": "Close"
 }

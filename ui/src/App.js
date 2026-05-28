@@ -1,6 +1,7 @@
 import DamChartPage from './DamChartPage';
 import PowerFlowPage from './PowerFlowPage';
 import ServerMetricsBar from './ServerMetricsBar';
+import AndroidInstallBanner from './AndroidInstallBanner';
 import { useI18n } from './useI18n';
 import { useTheme } from './useTheme';
 
@@ -20,6 +21,7 @@ export default function App() {
   useTheme();
   return (
     <div className="app-root-layout">
+      <AndroidInstallBanner t={i18n.t} />
       <div className="app-root-layout__main">
         {currentSpaPage() === 'dam' ? <DamChartPage {...i18n} /> : <PowerFlowPage {...i18n} />}
       </div>

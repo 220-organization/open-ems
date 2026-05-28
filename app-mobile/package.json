@@ -1,0 +1,36 @@
+{
+  "name": "app-open-ems",
+  "version": "1.0.0",
+  "description": "Open EMS — native app wrapper for the Open EMS web dashboard",
+  "scripts": {
+    "build": "echo 'No build step - using remote URL'",
+    "cap:sync": "npm run cap:sync:ios && npm run cap:sync:android",
+    "cap:sync:ios": "CAPACITOR_PLATFORM=ios npx cap sync ios",
+    "cap:sync:android": "CAPACITOR_PLATFORM=android npx cap sync android",
+    "cap:open:ios": "npx cap open ios",
+    "cap:open:android": "npx cap open android",
+    "ios": "CAPACITOR_PLATFORM=ios npx cap run ios",
+    "android": "CAPACITOR_PLATFORM=android npx cap run android",
+    "android:apk:debug": "cd android && ./gradlew assembleDebug && cd ..",
+    "android:apk:prod": "cd android && ./gradlew assembleProdRelease && cd ..",
+    "android:apk:preprod": "cd android && ./gradlew assemblePreprodRelease && cd ..",
+    "android:aab:prod": "cd android && ./gradlew bundleProdRelease && cd .."
+  },
+  "devDependencies": {
+    "@capacitor/android": "^6.2.1",
+    "@capacitor/cli": "^6.1.2",
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/ios": "^6.1.2"
+  },
+  "capacitor": {
+    "ios": {
+      "path": "ios"
+    },
+    "android": {
+      "path": "android"
+    }
+  },
+  "dependencies": {
+    "@capacitor/app": "^6.0.3"
+  }
+}

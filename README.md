@@ -83,7 +83,20 @@ docker compose up -d --build
 - API on **port 9221**
 - PostgreSQL on **port 5433** (user/db/password: `openems`)
 
-### Option 3 — Ubuntu server deploy
+### Option 3 — iOS / Android (Capacitor)
+
+Native WebView wrapper (same pattern as `app-220km`). Loads the remote Open EMS dashboard.
+
+```bash
+cd app-mobile && npm install
+./run-ios.sh              # iOS simulator → https://220-km.com:9220
+./run-android.sh          # Android emulator (prod flavor)
+./run-build-apk-prod.sh   # → dist-apk/open-ems.apk
+```
+
+See [app-mobile/README.md](app-mobile/README.md) for preprod, localhost, and signing.
+
+### Option 4 — Ubuntu server deploy
 
 ```bash
 sudo apt-get install -y docker.io docker-compose-v2

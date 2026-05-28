@@ -1,0 +1,6 @@
+# Copy to key.properties and fill in. Do not commit key.properties or the keystore.
+# storeFile path is relative to android/app/ (e.g. put keystore in android/ and use ../release.keystore)
+storeFile=../release.keystore
+storePassword=YOUR_STORE_PASSWORD
+keyAlias=openems
+keyPassword=YOUR_KEY_PASSWORD

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#09011a" />
+  <title>Open EMS</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #09011a;
+      color: #fff;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+      text-align: center;
+    }
+    .logo { font-size: 2rem; font-weight: 700; margin-bottom: 1rem; color: #fc019b; }
+    .msg { opacity: 0.9; }
+  </style>
+</head>
+<body>
+  <div class="logo">Open EMS</div>
+  <p class="msg">Loading…</p>
+  <p class="msg" style="margin-top: 1rem; font-size: 0.9rem;">If the dashboard does not open, check your network connection.</p>
+  <script>
+    if (!window.Capacitor || window.location.protocol === 'file:') {
+      window.location.replace('https://220-km.com:9220');
+    }
+  </script>
+</body>
+</html>
