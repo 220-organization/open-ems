@@ -507,9 +507,25 @@
   font-size: 14px;
 }
 
+.dam-status-slot {
+  min-height: 26px;
+  margin: 0 0 12px;
+}
+
+.dam-status-slot__item {
+  margin: 0;
+}
+
 .dam-recharts-wrap {
   width: 100%;
   min-height: 420px;
+}
+
+.dam-chart-content--loading {
+  filter: none;
+  opacity: 1;
+  pointer-events: auto;
+  transition: none;
 }
 
 /* Legend moved outside LineChart so Recharts does not shrink plot width (keeps X aligned with bar chart). */
@@ -1141,6 +1157,13 @@ a.dam-oree-embed-external:hover {
 
 .hw-totals__body {
   padding: 10px 14px 14px;
+  min-height: 132px;
+  transition: opacity 0.2s ease, filter 0.2s ease;
+}
+
+.hw-totals__body--loading {
+  opacity: 0.55;
+  filter: saturate(0.85);
 }
 
 .hw-totals__status {

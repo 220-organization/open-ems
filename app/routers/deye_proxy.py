@@ -2,7 +2,10 @@
 
 import logging
 from datetime import date as date_cls
+from datetime import datetime
+from datetime import timedelta
 from typing import Any, Literal, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
@@ -85,9 +88,11 @@ router = APIRouter(prefix="/api/deye", tags=["deye"])
 _NO_STORE_CACHE = {"Cache-Control": "no-store, max-age=0, must-revalidate"}
 
 _MAX_INVERTER_SOCS = 200
+_KYIV_TZ = ZoneInfo("Europe/Kiev")
 
 DischargeSocDeltaPctOption = Literal[5, 10, 20, 50, 80, 95]
 ChargeSocDeltaPctOption = Literal[2, 10, 20, 50, 100]
+SocHistoryPeriod = Literal["day", "month", "year"]
 
 
 class InverterSocsBody(BaseModel):
@@ -164,6 +169,64 @@ class RoiSettingsBody(BaseModel):
         max_length=10,
         description="YYYY-MM-DD Kyiv calendar day; ROI starts at Kyiv midnight. Omit for current UTC time.",
     )
+
+
+def _period_dates_kyiv(period: SocHistoryPeriod, anchor_day: date_cls) -> list[date_cls]:
+    today_kyiv = datetime.now(_KYIV_TZ).date()
+    if period == "day":
+        return [anchor_day] if anchor_day <= today_kyiv else []
+    if period == "month":
+        cursor = anchor_day.replace(day=1)
+        out: list[date_cls] = []
+        while cursor.month == anchor_day.month and cursor.year == anchor_day.year:
+            if cursor > today_kyiv:
+                break
+            out.append(cursor)
+            cursor += timedelta(days=1)
+        return out
+    cursor = anchor_day.replace(month=1, day=1)
+    out = []
+    while cursor.year == anchor_day.year:
+        if cursor > today_kyiv:
+            break
+        out.append(cursor)
+        cursor += timedelta(days=1)
+    return out
+
+
+def _sum_from_hourly_arr(arr: list[Optional[float]]) -> tuple[Optional[float], bool]:
+    total = 0.0
+    has_any = False
+    for i in range(24):
+        raw = arr[i] if i < len(arr) else None
+        if raw is None:
+            continue
+        try:
+            num = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if not num or num < 0:
+            num = 0.0
+        total += num
+        has_any = True
+    return (total if has_any else None), has_any
+
+
+def _sum_grid_import_kwh(hourly_grid_w: list[Optional[float]]) -> tuple[Optional[float], bool]:
+    total = 0.0
+    has_any = False
+    for i in range(24):
+        raw = hourly_grid_w[i] if i < len(hourly_grid_w) else None
+        if raw is None:
+            continue
+        try:
+            w = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if w > 0:
+            total += w / 1000.0
+            has_any = True
+    return (total if has_any else None), has_any
 
 
 @router.get("/inverters")
@@ -317,6 +380,107 @@ async def get_soc_history_day(
         )
     except Exception as exc:
         logger.exception("GET /api/deye/soc-history-day — failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/soc-history-totals")
+async def get_soc_history_totals(
+    deviceSn: str = Query(
+        ...,
+        min_length=6,
+        max_length=32,
+        pattern=r"^[0-9]+$",
+        description="Deye inverter serial",
+    ),
+    period: SocHistoryPeriod = Query(
+        "day",
+        description="Aggregation period: day, month, or year (Kyiv calendar boundaries).",
+    ),
+    date: str = Query(
+        ...,
+        min_length=10,
+        max_length=10,
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+        description="Anchor calendar day YYYY-MM-DD (Kyiv).",
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """Consumption/PV/grid-import totals for a Kyiv day/month/year in one API request."""
+    if not deye_configured():
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": False,
+                "deviceSn": deviceSn,
+                "period": period,
+                "date": date,
+                "consumptionKwh": None,
+                "generationKwh": None,
+                "importKwh": None,
+                "daysRequested": 0,
+                "daysWithData": 0,
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    try:
+        anchor_day = date_cls.fromisoformat(date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD") from exc
+    try:
+        cluster = await station_cluster_device_sns(deviceSn.strip())
+        period_days = _period_dates_kyiv(period, anchor_day)
+        sum_cons = 0.0
+        sum_gen = 0.0
+        sum_import = 0.0
+        any_cons = False
+        any_gen = False
+        any_import = False
+        days_with_data = 0
+        for day in period_days:
+            if len(cluster) > 1:
+                _, hourly_grid_w, _, hourly_pv_kwh, hourly_load_kwh = await hourly_inverter_history_for_kyiv_day_cluster(
+                    db, cluster, day
+                )
+            else:
+                _, hourly_grid_w, _, hourly_pv_kwh, hourly_load_kwh = await hourly_inverter_history_for_kyiv_day(
+                    db, deviceSn, day
+                )
+            day_has_data = False
+            cons, has_cons = _sum_from_hourly_arr(hourly_load_kwh)
+            if has_cons and cons is not None:
+                sum_cons += cons
+                any_cons = True
+                day_has_data = True
+            gen, has_gen = _sum_from_hourly_arr(hourly_pv_kwh)
+            if has_gen and gen is not None:
+                sum_gen += gen
+                any_gen = True
+                day_has_data = True
+            imp, has_imp = _sum_grid_import_kwh(hourly_grid_w)
+            if has_imp and imp is not None:
+                sum_import += imp
+                any_import = True
+                day_has_data = True
+            if day_has_data:
+                days_with_data += 1
+        return JSONResponse(
+            content={
+                "ok": True,
+                "configured": True,
+                "deviceSn": deviceSn,
+                "clusterDeviceSns": cluster,
+                "period": period,
+                "date": date,
+                "consumptionKwh": sum_cons if any_cons else None,
+                "generationKwh": sum_gen if any_gen else None,
+                "importKwh": sum_import if any_import else None,
+                "daysRequested": len(period_days),
+                "daysWithData": days_with_data,
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    except Exception as exc:
+        logger.exception("GET /api/deye/soc-history-totals — failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 

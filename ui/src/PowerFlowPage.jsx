@@ -29,7 +29,7 @@ import { useOpenEmsSeo } from './useOpenEmsSeo';
 const INVERTER_STORAGE = 'pf-deye-inverter';
 
 /** Huawei Northbound thirdData — strict rate limits (failCode 407 if polled too often). */
-const HUAWEI_NORTHBOUND_POLL_MS = 300_000;
+const HUAWEI_NORTHBOUND_POLL_MS = 210_000;
 
 /** Aside QR wraps this URL (B12 uncrewed systems unit). */
 const QR_SUPPORT_URL = 'https://b12.army/';

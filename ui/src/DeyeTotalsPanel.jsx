@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const BAR_COLORS = {
   pv: '#4ade80',
@@ -12,13 +12,6 @@ function kwhFmt(bcp47) {
   } catch {
     return new Intl.NumberFormat('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
-}
-
-function formatIsoDate(iso) {
-  const s = String(iso || '').trim();
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
-  if (!m) return s;
-  return `${m[3]}.${m[2]}.${m[1]}`;
 }
 
 const TABS = ['day', 'month', 'year'];
@@ -79,6 +72,11 @@ function isAtOrAfterToday(isoDate, period) {
   return raw.slice(0, 4) >= today.slice(0, 4);
 }
 
+function getApiPeriod(tab) {
+  if (tab === 'month' || tab === 'year') return tab;
+  return 'day';
+}
+
 function ProgressBar({ percent, color }) {
   const pct = Number.isFinite(Number(percent)) ? Math.max(0, Math.min(100, Number(percent))) : 0;
   return (
@@ -113,9 +111,13 @@ function MetricRow({ label, value, unit, color, percent, fmt, isBase = false }) 
   );
 }
 
-export default function DeyeTotalsPanel({ tradeDay, totals, t, getBcp47Locale, onTradeDayChange }) {
+export default function DeyeTotalsPanel({ tradeDay, inverterSn, apiUrl, t, getBcp47Locale, onTradeDayChange }) {
   const [activeTab, setActiveTab] = useState('day');
   const [selectedDate, setSelectedDate] = useState(tradeDay);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const abortRef = useRef(null);
 
   useEffect(() => {
     setSelectedDate(tradeDay);
@@ -130,16 +132,70 @@ export default function DeyeTotalsPanel({ tradeDay, totals, t, getBcp47Locale, o
     [onTradeDayChange]
   );
 
+  const fetchTotals = useCallback(
+    async (tab, dateIso) => {
+      if (!inverterSn) return;
+      if (abortRef.current) abortRef.current.abort();
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
+      setLoading(true);
+      setError(null);
+      try {
+        const q = new URLSearchParams({
+          deviceSn: inverterSn,
+          period: getApiPeriod(tab),
+          date: dateIso,
+        });
+        const r = await fetch(apiUrl(`/api/deye/soc-history-totals?${q}`), {
+          cache: 'no-store',
+          signal: ctrl.signal,
+        });
+        const json = await r.json().catch(() => ({}));
+        if (ctrl.signal.aborted) return;
+        if (!r.ok || !json?.configured) {
+          if (json?.configured === false) setError('notConfigured');
+          else setError('error');
+          setData(null);
+          return;
+        }
+        const hasAny = json?.consumptionKwh != null || json?.generationKwh != null || json?.importKwh != null;
+        if (!hasAny) {
+          setData(null);
+          setError('noDataYet');
+          return;
+        }
+        setData({
+          consumptionKwh: json?.consumptionKwh != null ? Number(json.consumptionKwh) : null,
+          generationKwh: json?.generationKwh != null ? Number(json.generationKwh) : null,
+          importKwh: json?.importKwh != null ? Number(json.importKwh) : null,
+        });
+        setError(null);
+      } catch (e) {
+        if (e?.name === 'AbortError') return;
+        setData(null);
+        setError('error');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [apiUrl, inverterSn]
+  );
+
+  useEffect(() => {
+    fetchTotals(activeTab, selectedDate);
+    return () => {
+      if (abortRef.current) abortRef.current.abort();
+    };
+  }, [fetchTotals, activeTab, selectedDate]);
+
   const bcp47 = getBcp47Locale();
   const fmt = kwhFmt(bcp47);
 
-  const consKwh = totals?.consumptionKwh != null && Number.isFinite(Number(totals.consumptionKwh))
-    ? Number(totals.consumptionKwh)
-    : null;
-  const pvKwh = totals?.generationKwh != null && Number.isFinite(Number(totals.generationKwh))
-    ? Number(totals.generationKwh)
-    : null;
-  const gridKwhRaw = totals?.importKwh ?? totals?.exportKwh ?? null;
+  const consKwh =
+    data?.consumptionKwh != null && Number.isFinite(Number(data.consumptionKwh)) ? Number(data.consumptionKwh) : null;
+  const pvKwh =
+    data?.generationKwh != null && Number.isFinite(Number(data.generationKwh)) ? Number(data.generationKwh) : null;
+  const gridKwhRaw = data?.importKwh ?? null;
   const gridKwh = gridKwhRaw != null && Number.isFinite(Number(gridKwhRaw)) ? Number(gridKwhRaw) : null;
 
   const consumptionBase = consKwh != null && consKwh > 0 ? consKwh : null;
@@ -158,17 +214,14 @@ export default function DeyeTotalsPanel({ tradeDay, totals, t, getBcp47Locale, o
   const title = !titleRaw || titleRaw === 'deyeTotalsTitle' ? 'Deye Energy' : titleRaw;
 
   const dateInputType = activeTab === 'day' ? 'date' : activeTab === 'month' ? 'month' : 'number';
-  const dateInputValue = activeTab === 'day'
-    ? selectedDate
-    : activeTab === 'month'
-      ? monthValueFromIso(selectedDate)
-      : yearValueFromIso(selectedDate);
+  const dateInputValue =
+    activeTab === 'day'
+      ? selectedDate
+      : activeTab === 'month'
+        ? monthValueFromIso(selectedDate)
+        : yearValueFromIso(selectedDate);
   const today = todayLocalIso();
-  const dateInputMax = activeTab === 'day'
-    ? today
-    : activeTab === 'month'
-      ? today.slice(0, 7)
-      : today.slice(0, 4);
+  const dateInputMax = activeTab === 'day' ? today : activeTab === 'month' ? today.slice(0, 7) : today.slice(0, 4);
   const dateInputMin = activeTab === 'year' ? '2000' : undefined;
   const nextDisabled = isAtOrAfterToday(selectedDate, activeTab);
 
@@ -214,7 +267,7 @@ export default function DeyeTotalsPanel({ tradeDay, totals, t, getBcp47Locale, o
               value={dateInputValue}
               aria-label={t('damDateLabel')}
               title={t('damOpenDatePickerAria')}
-              onChange={(e) => handleDateInputChange(e.target.value)}
+              onChange={e => handleDateInputChange(e.target.value)}
               min={dateInputMin}
               max={dateInputMax}
             />
@@ -231,7 +284,7 @@ export default function DeyeTotalsPanel({ tradeDay, totals, t, getBcp47Locale, o
             </button>
           </div>
           <div className="hw-totals__tabs" role="tablist">
-            {TABS.map((tab) => (
+            {TABS.map(tab => (
               <button
                 type="button"
                 key={tab}
@@ -247,8 +300,15 @@ export default function DeyeTotalsPanel({ tradeDay, totals, t, getBcp47Locale, o
         </div>
       </div>
 
-      <div className="hw-totals__body">
-        {!hasCoreRows ? <p className="hw-totals__status">{t('huaweiTotalsNoData')}</p> : null}
+      <div className={`hw-totals__body${loading ? ' hw-totals__body--loading' : ''}`}>
+        {loading && !hasCoreRows ? <p className="hw-totals__status">{t('huaweiTotalsLoading')}</p> : null}
+        {!loading && error === 'notConfigured' ? (
+          <p className="hw-totals__status">{t('huaweiTotalsNotConfigured')}</p>
+        ) : null}
+        {!loading && error === 'error' ? (
+          <p className="hw-totals__status hw-totals__status--error">{t('huaweiTotalsError')}</p>
+        ) : null}
+        {!loading && !hasCoreRows ? <p className="hw-totals__status">{t('huaweiTotalsNoData')}</p> : null}
         {hasCoreRows ? (
           <div className="hw-totals__metrics">
             {consKwh != null ? (

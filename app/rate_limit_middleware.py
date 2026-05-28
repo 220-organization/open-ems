@@ -68,6 +68,8 @@ class PerIpRateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         if not self._enabled:
             return await call_next(request)
+        if request.method.upper() == "OPTIONS":
+            return await call_next(request)
         path = request.url.path
         if not should_rate_limit_path(path):
             return await call_next(request)

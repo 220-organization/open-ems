@@ -320,7 +320,7 @@ DEYE_EV_PORT_EXPORT_TOU_SOC_PCT: int = 5
 
 # Per-client IP HTTP rate limit (sliding 60s window, in-process memory). Trust X-Forwarded-For only behind a trusted proxy.
 RATE_LIMIT_ENABLED: bool = _env_bool("RATE_LIMIT_ENABLED", True)
-RATE_LIMIT_PER_IP_PER_MINUTE: int = _env_int("RATE_LIMIT_PER_IP_PER_MINUTE", 200, 1, 10_000)
+RATE_LIMIT_PER_IP_PER_MINUTE: int = _env_int("RATE_LIMIT_PER_IP_PER_MINUTE", 600, 1, 10_000)
 
 
 def _parse_csv_env(name: str) -> list[str]:

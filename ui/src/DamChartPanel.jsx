@@ -55,7 +55,7 @@ const ENTSOE_ZONE_OPTIONS = [
 const DEYE_NO_EXPORT_DEVICE_SNS = new Set(['2512291445']);
 
 /** ENTSO-E zones on the Ukraine (OREE) chart — EUR/kWh (or UAH/kWh via NBU); includes UA bidding zone as alternative to OREE. */
-const ENTSOE_OREE_OVERLAY_ZONES = ['ES', 'PL', 'UA_ENTSO'];
+const ENTSOE_OREE_OVERLAY_ZONES = ['PL', 'UA_ENTSO'];
 
 /**
  * OREE ENTSO-E overlay tokens in ``currency`` / ``damOverlay`` (comma-separated, case-insensitive).
@@ -873,7 +873,6 @@ export default function DamChartPanel({
     [damMarket, entsoeZone, t]
   );
 
-  const damEntsoeOverlaySeriesNameEs = useMemo(() => t('damSeriesDamEntsoe', { zone: 'ES' }), [t]);
   const damEntsoeOverlaySeriesNamePl = useMemo(() => t('damSeriesDamEntsoe', { zone: 'PL' }), [t]);
   const damEntsoeOverlaySeriesNameUaEntsoe = useMemo(() => t('damSeriesDamUaEntsoe'), [t]);
 
@@ -888,15 +887,13 @@ export default function DamChartPanel({
   const showEntsoeEurAxis = useMemo(
     () =>
       showEntsoeOverlayAxis &&
-      (damSeriesVisible.es || damSeriesVisible.pl || damSeriesVisible.uaEntsoe) &&
+      (damSeriesVisible.pl || damSeriesVisible.uaEntsoe) &&
       !(eurUahRate > 0),
-    [showEntsoeOverlayAxis, damSeriesVisible.es, damSeriesVisible.pl, damSeriesVisible.uaEntsoe, eurUahRate]
+    [showEntsoeOverlayAxis, damSeriesVisible.pl, damSeriesVisible.uaEntsoe, eurUahRate]
   );
 
   useEffect(() => {
     let cancelled = false;
-    setEurUahRate(null);
-    setEurUahRateLabel(null);
     (async () => {
       try {
         const r = await fetch(apiUrl(`/api/fx/eur-uah?date=${encodeURIComponent(tradeDay)}`), {
@@ -909,10 +906,7 @@ export default function DamChartPanel({
           setEurUahRateLabel(d.exchangedate || d.nbu_query_date || tradeDay);
         }
       } catch {
-        if (!cancelled) {
-          setEurUahRate(null);
-          setEurUahRateLabel(null);
-        }
+        /* keep previous EUR/UAH while the next date is loading or if fetch fails */
       }
     })();
     return () => {
@@ -966,7 +960,6 @@ export default function DamChartPanel({
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError('');
-    setEntsoeOverlayByZone({});
     try {
       const q = new URLSearchParams({ date: tradeDay });
       if (damMarket === 'entsoe') {
@@ -1022,8 +1015,6 @@ export default function DamChartPanel({
       setEntsoeOverlayByZone(byZone);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : String(e));
-      setPayload(null);
-      setEntsoeOverlayByZone({});
     } finally {
       setLoading(false);
     }
@@ -1082,7 +1073,6 @@ export default function DamChartPanel({
     let cancelled = false;
     (async () => {
       setIndexesYesterdayLoading(true);
-      setIndexesYesterdayPayload(null);
       const prevDay = addCalendarDays(tradeDay, -1);
       try {
         const q = new URLSearchParams({ date: prevDay });
@@ -1092,7 +1082,7 @@ export default function DamChartPanel({
         if (r.ok && data.ok) setIndexesYesterdayPayload(data);
         else setIndexesYesterdayPayload(null);
       } catch {
-        if (!cancelled) setIndexesYesterdayPayload(null);
+        /* keep previous value on transient fetch errors */
       } finally {
         if (!cancelled) setIndexesYesterdayLoading(false);
       }
@@ -1122,7 +1112,6 @@ export default function DamChartPanel({
         setSocPayload(data);
       } catch (e) {
         if (!cancelled) setSocError(e instanceof Error ? e.message : String(e));
-        if (!cancelled) setSocPayload(null);
       } finally {
         if (!cancelled) setSocLoading(false);
       }
@@ -1147,11 +1136,9 @@ export default function DamChartPanel({
         if (cancelled) return;
         if (j?.ok && Array.isArray(j.hourlyWeights) && j.hourlyWeights.length === 24) {
           setClearSkyWeights(j.hourlyWeights.map(x => (Number.isFinite(Number(x)) ? Number(x) : 0)));
-        } else {
-          setClearSkyWeights(null);
         }
       } catch {
-        if (!cancelled) setClearSkyWeights(null);
+        /* keep previous value on transient fetch errors */
       }
     })();
     return () => {
@@ -1930,12 +1917,6 @@ export default function DamChartPanel({
         </div>
       ) : null}
 
-      {showDeyeExtras && socError ? (
-        <div className="dam-banner dam-banner-warn" role="status">
-          {t('damSocHistoryError')}: {socError}
-        </div>
-      ) : null}
-
       {effectiveHuaweiStation && huaweiHourly?.ok && huaweiHourly.empty ? (
         <div className="dam-banner dam-banner-info dam-banner--with-action" role="status">
           <span className="dam-banner__message">{t('damHuaweiDbSamplesHint')}</span>
@@ -1957,22 +1938,24 @@ export default function DamChartPanel({
           </div>
         ) : null}
 
-        {loadError ? (
-          <p className="dam-error" role="alert">
-            {t('damError')}: {loadError}
-          </p>
-        ) : null}
+        <div className="dam-status-slot" aria-live="polite">
+          {loadError ? (
+            <p className="dam-error dam-status-slot__item" role="alert">
+              {t('damError')}: {loadError}
+            </p>
+          ) : loading && !hasChart && variant !== 'fullpage' ? (
+            <p className="dam-loading dam-status-slot__item">{t('damLoading')}</p>
+          ) : showDeyeExtras && socLoading && !loading && hasChart ? (
+            <p className="dam-loading dam-soc-loading dam-status-slot__item">{t('damSocLoading')}</p>
+          ) : showDeyeExtras && socError ? (
+            <p className="dam-error dam-status-slot__item" role="status">
+              {t('damSocHistoryError')}: {socError}
+            </p>
+          ) : null}
+        </div>
 
-        {loading && !hasChart && variant !== 'fullpage' ? (
-          <p className="dam-loading">{t('damLoading')}</p>
-        ) : null}
-
-        {showDeyeExtras && socLoading && !loading && hasChart ? (
-          <p className="dam-loading dam-soc-loading">{t('damSocLoading')}</p>
-        ) : null}
-
-        {!loading && hasChart ? (
-          <>
+        {hasChart ? (
+          <div className={loading ? 'dam-chart-content dam-chart-content--loading' : 'dam-chart-content'}>
             {showEnergyBars ? renderSectionDateBar(tradeDayLineInputRef, 'line', 'dam-date-bar--above-chart') : null}
             <div
               className="dam-recharts-wrap dam-recharts-wrap--line-stack"
@@ -2091,14 +2074,12 @@ export default function DamChartPanel({
                           showEntsoeOverlayAxis
                             ? [
                                 ...(damSeriesVisible.uaEntsoe ? [damEntsoeOverlaySeriesNameUaEntsoe] : []),
-                                ...(damSeriesVisible.es ? [damEntsoeOverlaySeriesNameEs] : []),
                                 ...(damSeriesVisible.pl ? [damEntsoeOverlaySeriesNamePl] : []),
                               ]
                             : []
                         }
                         damMarket={damMarket}
                         entsoeZone={entsoeZone}
-                        damEntsoeOverlaySeriesNameEs={damEntsoeOverlaySeriesNameEs}
                         damEntsoeOverlaySeriesNamePl={damEntsoeOverlaySeriesNamePl}
                         damEntsoeOverlaySeriesNameUaEntsoe={damEntsoeOverlaySeriesNameUaEntsoe}
                         entsoeOverlayUahMode={eurUahRate > 0}
@@ -2129,20 +2110,6 @@ export default function DamChartPanel({
                       strokeWidth={2}
                       strokeDasharray="4 3"
                       dot={{ r: 2, fill: '#22d3ee' }}
-                      connectNulls
-                      isAnimationActive={false}
-                    />
-                  ) : null}
-                  {showEntsoeOverlayAxis && damSeriesVisible.es ? (
-                    <Line
-                      yAxisId={eurUahRate > 0 ? 'dam' : 'entsoeEur'}
-                      type="monotone"
-                      dataKey={eurUahRate > 0 ? 'damEntsoeEsUahKwh' : 'damEntsoeEsEurKwh'}
-                      name={damEntsoeOverlaySeriesNameEs}
-                      stroke="#f59e0b"
-                      strokeWidth={2}
-                      strokeDasharray="5 4"
-                      dot={{ r: 2, fill: '#f59e0b' }}
                       connectNulls
                       isAnimationActive={false}
                     />
@@ -2226,27 +2193,6 @@ export default function DamChartPanel({
                     <button
                       type="button"
                       className={`dam-line-legend-item dam-line-legend-item--toggle ${
-                        damSeriesVisible.es ? 'dam-line-legend-item--on' : 'dam-line-legend-item--off'
-                      }`}
-                      aria-pressed={damSeriesVisible.es}
-                      aria-label={t('damLegendAriaToggleEntsoe', { zone: 'ES' })}
-                      onClick={() => setDamSeriesVisible(v => ({ ...v, es: !v.es }))}
-                    >
-                      <i
-                        className={`dam-line-legend-swatch dam-line-legend-swatch--es ${
-                          damSeriesVisible.es ? '' : 'dam-line-legend-swatch--muted'
-                        }`}
-                        aria-hidden
-                      />
-                      {damEntsoeOverlaySeriesNameEs}
-                    </button>
-                  </li>
-                ) : null}
-                {showEntsoeOverlayAxis ? (
-                  <li>
-                    <button
-                      type="button"
-                      className={`dam-line-legend-item dam-line-legend-item--toggle ${
                         damSeriesVisible.pl ? 'dam-line-legend-item--on' : 'dam-line-legend-item--off'
                       }`}
                       aria-pressed={damSeriesVisible.pl}
@@ -2315,11 +2261,11 @@ export default function DamChartPanel({
                 </p>
               ) : null}
             </div>
-          </>
+          </div>
         ) : null}
 
-        {!loading && hasChart && showEnergyBars ? (
-          <div className="dam-grid-bars-wrap">
+        {hasChart && showEnergyBars ? (
+          <div className={loading ? 'dam-grid-bars-wrap dam-chart-content--loading' : 'dam-grid-bars-wrap'}>
             <p className="dam-grid-bars-caption">{t('damGridBarsCaption')}</p>
             <ul className="dam-day-energy-totals dam-day-energy-totals--grid" aria-label={t('damEnergyTotalsGridAria')}>
               <li className="dam-day-energy-totals__item">
@@ -2537,8 +2483,8 @@ export default function DamChartPanel({
           </div>
         ) : null}
 
-        {!loading && hasChart && showEnergyBars ? (
-          <div className="dam-pv-load-bars-wrap">
+        {hasChart && showEnergyBars ? (
+          <div className={loading ? 'dam-pv-load-bars-wrap dam-chart-content--loading' : 'dam-pv-load-bars-wrap'}>
             <p className="dam-grid-bars-caption">{t('damPvLoadBarsCaption')}</p>
             <ul
               className="dam-day-energy-totals dam-day-energy-totals--pv-load"
@@ -2905,7 +2851,8 @@ export default function DamChartPanel({
         {effectiveInverterSn && !effectiveHuaweiStation ? (
           <DeyeTotalsPanel
             tradeDay={tradeDay}
-            totals={damDayEnergyTotals}
+            inverterSn={effectiveInverterSn}
+            apiUrl={apiUrl}
             t={t}
             getBcp47Locale={getBcp47Locale}
             onTradeDayChange={(nextIso) => setTradeDay(clampTradeDayIsoForMarket(nextIso, damMarket))}
