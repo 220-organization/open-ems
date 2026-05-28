@@ -1,9 +1,14 @@
-/* Power flow kiosk layout — aligned with B2B graphView=1 (neon pink #FC019B) */
-/* 220-km.com brand tokens (same as config/keycloak/.../login.css) — used by export hourly chart modal */
+/* Power flow kiosk layout — refined minimalist redesign.
+ *
+ * Design direction:
+ *  - Neutral surfaces (warm off-white / deep slate), a single restrained pink accent.
+ *  - Numbers read as measurements: monospaced, no neon glow.
+ *  - Hairline borders, almost no box-shadows, generous space.
+ *  - DOM and class names preserved — drops in without component changes.
+ */
 
-@import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap');
 
-/* Remove default UA margin + white canvas so the dark UI fills the viewport (no outer “white frame”). */
 html,
 body {
   margin: 0;
@@ -20,46 +25,59 @@ body {
 }
 
 :root {
-  /* Page backgrounds */
-  --pf-body-bg: #060104;
-  --pf-page-bg: radial-gradient(ellipse 120% 80% at 50% 20%, #2a0a32 0%, #0f0208 55%, #060104 100%);
+  /* ── Surfaces ─────────────────────────────────────────────── */
+  --pf-body-bg: #0b0d10;
+  --pf-page-bg: #0b0d10;
+  --pf-surface: rgba(22, 25, 30, 0.78);
+  --pf-surface-elev: rgba(28, 32, 38, 0.92);
+  --pf-border: rgba(255, 255, 255, 0.08);
+  --pf-border-strong: rgba(255, 255, 255, 0.14);
+  --pf-divider: rgba(255, 255, 255, 0.06);
 
-  /* Brand / accent */
+  /* ── Accent (used sparingly) ──────────────────────────────── */
   --pf-pink: #fc019b;
-  --pf-pink-soft: rgba(252, 1, 155, 0.92);
-  --pf-line-idle: rgba(232, 121, 249, 0.14);
-  --pf-line-active: rgba(252, 1, 155, 0.92);
+  --pf-pink-soft: rgba(252, 1, 155, 0.85);
+  --pf-accent-line: rgba(252, 1, 155, 0.78); /* active flow line */
+  --pf-accent-focus: rgba(252, 1, 155, 0.55);
 
-  /* Surfaces */
-  --pf-surface: rgba(36, 10, 48, 0.82);
-  --pf-border: rgba(252, 1, 155, 0.28);
+  /* Idle flow lines: very low contrast, no color */
+  --pf-line-idle: rgba(255, 255, 255, 0.07);
+  --pf-line-active: var(--pf-accent-line);
 
-  /* Text */
-  --pf-label: rgba(255, 248, 252, 0.98);
-  --pf-text: rgba(255, 248, 252, 0.98);
-  --pf-value: #f9a8ef;
-  --pf-icon: #ff4db8;
+  /* ── Text ─────────────────────────────────────────────────── */
+  --pf-label: rgba(245, 246, 248, 0.96);
+  --pf-text: rgba(245, 246, 248, 0.96);
+  --pf-value: rgba(245, 246, 248, 1);          /* values are bright, not pink */
+  --pf-icon: rgba(245, 246, 248, 0.88);
 
-  /* Semantic text levels used by dam-chart.css */
-  --pf-text-secondary: rgba(255, 248, 252, 0.72);
-  --pf-text-muted: rgba(255, 248, 252, 0.58);
-  --pf-text-hint: rgba(255, 248, 252, 0.45);
-  --pf-text-loading: rgba(255, 248, 252, 0.65);
-  --pf-text-footnote: rgba(255, 248, 252, 0.48);
-  --pf-text-trade: rgba(255, 248, 252, 0.62);
+  --pf-text-secondary: rgba(245, 246, 248, 0.66);
+  --pf-text-muted: rgba(245, 246, 248, 0.48);
+  --pf-text-hint: rgba(245, 246, 248, 0.36);
+  --pf-text-loading: rgba(245, 246, 248, 0.55);
+  --pf-text-footnote: rgba(245, 246, 248, 0.40);
+  --pf-text-trade: rgba(245, 246, 248, 0.55);
 
-  /* 220-km.com dark theme */
-  --km220-bg: #292929;
-  --km220-card: #2e2e2e;
-  --km220-text: #fafafa;
-  --km220-text-muted: #a0a0a0;
-  --km220-primary: #8f00ff;
-  --km220-primary-gradient: linear-gradient(-16deg, #6e00d4 0%, #c100b9 100%);
-  --km220-border-gradient: linear-gradient(-16deg, #c100b9 0%, #6e00d4 100%);
-  --km220-radius: 20px;
-  --km220-radius-sm: 12px;
-  --km220-input-bg: #1a1a1a;
-  --km220-input-border: #3d3d3d;
+  /* ── Semantic deltas (desaturated) ────────────────────────── */
+  --pf-up: #e57373;     /* retail tariff up = bad */
+  --pf-down: #7ec88a;   /* retail tariff down = good */
+  --pf-flat: var(--pf-text-secondary);
+
+  /* ── 220-km.com header tokens ─────────────────────────────── */
+  --km220-bg: #14171c;
+  --km220-card: #1a1d22;
+  --km220-text: #f5f6f8;
+  --km220-text-muted: #9ba0a8;
+  --km220-primary: var(--pf-pink);
+  --km220-primary-gradient: linear-gradient(180deg, #1a1d22 0%, #14171c 100%);
+  --km220-border-gradient: linear-gradient(180deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.04) 100%);
+  --km220-radius: 14px;
+  --km220-radius-sm: 10px;
+  --km220-input-bg: #14171c;
+  --km220-input-border: rgba(255, 255, 255, 0.10);
+
+  /* ── Typography ───────────────────────────────────────────── */
+  --pf-font-sans: 'Inter Tight', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --pf-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 * {
@@ -71,17 +89,13 @@ body {
   min-height: 100vh;
   min-height: 100dvh;
   touch-action: manipulation;
-  -webkit-tap-highlight-color: rgba(252, 1, 155, 0.15);
+  -webkit-tap-highlight-color: rgba(252, 1, 155, 0.10);
   background: var(--pf-page-bg);
   color: var(--pf-label);
-  font-family:
-    system-ui,
-    -apple-system,
-    "Segoe UI",
-    Roboto,
-    Ubuntu,
-    Cantarell,
-    sans-serif;
+  font-family: var(--pf-font-sans);
+  font-feature-settings: 'ss01', 'cv11';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .pf-root {
@@ -95,9 +109,11 @@ body {
   padding-left: 0;
 }
 
-/* Full-width bar — matches 220-km.com / Keycloak dark navbar (#kc-header-wrapper). */
+/* ─────────────────────────────────────────────────────────────
+ * Top bar — flat, hairline divider, no gradient.
+ * ───────────────────────────────────────────────────────────── */
 .pf-top-bar {
-  --pf-header-control-h: 38px;
+  --pf-header-control-h: 36px;
   --pf-header-gap: 8px;
 
   display: flex;
@@ -108,16 +124,16 @@ body {
   top: max(0px, env(safe-area-inset-top, 0px));
   z-index: 30;
   box-sizing: border-box;
-  padding-left: max(12px, env(safe-area-inset-left, 0px));
-  padding-right: max(12px, env(safe-area-inset-right, 0px));
-  background: var(--km220-input-bg);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding-left: max(14px, env(safe-area-inset-left, 0px));
+  padding-right: max(14px, env(safe-area-inset-right, 0px));
+  background: rgba(11, 13, 16, 0.85);
+  backdrop-filter: saturate(140%) blur(10px);
+  -webkit-backdrop-filter: saturate(140%) blur(10px);
+  border-bottom: 1px solid var(--pf-divider);
   color: var(--km220-text);
-  font-family: 'Open Sans', system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, Cantarell, sans-serif;
+  font-family: var(--pf-font-sans);
 }
 
-/* Single REST hydration overlay over main column — no per-section blur */
 .pf-page-main {
   position: relative;
   flex: 1;
@@ -126,26 +142,21 @@ body {
   align-items: stretch;
   min-height: 0;
   width: 100%;
-  padding-left: max(12px, env(safe-area-inset-left, 0px));
-  padding-right: max(12px, env(safe-area-inset-right, 0px));
+  padding-left: max(14px, env(safe-area-inset-left, 0px));
+  padding-right: max(14px, env(safe-area-inset-right, 0px));
 }
 
-/* Fixed to viewport on all breakpoints — logo centered on the visible screen (not only the main column). */
+/* ─────────────────────────────────────────────────────────────
+ * REST hydration overlay — gentler.
+ * ───────────────────────────────────────────────────────────── */
 .pf-page-rest-pending-overlay {
   position: fixed;
   inset: 0;
-  left: 0;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  width: 100%;
-  min-height: 100vh;
-  min-height: 100dvh;
   z-index: 40;
   pointer-events: auto;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  background: rgba(8, 4, 14, 0.14);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  background: rgba(11, 13, 16, 0.45);
   transition: opacity 0.22s ease;
   display: flex;
   align-items: center;
@@ -165,43 +176,37 @@ body {
 
 .pf-page-rest-pending-loader__logo {
   display: block;
-  width: min(120px, 30vw);
+  width: min(108px, 26vw);
   height: auto;
   object-fit: contain;
-  filter: drop-shadow(0 0 24px rgba(200, 61, 197, 0.35));
-  opacity: 0.45;
+  opacity: 0.55;
   animation: pf-page-rest-logo-fade 3.6s ease-in-out infinite;
 }
 
 @keyframes pf-page-rest-logo-fade {
-  0%,
-  100% {
-    opacity: 0.38;
-  }
-
-  50% {
-    opacity: 1;
-  }
+  0%, 100% { opacity: 0.40; }
+  50%      { opacity: 0.95; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .pf-page-rest-pending-overlay {
-    backdrop-filter: blur(5px);
-    -webkit-backdrop-filter: blur(5px);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
     transition: none;
   }
-
   .pf-page-rest-pending-loader__logo {
     animation: none;
-    opacity: 0.88;
+    opacity: 0.85;
   }
 }
 
-/* ROI + discharge: below power-flow + DAM charts (see .pf-post-charts-bar) */
+/* ─────────────────────────────────────────────────────────────
+ * ROI + post-charts column.
+ * ───────────────────────────────────────────────────────────── */
 .pf-post-charts-bar {
   width: 100%;
   max-width: 1100px;
-  margin: 16px auto 0;
+  margin: 18px auto 0;
   padding: 0 4px;
   box-sizing: border-box;
   display: flex;
@@ -213,17 +218,12 @@ body {
   width: 100%;
   flex-shrink: 0;
   position: relative;
-  padding: 10px 8px 12px;
+  padding: 14px 14px 14px;
   box-sizing: border-box;
-  background: linear-gradient(
-    180deg,
-    rgba(12, 2, 10, 0.96) 0%,
-    rgba(12, 2, 10, 0.88) 100%
-  );
-  border-radius: 10px;
-  border: 1px solid rgba(252, 1, 155, 0.12);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  margin-bottom: 10px;
+  background: var(--pf-surface);
+  border-radius: 14px;
+  border: 1px solid var(--pf-border);
+  margin-bottom: 12px;
 }
 
 .pf-roi-bar .pf-roi-stack {
@@ -234,28 +234,27 @@ body {
   box-sizing: border-box;
 }
 
-.pf-roi-bar:empty {
-  display: none;
-}
+.pf-roi-bar:empty { display: none; }
 
-/* Landing totals slot: directly above power-flow + DAM charts (after top bar) */
+/* ─────────────────────────────────────────────────────────────
+ * Landing totals — the big hero number lives here.
+ * ───────────────────────────────────────────────────────────── */
 .pf-landing-totals-slot {
   width: 100%;
   max-width: 1100px;
-  margin: 4px auto 0;
-  padding: 0 12px;
+  margin: 14px auto 0;
+  padding: 0 14px;
   box-sizing: border-box;
 }
 
-/* Fleet totals when no inverter selected — “Casino” counter theme (see B2bLanding.module.css user counter) */
 .pf-landing-totals {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 10px;
+  gap: 14px;
   width: 100%;
-  padding: 8px 8px 12px;
+  padding: 6px 4px 14px;
   box-sizing: border-box;
 }
 
@@ -263,12 +262,12 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   text-align: center;
 }
 
 .pf-landing-totals__export--inverter-metric {
-  gap: 8px;
+  gap: 10px;
   width: 100%;
 }
 
@@ -307,66 +306,54 @@ body {
   max-width: 100%;
 }
 
-.pf-landing-totals__export-value--with-arbitrage-mom {
-  justify-content: flex-end;
-}
-
+.pf-landing-totals__export-value--with-arbitrage-mom { justify-content: flex-end; }
 .pf-landing-totals__export-value--monthly-rates {
   flex-wrap: wrap;
-  align-items: center;
+  align-items: baseline;
   justify-content: center;
-  gap: 10px 14px;
+  gap: 8px 14px;
 }
-
-.pf-landing-totals__export-value--with-monthly-rates-mom {
-  justify-content: center;
-}
+.pf-landing-totals__export-value--with-monthly-rates-mom { justify-content: center; }
 
 .pf-landing-totals__monthly-rates-month {
   flex: 0 0 auto;
-  font-size: clamp(0.95rem, 2.4vw, 1.1rem);
-  font-weight: 600;
+  font-family: var(--pf-font-mono);
+  font-size: clamp(0.85rem, 2.2vw, 0.95rem);
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.04em;
-  color: rgba(255, 255, 255, 0.88);
+  color: var(--pf-text-secondary);
   white-space: nowrap;
 }
 
 .pf-landing-totals__monthly-rates-unit {
   flex: 0 0 auto;
-  font-size: clamp(1rem, 2.8vw, 1.25rem);
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  color: #e040e0;
-  text-shadow:
-    0 0 10px rgba(224, 64, 224, 0.45),
-    0 0 20px rgba(200, 61, 197, 0.22);
+  font-size: clamp(0.95rem, 2.4vw, 1.1rem);
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--pf-text-secondary);
+  text-shadow: none;
   white-space: nowrap;
 }
 
 .pf-landing-totals__monthly-rates-mom-out {
   flex: 0 0 auto;
-  font-size: clamp(0.8rem, 2.6vw, 0.95rem);
-  font-weight: 700;
+  font-family: var(--pf-font-mono);
+  font-size: clamp(0.78rem, 2.4vw, 0.88rem);
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.03em;
+  letter-spacing: 0;
   line-height: 1.25;
   white-space: nowrap;
-  padding: 0;
+  padding: 2px 8px;
   margin: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
 }
 
-.pf-landing-totals__monthly-rates-mom-out--up {
-  color: #fca5a5;
-}
-
-.pf-landing-totals__monthly-rates-mom-out--down {
-  color: #86efac;
-}
-
-.pf-landing-totals__monthly-rates-mom-out--flat {
-  color: var(--pf-text-secondary);
-}
+.pf-landing-totals__monthly-rates-mom-out--up   { color: var(--pf-up); }
+.pf-landing-totals__monthly-rates-mom-out--down { color: var(--pf-down); }
+.pf-landing-totals__monthly-rates-mom-out--flat { color: var(--pf-flat); }
 
 .pf-landing-totals__metric-row > .pf-landing-totals__export-value .pf-landing-totals__counter-wrap {
   flex: 0 1 auto;
@@ -374,44 +361,33 @@ body {
   max-width: min(100%, 22rem);
 }
 
+/* Variant tints: keep them subtle. */
 .pf-landing-totals__counter-wrap--peak-dam {
-  border-color: rgba(129, 140, 248, 0.45);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.07),
-    0 0 22px rgba(129, 140, 248, 0.28);
+  border-color: var(--pf-border-strong);
+  box-shadow: none;
 }
-
 .pf-landing-totals__counter--peak-dam {
-  color: #a78bfa;
-  text-shadow:
-    0 0 14px rgba(167, 139, 250, 0.65),
-    0 0 28px rgba(129, 140, 248, 0.35),
-    0 2px 4px rgba(0, 0, 0, 0.5);
+  color: #b3a8ff;
+  text-shadow: none;
 }
 
 .pf-landing-totals__counter-wrap--manual-discharge {
-  border-color: rgba(45, 212, 191, 0.45);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.07),
-    0 0 22px rgba(45, 212, 191, 0.22);
+  border-color: var(--pf-border-strong);
+  box-shadow: none;
 }
-
 .pf-landing-totals__counter--manual-discharge {
-  color: #5eead4;
-  text-shadow:
-    0 0 14px rgba(94, 234, 212, 0.55),
-    0 0 28px rgba(45, 212, 191, 0.28),
-    0 2px 4px rgba(0, 0, 0, 0.5);
+  color: #8ad7c8;
+  text-shadow: none;
 }
 
 .pf-landing-totals__metric-row > .pf-landing-totals__export-value .pf-landing-totals__counter-wrap--monthly-rates {
-  max-width: min(100%, 28rem);
+  max-width: min(100%, 30rem);
   flex-shrink: 0;
 }
 
 .pf-landing-totals__counter-wrap--monthly-rates,
 .pf-landing-totals__counter-wrap--export-chart-trigger.pf-landing-totals__counter-wrap--monthly-rates {
-  padding: 14px 22px 16px;
+  padding: 18px 28px 18px;
   max-width: 100%;
   justify-content: center;
   align-items: center;
@@ -419,8 +395,8 @@ body {
 }
 
 .pf-landing-totals__counter-wrap--monthly-rates .pf-landing-totals__counter-scroll {
-  padding-block: 6px;
-  padding-inline: 10px;
+  padding-block: 4px;
+  padding-inline: 8px;
   min-width: max-content;
 }
 
@@ -429,48 +405,39 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 8px;
   width: max-content;
   max-width: 100%;
-  padding: 4px 12px;
+  padding: 2px 8px;
   box-sizing: border-box;
 }
 
 .pf-landing-totals__monthly-rates-mom {
   flex: 0 0 auto;
-  font-size: clamp(0.8rem, 2.6vw, 0.95rem);
-  font-weight: 700;
+  font-family: var(--pf-font-mono);
+  font-size: clamp(0.78rem, 2.4vw, 0.88rem);
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.03em;
+  letter-spacing: 0;
   line-height: 1.25;
   white-space: nowrap;
-  padding: 0 6px 2px;
+  padding: 0 4px 2px;
 }
 
-.pf-landing-totals__monthly-rates-mom--up {
-  color: #fca5a5;
-}
-
-.pf-landing-totals__monthly-rates-mom--down {
-  color: #86efac;
-}
-
-.pf-landing-totals__monthly-rates-mom--flat {
-  color: var(--pf-text-secondary);
-}
+.pf-landing-totals__monthly-rates-mom--up   { color: var(--pf-up); }
+.pf-landing-totals__monthly-rates-mom--down { color: var(--pf-down); }
+.pf-landing-totals__monthly-rates-mom--flat { color: var(--pf-flat); }
 
 .pf-landing-totals__counter--monthly-rates {
-  font-size: clamp(20px, 4.5vw, 30px);
-  letter-spacing: 0.03em;
+  font-family: var(--pf-font-mono);
+  font-size: clamp(28px, 7vw, 44px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
   white-space: nowrap;
 }
 
-/* Desktop: monthly-rates pill holds only «rate ₴»; month/unit/MoM stay outside */
 @media (min-width: 601px) {
-  .pf-landing-totals__export-value--monthly-rates {
-    gap: 12px 18px;
-  }
-
+  .pf-landing-totals__export-value--monthly-rates { gap: 10px 16px; }
   .pf-landing-totals__metric-row > .pf-landing-totals__export-value .pf-landing-totals__counter-wrap--monthly-rates {
     flex: 0 0 auto;
     flex-shrink: 0;
@@ -478,81 +445,65 @@ body {
     max-width: none;
     width: auto;
   }
-
   .pf-landing-totals__metric-row .pf-landing-totals__counter-wrap--monthly-rates {
     flex: 0 0 auto;
     flex-shrink: 0;
   }
-
   .pf-landing-totals__counter-wrap--monthly-rates,
   .pf-landing-totals__counter-wrap--export-chart-trigger.pf-landing-totals__counter-wrap--monthly-rates {
-    padding: 16px 28px 18px;
+    padding: 20px 32px;
     width: auto;
     min-width: max-content;
   }
-
   .pf-landing-totals__counter-wrap--monthly-rates .pf-landing-totals__counter-scroll {
-    padding-block: 6px;
-    padding-inline: 10px;
+    padding-block: 4px;
+    padding-inline: 8px;
   }
-
   .pf-landing-totals__counter--monthly-rates {
-    font-size: clamp(22px, 1.65vw, 28px);
+    font-size: clamp(30px, 2.2vw, 42px);
   }
 }
 
 .pf-landing-totals__counter-wrap--arbitrage {
-  border-color: rgba(251, 191, 36, 0.45);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.07),
-    0 0 22px rgba(251, 191, 36, 0.22);
-}
-
-.pf-landing-totals__counter--arbitrage {
-  color: #fcd34d;
-  text-shadow:
-    0 0 14px rgba(252, 211, 77, 0.55),
-    0 0 28px rgba(251, 191, 36, 0.28),
-    0 2px 4px rgba(0, 0, 0, 0.5);
-}
-
-/* Arbitrage MoM: outside the counter box, to the right of the neon frame */
-.pf-landing-totals__arbitrage-mom-out {
-  flex: 0 0 auto;
-  font-size: clamp(0.75rem, 2.8vw, 0.92rem);
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  line-height: 1.2;
-  white-space: nowrap;
-  padding: 0;
-  margin: 0;
-  background: none;
-  border: none;
+  border-color: var(--pf-border-strong);
   box-shadow: none;
 }
-
-.pf-landing-totals__arbitrage-mom-out--up {
-  color: #86efac;
-  text-shadow: 0 0 12px rgba(134, 239, 172, 0.5);
+.pf-landing-totals__counter--arbitrage {
+  color: #e6c97d;
+  text-shadow: none;
 }
 
-.pf-landing-totals__arbitrage-mom-out--down {
-  color: #fca5a5;
-  text-shadow: 0 0 12px rgba(252, 165, 165, 0.45);
+.pf-landing-totals__arbitrage-mom-out {
+  flex: 0 0 auto;
+  font-family: var(--pf-font-mono);
+  font-size: clamp(0.78rem, 2.4vw, 0.88rem);
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.25;
+  white-space: nowrap;
+  padding: 2px 8px;
+  margin: 0;
+  background: rgba(255, 255, 255, 0.04);
+  border: none;
+  border-radius: 999px;
+  box-shadow: none;
 }
-
-.pf-landing-totals__arbitrage-mom-out--flat {
-  color: rgba(255, 255, 255, 0.65);
-}
+.pf-landing-totals__arbitrage-mom-out--up   { color: var(--pf-down); text-shadow: none; }
+.pf-landing-totals__arbitrage-mom-out--down { color: var(--pf-up);   text-shadow: none; }
+.pf-landing-totals__arbitrage-mom-out--flat { color: var(--pf-flat); }
 
 .pf-landing-totals__label {
   margin: 0;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.9);
-  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--pf-text-muted);
 }
 
+/* ───── The hero "rate" pill ─────────────────────────────────
+ * One quiet card with a hairline border. No glow, no gradient.
+ * ──────────────────────────────────────────────────────────── */
 .pf-landing-totals__counter-wrap {
   display: inline-flex;
   align-items: baseline;
@@ -561,15 +512,19 @@ body {
   gap: 0.35em;
   min-width: min(100%, max-content);
   max-width: 100%;
-  padding: 0.55em 0.75em;
+  padding: 0.55em 0.85em;
   overflow: visible;
   box-sizing: border-box;
-  background: linear-gradient(145deg, rgba(0, 0, 0, 0.4), rgba(20, 10, 25, 0.5));
-  border: 1px solid rgba(200, 61, 197, 0.35);
-  border-radius: 20px;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 0 20px rgba(200, 61, 197, 0.2);
+  background: var(--pf-surface);
+  border: 1px solid var(--pf-border);
+  border-radius: 14px;
+  box-shadow: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.pf-landing-totals__counter-wrap--export-chart-trigger:hover {
+  border-color: var(--pf-border-strong);
+  background: var(--pf-surface-elev);
 }
 
 .pf-landing-totals__counter-scroll {
@@ -585,31 +540,27 @@ body {
   flex-shrink: 0;
 }
 
-.pf-landing-totals__counter-wrap--loading {
-  opacity: 0.75;
-}
+.pf-landing-totals__counter-wrap--loading { opacity: 0.7; }
 
 .pf-landing-totals__counter {
   display: inline-block;
-  color: #e040e0;
-  font-weight: 700;
-  font-size: clamp(26px, 5.5vw, 36px);
-  line-height: 1.15;
-  letter-spacing: 0.05em;
+  color: var(--pf-value);
+  font-family: var(--pf-font-mono);
+  font-weight: 600;
+  font-size: clamp(28px, 6vw, 40px);
+  line-height: 1.1;
+  letter-spacing: -0.015em;
   font-variant-numeric: tabular-nums;
-  text-shadow:
-    0 0 12px rgba(224, 64, 224, 0.6),
-    0 0 24px rgba(200, 61, 197, 0.35),
-    0 2px 4px rgba(0, 0, 0, 0.5);
+  text-shadow: none;
 }
 
 .pf-landing-totals__tariff {
   margin: 0;
   padding: 0 8px;
-  font-size: 13px;
-  line-height: 1.45;
-  font-weight: 500;
-  color: var(--pf-label);
+  font-size: 12px;
+  line-height: 1.5;
+  font-weight: 400;
+  color: var(--pf-text-muted);
   text-align: center;
   max-width: 100%;
   overflow-wrap: anywhere;
@@ -618,101 +569,62 @@ body {
   -webkit-hyphens: auto;
 }
 
-.pf-landing-totals__tariff--dam {
-  margin-top: 0.35em;
-  opacity: 0.82;
-}
+.pf-landing-totals__tariff--dam { margin-top: 0.35em; opacity: 0.8; }
 
-/* Retail tariff MoM %: higher retail = red, lower = green */
 .pf-landing-totals__delta {
-  font-weight: 700;
+  font-family: var(--pf-font-mono);
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-
-.pf-landing-totals__delta--up {
-  color: #fca5a5;
-}
-
-.pf-landing-totals__delta--down {
-  color: #86efac;
-}
-
-.pf-landing-totals__delta--flat {
-  color: var(--pf-text-secondary);
-}
+.pf-landing-totals__delta--up   { color: var(--pf-up); }
+.pf-landing-totals__delta--down { color: var(--pf-down); }
+.pf-landing-totals__delta--flat { color: var(--pf-text-secondary); }
 
 @media (max-width: 600px) {
-  .pf-landing-totals {
-    padding: 6px 0 10px;
-    gap: 8px;
-  }
-
-  .pf-landing-totals__export {
-    gap: 5px;
-  }
-
-  .pf-landing-totals__metric-row {
-    gap: 10px 12px;
-  }
-
-  .pf-landing-totals__export-value--with-arbitrage-mom {
-    justify-content: center;
-  }
-
+  .pf-landing-totals { padding: 6px 0 12px; gap: 10px; }
+  .pf-landing-totals__export { gap: 6px; }
+  .pf-landing-totals__metric-row { gap: 10px 12px; }
+  .pf-landing-totals__export-value--with-arbitrage-mom { justify-content: center; }
   .pf-landing-totals__metric-select {
     min-width: min(152px, 52vw);
     font-size: clamp(12px, 3.4vw, 14px);
     padding: 7px 10px;
   }
-
   .pf-landing-totals__label {
-    font-size: clamp(11px, 3.5vw, 14px);
+    font-size: 11px;
     line-height: 1.35;
     padding: 0 6px;
     max-width: 100%;
   }
-
   .pf-landing-totals__counter-wrap {
     width: 100%;
     max-width: 100%;
-    padding: 0.48em 0.55em;
-    border-radius: 16px;
+    padding: 0.55em 0.65em;
+    border-radius: 12px;
   }
-
   .pf-landing-totals__counter-wrap--monthly-rates,
   .pf-landing-totals__counter-wrap--export-chart-trigger.pf-landing-totals__counter-wrap--monthly-rates {
-    padding: 14px 22px 16px;
+    padding: 16px 22px;
   }
-
-  .pf-landing-totals__monthly-rates-inner {
-    gap: 8px;
-    padding: 2px 8px;
-  }
-
+  .pf-landing-totals__monthly-rates-inner { gap: 6px; padding: 2px 6px; }
   .pf-landing-totals__counter-wrap--monthly-rates .pf-landing-totals__counter-scroll {
-    padding-block: 5px;
-    padding-inline: 8px;
+    padding-block: 4px;
+    padding-inline: 6px;
   }
-
   .pf-landing-totals__counter--monthly-rates {
-    font-size: clamp(18px, 5vw, 26px);
+    font-size: clamp(22px, 6vw, 32px);
     white-space: nowrap;
     text-align: center;
   }
-
   .pf-landing-totals__counter-scroll {
     min-width: min(100%, max(8ch, max-content));
     min-height: 1.3em;
     padding-block: 0.22em;
   }
-
-  .pf-landing-totals__counter {
-    font-size: clamp(22px, 7vw, 34px);
-  }
-
+  .pf-landing-totals__counter { font-size: clamp(24px, 7vw, 36px); }
   .pf-landing-totals__tariff {
-    font-size: clamp(11px, 3.2vw, 13px);
-    line-height: 1.42;
+    font-size: 11px;
+    line-height: 1.45;
     padding: 0 4px;
   }
 }
@@ -722,82 +634,50 @@ body {
     min-width: min(100%, max(7ch, max-content));
     min-height: 1.35em;
   }
-
-  .pf-landing-totals__counter {
-    font-size: clamp(20px, 7.5vw, 30px);
-  }
+  .pf-landing-totals__counter { font-size: clamp(22px, 7.5vw, 32px); }
 }
 
-/* Landing / discharge / ROI: reserved layout while list or stats load; blur until data is ready */
+/* ─────────────────────────────────────────────────────────────
+ * Skeletons — quiet, no shimmer color, just a slow pulse.
+ * ───────────────────────────────────────────────────────────── */
 @keyframes pf-skeleton-shimmer {
-  0% {
-    background-position: 100% 0;
-  }
-  100% {
-    background-position: -100% 0;
-  }
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
 }
 
 .pf-skeleton-line {
   display: block;
-  border-radius: 6px;
+  border-radius: 4px;
   min-height: 10px;
   background: linear-gradient(
     90deg,
-    rgba(255, 255, 255, 0.05),
-    rgba(255, 255, 255, 0.12),
-    rgba(255, 255, 255, 0.05)
+    rgba(255, 255, 255, 0.03),
+    rgba(255, 255, 255, 0.08),
+    rgba(255, 255, 255, 0.03)
   );
   background-size: 200% 100%;
-  animation: pf-skeleton-shimmer 1.25s ease-in-out infinite;
+  animation: pf-skeleton-shimmer 1.4s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .pf-skeleton-line {
     animation: none;
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.05);
   }
 }
 
-.pf-skeleton-line--center {
-  margin-left: auto;
-  margin-right: auto;
-}
-
-.pf-skeleton-line--long {
-  width: 88%;
-  max-width: 280px;
-  height: 12px;
-}
-
-.pf-skeleton-line--medium {
-  width: 64%;
-  max-width: 200px;
-  height: 11px;
-}
-
-.pf-skeleton-line--label {
-  margin-bottom: 4px;
-}
-
+.pf-skeleton-line--center { margin-left: auto; margin-right: auto; }
+.pf-skeleton-line--long   { width: 88%; max-width: 280px; height: 11px; }
+.pf-skeleton-line--medium { width: 64%; max-width: 200px; height: 10px; }
+.pf-skeleton-line--label  { margin-bottom: 4px; }
 .pf-skeleton-line--metric-select {
-  width: min(168px, 46vw);
-  height: 40px;
-  border-radius: 10px;
-  flex-shrink: 0;
+  width: min(168px, 46vw); height: 38px; border-radius: 8px; flex-shrink: 0;
 }
-
 .pf-skeleton-line--counter {
-  width: min(42%, 120px);
-  height: clamp(26px, 7vw, 34px);
-  border-radius: 10px;
+  width: min(42%, 120px); height: clamp(26px, 7vw, 34px); border-radius: 8px;
 }
-
 .pf-skeleton-line--tariff {
-  width: 92%;
-  max-width: 360px;
-  height: 36px;
-  margin-top: 4px;
+  width: 92%; max-width: 360px; height: 34px; margin-top: 4px;
 }
 
 .pf-landing-totals--skeleton .pf-landing-totals__counter-wrap--skeleton {
@@ -809,9 +689,7 @@ body {
   max-width: 100%;
 }
 
-.pf-header-discharge-row--skeleton {
-  min-height: 120px;
-}
+.pf-header-discharge-row--skeleton { min-height: 120px; }
 
 .pf-discharge-toolbar--skeleton {
   width: 100%;
@@ -831,50 +709,51 @@ body {
 
 .pf-discharge-skeleton-row {
   flex: 1 1 auto;
-  min-height: 44px;
-  border-radius: 10px;
+  min-height: 42px;
+  border-radius: 8px;
   background: linear-gradient(
     90deg,
-    rgba(255, 255, 255, 0.04),
-    rgba(255, 255, 255, 0.1),
-    rgba(255, 255, 255, 0.04)
+    rgba(255, 255, 255, 0.03),
+    rgba(255, 255, 255, 0.07),
+    rgba(255, 255, 255, 0.03)
   );
   background-size: 200% 100%;
-  animation: pf-skeleton-shimmer 1.25s ease-in-out infinite;
+  animation: pf-skeleton-shimmer 1.4s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .pf-discharge-skeleton-row {
     animation: none;
-    background: rgba(255, 255, 255, 0.07);
+    background: rgba(255, 255, 255, 0.05);
   }
 }
 
-.pf-roi-card--skeleton {
-  pointer-events: none;
-}
+.pf-roi-card--skeleton { pointer-events: none; }
 
 .pf-roi-stack-seg--skeleton {
   flex: 1 1 72px;
   min-height: 48px;
-  border-radius: 8px;
+  border-radius: 6px;
   background: linear-gradient(
     90deg,
-    rgba(255, 255, 255, 0.04),
-    rgba(255, 255, 255, 0.09),
-    rgba(255, 255, 255, 0.04)
+    rgba(255, 255, 255, 0.03),
+    rgba(255, 255, 255, 0.07),
+    rgba(255, 255, 255, 0.03)
   );
   background-size: 200% 100%;
-  animation: pf-skeleton-shimmer 1.25s ease-in-out infinite;
+  animation: pf-skeleton-shimmer 1.4s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .pf-roi-stack-seg--skeleton {
     animation: none;
-    background: rgba(0, 0, 0, 0.25);
+    background: rgba(0, 0, 0, 0.18);
   }
 }
 
+/* ─────────────────────────────────────────────────────────────
+ * Header / discharge toolbar.
+ * ───────────────────────────────────────────────────────────── */
 .pf-header-discharge-row {
   display: flex;
   align-items: center;
@@ -888,15 +767,13 @@ body {
   display: inline-flex;
   align-items: center;
   max-width: 100%;
-  padding: 6px 8px;
+  padding: 8px 10px;
   box-sizing: border-box;
   gap: 0;
-  background: rgba(24, 6, 32, 0.72);
-  border: 1px solid rgba(252, 1, 155, 0.32);
+  background: var(--pf-surface);
+  border: 1px solid var(--pf-border);
   border-radius: 12px;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.04),
-    0 0 0 1px rgba(0, 0, 0, 0.2);
+  box-shadow: none;
 }
 
 .pf-discharge-toolbar--combined {
@@ -905,13 +782,13 @@ body {
   width: 100%;
   max-width: 100%;
   align-self: stretch;
-  padding: 8px 10px;
+  padding: 10px 12px;
 }
 
 .pf-deye-command-stack {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
   min-width: 0;
 }
@@ -920,22 +797,18 @@ body {
   margin: 0;
   max-width: 52ch;
   font-size: 0.8rem;
-  line-height: 1.35;
-  color: rgba(255, 255, 255, 0.72);
+  line-height: 1.4;
+  color: var(--pf-text-secondary);
 }
 
-.pf-deye-command-line {
-  width: 100%;
-}
+.pf-deye-command-line { width: 100%; }
 
 .pf-deye-command-line--charge {
-  padding-top: 8px;
-  border-top: 1px solid rgba(252, 1, 155, 0.18);
+  padding-top: 10px;
+  border-top: 1px solid var(--pf-divider);
 }
 
-.pf-discharge-toolbar .pf-grid-discharge-actions--header {
-  gap: 8px 10px;
-}
+.pf-discharge-toolbar .pf-grid-discharge-actions--header { gap: 8px 10px; }
 
 .pf-header {
   display: flex;
@@ -947,12 +820,11 @@ body {
   max-width: 100%;
   padding: 10px 0 12px;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   overflow-x: hidden;
   overflow-y: hidden;
 }
 
-/* Grows so the inverter select can use all space before the trailing controls; fixed gap only. */
 .pf-header-primary {
   display: flex;
   flex-wrap: nowrap;
@@ -975,25 +847,25 @@ body {
   gap: var(--pf-header-gap, 8px);
 }
 
-/* Header controls — 220-km.com card / input surfaces (Keycloak theme tokens). */
+/* Header controls — uniform flat surface. */
 .pf-top-bar .pf-inverter-select,
 .pf-top-bar .pf-lang-select,
 .pf-top-bar .pf-share-btn,
 .pf-top-bar .pf-add-deye-btn {
   background: var(--km220-card);
   color: var(--km220-text);
-  border-color: rgba(193, 0, 185, 0.38);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  border-color: var(--km220-input-border);
+  box-shadow: none;
+  font-family: var(--pf-font-sans);
 }
 
 .pf-top-bar .pf-share-btn:hover,
 .pf-top-bar .pf-add-deye-btn:hover,
 .pf-top-bar .pf-inverter-select:hover,
 .pf-top-bar .pf-lang-select:hover {
-  border-color: rgba(110, 0, 212, 0.55);
+  border-color: var(--pf-border-strong);
 }
 
-/* One row height: selects and square actions share --pf-header-control-h; even gaps --pf-header-gap */
 .pf-top-bar .pf-header .pf-inverter-select.pf-header-select--inverter,
 .pf-top-bar .pf-header .pf-lang-select.pf-header-select--lang {
   min-height: var(--pf-header-control-h);
@@ -1027,26 +899,17 @@ body {
   min-height: 34px;
   box-sizing: border-box;
   cursor: pointer;
-  color: rgba(255, 248, 252, 0.92);
+  color: var(--pf-label);
   background: var(--pf-surface);
   border: 1px solid var(--pf-border);
   border-radius: 10px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  box-shadow: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
-.pf-share-btn:hover {
-  border-color: rgba(252, 1, 155, 0.45);
-}
-
-.pf-share-btn:focus-visible {
-  outline: 2px solid var(--pf-pink-soft);
-  outline-offset: 2px;
-}
-
-.pf-share-btn__icon {
-  display: block;
-  flex-shrink: 0;
-}
+.pf-share-btn:hover { border-color: var(--pf-border-strong); background: var(--pf-surface-elev); }
+.pf-share-btn:focus-visible { outline: 2px solid var(--pf-accent-focus); outline-offset: 2px; }
+.pf-share-btn__icon { display: block; flex-shrink: 0; }
 
 .pf-share-toast {
   position: fixed;
@@ -1056,28 +919,30 @@ body {
   z-index: 2500;
   max-width: min(92vw, 360px);
   padding: 10px 16px;
-  border-radius: 12px;
+  border-radius: 10px;
   font-size: 14px;
   font-weight: 500;
   text-align: center;
-  color: rgba(255, 248, 252, 0.95);
-  background: rgba(24, 6, 32, 0.94);
-  border: 1px solid rgba(252, 1, 155, 0.35);
+  color: var(--pf-label);
+  background: rgba(11, 13, 16, 0.96);
+  border: 1px solid var(--pf-border-strong);
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
   pointer-events: none;
 }
 
+/* ─────────────────────────────────────────────────────────────
+ * Lang/port bar under the graph.
+ * ───────────────────────────────────────────────────────────── */
 .pf-lang-port-bar {
   display: flex;
   flex-direction: column;
   align-items: stretch;
   width: 100%;
   max-width: 1100px;
-  margin: 12px auto 0;
+  margin: 14px auto 0;
   padding: 0 4px;
   box-sizing: border-box;
   flex-shrink: 0;
-  /* Match .pf-graph width so port aligns with EV node (right-bottom anchor) */
   --pf-side: min(calc((100vw - 8px) * 0.9), calc(100vmin * 0.9), 920px);
 }
 
@@ -1088,7 +953,6 @@ body {
   box-sizing: border-box;
 }
 
-/* Same horizontal rule as .pf-graph .pf-node[data-pos='right-bottom'] */
 .pf-lang-port-port-align {
   position: relative;
   left: calc(100% - var(--pf-graph-anchor-pct));
@@ -1106,14 +970,16 @@ body {
   align-items: center;
   justify-content: center;
   min-height: 32px;
-  padding: 0 10px;
-  border-radius: 10px;
-  border: 1px solid rgba(252, 1, 155, 0.28);
-  background: rgba(24, 6, 32, 0.62);
-  color: rgba(255, 248, 252, 0.92);
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--pf-border);
+  background: var(--pf-surface);
+  color: var(--pf-label);
+  font-family: var(--pf-font-mono);
   font-size: 13px;
   font-weight: 600;
   line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
 .pf-header-trailing {
@@ -1139,9 +1005,9 @@ body {
   min-width: 0;
 }
 
+/* Refresh button — flat circle. */
 .pf-graph .pf-graph-refresh[data-pos='top-center'] {
   position: absolute;
-  /* Middle of top-row node cards (Solar / Battery), not the diagram center */
   top: clamp(1.85rem, 11.5%, 3rem);
   left: 50%;
   transform: translate(-50%, -50%);
@@ -1155,44 +1021,32 @@ body {
   flex-shrink: 0;
   margin: 0;
   padding: 0;
-  width: 28px;
-  height: 28px;
-  border: 1px solid rgba(252, 1, 155, 0.28);
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--pf-border);
   border-radius: 999px;
-  background: rgba(24, 6, 32, 0.65);
-  color: rgba(255, 248, 252, 0.92);
+  background: var(--pf-surface);
+  color: var(--pf-text-secondary);
   cursor: pointer;
-  transition:
-    border-color 0.15s ease,
-    color 0.15s ease,
-    box-shadow 0.15s ease;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
 }
 
 .pf-graph-refresh:hover {
-  border-color: rgba(252, 1, 155, 0.52);
-  color: #fff;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.07),
-    0 0 12px rgba(252, 1, 155, 0.18);
+  border-color: var(--pf-border-strong);
+  color: var(--pf-label);
+  background: var(--pf-surface-elev);
 }
 
 .pf-graph-refresh:focus-visible {
-  outline: 2px solid var(--pf-pink-soft);
+  outline: 2px solid var(--pf-accent-focus);
   outline-offset: 2px;
 }
 
-.pf-graph-refresh-icon {
-  display: block;
-  font-size: 15px;
-  line-height: 1;
-}
+.pf-graph-refresh-icon { display: block; font-size: 14px; line-height: 1; }
 
 .pf-header .pf-header-trailing .pf-lang-select,
-.pf-header-lang .pf-lang-select {
-  flex: 0 0 auto;
-}
+.pf-header-lang .pf-lang-select { flex: 0 0 auto; }
 
-/* Header inverter: fill primary column; width capped by parent only. */
 .pf-header .pf-header-select--inverter {
   min-width: 6.5rem;
   max-width: 100%;
@@ -1207,7 +1061,6 @@ body {
   font-size: 13px;
 }
 
-/* Port under flow graph: aligned with EV card — wide enough for placeholder + max-power label (e.g. "541 · 22,00 kW"). */
 .pf-lang-port-bar .pf-header-select--port {
   min-width: 9rem;
   max-width: 12rem;
@@ -1229,9 +1082,7 @@ body {
 }
 
 @media (max-width: 320px) {
-  .pf-header {
-    flex-wrap: nowrap;
-  }
+  .pf-header { flex-wrap: nowrap; }
 }
 
 .pf-station-field {
@@ -1241,7 +1092,6 @@ body {
   gap: 8px;
 }
 
-/* Inverter select + Add Deye + ROI: first row = select | Add; ROI card wraps full width */
 .pf-station-field.pf-inverter-field {
   display: flex;
   flex-direction: row;
@@ -1275,44 +1125,33 @@ body {
 .pf-station-input {
   background: var(--pf-surface);
   border: 1px solid var(--pf-border);
-  border-radius: 10px;
+  border-radius: 8px;
   color: var(--pf-label);
   padding: 8px 12px;
   min-width: 140px;
+  font-family: var(--pf-font-sans);
 }
 
-.pf-lang-select {
-  appearance: auto;
-  background: var(--pf-surface);
-  border: 1px solid var(--pf-border);
-  border-radius: 10px;
-  color: var(--pf-label);
-  padding: 8px 12px;
-  font-size: 14px;
-  min-width: 160px;
-  cursor: pointer;
-}
-
-.pf-lang-select:focus-visible {
-  outline: 2px solid var(--pf-pink-soft);
-  outline-offset: 2px;
-}
-
+.pf-lang-select,
 .pf-inverter-select {
   appearance: auto;
   background: var(--pf-surface);
   border: 1px solid var(--pf-border);
-  border-radius: 10px;
+  border-radius: 8px;
   color: var(--pf-label);
   padding: 8px 12px;
   font-size: 14px;
-  min-width: 200px;
-  max-width: min(420px, 92vw);
+  font-family: var(--pf-font-sans);
   cursor: pointer;
+  transition: border-color 0.15s ease;
 }
 
+.pf-lang-select { min-width: 160px; }
+.pf-inverter-select { min-width: 200px; max-width: min(420px, 92vw); }
+
+.pf-lang-select:focus-visible,
 .pf-inverter-select:focus-visible {
-  outline: 2px solid var(--pf-pink-soft);
+  outline: 2px solid var(--pf-accent-focus);
   outline-offset: 2px;
 }
 
@@ -1320,7 +1159,7 @@ body {
   appearance: none;
   background: var(--pf-surface);
   border: 1px solid var(--pf-border);
-  border-radius: 10px;
+  border-radius: 8px;
   color: var(--pf-label);
   padding: 6px 10px;
   font-size: 12px;
@@ -1328,21 +1167,17 @@ body {
   cursor: pointer;
   white-space: nowrap;
   max-width: min(42vw, 10.5rem);
+  font-family: var(--pf-font-sans);
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
-.pf-discharge-btn:hover:not(:disabled) {
-  border-color: rgba(252, 1, 155, 0.45);
-}
-
-.pf-discharge-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
+.pf-discharge-btn:hover:not(:disabled) { border-color: var(--pf-border-strong); background: var(--pf-surface-elev); }
+.pf-discharge-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .pf-peak-dam-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   cursor: pointer;
   user-select: none;
   max-width: min(52vw, 13rem);
@@ -1356,40 +1191,33 @@ body {
   flex-shrink: 0;
 }
 
-.pf-peak-dam-toggle input:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
+.pf-peak-dam-toggle input:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .pf-peak-dam-toggle-label {
   font-size: 11px;
-  line-height: 1.25;
-  color: rgba(255, 248, 252, 0.82);
+  line-height: 1.3;
+  color: var(--pf-text-secondary);
+  letter-spacing: 0.02em;
 }
 
 .pf-discharge-feedback {
   margin: 0 4px 8px;
-  padding: 8px 12px;
+  padding: 10px 14px;
   font-size: 12px;
-  line-height: 1.35;
-  color: rgba(255, 248, 252, 0.88);
-  background: rgba(36, 10, 48, 0.72);
-  border: 1px solid rgba(252, 1, 155, 0.22);
+  line-height: 1.45;
+  color: var(--pf-label);
+  background: var(--pf-surface);
+  border: 1px solid var(--pf-border);
   border-radius: 10px;
 }
 
-.pf-discharge-feedback p {
-  margin: 0;
-}
+.pf-discharge-feedback p { margin: 0; }
+.pf-discharge-feedback p + p { margin-top: 6px; }
+.pf-deye-remote-write-locked { color: var(--pf-text-secondary); }
 
-.pf-discharge-feedback p + p {
-  margin-top: 6px;
-}
-
-.pf-deye-remote-write-locked {
-  color: rgba(255, 206, 225, 0.95);
-}
-
+/* ─────────────────────────────────────────────────────────────
+ * Flow graph.
+ * ───────────────────────────────────────────────────────────── */
 .pf-graph-wrap {
   flex: 1;
   display: flex;
@@ -1400,7 +1228,6 @@ body {
 }
 
 .pf-graph {
-  /* Sync with powerFlowEngine.edgeInsetPx via inline style from PowerFlowPage */
   --pf-graph-anchor-pct: 8.5%;
   --pf-side: min(calc((100vw - 8px) * 0.9), calc(100vmin * 0.9), 920px);
   position: relative;
@@ -1410,34 +1237,18 @@ body {
   flex-shrink: 0;
 }
 
-/*
- * Graph sizing: .pf-graph is a square (--pf-side width = height via .pf-graph-sizer). Nodes use
- * top / 50% / bottom anchors; if --pf-side shrinks too far (e.g. short viewport + wide window),
- * the six tiles and hub overlap. Tablet/desktop rules below enforce a higher minimum side so the
- * layout stays usable without changing SVG geometry (powerFlowEngine.computeWideGeometry).
- */
-/* Tablet / small-window: vmin alone can shrink the square until the six tiles overlap — keep a sane floor */
 @media (min-width: 721px) and (max-width: 1023px) {
   .pf-graph {
     --pf-side: min(calc((100vw - 16px) * 0.9), max(400px, calc(100vmin * 0.92)), 920px);
   }
 }
 
-/* Desktop: cap graph by viewport height so hub + six tiles stay inside the column, and keep the block visually centered */
 @media (min-width: 1024px) {
-  .pf-graph-wrap {
-    padding-block: 10px;
-  }
-
+  .pf-graph-wrap { padding-block: 14px; }
   .pf-graph {
-    /* ~3 stacked node cards need vertical room; short wide viewports must not drop below this floor */
-    --pf-side: min(
-      min(calc((100vw - 32px) * 0.85), max(440px, calc(100svh - 260px))),
-      860px
-    );
+    --pf-side: min(min(calc((100vw - 32px) * 0.85), max(440px, calc(100svh - 260px))), 860px);
     max-width: 860px;
   }
-
   @supports (height: 100dvh) {
     .pf-graph {
       --pf-side: min(min(calc((100vw - 32px) * 0.85), max(440px, calc(100dvh - 260px))), 860px);
@@ -1445,7 +1256,6 @@ body {
   }
 }
 
-/* Padding-bottom % is relative to width — stable square height with only absolute children */
 .pf-graph-sizer {
   display: block;
   width: 100%;
@@ -1473,26 +1283,27 @@ body {
   pointer-events: none;
 }
 
-#pf-nodes > * {
-  pointer-events: auto;
-}
+#pf-nodes > * { pointer-events: auto; }
 
+/* Flow lines — quiet by default; the pink only appears when alive. */
 .pf-line {
   stroke: var(--pf-line-idle);
-  stroke-width: 2.2;
+  stroke-width: 1.5;
   stroke-linecap: round;
   fill: none;
 }
 
 .pf-line[data-active='true'] {
   stroke: var(--pf-line-active);
-  filter: drop-shadow(0 0 6px rgba(252, 1, 155, 0.35));
+  stroke-width: 2;
+  filter: none;
 }
 
-.pf-flow-dot {
-  filter: drop-shadow(0 0 4px rgba(232, 121, 249, 0.9));
-}
+.pf-flow-dot { filter: drop-shadow(0 0 3px rgba(252, 1, 155, 0.55)); }
 
+/* ─────────────────────────────────────────────────────────────
+ * Nodes — quiet cards. No glow. Border tells you it's active.
+ * ───────────────────────────────────────────────────────────── */
 .pf-node {
   position: absolute;
   display: flex;
@@ -1501,31 +1312,29 @@ body {
   text-align: center;
   min-width: 108px;
   max-width: 140px;
-  padding: 10px 8px;
+  padding: 12px 10px;
   background: var(--pf-surface);
   border: 1px solid var(--pf-border);
-  border-radius: 16px;
+  border-radius: 14px;
   text-decoration: none;
   color: inherit;
   cursor: default;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  box-shadow: none;
+  transition: border-color 0.2s ease, background 0.2s ease;
 }
 
 .pf-node[data-active='true'] {
-  border-color: rgba(251, 113, 232, 0.55);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 0 20px rgba(252, 1, 155, 0.12);
+  border-color: var(--pf-pink-soft);
+  background: var(--pf-surface-elev);
+  box-shadow: none;
 }
 
-a.pf-node {
-  cursor: pointer;
-}
+a.pf-node { cursor: pointer; }
 
 .pf-node-ev-disabled,
 .pf-node-grid-disabled {
-  opacity: 0.5;
-  filter: grayscale(0.25);
+  opacity: 0.45;
+  filter: grayscale(0.5);
   cursor: not-allowed;
 }
 
@@ -1548,19 +1357,18 @@ a.pf-node {
   flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  margin-bottom: 4px;
+  gap: 8px;
+  margin-bottom: 6px;
   min-height: 32px;
 }
 
-.pf-solar-header .pf-node-icon {
-  margin-bottom: 0;
-}
+.pf-solar-header .pf-node-icon { margin-bottom: 0; }
 
 .pf-solar-today-near-icon {
   font-size: 11px;
   font-weight: 600;
-  color: var(--pf-value);
+  color: var(--pf-text-secondary);
+  font-family: var(--pf-font-mono);
   font-variant-numeric: tabular-nums;
   line-height: 1.15;
   text-align: left;
@@ -1569,15 +1377,17 @@ a.pf-node {
 }
 
 .pf-node-icon {
-  font-size: 28px;
-  margin-bottom: 4px;
-  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.4));
+  font-size: 26px;
+  margin-bottom: 6px;
+  filter: none;
+  opacity: 0.92;
 }
 
 .pf-node-icon--inline-count {
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 0.03em;
+  font-size: 15px;
+  font-weight: 600;
+  font-family: var(--pf-font-mono);
+  letter-spacing: 0;
   display: inline-flex;
   align-items: baseline;
   gap: 6px;
@@ -1585,43 +1395,32 @@ a.pf-node {
 
 .pf-node-icon__tesla {
   width: auto;
-  height: 2.9em;
+  height: 2.6em;
   display: inline-block;
-  color: #e11d48;
-  filter: drop-shadow(0 2px 6px rgba(225, 29, 72, 0.35));
+  color: #d44b62;
+  filter: none;
 }
 
-.pf-node-icon__ev-station {
-  filter: drop-shadow(0 1px 4px rgba(252, 1, 155, 0.5));
-}
+.pf-node-icon__ev-station { filter: none; opacity: 0.92; }
 
 .pf-node-icon__ev-flow-line {
   fill: none;
-  stroke: #ff7fde;
-  stroke-width: 1.4;
+  stroke: var(--pf-accent-line);
+  stroke-width: 1.3;
   stroke-linecap: round;
-  stroke-dasharray: 2.6 2.6;
-  opacity: 0.95;
-  animation: pf-ev-flow-dash 0.9s linear infinite;
+  stroke-dasharray: 2.4 2.4;
+  opacity: 0.85;
+  animation: pf-ev-flow-dash 1.1s linear infinite;
 }
 
-@keyframes pf-ev-flow-dash {
-  to {
-    stroke-dashoffset: -10.4;
-  }
-}
+@keyframes pf-ev-flow-dash { to { stroke-dashoffset: -9.6; } }
 
-.pf-node-icon__ev-flow-dot {
-  filter: drop-shadow(0 0 4px rgba(255, 235, 250, 0.95));
-}
+.pf-node-icon__ev-flow-dot { filter: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  .pf-node-icon__ev-flow-line {
-    animation: none;
-  }
+  .pf-node-icon__ev-flow-line { animation: none; }
 }
 
-/* Battery + lightning while charging (replaces plug). */
 .pf-ess-icon-charging {
   display: inline-flex;
   flex-direction: row;
@@ -1632,96 +1431,91 @@ a.pf-node {
 
 .pf-ess-icon-charging-bolt {
   font-size: 0.78em;
-  margin-left: -3px;
-  filter: drop-shadow(0 0 2px rgba(250, 204, 21, 0.55));
+  margin-left: -2px;
+  filter: none;
 }
 
 .pf-node-label {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
-  margin-bottom: 2px;
-  line-height: 1.15;
+  letter-spacing: 0.14em;
+  color: var(--pf-text-secondary);
+  text-shadow: none;
+  margin-bottom: 4px;
+  line-height: 1.2;
   max-width: 100%;
   overflow-wrap: anywhere;
   hyphens: auto;
 }
 
 .pf-node-value {
-  font-size: 16px;
-  font-weight: 700;
+  font-family: var(--pf-font-mono);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   color: var(--pf-value);
   font-variant-numeric: tabular-nums;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  text-shadow: none;
+  line-height: 1.15;
 }
 
 .pf-node-sub {
-  font-size: 11px;
-  margin-top: 4px;
-  opacity: 0.9;
+  font-family: var(--pf-font-mono);
+  font-size: 10px;
+  margin-top: 5px;
+  color: var(--pf-text-muted);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
 }
 
 .pf-node-solar-forecast {
-  color: var(--pf-value);
-  font-weight: 600;
+  color: var(--pf-text-secondary);
+  font-weight: 500;
+  font-family: var(--pf-font-mono);
   font-variant-numeric: tabular-nums;
-  line-height: 1.25;
+  line-height: 1.3;
   max-width: 100%;
   overflow-wrap: anywhere;
 }
 
-.pf-solar-insolation-line {
-  display: block;
-}
-
-.pf-solar-insolation-line + .pf-solar-insolation-line {
-  margin-top: 2px;
-}
+.pf-solar-insolation-line { display: block; }
+.pf-solar-insolation-line + .pf-solar-insolation-line { margin-top: 2px; }
 
 .pf-ess-soc {
-  font-weight: 700;
-  opacity: 0.98;
+  font-weight: 600;
+  font-family: var(--pf-font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
-.pf-ess-soc.pf-ess-soc--low {
-  color: #f87171;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
-}
+/* SoC color cues — desaturated. */
+.pf-ess-soc.pf-ess-soc--low  { color: #e57373; text-shadow: none; }
+.pf-ess-soc.pf-ess-soc--mid  { color: #d6b85a; text-shadow: none; }
+.pf-ess-soc.pf-ess-soc--high { color: #7ec88a; text-shadow: none; }
 
-.pf-ess-soc.pf-ess-soc--mid {
-  color: #facc15;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
-}
-
-.pf-ess-soc.pf-ess-soc--high {
-  color: #4ade80;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
-}
-
-.pf-ess-soc-loading {
-  font-weight: 500;
-  opacity: 0.65;
-}
+.pf-ess-soc-loading { font-weight: 500; opacity: 0.6; }
 
 .pf-node-meta {
+  font-family: var(--pf-font-mono);
   font-size: 9px;
-  margin-top: 2px;
-  opacity: 0.78;
+  margin-top: 3px;
+  color: var(--pf-text-hint);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
 }
 
-/* UAH/kWh line is last in node stack — keep a bit of air after forecast / SoC */
-.pf-node-sub + .pf-node-meta {
-  margin-top: 4px;
-}
+.pf-node-sub + .pf-node-meta { margin-top: 4px; }
 
 .pf-ess-status {
   font-size: 10px;
-  margin-top: 4px;
-  color: #c4b5fd;
+  margin-top: 5px;
+  color: var(--pf-text-secondary);
+  letter-spacing: 0.04em;
 }
 
+/* ─────────────────────────────────────────────────────────────
+ * Hub — the only place pink lives in the graph.
+ * ───────────────────────────────────────────────────────────── */
 .pf-hub {
   position: absolute;
   left: 50%;
@@ -1748,37 +1542,34 @@ a.pf-node {
   align-items: center;
   text-decoration: none;
   line-height: 0;
-  border-radius: 12px;
-  outline-offset: 2px;
+  border-radius: 999px;
+  outline-offset: 4px;
   pointer-events: auto;
+  padding: 4px;
 }
 
-.pf-hub-brand:focus-visible {
-  outline: 2px solid var(--pf-pink-soft);
-}
+.pf-hub-brand:focus-visible { outline: 2px solid var(--pf-accent-focus); }
 
-/* Soft slow glow only while a flow line ends at the hub (solar / grid import / ESS discharge). */
 @keyframes pf-hub-logo-soft-pulse {
-  0%,
-  100% {
+  0%, 100% {
     transform: scale(1);
-    filter: drop-shadow(0 0 10px rgba(252, 1, 155, 0.3));
+    filter: drop-shadow(0 0 8px rgba(252, 1, 155, 0.22));
     opacity: 1;
   }
   50% {
-    transform: scale(1.045);
-    filter: drop-shadow(0 0 20px rgba(252, 1, 155, 0.48));
-    opacity: 0.94;
+    transform: scale(1.025);
+    filter: drop-shadow(0 0 14px rgba(252, 1, 155, 0.38));
+    opacity: 0.96;
   }
 }
 
 .pf-hub-logo {
   display: block;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   object-fit: contain;
   transform-origin: center center;
-  filter: drop-shadow(0 0 10px rgba(252, 1, 155, 0.32));
+  filter: drop-shadow(0 0 6px rgba(252, 1, 155, 0.18));
 }
 
 .pf-hub-brand--flow-ends-here .pf-hub-logo {
@@ -1786,19 +1577,18 @@ a.pf-node {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pf-hub-brand--flow-ends-here .pf-hub-logo {
-    animation: none;
-  }
+  .pf-hub-brand--flow-ends-here .pf-hub-logo { animation: none; }
 }
 
 .pf-hub-label {
   display: block;
-  margin-top: 6px;
+  margin-top: 8px;
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.06em;
-  color: var(--pf-label);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--pf-text-secondary);
+  text-shadow: none;
   opacity: 0.95;
 }
 
@@ -1806,41 +1596,38 @@ a.pf-node {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  margin-top: 8px;
-  padding: 4px 9px;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 5px 10px;
   font-size: 9px;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  color: rgba(255, 248, 252, 0.88);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--pf-text-secondary);
   text-decoration: none;
-  border: 1px solid rgba(252, 1, 155, 0.3);
+  border: 1px solid var(--pf-border);
   border-radius: 999px;
-  background: rgba(24, 6, 32, 0.65);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  background: var(--pf-surface);
+  box-shadow: none;
   pointer-events: auto;
-  transition:
-    border-color 0.15s ease,
-    color 0.15s ease,
-    box-shadow 0.15s ease;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
 }
 
 .pf-hub-opensource:hover {
-  border-color: rgba(252, 1, 155, 0.52);
-  color: #fff;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.07),
-    0 0 12px rgba(252, 1, 155, 0.18);
+  border-color: var(--pf-border-strong);
+  color: var(--pf-label);
+  background: var(--pf-surface-elev);
+  box-shadow: none;
 }
 
 .pf-hub-opensource:focus-visible {
-  outline: 2px solid var(--pf-pink-soft);
+  outline: 2px solid var(--pf-accent-focus);
   outline-offset: 2px;
 }
 
 .pf-hub-opensource-icon {
-  width: 13px;
-  height: 13px;
+  width: 12px;
+  height: 12px;
   flex-shrink: 0;
   color: inherit;
 }
@@ -1851,7 +1638,7 @@ a.pf-node {
   max-width: 11rem;
 }
 
-/* Wide positions — match FlowGraph.jsx wideView + CSS module */
+/* Node positions. */
 .pf-graph .pf-node[data-pos='left-top'] {
   top: 0;
   left: var(--pf-graph-anchor-pct);
@@ -1864,7 +1651,6 @@ a.pf-node {
   transform: translate(-50%, -50%);
 }
 
-/* Grid tile + discharge / peak-DAM controls (replaces standalone left-center node). */
 .pf-graph .pf-node-stack[data-pos='left-center'] {
   position: absolute;
   top: 50%;
@@ -1873,7 +1659,7 @@ a.pf-node {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   width: max-content;
   max-width: min(200px, 46vw);
   z-index: 3;
@@ -1943,21 +1729,15 @@ a.pf-node {
   width: 100%;
   background: var(--pf-surface);
   border: 1px solid var(--pf-border);
-  border-radius: 10px;
+  border-radius: 8px;
   color: var(--pf-label);
   padding: 8px 12px;
   font-size: 14px;
+  font-family: var(--pf-font-sans);
   cursor: pointer;
 }
 
-/* Wrapper: delayed custom tooltip (native ``title`` would show immediately or not on ``disabled``). */
-.pf-discharge-go-hover-wrap {
-  display: inline-flex;
-  max-width: 100%;
-  position: relative;
-  vertical-align: middle;
-}
-
+.pf-discharge-go-hover-wrap,
 .pf-delayed-hint-wrap {
   display: inline-flex;
   max-width: 100%;
@@ -1980,24 +1760,10 @@ a.pf-node {
   line-height: 1.45;
   text-align: center;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(252, 1, 155, 0.35);
-  background: rgba(24, 8, 32, 0.96);
-  color: rgba(255, 248, 252, 0.96);
+  border: 1px solid var(--pf-border-strong);
+  background: rgba(11, 13, 16, 0.98);
+  color: var(--pf-label);
   pointer-events: none;
-}
-
-[data-theme="light"] .pf-discharge-go-tooltip {
-  border: 1px solid rgba(193, 0, 185, 0.28);
-  background: rgba(255, 255, 255, 0.98);
-  color: rgba(20, 5, 30, 0.92);
-  box-shadow: 0 8px 28px rgba(40, 10, 50, 0.12);
-}
-
-:root:not([data-theme]) .pf-discharge-go-tooltip {
-  border: 1px solid rgba(193, 0, 185, 0.28);
-  background: rgba(255, 255, 255, 0.98);
-  color: rgba(20, 5, 30, 0.92);
-  box-shadow: 0 8px 28px rgba(40, 10, 50, 0.12);
 }
 
 .pf-discharge-go-btn {
@@ -2015,69 +1781,47 @@ a.pf-node {
 }
 
 .pf-grid-discharge-actions--header .pf-discharge-go-btn {
-  border-color: rgba(252, 1, 155, 0.38);
-  background: linear-gradient(
-    180deg,
-    rgba(252, 1, 155, 0.12) 0%,
-    rgba(36, 10, 48, 0.92) 100%
-  );
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  border-color: var(--pf-border-strong);
+  background: var(--pf-surface);
+  color: var(--pf-label);
+  box-shadow: none;
 }
 
 .pf-grid-discharge-actions--header .pf-discharge-go-btn:hover:not(:disabled) {
-  border-color: rgba(252, 1, 155, 0.55);
-  background: linear-gradient(
-    180deg,
-    rgba(252, 1, 155, 0.18) 0%,
-    rgba(36, 10, 48, 0.95) 100%
-  );
+  border-color: var(--pf-pink-soft);
+  background: var(--pf-surface-elev);
 }
 
 .pf-grid-discharge-actions--header .pf-discharge-go-btn:focus-visible {
-  outline: 2px solid var(--pf-pink-soft);
+  outline: 2px solid var(--pf-accent-focus);
   outline-offset: 2px;
 }
 
 .pf-charge-go-btn.pf-discharge-go-btn {
-  border-color: rgba(34, 197, 94, 0.45);
-  background: linear-gradient(
-    180deg,
-    rgba(34, 197, 94, 0.14) 0%,
-    rgba(36, 10, 48, 0.92) 100%
-  );
+  border-color: rgba(126, 200, 138, 0.45);
+  background: var(--pf-surface);
 }
 
 .pf-charge-go-btn.pf-discharge-go-btn:hover:not(:disabled) {
-  border-color: rgba(34, 197, 94, 0.62);
-  background: linear-gradient(
-    180deg,
-    rgba(34, 197, 94, 0.2) 0%,
-    rgba(36, 10, 48, 0.95) 100%
-  );
+  border-color: rgba(126, 200, 138, 0.7);
+  background: var(--pf-surface-elev);
 }
 
 .pf-modal-btn--charge {
-  border-color: rgba(34, 197, 94, 0.5);
-  background: linear-gradient(
-    180deg,
-    rgba(34, 197, 94, 0.2) 0%,
-    rgba(36, 10, 48, 0.95) 100%
-  );
+  border-color: rgba(126, 200, 138, 0.55);
+  background: var(--pf-surface);
 }
 
 .pf-modal-btn--charge:hover {
-  border-color: rgba(34, 197, 94, 0.65);
+  border-color: rgba(126, 200, 138, 0.75);
 }
 
 .pf-discharge-delta-select:focus-visible {
-  outline: 2px solid var(--pf-pink-soft);
+  outline: 2px solid var(--pf-accent-focus);
   outline-offset: 2px;
 }
 
-.pf-discharge-delta-select:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
+.pf-discharge-delta-select:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .pf-peak-dam-toggle--graph {
   max-width: none;
@@ -2085,9 +1829,7 @@ a.pf-node {
   justify-content: center;
 }
 
-.pf-peak-dam-toggle--graph .pf-peak-dam-toggle-label {
-  text-align: center;
-}
+.pf-peak-dam-toggle--graph .pf-peak-dam-toggle-label { text-align: center; }
 
 .pf-graph .pf-node[data-pos='left-bottom'] {
   bottom: 0;
@@ -2117,17 +1859,19 @@ a.pf-node {
 }
 
 .pf-error {
-  color: #fca5a5;
+  color: var(--pf-up);
   font-size: 13px;
   margin-top: 8px;
   text-align: center;
 }
 
-/* QR below graph — lang/port row sits directly above (see .pf-lang-port-bar) */
+/* ─────────────────────────────────────────────────────────────
+ * QR — flat card.
+ * ───────────────────────────────────────────────────────────── */
 .pf-ukraine-qr {
   position: relative;
   align-self: center;
-  margin: 8px auto max(20px, env(safe-area-inset-bottom));
+  margin: 12px auto max(20px, env(safe-area-inset-bottom));
   z-index: 1;
   display: flex;
   flex-direction: column;
@@ -2136,12 +1880,9 @@ a.pf-node {
   padding: 14px 18px 16px;
   max-width: min(200px, 46vw);
   background: var(--pf-surface);
-  border: 1px solid rgba(251, 113, 232, 0.45);
-  border-radius: 18px;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 0 22px rgba(252, 1, 155, 0.18),
-    0 8px 28px rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--pf-border);
+  border-radius: 14px;
+  box-shadow: none;
   flex-shrink: 0;
 }
 
@@ -2156,44 +1897,38 @@ a.pf-node {
 }
 
 .pf-ukraine-qr-link:focus-visible {
-  outline: 2px solid var(--pf-pink);
+  outline: 2px solid var(--pf-accent-focus);
   outline-offset: 4px;
-  border-radius: 14px;
+  border-radius: 12px;
 }
 
 .pf-ukraine-qr-img {
   display: block;
   width: min(132px, 38vw);
   height: auto;
-  border-radius: 12px;
-  border: 1px solid rgba(252, 1, 155, 0.35);
+  border-radius: 8px;
+  border: 1px solid var(--pf-border);
   background: #fff;
-  box-shadow:
-    0 0 14px rgba(252, 1, 155, 0.22),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  box-shadow: none;
 }
 
 .pf-ukraine-qr-caption {
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   text-align: center;
-  line-height: 1.25;
-  color: var(--pf-pink);
-  text-shadow: 0 0 12px rgba(252, 1, 155, 0.45);
+  line-height: 1.4;
+  color: var(--pf-text-secondary);
+  text-shadow: none;
 }
 
-/* —— Mobile / narrow viewports —— */
+/* ─────────────────────────────────────────────────────────────
+ * Mobile.
+ * ───────────────────────────────────────────────────────────── */
 @media (max-width: 720px) {
-  .pf-top-bar {
-    --pf-header-control-h: 40px;
-  }
-
-  .pf-header {
-    gap: var(--pf-header-gap, 8px);
-    padding-bottom: 10px;
-  }
+  .pf-top-bar { --pf-header-control-h: 40px; }
+  .pf-header { gap: var(--pf-header-gap, 8px); padding-bottom: 10px; }
 
   .pf-header-primary {
     flex-direction: column;
@@ -2231,28 +1966,20 @@ a.pf-node {
     }
   }
 
-  .pf-roi-bar .pf-roi-stack {
-    width: 100%;
-    max-width: 100%;
-    box-sizing: border-box;
-  }
-
+  .pf-roi-bar .pf-roi-stack,
   .pf-roi-card {
     width: 100%;
     max-width: 100%;
     box-sizing: border-box;
   }
 
-  /* ROI card: stack meta; grid segments — Consumption full width, then EV/DAM/Mining in one row */
   .pf-roi-meta {
     flex-direction: column;
     align-items: stretch;
     gap: 8px;
   }
 
-  .pf-roi-meta-right {
-    text-align: left;
-  }
+  .pf-roi-meta-right { text-align: left; }
 
   .pf-roi-stack-bar {
     display: grid;
@@ -2268,9 +1995,7 @@ a.pf-node {
     min-width: 0;
   }
 
-  .pf-roi-stack-seg {
-    min-height: 44px;
-  }
+  .pf-roi-stack-seg { min-height: 44px; }
 
   .pf-header-trailing {
     flex: 1 1 100%;
@@ -2279,27 +2004,13 @@ a.pf-node {
     gap: 6px;
   }
 
-  .pf-header-trailing-row {
-    justify-content: space-between;
-    gap: 12px;
-  }
+  .pf-header-trailing-row { justify-content: space-between; gap: 12px; }
+  .pf-lang-port-port-track { margin-top: 6px; }
 
-  .pf-lang-port-port-track {
-    margin-top: 6px;
-  }
+  .pf-graph-refresh { width: 28px; height: 28px; }
+  .pf-graph-refresh-icon { font-size: 13px; }
 
-  .pf-graph-refresh {
-    width: 26px;
-    height: 26px;
-  }
-
-  .pf-graph-refresh-icon {
-    font-size: 14px;
-  }
-
-  .pf-station-field > span {
-    font-size: 13px;
-  }
+  .pf-station-field > span { font-size: 13px; }
 
   .pf-station-input {
     width: 100%;
@@ -2309,7 +2020,6 @@ a.pf-node {
     font-size: 16px;
   }
 
-  /* Lang/port bar under graph: larger touch targets (header row uses --pf-header-control-h) */
   .pf-lang-port-bar .pf-inverter-select,
   .pf-lang-port-bar .pf-lang-select {
     min-height: 40px;
@@ -2328,10 +2038,9 @@ a.pf-node {
     min-width: 0;
     max-width: none;
     flex: 1 1 auto;
-    width: 0; /* flex child: grows to fill remaining space */
+    width: 0;
   }
 
-  /* On mobile the port bar is full-width; drop the EV-anchor offset */
   .pf-lang-port-port-align {
     left: 0;
     transform: none;
@@ -2369,63 +2078,42 @@ a.pf-node {
   }
 
   .pf-node {
-    min-width: 88px;
-    max-width: 118px;
-    padding: 8px 5px;
+    min-width: 102px;
+    max-width: 136px;
+    padding: 11px 8px;
   }
 
-  .pf-node-icon {
-    font-size: 22px;
-    margin-bottom: 2px;
+  .pf-node-icon { font-size: 24px; margin-bottom: 5px; }
+  .pf-node-label { font-size: 9px; letter-spacing: 0.12em; }
+  .pf-node-value { font-size: 16px; }
+  .pf-node-sub, .pf-ess-status { font-size: 10px; }
+  .pf-node-meta { font-size: 9px; }
+
+  #pf-node-ev {
+    min-width: 92px;
+    max-width: 122px;
+    padding: 9px 7px;
   }
 
-  .pf-node-label {
-    font-size: 9px;
-    letter-spacing: 0.04em;
-  }
+  #pf-node-ev .pf-node-icon--inline-count { font-size: 13px; }
+  #pf-node-ev .pf-node-icon__tesla { height: 2.2em; }
+  #pf-node-ev .pf-node-label { font-size: 9px; }
+  #pf-node-ev .pf-node-value { font-size: 14px; }
+  #pf-node-ev .pf-node-meta { font-size: 8px; }
 
-  .pf-node-value {
-    font-size: 13px;
-  }
-
-  .pf-node-sub,
-  .pf-ess-status {
-    font-size: 9px;
-  }
-
-  .pf-node-meta {
-    font-size: 8px;
-  }
-
-  .pf-hub {
-    max-width: min(132px, 40vw);
-  }
-
-  .pf-hub-logo {
-    width: 34px;
-    height: 34px;
-  }
-
-  .pf-hub-label {
-    font-size: 9px;
-    margin-top: 4px;
-  }
-
+  .pf-hub { max-width: min(132px, 40vw); }
+  .pf-hub-logo { width: 38px; height: 38px; }
+  .pf-hub-label { font-size: 9px; margin-top: 6px; letter-spacing: 0.12em; }
   .pf-hub-opensource {
     font-size: 8px;
-    padding: 3px 7px;
-    margin-top: 6px;
+    padding: 4px 8px;
+    margin-top: 8px;
     gap: 4px;
   }
-
-  .pf-hub-opensource-icon {
-    width: 11px;
-    height: 11px;
-  }
-
+  .pf-hub-opensource-icon { width: 11px; height: 11px; }
   .pf-ukraine-qr {
     max-width: min(200px, 72vw);
-    margin-top: 6px;
+    margin-top: 8px;
   }
 }
 
@@ -2433,7 +2121,6 @@ a.pf-node {
   .pf-graph {
     --pf-side: min(calc(100vw - 16px), calc(100vh - 200px), 920px);
   }
-
   @supports (height: 100dvh) {
     .pf-graph {
       --pf-side: min(calc(100vw - 16px), calc(100dvh - 200px), 920px);
@@ -2441,35 +2128,30 @@ a.pf-node {
   }
 
   .pf-node {
-    min-width: 80px;
+    min-width: 90px;
+    max-width: 118px;
+    padding: 9px 6px;
+  }
+  .pf-node-value { font-size: 14px; }
+
+  #pf-node-ev {
+    min-width: 84px;
     max-width: 108px;
-    padding: 6px 4px;
+    padding: 8px 5px;
   }
+  #pf-node-ev .pf-node-icon__tesla { height: 2em; }
+  #pf-node-ev .pf-node-value { font-size: 13px; }
 
-  .pf-node-value {
-    font-size: 12px;
-  }
+  .pf-hub { max-width: min(96px, 34vw); }
+  .pf-hub-logo { width: 32px; height: 32px; }
 
-  .pf-hub {
-    max-width: min(96px, 34vw);
-  }
-
-  .pf-hub-logo {
-    width: 30px;
-    height: 30px;
-  }
-
-  /* ROI: single column so EV/DAM/Mining stay readable */
-  .pf-roi-stack-bar {
-    grid-template-columns: 1fr;
-  }
-
-  .pf-roi-stack-seg--load {
-    grid-column: 1;
-  }
+  .pf-roi-stack-bar { grid-template-columns: 1fr; }
+  .pf-roi-stack-seg--load { grid-column: 1; }
 }
 
-/* Discharge confirmation dialog */
+/* ─────────────────────────────────────────────────────────────
+ * Modals.
+ * ───────────────────────────────────────────────────────────── */
 .pf-modal-backdrop {
   position: fixed;
   inset: 0;
@@ -2482,27 +2164,25 @@ a.pf-node {
     max(20px, env(safe-area-inset-bottom, 0px))
     max(16px, env(safe-area-inset-left, 0px));
   box-sizing: border-box;
-  background: rgba(6, 1, 10, 0.78);
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
+  background: rgba(0, 0, 0, 0.65);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
 }
 
 .pf-modal {
   width: 100%;
   max-width: 20rem;
-  padding: 18px 18px 16px;
-  background: var(--pf-surface);
-  border: 1px solid var(--pf-border);
+  padding: 20px 20px 18px;
+  background: var(--pf-surface-elev);
+  border: 1px solid var(--pf-border-strong);
   border-radius: 14px;
-  box-shadow:
-    0 0 0 1px rgba(252, 1, 155, 0.12),
-    0 16px 48px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
 }
 
 .pf-modal-message {
   margin: 0 0 16px;
   font-size: 14px;
-  line-height: 1.45;
+  line-height: 1.5;
   color: var(--pf-label);
   font-variant-numeric: tabular-nums;
 }
@@ -2515,9 +2195,11 @@ a.pf-node {
 }
 
 .pf-modal-pin-label {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  color: var(--pf-muted, rgba(255, 255, 255, 0.65));
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--pf-text-secondary);
 }
 
 .pf-modal-pin-input {
@@ -2525,25 +2207,27 @@ a.pf-node {
   max-width: 220px;
   box-sizing: border-box;
   font: inherit;
+  font-family: var(--pf-font-mono);
   font-size: 15px;
   font-variant-numeric: tabular-nums;
-  padding: 8px 10px;
-  border-radius: 10px;
+  padding: 9px 12px;
+  border-radius: 8px;
   border: 1px solid var(--pf-border);
-  background: rgba(0, 0, 0, 0.35);
+  background: rgba(0, 0, 0, 0.25);
   color: var(--pf-label);
+  letter-spacing: 0.1em;
 }
 
 .pf-modal-pin-input:focus-visible {
-  outline: 2px solid rgba(252, 1, 155, 0.45);
+  outline: 2px solid var(--pf-accent-focus);
   outline-offset: 2px;
 }
 
 .pf-modal-pin-error {
   margin: -8px 0 12px;
   font-size: 13px;
-  line-height: 1.35;
-  color: #ff8a8a;
+  line-height: 1.4;
+  color: var(--pf-up);
 }
 
 .pf-modal-actions {
@@ -2558,44 +2242,106 @@ a.pf-node {
   margin: 0;
   cursor: pointer;
   font: inherit;
+  font-family: var(--pf-font-sans);
   font-size: 13px;
   font-weight: 600;
   line-height: 1.2;
-  border-radius: 10px;
-  padding: 8px 14px;
+  border-radius: 8px;
+  padding: 9px 16px;
   border: 1px solid var(--pf-border);
   color: var(--pf-label);
   white-space: nowrap;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
-.pf-modal-btn--secondary {
-  background: rgba(36, 10, 48, 0.65);
-}
-
-.pf-modal-btn--secondary:hover {
-  border-color: rgba(252, 1, 155, 0.4);
-}
+.pf-modal-btn--secondary { background: var(--pf-surface); }
+.pf-modal-btn--secondary:hover { border-color: var(--pf-border-strong); background: var(--pf-surface-elev); }
 
 .pf-modal-btn--primary {
-  background: linear-gradient(
-    180deg,
-    rgba(252, 1, 155, 0.22) 0%,
-    rgba(36, 10, 48, 0.95) 100%
-  );
-  border-color: rgba(252, 1, 155, 0.45);
+  background: var(--pf-pink);
+  border-color: var(--pf-pink);
+  color: #fff;
 }
 
 .pf-modal-btn--primary:hover {
-  border-color: rgba(252, 1, 155, 0.62);
+  background: #d40183;
+  border-color: #d40183;
 }
 
 .pf-modal-btn:focus-visible {
-  outline: 2px solid var(--pf-pink-soft);
+  outline: 2px solid var(--pf-accent-focus);
   outline-offset: 2px;
 }
 
-.pf-modal--deye-command {
-  max-width: 22rem;
+.pf-modal--deye-command { max-width: 22rem; }
+
+.pf-node-popup-backdrop {
+  z-index: 3200;
+}
+
+.pf-node-popup-modal {
+  width: min(92vw, 360px);
+  max-width: min(92vw, 360px);
+  padding: 16px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.pf-node-popup-tile {
+  position: relative;
+  width: 100%;
+  min-width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 16px 14px;
+  border-radius: 20px;
+  align-items: center;
+  text-align: center;
+  cursor: default;
+}
+
+.pf-node-popup-tile .pf-node-icon {
+  font-size: 42px;
+  margin-bottom: 8px;
+}
+
+.pf-node-popup-tile .pf-node-label {
+  font-size: 16px;
+  line-height: 1.2;
+  margin-bottom: 4px;
+}
+
+.pf-node-popup-tile .pf-node-value {
+  font-size: 34px;
+  line-height: 1.1;
+}
+
+.pf-node-popup-tile .pf-node-sub,
+.pf-node-popup-tile .pf-ess-status {
+  font-size: 19px;
+  margin-top: 8px;
+}
+
+.pf-node-popup-tile .pf-node-meta {
+  font-size: 16px;
+  margin-top: 8px;
+}
+
+.pf-node-popup-tile .pf-node-icon--inline-count {
+  font-size: 24px;
+}
+
+.pf-node-popup-tile .pf-node-icon__tesla {
+  height: 3.2em;
+}
+
+.pf-node-popup-link {
+  width: 100%;
+  text-align: center;
+  text-decoration: none;
+  box-sizing: border-box;
 }
 
 .pf-modal-loading {
@@ -2608,38 +2354,30 @@ a.pf-node {
 
 .pf-modal-spinner {
   box-sizing: border-box;
-  width: 42px;
-  height: 42px;
+  width: 38px;
+  height: 38px;
   margin: 0 0 14px;
-  border: 3px solid rgba(252, 1, 155, 0.18);
-  border-top-color: rgba(252, 1, 155, 0.88);
+  border: 2px solid var(--pf-border);
+  border-top-color: var(--pf-pink);
   border-radius: 50%;
   animation: pf-modal-spin 0.8s linear infinite;
 }
 
-@keyframes pf-modal-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
+@keyframes pf-modal-spin { to { transform: rotate(360deg); } }
 
-.pf-modal-message--multiline {
-  white-space: pre-line;
-}
+.pf-modal-message--multiline { white-space: pre-line; }
+.pf-modal-message--error { color: var(--pf-up); }
 
-.pf-modal-message--error {
-  color: #fca5a5;
-}
-
-/* Add Deye inverter — B2B-style messenger modal (220-km.com/b2b) */
+/* Add-Deye button. */
 .pf-add-deye-btn {
   margin: 0;
   cursor: pointer;
   color: var(--pf-label);
   background: var(--pf-surface);
   border: 1px solid var(--pf-border);
-  border-radius: 10px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  box-shadow: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .pf-header .pf-station-field.pf-inverter-field .pf-add-deye-btn {
@@ -2647,28 +2385,33 @@ a.pf-node {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: calc(var(--pf-header-control-h, 38px) * 0.47);
-  font-weight: 700;
+  font-size: calc(var(--pf-header-control-h, 36px) * 0.5);
+  font-weight: 400;
   letter-spacing: 0;
   line-height: 1;
   text-align: center;
   white-space: nowrap;
+  color: var(--pf-text-secondary);
 }
 
 .pf-add-deye-btn:hover {
-  border-color: rgba(252, 1, 155, 0.45);
+  border-color: var(--pf-border-strong);
+  background: var(--pf-surface-elev);
+  color: var(--pf-label);
 }
 
 .pf-add-deye-btn:focus-visible {
-  outline: 2px solid var(--pf-pink-soft);
+  outline: 2px solid var(--pf-accent-focus);
   outline-offset: 2px;
 }
 
-/* ROI stack statistics (Power flow header) */
+/* ─────────────────────────────────────────────────────────────
+ * ROI card.
+ * ───────────────────────────────────────────────────────────── */
 .pf-roi-stack {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
   min-width: 0;
 }
@@ -2676,18 +2419,18 @@ a.pf-node {
 .pf-roi-setup-btn {
   width: 100%;
   box-sizing: border-box;
-  padding: 6px 8px;
+  padding: 8px 10px;
   font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
 }
 
 .pf-roi-card {
-  padding: 10px 10px 12px;
-  border-radius: 10px;
+  padding: 14px;
+  border-radius: 12px;
   border: 1px solid var(--pf-border);
   background: var(--pf-surface);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  box-shadow: none;
   box-sizing: border-box;
 }
 
@@ -2696,9 +2439,9 @@ a.pf-node {
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 10px 16px;
-  margin-bottom: 10px;
+  margin-bottom: 14px;
   font-size: 12px;
-  line-height: 1.35;
+  line-height: 1.45;
 }
 
 .pf-roi-meta-col {
@@ -2708,76 +2451,48 @@ a.pf-node {
   min-width: 0;
 }
 
-.pf-roi-meta-right {
-  text-align: right;
-}
+.pf-roi-meta-right { text-align: right; }
 
 .pf-roi-meta-line {
   color: var(--pf-label);
   word-break: break-word;
 }
 
-/* ROI payback years — neon accent + slow blink (opacity + glow pulse) */
-@keyframes pf-roi-neon-blink {
-  0%,
-  100% {
-    opacity: 1;
-    text-shadow:
-      0 0 6px rgba(252, 1, 155, 0.55),
-      0 0 14px rgba(232, 121, 249, 0.4),
-      0 0 24px rgba(200, 61, 197, 0.25),
-      0 1px 2px rgba(0, 0, 0, 0.45);
-  }
-  50% {
-    opacity: 0.52;
-    text-shadow:
-      0 0 3px rgba(252, 1, 155, 0.22),
-      0 0 7px rgba(232, 121, 249, 0.18),
-      0 0 12px rgba(200, 61, 197, 0.12),
-      0 1px 2px rgba(0, 0, 0, 0.45);
-  }
-}
-
+/* ROI payback years — quiet accent, no neon, no blink. */
 .pf-roi-years-neon {
-  color: #f9a8ef;
+  color: var(--pf-pink);
   font-weight: 600;
-  letter-spacing: 0.02em;
-  text-shadow:
-    0 0 6px rgba(252, 1, 155, 0.55),
-    0 0 14px rgba(232, 121, 249, 0.4),
-    0 0 24px rgba(200, 61, 197, 0.25),
-    0 1px 2px rgba(0, 0, 0, 0.45);
-  animation: pf-roi-neon-blink 3.5s ease-in-out infinite;
+  font-family: var(--pf-font-mono);
+  letter-spacing: 0;
+  text-shadow: none;
+  animation: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pf-roi-years-neon {
-    animation: none;
-  }
+  .pf-roi-years-neon { animation: none; }
 }
 
 .pf-roi-prev-month-delta {
   font-weight: 500;
-  color: rgba(255, 248, 252, 0.88);
+  color: var(--pf-text-secondary);
   text-shadow: none;
+  font-family: var(--pf-font-mono);
 }
 
-.pf-roi-meta-muted {
-  opacity: 0.82;
-}
+.pf-roi-meta-muted { color: var(--pf-text-muted); }
 
 .pf-roi-hint {
-  margin: 0 0 8px;
+  margin: 0 0 10px;
   font-size: 11px;
-  line-height: 1.35;
-  color: rgba(250, 250, 250, 0.65);
+  line-height: 1.5;
+  color: var(--pf-text-muted);
 }
 
 .pf-roi-stack-bar {
   display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
-  gap: 6px;
+  gap: 8px;
   align-items: stretch;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
@@ -2788,21 +2503,22 @@ a.pf-node {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 2px;
-  padding: 8px 8px;
+  gap: 3px;
+  padding: 10px;
   border-radius: 8px;
-  border: 1px solid rgba(252, 1, 155, 0.22);
+  border: 1px solid var(--pf-border);
   box-sizing: border-box;
   min-height: 48px;
   min-width: 0;
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .pf-roi-stack-seg--load {
   flex: 2 1 200px;
-  background: linear-gradient(135deg, rgba(34, 197, 94, 0.22), rgba(16, 185, 129, 0.12));
+  background: rgba(126, 200, 138, 0.06);
+  border-color: rgba(126, 200, 138, 0.18);
 }
 
-/* Title + value on one line (Consumption first, then kWh). */
 .pf-roi-stack-seg--head-inline {
   flex-direction: row;
   align-items: center;
@@ -2811,10 +2527,7 @@ a.pf-node {
   gap: 6px 10px;
 }
 
-.pf-roi-stack-seg--head-inline .pf-roi-stack-seg-title {
-  flex: 0 0 auto;
-}
-
+.pf-roi-stack-seg--head-inline .pf-roi-stack-seg-title { flex: 0 0 auto; }
 .pf-roi-stack-seg--head-inline .pf-roi-stack-seg-sub {
   flex: 1 1 auto;
   min-width: 0;
@@ -2823,16 +2536,16 @@ a.pf-node {
 
 .pf-roi-stack-seg--placeholder {
   flex: 1 1 72px;
-  opacity: 0.88;
-  background: rgba(0, 0, 0, 0.2);
+  opacity: 0.85;
+  background: rgba(0, 0, 0, 0.15);
 }
 
 .pf-roi-stack-seg-title {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--pf-label);
+  color: var(--pf-text-secondary);
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
@@ -2841,9 +2554,11 @@ a.pf-node {
 }
 
 .pf-roi-stack-seg-sub {
+  font-family: var(--pf-font-mono);
   font-size: 11px;
-  line-height: 1.3;
-  color: rgba(250, 250, 250, 0.78);
+  line-height: 1.35;
+  color: var(--pf-label);
+  font-variant-numeric: tabular-nums;
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
@@ -2852,17 +2567,19 @@ a.pf-node {
 }
 
 .pf-roi-stack-seg-rate {
+  font-family: var(--pf-font-mono);
   font-size: 10px;
-  line-height: 1.35;
-  color: rgba(250, 250, 250, 0.62);
+  line-height: 1.4;
+  color: var(--pf-text-muted);
   margin-top: 2px;
+  font-variant-numeric: tabular-nums;
 }
 
 .pf-roi-modal-label {
   display: block;
   margin: 0 0 8px;
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.88);
+  font-size: 13px;
+  color: var(--pf-text-secondary);
   text-align: left;
 }
 
@@ -2872,22 +2589,23 @@ a.pf-node {
   margin-bottom: 16px;
   padding: 10px 12px;
   border-radius: 8px;
-  border: 1px solid rgba(252, 1, 155, 0.35);
-  background: rgba(0, 0, 0, 0.35);
-  color: #fff;
+  border: 1px solid var(--pf-border);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--pf-label);
   font-size: 16px;
+  font-family: var(--pf-font-mono);
 }
 
 .pf-roi-modal-input:focus-visible {
-  outline: 2px solid var(--pf-pink-soft);
+  outline: 2px solid var(--pf-accent-focus);
   outline-offset: 2px;
 }
 
 .pf-roi-modal-error {
   margin: 0 0 12px;
   font-size: 13px;
-  line-height: 1.35;
-  color: #fca5a5;
+  line-height: 1.4;
+  color: var(--pf-up);
 }
 
 .pf-roi-modal-actions {
@@ -2899,30 +2617,38 @@ a.pf-node {
 .pf-roi-modal-btn {
   appearance: none;
   cursor: pointer;
-  padding: 10px 14px;
-  border-radius: 10px;
+  padding: 11px 14px;
+  border-radius: 8px;
   border: 1px solid var(--pf-border);
   background: var(--pf-surface);
   color: var(--pf-label);
   font-size: 14px;
   font-weight: 600;
+  font-family: var(--pf-font-sans);
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
-.pf-roi-modal-btn:hover {
-  border-color: rgba(252, 1, 155, 0.45);
-}
+.pf-roi-modal-btn:hover { border-color: var(--pf-border-strong); background: var(--pf-surface-elev); }
 
 .pf-roi-modal-btn--primary {
-  border-color: rgba(252, 1, 155, 0.55);
-  background: rgba(168, 85, 247, 0.2);
+  border-color: var(--pf-pink);
+  background: var(--pf-pink);
+  color: #fff;
 }
 
+.pf-roi-modal-btn--primary:hover {
+  background: #d40183;
+  border-color: #d40183;
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * Messenger / share modals.
+ * ───────────────────────────────────────────────────────────── */
 .pf-messenger-scrim {
   position: fixed;
   inset: 0;
   z-index: 10000;
   display: flex;
-  /* Top-align so tall modals are not clipped above the fold (center would cut off header + close). */
   align-items: flex-start;
   justify-content: center;
   overflow-y: auto;
@@ -2932,8 +2658,8 @@ a.pf-node {
     max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
   box-sizing: border-box;
   background: rgba(0, 0, 0, 0.55);
-  -webkit-backdrop-filter: blur(2px);
-  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
 }
 
 .pf-messenger-dialog {
@@ -2950,11 +2676,12 @@ a.pf-node {
 
 .pf-messenger-panel {
   position: relative;
-  padding: 24px 20px;
+  padding: 24px 22px;
   text-align: center;
-  background: #2d2d33;
-  border-radius: 12px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  background: var(--pf-surface-elev);
+  border: 1px solid var(--pf-border-strong);
+  border-radius: 14px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
 }
 
 .pf-messenger-deye-header {
@@ -2962,7 +2689,7 @@ a.pf-node {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
   text-align: left;
 }
 
@@ -2970,10 +2697,10 @@ a.pf-node {
   margin: 0;
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 600;
-  line-height: 1.35;
-  color: #fff;
+  line-height: 1.4;
+  color: var(--pf-label);
   text-align: left;
 }
 
@@ -2983,33 +2710,30 @@ a.pf-node {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   margin: 0;
   padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  border-radius: 12px;
-  background: rgba(48, 48, 56, 0.98);
-  color: #fff;
-  font-size: 28px;
-  font-weight: 300;
+  border: 1px solid var(--pf-border);
+  border-radius: 10px;
+  background: var(--pf-surface);
+  color: var(--pf-label);
+  font-size: 24px;
+  font-weight: 400;
   line-height: 1;
   cursor: pointer;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
-  transition:
-    background 0.15s ease,
-    border-color 0.15s ease,
-    color 0.15s ease;
+  box-shadow: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .pf-messenger-close:hover {
-  background: rgba(252, 1, 155, 0.28);
-  border-color: rgba(252, 1, 155, 0.65);
-  color: #fff;
+  background: var(--pf-surface-elev);
+  border-color: var(--pf-border-strong);
+  color: var(--pf-label);
 }
 
 .pf-messenger-close:focus-visible {
-  outline: 2px solid rgba(252, 1, 155, 0.75);
+  outline: 2px solid var(--pf-accent-focus);
   outline-offset: 2px;
 }
 
@@ -3018,56 +2742,54 @@ a.pf-node {
   width: 100%;
   margin-top: 14px;
   padding: 12px 16px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  background: rgba(24, 8, 32, 0.85);
-  color: rgba(255, 255, 255, 0.95);
-  font-size: 15px;
+  border-radius: 10px;
+  border: 1px solid var(--pf-border);
+  background: var(--pf-surface);
+  color: var(--pf-label);
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  transition:
-    background 0.15s ease,
-    border-color 0.15s ease;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .pf-messenger-close-footer:hover {
-  border-color: rgba(252, 1, 155, 0.45);
-  background: rgba(252, 1, 155, 0.12);
+  border-color: var(--pf-border-strong);
+  background: var(--pf-surface-elev);
 }
 
 .pf-messenger-close-footer:focus-visible {
-  outline: 2px solid rgba(252, 1, 155, 0.75);
+  outline: 2px solid var(--pf-accent-focus);
   outline-offset: 2px;
 }
 
 .pf-messenger-title {
-  margin: 0 0 20px;
-  font-size: 18px;
+  margin: 0 0 18px;
+  font-size: 17px;
   font-weight: 600;
-  line-height: 1.35;
-  color: #fff;
+  line-height: 1.4;
+  color: var(--pf-label);
 }
 
 .pf-messenger-subtitle {
   margin: 14px 0 16px;
   font-size: 13px;
-  line-height: 1.35;
-  color: rgba(255, 255, 255, 0.8);
+  line-height: 1.45;
+  color: var(--pf-text-secondary);
 }
 
 .pf-add-deye-carousel {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .pf-add-deye-carousel__image {
   width: 100%;
   max-height: min(56vh, 520px);
   object-fit: contain;
-  border-radius: 12px;
-  border: 1px solid rgba(252, 1, 155, 0.24);
-  background: rgba(14, 14, 18, 0.9);
+  border-radius: 10px;
+  border: 1px solid var(--pf-border);
+  background: rgba(0, 0, 0, 0.25);
 }
 
 .pf-add-deye-carousel__progress {
@@ -3078,18 +2800,18 @@ a.pf-node {
 }
 
 .pf-add-deye-carousel__dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 999px;
   border: 0;
   padding: 0;
-  background: rgba(255, 255, 255, 0.35);
+  background: var(--pf-border-strong);
   cursor: pointer;
 }
 
 .pf-add-deye-carousel__dot.is-active {
-  background: rgba(252, 1, 155, 0.92);
-  box-shadow: 0 0 8px rgba(252, 1, 155, 0.4);
+  background: var(--pf-pink);
+  box-shadow: none;
 }
 
 .pf-add-deye-carousel__controls {
@@ -3102,29 +2824,38 @@ a.pf-node {
   flex: 1 1 0;
   min-height: 38px;
   padding: 8px 12px;
-  border-radius: 10px;
-  border: 1px solid rgba(252, 1, 155, 0.3);
-  background: rgba(24, 6, 32, 0.7);
-  color: rgba(255, 255, 255, 0.95);
+  border-radius: 8px;
+  border: 1px solid var(--pf-border);
+  background: var(--pf-surface);
+  color: var(--pf-label);
   font-size: 13px;
   font-weight: 600;
+  font-family: var(--pf-font-sans);
   cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
-.pf-add-deye-carousel__nav-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+.pf-add-deye-carousel__nav-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.pf-add-deye-carousel__nav-btn:hover:not(:disabled) {
+  border-color: var(--pf-border-strong);
+  background: var(--pf-surface-elev);
 }
 
 .pf-add-deye-carousel__nav-btn--primary {
-  border-color: rgba(252, 1, 155, 0.55);
-  background: linear-gradient(180deg, rgba(252, 1, 155, 0.18) 0%, rgba(36, 10, 48, 0.95) 100%);
+  border-color: var(--pf-pink);
+  background: var(--pf-pink);
+  color: #fff;
+}
+
+.pf-add-deye-carousel__nav-btn--primary:hover:not(:disabled) {
+  background: #d40183;
+  border-color: #d40183;
 }
 
 .pf-messenger-actions {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .pf-messenger-icon-btn {
@@ -3132,36 +2863,31 @@ a.pf-node {
   align-items: center;
   justify-content: center;
   width: 100%;
-  min-height: 56px;
+  min-height: 52px;
   margin: 0;
   padding: 0;
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: 10px;
   cursor: pointer;
   color: #fff;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
-  transition:
-    filter 0.15s ease,
-    box-shadow 0.15s ease;
+  box-shadow: none;
+  transition: filter 0.15s ease, transform 0.15s ease;
 }
 
-.pf-messenger-icon-btn:hover {
-  filter: brightness(1.06);
-}
-
+.pf-messenger-icon-btn:hover { filter: brightness(1.06); transform: translateY(-1px); }
 .pf-messenger-icon-btn:focus-visible {
   outline: 2px solid rgba(255, 255, 255, 0.85);
   outline-offset: 3px;
 }
 
 .pf-messenger-icon-btn--telegram {
-  background: linear-gradient(145deg, #2aabee 0%, #0088cc 100%);
-  border-color: #0077b5;
+  background: #2aabee;
+  border-color: #2aabee;
 }
 
 .pf-messenger-icon-btn--whatsapp {
-  background: linear-gradient(145deg, #3fe27c 0%, #25d366 55%, #128c7e 100%);
-  border-color: #1da851;
+  background: #25d366;
+  border-color: #25d366;
 }
 
 .pf-landing-totals__counter-wrap--export-chart-trigger {
@@ -3177,16 +2903,14 @@ a.pf-node {
 }
 
 .pf-landing-totals__counter-wrap--export-chart-trigger:focus-visible {
-  outline: 2px solid rgba(192, 132, 252, 0.95);
+  outline: 2px solid var(--pf-accent-focus);
   outline-offset: 2px;
-  border-radius: 12px;
+  border-radius: 14px;
 }
 
 .pf-messenger-scrim.pf-messenger-scrim--220km {
   align-items: center;
   background: rgba(0, 0, 0, 0.65);
-  -webkit-backdrop-filter: blur(3px);
-  backdrop-filter: blur(3px);
 }
 
 .pf-peak-hourly-chart-dialog.pf-messenger-dialog {
@@ -3195,79 +2919,66 @@ a.pf-node {
 }
 
 .pf-peak-hourly-chart-panel {
-  padding: 20px 20px 24px;
+  padding: 22px 22px 24px;
   text-align: left;
-  font-family:
-    'Open Sans',
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    Roboto,
-    sans-serif;
-  color: var(--km220-text);
-  background:
-    linear-gradient(var(--km220-card) 0%, var(--km220-card) 100%) padding-box,
-    var(--km220-border-gradient) border-box;
-  border: 3px solid transparent;
-  border-radius: var(--km220-radius);
-  box-shadow: 2px 4px 20px rgba(0, 0, 0, 0.4);
+  font-family: var(--pf-font-sans);
+  color: var(--pf-label);
+  background: var(--pf-surface-elev);
+  border: 1px solid var(--pf-border-strong);
+  border-radius: 14px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
 }
 
 .pf-peak-hourly-chart-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: 14px;
+  margin-bottom: 14px;
 }
 
 .pf-peak-hourly-chart-title {
   margin: 0;
-  font-size: calc(1rem + 0.35vw);
-  font-weight: 700;
-  line-height: 1.35;
-  color: var(--km220-text);
+  font-size: clamp(1rem, 1rem + 0.25vw, 1.25rem);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--pf-label);
+  letter-spacing: -0.005em;
 }
 
 .pf-peak-hourly-chart-close {
   flex-shrink: 0;
   margin: 0;
-  padding: 10px 18px;
-  font-family: inherit;
-  font-size: 14px;
+  padding: 9px 16px;
+  font-family: var(--pf-font-sans);
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  color: #fff;
-  border: 3px solid transparent;
-  border-radius: var(--km220-radius-sm);
-  background:
-    var(--km220-primary-gradient) padding-box,
-    var(--km220-border-gradient) border-box;
-  box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.3);
-  transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease;
+  color: var(--pf-label);
+  border: 1px solid var(--pf-border);
+  border-radius: 8px;
+  background: var(--pf-surface);
+  box-shadow: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .pf-peak-hourly-chart-close:hover {
-  transform: translateY(-1px);
-  box-shadow: 2px 4px 12px rgba(143, 0, 255, 0.35);
+  border-color: var(--pf-border-strong);
+  background: var(--pf-surface-elev);
 }
 
 .pf-peak-hourly-chart-close:focus-visible {
-  outline: 2px solid rgba(143, 0, 255, 0.45);
+  outline: 2px solid var(--pf-accent-focus);
   outline-offset: 2px;
 }
 
 .pf-peak-hourly-chart-status {
   margin: 0 0 12px;
-  font-size: 14px;
-  color: var(--km220-text-muted);
+  font-size: 13px;
+  color: var(--pf-text-secondary);
 }
 
-.pf-peak-hourly-chart-status--error {
-  color: #f87171;
-}
+.pf-peak-hourly-chart-status--error { color: var(--pf-up); }
 
 .pf-peak-hourly-chart-scroll {
   overflow-x: auto;
@@ -3277,73 +2988,59 @@ a.pf-node {
 
 .pf-peak-hourly-chart-inner {
   min-height: 420px;
-  background: var(--km220-input-bg);
-  border-radius: var(--km220-radius-sm);
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--pf-border);
+  border-radius: 10px;
 }
 
 .pf-peak-hourly-chart-tooltip {
   padding: 10px 12px;
-  border-radius: var(--km220-radius-sm);
-  background: var(--km220-input-bg);
-  border: 2px solid var(--km220-input-border);
-  color: var(--km220-text);
+  border-radius: 8px;
+  background: var(--pf-surface-elev);
+  border: 1px solid var(--pf-border-strong);
+  color: var(--pf-label);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
 }
 
 .pf-peak-hourly-chart-tooltip__line {
   margin: 2px 0;
   font-size: 13px;
+  font-family: var(--pf-font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .pf-peak-hourly-chart-tooltip__line:first-child {
+  font-family: var(--pf-font-sans);
   font-weight: 600;
   margin-bottom: 6px;
 }
 
-.pf-monthly-rates-chart-title {
-  max-width: 44rem;
-}
+.pf-monthly-rates-chart-title { max-width: 44rem; }
 
 .pf-monthly-rates-chart-inner {
-  padding: 10px 12px 6px;
+  padding: 12px 14px 8px;
   box-sizing: border-box;
 }
 
-.pf-monthly-rates-chart-tooltip__line {
-  line-height: 1.45;
-}
+.pf-monthly-rates-chart-tooltip__line { line-height: 1.5; }
 
 @media (max-width: 640px) {
   .pf-peak-hourly-chart-dialog.pf-messenger-dialog {
     width: calc(100vw - max(12px, env(safe-area-inset-left, 0px) + env(safe-area-inset-right, 0px)));
     max-width: calc(100vw - max(12px, env(safe-area-inset-left, 0px) + env(safe-area-inset-right, 0px)));
   }
-
   .pf-peak-hourly-chart-panel {
-    padding: 18px max(18px, env(safe-area-inset-right, 0px)) 22px max(18px, env(safe-area-inset-left, 0px));
+    padding: 20px max(18px, env(safe-area-inset-right, 0px)) 22px max(18px, env(safe-area-inset-left, 0px));
   }
-
-  .pf-peak-hourly-chart-head {
-    margin-bottom: 16px;
-  }
-
-  .pf-peak-hourly-chart-title {
-    font-size: 0.95rem;
-    line-height: 1.32;
-  }
-
-  .pf-peak-hourly-chart-inner {
-    padding: 10px 12px;
-    box-sizing: border-box;
-  }
-
-  .pf-monthly-rates-chart-inner {
-    padding: 12px 10px 6px;
-  }
+  .pf-peak-hourly-chart-head { margin-bottom: 14px; }
+  .pf-peak-hourly-chart-title { font-size: 0.98rem; line-height: 1.4; }
+  .pf-peak-hourly-chart-inner { padding: 10px 12px; box-sizing: border-box; }
+  .pf-monthly-rates-chart-inner { padding: 12px 10px 6px; }
 }
 
-/* ─── Theme toggle button ──────────────────────────────────────────────────── */
-
+/* ─────────────────────────────────────────────────────────────
+ * Theme toggle.
+ * ───────────────────────────────────────────────────────────── */
 .pf-theme-btn {
   display: inline-flex;
   align-items: center;
@@ -3357,496 +3054,418 @@ a.pf-node {
   color: var(--pf-label);
   background: var(--pf-surface);
   border: 1px solid var(--pf-border);
-  border-radius: 10px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  box-shadow: none;
   transition: border-color 0.15s ease, background 0.15s ease;
   flex-shrink: 0;
 }
 
 .pf-theme-btn:hover {
-  border-color: rgba(252, 1, 155, 0.55);
-  background: var(--pf-surface);
+  border-color: var(--pf-border-strong);
+  background: var(--pf-surface-elev);
 }
 
 .pf-theme-btn:focus-visible {
-  outline: 2px solid rgba(252, 1, 155, 0.55);
+  outline: 2px solid var(--pf-accent-focus);
   outline-offset: 2px;
 }
 
-/* In the top bar context, match the size of other controls */
 .pf-top-bar .pf-theme-btn {
   background: var(--km220-card);
   color: var(--km220-text);
-  border-color: rgba(193, 0, 185, 0.38);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  height: var(--pf-header-control-h, 38px);
-  min-height: var(--pf-header-control-h, 38px);
+  border-color: var(--km220-input-border);
+  box-shadow: none;
+  height: var(--pf-header-control-h, 36px);
+  min-height: var(--pf-header-control-h, 36px);
 }
 
-/* ─── Light theme — set via [data-theme="light"] or system preference ──────── */
+/* ─────────────────────────────────────────────────────────────
+ * Light theme — warm off-white, near-neutral, single accent.
+ * ───────────────────────────────────────────────────────────── */
 
 [data-theme="light"] {
-  --pf-body-bg: #faf5ff;
-  --pf-page-bg: radial-gradient(ellipse 120% 80% at 50% 20%, #f3e8ff 0%, #faf5ff 55%, #ffffff 100%);
+  --pf-body-bg: #f7f5f1;
+  --pf-page-bg: #f7f5f1;
+  --pf-surface: rgba(255, 255, 255, 0.78);
+  --pf-surface-elev: rgba(255, 255, 255, 0.94);
+  --pf-border: rgba(20, 22, 28, 0.10);
+  --pf-border-strong: rgba(20, 22, 28, 0.18);
+  --pf-divider: rgba(20, 22, 28, 0.08);
 
-  --pf-line-idle: rgba(193, 0, 185, 0.10);
-  --pf-surface: rgba(255, 255, 255, 0.88);
-  --pf-border: rgba(193, 0, 185, 0.22);
-  --pf-label: rgba(20, 5, 30, 0.92);
-  --pf-value: #9000c2;
-  --pf-icon: #c100b9;
+  --pf-line-idle: rgba(20, 22, 28, 0.10);
 
-  --pf-text-secondary: rgba(20, 5, 30, 0.68);
-  --pf-text-muted: rgba(20, 5, 30, 0.52);
-  --pf-text-hint: rgba(20, 5, 30, 0.40);
-  --pf-text-loading: rgba(20, 5, 30, 0.58);
-  --pf-text-footnote: rgba(20, 5, 30, 0.42);
-  --pf-text-trade: rgba(20, 5, 30, 0.58);
+  --pf-label: rgba(16, 18, 22, 0.92);
+  --pf-text: rgba(16, 18, 22, 0.92);
+  --pf-value: rgba(16, 18, 22, 1);
+  --pf-icon: rgba(16, 18, 22, 0.85);
 
-  --km220-bg: #f7f0ff;
+  --pf-text-secondary: rgba(16, 18, 22, 0.62);
+  --pf-text-muted: rgba(16, 18, 22, 0.46);
+  --pf-text-hint: rgba(16, 18, 22, 0.34);
+  --pf-text-loading: rgba(16, 18, 22, 0.54);
+  --pf-text-footnote: rgba(16, 18, 22, 0.40);
+  --pf-text-trade: rgba(16, 18, 22, 0.54);
+
+  --pf-up: #c1453d;
+  --pf-down: #2f7a4b;
+
+  --km220-bg: #f7f5f1;
   --km220-card: #ffffff;
-  --km220-text: #1a0a1e;
-  --km220-text-muted: #6b5b7b;
-  --km220-input-bg: #f0e8ff;
-  --km220-input-border: #c8b0e0;
-  --pf-text: rgba(20, 5, 30, 0.92);
+  --km220-text: #15171c;
+  --km220-text-muted: #6a6f78;
+  --km220-input-bg: #ffffff;
+  --km220-input-border: rgba(20, 22, 28, 0.14);
 }
 
-[data-theme="light"] .pf-roi-bar {
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.94) 0%,
-    rgba(247, 240, 255, 0.9) 100%
-  );
-  border: 1px solid rgba(193, 0, 185, 0.18);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 1px 4px rgba(0, 0, 0, 0.06);
+[data-theme="light"] .pf-top-bar {
+  background: rgba(247, 245, 241, 0.92);
+  border-bottom: 1px solid var(--pf-divider);
 }
 
+[data-theme="light"] .pf-page-rest-pending-overlay {
+  background: rgba(247, 245, 241, 0.55);
+}
+
+[data-theme="light"] .pf-roi-bar,
 [data-theme="light"] .pf-discharge-toolbar {
-  background: rgba(255, 255, 255, 0.94);
-  border: 1px solid rgba(193, 0, 185, 0.22);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.98),
-    0 1px 4px rgba(0, 0, 0, 0.06);
+  background: #ffffff;
+  border: 1px solid var(--pf-border);
+  box-shadow: none;
 }
 
 [data-theme="light"] .pf-discharge-feedback {
   color: var(--pf-label);
-  background: var(--pf-surface);
+  background: #ffffff;
   border: 1px solid var(--pf-border);
 }
 
-[data-theme="light"] .pf-peak-dam-toggle-label {
-  color: var(--pf-text-secondary);
-}
-
+[data-theme="light"] .pf-peak-dam-toggle-label,
 [data-theme="light"] .pf-huawei-toolbar-fallback-msg {
   color: var(--pf-text-secondary);
 }
 
 [data-theme="light"] .pf-deye-command-line--charge {
-  border-top-color: rgba(193, 0, 185, 0.14);
+  border-top-color: var(--pf-divider);
 }
 
 [data-theme="light"] .pf-grid-discharge-actions--header .pf-discharge-go-btn {
-  border-color: rgba(193, 0, 185, 0.32);
-  background: linear-gradient(
-    180deg,
-    rgba(252, 1, 155, 0.08) 0%,
-    rgba(255, 255, 255, 0.96) 100%
-  );
+  border-color: var(--pf-border-strong);
+  background: #ffffff;
   color: var(--pf-label);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  box-shadow: none;
 }
 
 [data-theme="light"] .pf-grid-discharge-actions--header .pf-discharge-go-btn:hover:not(:disabled) {
-  border-color: rgba(252, 1, 155, 0.42);
-  background: linear-gradient(
-    180deg,
-    rgba(252, 1, 155, 0.12) 0%,
-    rgba(255, 255, 255, 1) 100%
-  );
+  border-color: var(--pf-pink-soft);
+  background: rgba(252, 1, 155, 0.04);
 }
 
 [data-theme="light"] .pf-charge-go-btn.pf-discharge-go-btn {
-  border-color: rgba(34, 197, 94, 0.38);
-  background: linear-gradient(
-    180deg,
-    rgba(34, 197, 94, 0.12) 0%,
-    rgba(255, 255, 255, 0.96) 100%
-  );
+  border-color: rgba(47, 122, 75, 0.35);
+  background: #ffffff;
   color: var(--pf-label);
 }
 
 [data-theme="light"] .pf-charge-go-btn.pf-discharge-go-btn:hover:not(:disabled) {
-  border-color: rgba(34, 197, 94, 0.52);
-  background: linear-gradient(
-    180deg,
-    rgba(34, 197, 94, 0.18) 0%,
-    rgba(255, 255, 255, 1) 100%
-  );
+  border-color: rgba(47, 122, 75, 0.55);
+  background: rgba(47, 122, 75, 0.04);
 }
 
-[data-theme="light"] .pf-roi-prev-month-delta {
-  color: var(--pf-text-secondary);
-  text-shadow: none;
-}
+[data-theme="light"] .pf-roi-prev-month-delta { color: var(--pf-text-secondary); text-shadow: none; }
+[data-theme="light"] .pf-roi-hint { color: var(--pf-text-muted); }
 
-[data-theme="light"] .pf-roi-hint {
-  color: var(--pf-text-muted);
+[data-theme="light"] .pf-roi-stack-seg {
+  background: #fafaf8;
+  border-color: var(--pf-border);
 }
 
 [data-theme="light"] .pf-roi-stack-seg-sub,
-[data-theme="light"] .pf-roi-stack-seg-rate {
-  color: var(--pf-text-secondary);
+[data-theme="light"] .pf-roi-stack-seg-rate { color: var(--pf-text-secondary); }
+
+[data-theme="light"] .pf-roi-stack-seg--load {
+  background: rgba(47, 122, 75, 0.06);
+  border-color: rgba(47, 122, 75, 0.18);
 }
 
 [data-theme="light"] .pf-roi-stack-seg--placeholder {
-  background: rgba(20, 5, 30, 0.06);
+  background: rgba(16, 18, 22, 0.04);
 }
 
-[data-theme="light"] .pf-roi-modal-label {
-  color: var(--pf-label);
-}
+[data-theme="light"] .pf-roi-modal-label { color: var(--pf-text-secondary); }
 
 [data-theme="light"] .pf-roi-modal-input {
-  border: 1px solid var(--km220-input-border);
+  border: 1px solid var(--pf-border-strong);
   background: #ffffff;
   color: var(--pf-label);
+}
+
+[data-theme="light"] .pf-modal {
+  background: #ffffff;
+  border: 1px solid var(--pf-border-strong);
+  box-shadow: 0 12px 40px rgba(20, 22, 28, 0.12);
+}
+
+[data-theme="light"] .pf-modal-pin-input {
+  background: #ffffff;
+  border-color: var(--pf-border-strong);
+}
+
+[data-theme="light"] .pf-discharge-go-tooltip {
+  border: 1px solid var(--pf-border-strong);
+  background: rgba(255, 255, 255, 0.98);
+  color: var(--pf-label);
+  box-shadow: 0 8px 28px rgba(20, 22, 28, 0.12);
 }
 
 [data-theme="light"] .pf-messenger-scrim {
-  background: rgba(40, 20, 55, 0.32);
+  background: rgba(20, 22, 28, 0.32);
 }
 
-[data-theme="light"] .pf-messenger-panel {
+[data-theme="light"] .pf-messenger-panel,
+[data-theme="light"] .pf-peak-hourly-chart-panel {
   background: #ffffff;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--pf-border-strong);
+  box-shadow: 0 12px 40px rgba(20, 22, 28, 0.12);
 }
 
 [data-theme="light"] .pf-messenger-title--deye,
-[data-theme="light"] .pf-messenger-title {
-  color: var(--pf-label);
-}
+[data-theme="light"] .pf-messenger-title,
+[data-theme="light"] .pf-peak-hourly-chart-title { color: var(--pf-label); }
 
-[data-theme="light"] .pf-messenger-subtitle {
-  color: var(--pf-text-secondary);
-}
+[data-theme="light"] .pf-messenger-subtitle { color: var(--pf-text-secondary); }
 
 [data-theme="light"] .pf-messenger-close {
-  border-color: rgba(20, 5, 30, 0.16);
-  background: rgba(247, 240, 255, 0.98);
+  border-color: var(--pf-border);
+  background: #ffffff;
   color: var(--pf-label);
 }
 
 [data-theme="light"] .pf-messenger-close:hover {
-  background: rgba(252, 1, 155, 0.12);
-  border-color: rgba(252, 1, 155, 0.45);
-  color: var(--pf-label);
+  background: #fafaf8;
+  border-color: var(--pf-border-strong);
 }
 
 [data-theme="light"] .pf-messenger-close-footer {
-  border-color: rgba(20, 5, 30, 0.12);
-  background: rgba(247, 240, 255, 0.96);
+  border-color: var(--pf-border);
+  background: #ffffff;
   color: var(--pf-label);
 }
 
+[data-theme="light"] .pf-messenger-close-footer:hover {
+  background: #fafaf8;
+  border-color: var(--pf-border-strong);
+}
+
+[data-theme="light"] .pf-peak-hourly-chart-close {
+  border-color: var(--pf-border-strong);
+  background: #ffffff;
+  color: var(--pf-label);
+}
+
+[data-theme="light"] .pf-peak-hourly-chart-close:hover {
+  background: #fafaf8;
+}
+
+[data-theme="light"] .pf-peak-hourly-chart-inner {
+  background: #fafaf8;
+  border: 1px solid var(--pf-border);
+}
+
+[data-theme="light"] .pf-peak-hourly-chart-tooltip {
+  background: #ffffff;
+  border: 1px solid var(--pf-border-strong);
+  box-shadow: 0 8px 28px rgba(20, 22, 28, 0.12);
+}
+
 [data-theme="light"] .pf-ukraine-qr {
-  border-color: rgba(193, 0, 185, 0.26);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.92),
-    0 0 16px rgba(252, 1, 155, 0.1),
-    0 4px 18px rgba(0, 0, 0, 0.08);
+  border-color: var(--pf-border);
+  background: #ffffff;
+  box-shadow: none;
+}
+
+[data-theme="light"] .pf-ukraine-qr-img {
+  border-color: var(--pf-border);
 }
 
 [data-theme="light"] .pf-hub-opensource {
   color: var(--pf-text-secondary);
-  border-color: rgba(193, 0, 185, 0.22);
-  background: rgba(255, 255, 255, 0.82);
+  border-color: var(--pf-border-strong);
+  background: #ffffff;
 }
 
 [data-theme="light"] .pf-hub-opensource:hover {
   color: var(--pf-label);
+  background: #fafaf8;
+}
+
+[data-theme="light"] .pf-hub-label {
+  color: var(--pf-text-secondary);
 }
 
 [data-theme="light"] .pf-roi-years-neon {
   animation: none;
-  color: var(--pf-value);
-  text-shadow: 0 0 10px rgba(252, 1, 155, 0.22);
+  color: var(--pf-pink);
+  text-shadow: none;
 }
 
+[data-theme="light"] .pf-ess-soc.pf-ess-soc--low  { color: #c1453d; text-shadow: none; }
+[data-theme="light"] .pf-ess-soc.pf-ess-soc--mid  { color: #ad7f1f; text-shadow: none; }
+[data-theme="light"] .pf-ess-soc.pf-ess-soc--high { color: #2f7a4b; text-shadow: none; }
+
 [data-theme="light"] .pf-landing-totals__monthly-rates-month {
-  color: #5c4969;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  color: var(--pf-text-secondary);
+  letter-spacing: 0.04em;
 }
 
 [data-theme="light"] .pf-landing-totals__counter-wrap--monthly-rates,
 [data-theme="light"] .pf-landing-totals__counter-wrap--export-chart-trigger.pf-landing-totals__counter-wrap--monthly-rates {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(247, 240, 255, 0.98) 100%);
-  border: 1px solid rgba(249, 76, 175, 0.18);
-  border-radius: 28px;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.96),
-    0 10px 24px rgba(193, 0, 185, 0.08);
+  background: #ffffff;
+  border: 1px solid var(--pf-border);
+  border-radius: 16px;
+  box-shadow: none;
 }
 
 [data-theme="light"] .pf-landing-totals__counter-wrap--export-chart-trigger.pf-landing-totals__counter-wrap--monthly-rates:hover {
-  border-color: rgba(249, 76, 175, 0.32);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.98),
-    0 12px 28px rgba(193, 0, 185, 0.12);
+  border-color: var(--pf-border-strong);
+  background: #fafaf8;
 }
 
 [data-theme="light"] .pf-landing-totals__counter--monthly-rates {
-  color: #b20dcd;
-  text-shadow:
-    0 0 10px rgba(249, 76, 175, 0.18),
-    0 2px 6px rgba(117, 76, 141, 0.08);
+  color: var(--pf-value);
+  text-shadow: none;
 }
 
 [data-theme="light"] .pf-landing-totals__monthly-rates-unit {
-  color: #d434a3;
+  color: var(--pf-text-secondary);
   text-shadow: none;
 }
 
-[data-theme="light"] .pf-landing-totals__monthly-rates-mom-out--up {
-  color: #d94670;
-  text-shadow: none;
-}
-
-[data-theme="light"] .pf-landing-totals__monthly-rates-mom-out--down {
-  color: #1f9d67;
-  text-shadow: none;
+[data-theme="light"] .pf-landing-totals__monthly-rates-mom-out--up   { color: var(--pf-up); text-shadow: none; }
+[data-theme="light"] .pf-landing-totals__monthly-rates-mom-out--down { color: var(--pf-down); text-shadow: none; }
+[data-theme="light"] .pf-landing-totals__monthly-rates-mom-out {
+  background: rgba(16, 18, 22, 0.04);
 }
 
 [data-theme="light"] .pf-monthly-rates-chart-panel {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(251, 246, 255, 0.99) 100%) padding-box,
-    var(--km220-border-gradient) border-box;
-  box-shadow: 0 16px 38px rgba(102, 61, 127, 0.16);
+  background: #ffffff;
+  border: 1px solid var(--pf-border-strong);
+  box-shadow: 0 12px 40px rgba(20, 22, 28, 0.12);
 }
 
-[data-theme="light"] .pf-monthly-rates-chart-title {
-  color: #26132c;
-}
-
-[data-theme="light"] .pf-monthly-rates-chart-status {
-  color: #6a5879;
-}
+[data-theme="light"] .pf-monthly-rates-chart-title { color: var(--pf-label); }
+[data-theme="light"] .pf-monthly-rates-chart-status { color: var(--pf-text-secondary); }
 
 [data-theme="light"] .pf-monthly-rates-chart-inner {
-  background: linear-gradient(180deg, #f7f0ff 0%, #f1e7ff 100%);
-  border: 1px solid rgba(193, 0, 185, 0.14);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  background: #fafaf8;
+  border: 1px solid var(--pf-border);
+  box-shadow: none;
 }
 
 [data-theme="light"] .pf-monthly-rates-chart-tooltip {
-  background: rgba(255, 255, 255, 0.98);
-  border: 1px solid rgba(193, 0, 185, 0.16);
-  box-shadow: 0 10px 28px rgba(107, 59, 123, 0.14);
+  background: #ffffff;
+  border: 1px solid var(--pf-border-strong);
+  box-shadow: 0 8px 28px rgba(20, 22, 28, 0.12);
 }
 
-[data-theme="light"] .pf-monthly-rates-chart-tooltip__line {
-  color: #3a2443;
-}
+[data-theme="light"] .pf-monthly-rates-chart-tooltip__line { color: var(--pf-label); }
+[data-theme="light"] .pf-monthly-rates-chart-tooltip__line:first-child { color: var(--pf-value); }
 
-[data-theme="light"] .pf-monthly-rates-chart-tooltip__line:first-child {
-  color: #221126;
-}
-
+/* System-preferred light (no [data-theme] attribute) — same overrides. */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme]) {
-    --pf-body-bg: #faf5ff;
-    --pf-page-bg: radial-gradient(ellipse 120% 80% at 50% 20%, #f3e8ff 0%, #faf5ff 55%, #ffffff 100%);
-
-    --pf-line-idle: rgba(193, 0, 185, 0.10);
-    --pf-surface: rgba(255, 255, 255, 0.88);
-    --pf-border: rgba(193, 0, 185, 0.22);
-    --pf-label: rgba(20, 5, 30, 0.92);
-    --pf-value: #9000c2;
-    --pf-icon: #c100b9;
-
-    --pf-text-secondary: rgba(20, 5, 30, 0.68);
-    --pf-text-muted: rgba(20, 5, 30, 0.52);
-    --pf-text-hint: rgba(20, 5, 30, 0.40);
-    --pf-text-loading: rgba(20, 5, 30, 0.58);
-    --pf-text-footnote: rgba(20, 5, 30, 0.42);
-    --pf-text-trade: rgba(20, 5, 30, 0.58);
-
-    --km220-bg: #f7f0ff;
+    --pf-body-bg: #f7f5f1;
+    --pf-page-bg: #f7f5f1;
+    --pf-surface: rgba(255, 255, 255, 0.78);
+    --pf-surface-elev: rgba(255, 255, 255, 0.94);
+    --pf-border: rgba(20, 22, 28, 0.10);
+    --pf-border-strong: rgba(20, 22, 28, 0.18);
+    --pf-divider: rgba(20, 22, 28, 0.08);
+    --pf-line-idle: rgba(20, 22, 28, 0.10);
+    --pf-label: rgba(16, 18, 22, 0.92);
+    --pf-text: rgba(16, 18, 22, 0.92);
+    --pf-value: rgba(16, 18, 22, 1);
+    --pf-icon: rgba(16, 18, 22, 0.85);
+    --pf-text-secondary: rgba(16, 18, 22, 0.62);
+    --pf-text-muted: rgba(16, 18, 22, 0.46);
+    --pf-text-hint: rgba(16, 18, 22, 0.34);
+    --pf-text-loading: rgba(16, 18, 22, 0.54);
+    --pf-text-footnote: rgba(16, 18, 22, 0.40);
+    --pf-text-trade: rgba(16, 18, 22, 0.54);
+    --pf-up: #c1453d;
+    --pf-down: #2f7a4b;
+    --km220-bg: #f7f5f1;
     --km220-card: #ffffff;
-    --km220-text: #1a0a1e;
-    --km220-text-muted: #6b5b7b;
-    --km220-input-bg: #f0e8ff;
-    --km220-input-border: #c8b0e0;
-    --pf-text: rgba(20, 5, 30, 0.92);
+    --km220-text: #15171c;
+    --km220-text-muted: #6a6f78;
+    --km220-input-bg: #ffffff;
+    --km220-input-border: rgba(20, 22, 28, 0.14);
   }
 
-  :root:not([data-theme]) .pf-roi-bar {
-    background: linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.94) 0%,
-      rgba(247, 240, 255, 0.9) 100%
-    );
-    border: 1px solid rgba(193, 0, 185, 0.18);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.95),
-      0 1px 4px rgba(0, 0, 0, 0.06);
+  :root:not([data-theme]) .pf-top-bar {
+    background: rgba(247, 245, 241, 0.92);
+    border-bottom: 1px solid var(--pf-divider);
   }
 
-  :root:not([data-theme]) .pf-discharge-toolbar {
-    background: rgba(255, 255, 255, 0.94);
-    border: 1px solid rgba(193, 0, 185, 0.22);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.98),
-      0 1px 4px rgba(0, 0, 0, 0.06);
-  }
-
-  :root:not([data-theme]) .pf-discharge-feedback {
-    color: var(--pf-label);
-    background: var(--pf-surface);
+  :root:not([data-theme]) .pf-roi-bar,
+  :root:not([data-theme]) .pf-discharge-toolbar,
+  :root:not([data-theme]) .pf-discharge-feedback,
+  :root:not([data-theme]) .pf-ukraine-qr {
+    background: #ffffff;
     border: 1px solid var(--pf-border);
+    box-shadow: none;
   }
 
-  :root:not([data-theme]) .pf-peak-dam-toggle-label {
-    color: var(--pf-text-secondary);
+  :root:not([data-theme]) .pf-roi-stack-seg {
+    background: #fafaf8;
+    border-color: var(--pf-border);
   }
 
-  :root:not([data-theme]) .pf-huawei-toolbar-fallback-msg {
-    color: var(--pf-text-secondary);
-  }
-
-  :root:not([data-theme]) .pf-deye-command-line--charge {
-    border-top-color: rgba(193, 0, 185, 0.14);
-  }
-
-  :root:not([data-theme]) .pf-grid-discharge-actions--header .pf-discharge-go-btn {
-    border-color: rgba(193, 0, 185, 0.32);
-    background: linear-gradient(
-      180deg,
-      rgba(252, 1, 155, 0.08) 0%,
-      rgba(255, 255, 255, 0.96) 100%
-    );
-    color: var(--pf-label);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
-  }
-
-  :root:not([data-theme]) .pf-grid-discharge-actions--header .pf-discharge-go-btn:hover:not(:disabled) {
-    border-color: rgba(252, 1, 155, 0.42);
-    background: linear-gradient(
-      180deg,
-      rgba(252, 1, 155, 0.12) 0%,
-      rgba(255, 255, 255, 1) 100%
-    );
-  }
-
-  :root:not([data-theme]) .pf-charge-go-btn.pf-discharge-go-btn {
-    border-color: rgba(34, 197, 94, 0.38);
-    background: linear-gradient(
-      180deg,
-      rgba(34, 197, 94, 0.12) 0%,
-      rgba(255, 255, 255, 0.96) 100%
-    );
-    color: var(--pf-label);
-  }
-
-  :root:not([data-theme]) .pf-charge-go-btn.pf-discharge-go-btn:hover:not(:disabled) {
-    border-color: rgba(34, 197, 94, 0.52);
-    background: linear-gradient(
-      180deg,
-      rgba(34, 197, 94, 0.18) 0%,
-      rgba(255, 255, 255, 1) 100%
-    );
-  }
-
-  :root:not([data-theme]) .pf-roi-prev-month-delta {
-    color: var(--pf-text-secondary);
-    text-shadow: none;
-  }
-
-  :root:not([data-theme]) .pf-roi-hint {
-    color: var(--pf-text-muted);
+  :root:not([data-theme]) .pf-roi-stack-seg--load {
+    background: rgba(47, 122, 75, 0.06);
+    border-color: rgba(47, 122, 75, 0.18);
   }
 
   :root:not([data-theme]) .pf-roi-stack-seg-sub,
-  :root:not([data-theme]) .pf-roi-stack-seg-rate {
-    color: var(--pf-text-secondary);
-  }
+  :root:not([data-theme]) .pf-roi-stack-seg-rate { color: var(--pf-text-secondary); }
 
-  :root:not([data-theme]) .pf-roi-stack-seg--placeholder {
-    background: rgba(20, 5, 30, 0.06);
-  }
-
-  :root:not([data-theme]) .pf-roi-modal-label {
-    color: var(--pf-label);
-  }
-
-  :root:not([data-theme]) .pf-roi-modal-input {
-    border: 1px solid var(--km220-input-border);
+  :root:not([data-theme]) .pf-modal,
+  :root:not([data-theme]) .pf-messenger-panel,
+  :root:not([data-theme]) .pf-peak-hourly-chart-panel,
+  :root:not([data-theme]) .pf-monthly-rates-chart-panel {
     background: #ffffff;
-    color: var(--pf-label);
+    border: 1px solid var(--pf-border-strong);
+    box-shadow: 0 12px 40px rgba(20, 22, 28, 0.12);
   }
 
-  :root:not([data-theme]) .pf-messenger-scrim {
-    background: rgba(40, 20, 55, 0.32);
-  }
-
-  :root:not([data-theme]) .pf-messenger-panel {
+  :root:not([data-theme]) .pf-landing-totals__counter-wrap--monthly-rates,
+  :root:not([data-theme]) .pf-landing-totals__counter-wrap--export-chart-trigger.pf-landing-totals__counter-wrap--monthly-rates {
     background: #ffffff;
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
+    border: 1px solid var(--pf-border);
+    border-radius: 16px;
+    box-shadow: none;
   }
 
-  :root:not([data-theme]) .pf-messenger-title--deye,
-  :root:not([data-theme]) .pf-messenger-title {
-    color: var(--pf-label);
-  }
+  :root:not([data-theme]) .pf-landing-totals__counter--monthly-rates,
+  :root:not([data-theme]) .pf-landing-totals__counter { color: var(--pf-value); text-shadow: none; }
 
-  :root:not([data-theme]) .pf-messenger-subtitle {
-    color: var(--pf-text-secondary);
-  }
-
-  :root:not([data-theme]) .pf-messenger-close {
-    border-color: rgba(20, 5, 30, 0.16);
-    background: rgba(247, 240, 255, 0.98);
-    color: var(--pf-label);
-  }
-
-  :root:not([data-theme]) .pf-messenger-close:hover {
-    background: rgba(252, 1, 155, 0.12);
-    border-color: rgba(252, 1, 155, 0.45);
-    color: var(--pf-label);
-  }
-
-  :root:not([data-theme]) .pf-messenger-close-footer {
-    border-color: rgba(20, 5, 30, 0.12);
-    background: rgba(247, 240, 255, 0.96);
-    color: var(--pf-label);
-  }
-
-  :root:not([data-theme]) .pf-ukraine-qr {
-    border-color: rgba(193, 0, 185, 0.26);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.92),
-      0 0 16px rgba(252, 1, 155, 0.1),
-      0 4px 18px rgba(0, 0, 0, 0.08);
-  }
-
+  :root:not([data-theme]) .pf-landing-totals__monthly-rates-month,
+  :root:not([data-theme]) .pf-landing-totals__monthly-rates-unit,
+  :root:not([data-theme]) .pf-roi-prev-month-delta,
+  :root:not([data-theme]) .pf-roi-hint,
+  :root:not([data-theme]) .pf-peak-dam-toggle-label,
+  :root:not([data-theme]) .pf-messenger-subtitle,
+  :root:not([data-theme]) .pf-hub-label,
   :root:not([data-theme]) .pf-hub-opensource {
     color: var(--pf-text-secondary);
-    border-color: rgba(193, 0, 185, 0.22);
-    background: rgba(255, 255, 255, 0.82);
-  }
-
-  :root:not([data-theme]) .pf-hub-opensource:hover {
-    color: var(--pf-label);
   }
 
   :root:not([data-theme]) .pf-roi-years-neon {
     animation: none;
-    color: var(--pf-value);
-    text-shadow: 0 0 10px rgba(252, 1, 155, 0.22);
+    color: var(--pf-pink);
+    text-shadow: none;
   }
+
+  :root:not([data-theme]) .pf-ess-soc.pf-ess-soc--low  { color: #c1453d; text-shadow: none; }
+  :root:not([data-theme]) .pf-ess-soc.pf-ess-soc--mid  { color: #ad7f1f; text-shadow: none; }
+  :root:not([data-theme]) .pf-ess-soc.pf-ess-soc--high { color: #2f7a4b; text-shadow: none; }
 }

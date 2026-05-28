@@ -1844,10 +1844,30 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const [writePinError, setWritePinError] = useState('');
   /** Deye charge/discharge: loading spinner then result in a follow-up modal. */
   const [deyeCommandModal, setDeyeCommandModal] = useState(null);
+  /** Centered zoom popup for tapped flow nodes. */
+  const [nodePopup, setNodePopup] = useState(null);
   const peakPrefSaveTimerRef = useRef(null);
   const chargePrefSaveTimerRef = useRef(null);
   const peakDamEnabledRef = useRef(false);
   const lowDamEnabledRef = useRef(false);
+
+  const closeNodePopup = useCallback(() => {
+    setNodePopup(null);
+  }, []);
+
+  const openNodePopup = useCallback((event, options = {}) => {
+    if (!event?.currentTarget) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const html = String(event.currentTarget.innerHTML || '').replace(/\sid="[^"]*"/g, '');
+    if (!html) return;
+    setNodePopup({
+      html,
+      title: options.title ? String(options.title) : '',
+      actionHref: options.actionHref ? String(options.actionHref) : '',
+      actionLabel: options.actionLabel ? String(options.actionLabel) : '',
+    });
+  }, []);
 
   useEffect(() => {
     peakDamEnabledRef.current = peakDamDischargeEnabled;
@@ -1856,6 +1876,15 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   useEffect(() => {
     lowDamEnabledRef.current = lowDamChargeEnabled;
   }, [lowDamChargeEnabled]);
+
+  useEffect(() => {
+    if (!nodePopup) return undefined;
+    const onKeyDown = e => {
+      if (e.key === 'Escape') closeNodePopup();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [nodePopup, closeNodePopup]);
 
   const applyNightChargeToolbarSnap = useCallback(snap => {
     if (!snap || typeof snap !== 'object') return;
@@ -4044,6 +4073,12 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   data-pos="left-top"
                   id="pf-node-solar"
                   data-active={solarFlowActive ? 'true' : 'false'}
+                  role="button"
+                  tabIndex={0}
+                  onClick={e => openNodePopup(e, { title: t('nodeSolar') })}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') openNodePopup(e, { title: t('nodeSolar') });
+                  }}
                 >
                   <div className="pf-solar-header">
                     <span
@@ -4105,6 +4140,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                     className="pf-node"
                     id="pf-node-grid"
                     data-active={hasFlow && gridFlowActive ? 'true' : 'false'}
+                    onClick={e => openNodePopup(e, { title: t('nodeGrid') })}
                   >
                     <span className="pf-node-icon" aria-hidden>
                       ⚡
@@ -4130,6 +4166,12 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   data-pos="left-bottom"
                   id="pf-node-load"
                   data-active={loadFlowActive ? 'true' : 'false'}
+                  role="button"
+                  tabIndex={0}
+                  onClick={e => openNodePopup(e, { title: t('nodeLoad') })}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') openNodePopup(e, { title: t('nodeLoad') });
+                  }}
                 >
                   <span className="pf-node-icon" aria-hidden>
                     🏠
@@ -4208,6 +4250,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   data-pos="right-top"
                   id="pf-node-ess"
                   data-active={essActive ? 'true' : 'false'}
+                  onClick={e => openNodePopup(e, { title: t('nodeEss') })}
                 >
                   <span className="pf-node-icon" id="pf-ess-icon" aria-hidden>
                     {graphDisplayEssCharging ? (
@@ -4254,6 +4297,13 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   target="_blank"
                   rel="noopener noreferrer"
                   data-active={hasFlow && graphMinerFlowW > 0 ? 'true' : 'false'}
+                  onClick={e =>
+                    openNodePopup(e, {
+                      title: t('nodeMiner'),
+                      actionHref: BINANCE_MINER_URL,
+                      actionLabel: 'Open Binance',
+                    })
+                  }
                 >
                   <span className="pf-node-icon" aria-hidden>
                     💠
@@ -4280,6 +4330,13 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                     rel="noopener noreferrer"
                     data-active={evFlowActive ? 'true' : 'false'}
                     title={t('stationLabel')}
+                    onClick={e =>
+                      openNodePopup(e, {
+                        title: t('nodeEv'),
+                        actionHref: `${EV_START_URL}?station=${encodeURIComponent(stationFilter.trim())}`,
+                        actionLabel: 'Open EV station',
+                      })
+                    }
                   >
                     <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
                       <EvCarMark className="pf-node-icon__tesla" />
@@ -4301,6 +4358,13 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                     target="_blank"
                     rel="noopener noreferrer"
                     data-active={evFlowActive ? 'true' : 'false'}
+                    onClick={e =>
+                      openNodePopup(e, {
+                        title: t('nodeEv'),
+                        actionHref: SITE_220KM_HOME,
+                        actionLabel: 'Open EV station',
+                      })
+                    }
                   >
                     <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
                       <EvCarMark className="pf-node-icon__tesla" />
@@ -4320,6 +4384,12 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                     id="pf-node-ev"
                     data-active="false"
                     title={t('evHiddenByInverter')}
+                    role="button"
+                    tabIndex={0}
+                    onClick={e => openNodePopup(e, { title: t('nodeEv') })}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ' ') openNodePopup(e, { title: t('nodeEv') });
+                    }}
                   >
                     <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
                       <EvCarMark className="pf-node-icon__tesla" />
@@ -4937,6 +5007,30 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
             <RdnConsultationCallback t={t} />
           </section>
         </div>
+
+        {nodePopup ? (
+          <div className="pf-modal-backdrop pf-node-popup-backdrop" role="presentation" onClick={closeNodePopup}>
+            <div
+              className="pf-modal pf-node-popup-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label={nodePopup.title || 'Node details'}
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="pf-node pf-node-popup-tile" dangerouslySetInnerHTML={{ __html: nodePopup.html }} />
+              {nodePopup.actionHref ? (
+                <a
+                  className="pf-modal-btn pf-modal-btn--primary pf-node-popup-link"
+                  href={nodePopup.actionHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {nodePopup.actionLabel || nodePopup.actionHref}
+                </a>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
 
         {dischargeConfirmOpen && essSocPercent != null && Number.isFinite(Number(essSocPercent)) ? (
           <div className="pf-modal-backdrop" role="presentation" onClick={cancelDischargeConfirm}>
