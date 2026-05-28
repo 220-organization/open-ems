@@ -2526,8 +2526,22 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   }, [chargingPorts.items, stationFilter]);
   const evPortsUsedCount = chargingPorts.items.length;
 
-  /** Prefer power-weighted tariff across current IN_PROGRESS sessions; else 7-day public network average. */
+  /** Prefer selected EV port tariff; else active-session weighted tariff; else 7-day network average. */
   const evDisplayTariffUahPerKwh = useMemo(() => {
+    const selectedPort = stationFilter.trim();
+    if (selectedPort) {
+      const selected = chargingPorts.items.find(x => String(x?.number) === selectedPort);
+      if (selected) {
+        const selectedCostPerKwt = Number(selected?.costPerKwt);
+        if (Number.isFinite(selectedCostPerKwt) && selectedCostPerKwt > 0) {
+          return selectedCostPerKwt / 100.0;
+        }
+        const selectedTariffUahPerKwh = Number(selected?.tariffUahPerKwh);
+        if (Number.isFinite(selectedTariffUahPerKwh) && selectedTariffUahPerKwh > 0) {
+          return selectedTariffUahPerKwh;
+        }
+      }
+    }
     const fromSessions = volumeWeightedActiveEvSessionTariffUahPerKwh(chargingPorts.items);
     if (fromSessions != null && Number.isFinite(fromSessions)) return fromSessions;
     if (
@@ -2538,7 +2552,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       return evChargingNetworkTariff.value;
     }
     return null;
-  }, [chargingPorts.items, evChargingNetworkTariff.loading, evChargingNetworkTariff.value]);
+  }, [chargingPorts.items, stationFilter, evChargingNetworkTariff.loading, evChargingNetworkTariff.value]);
 
   const consumptionMw = realtimePower?.powerMw ?? 0;
   const liveMinerW =
