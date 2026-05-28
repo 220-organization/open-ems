@@ -17,6 +17,7 @@ import {
 import './dam-chart.css';
 import { DEYE_FLOW_BALANCE_PV_FACTOR, usesDeyeFlowBalance } from './deyeFlowBalanceSites';
 import HuaweiTotalsPanel from './HuaweiTotalsPanel';
+import DeyeTotalsPanel from './DeyeTotalsPanel';
 import { OREE_DAM_CHART_URL } from './OreeDamChartModal';
 import { useTheme } from './useTheme';
 
@@ -49,6 +50,9 @@ const ENTSOE_ZONE_OPTIONS = [
   { value: 'ES', label: 'Spain (ES)' },
   { value: 'PL', label: 'Poland (PL)' },
 ];
+
+/** Deye serials where DAM panel must not show grid export (negative grid flow). */
+const DEYE_NO_EXPORT_DEVICE_SNS = new Set(['2512291445']);
 
 /** ENTSO-E zones on the Ukraine (OREE) chart — EUR/kWh (or UAH/kWh via NBU); includes UA bidding zone as alternative to OREE. */
 const ENTSOE_OREE_OVERLAY_ZONES = ['ES', 'PL', 'UA_ENTSO'];
@@ -779,6 +783,7 @@ export default function DamChartPanel({
     (variant === 'fullpage' ? urlInverterOnce : '')
   ).trim();
   const effectiveHuaweiStation = (huaweiStationCodeProp && String(huaweiStationCodeProp).trim()) || '';
+  const deyeNoExportMode = Boolean(effectiveInverterSn) && DEYE_NO_EXPORT_DEVICE_SNS.has(effectiveInverterSn);
   const showEnergyBars = Boolean(effectiveInverterSn || effectiveHuaweiStation);
   const showDeyeExtras = Boolean(effectiveInverterSn && !effectiveHuaweiStation);
 
@@ -1459,6 +1464,11 @@ export default function DamChartPanel({
         }
       }
     }
+    if (deyeNoExportMode) {
+      return out.map(slot =>
+        slot.gridKw != null && Number.isFinite(slot.gridKw) && slot.gridKw < 0 ? { ...slot, gridKw: 0 } : slot
+      );
+    }
     return out;
   }, [
     payload,
@@ -1472,6 +1482,7 @@ export default function DamChartPanel({
     liveBatteryPowerW,
     effectiveInverterSn,
     effectiveHuaweiStation,
+    deyeNoExportMode,
     huaweiHourly,
     eurUahRate,
   ]);
@@ -2889,6 +2900,15 @@ export default function DamChartPanel({
             apiUrl={apiUrl}
             t={t}
             getBcp47Locale={getBcp47Locale}
+          />
+        ) : null}
+        {effectiveInverterSn && !effectiveHuaweiStation ? (
+          <DeyeTotalsPanel
+            tradeDay={tradeDay}
+            totals={damDayEnergyTotals}
+            t={t}
+            getBcp47Locale={getBcp47Locale}
+            onTradeDayChange={(nextIso) => setTradeDay(clampTradeDayIsoForMarket(nextIso, damMarket))}
           />
         ) : null}
       </div>
