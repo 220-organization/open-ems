@@ -59,6 +59,40 @@ SOC_CACHE_TTL_SEC = 300.0
 ESS_POWER_CACHE_TTL_SEC = 25.0
 
 
+_FLOW_IMBALANCE_TOLERANCE_W = 250.0
+
+
+def _flow_balanced_load_and_grid_w(
+    load_w: Optional[float],
+    pv_w: Optional[float],
+    grid_w: Optional[float],
+    battery_w: Optional[float],
+) -> tuple[Optional[float], Optional[float]]:
+    """
+    Enforce hub closure: load ≤ PV + grid + battery (signed W, battery + = discharge).
+
+    When reported load exceeds available supply (common when grid is a single phase register),
+    cap load to the balance. When grid is far below load − PV − battery, derive grid from load.
+    """
+    if load_w is None:
+        return load_w, grid_w
+    if pv_w is None and grid_w is None and battery_w is None:
+        return load_w, grid_w
+
+    pv = max(0.0, float(pv_w or 0))
+    bat = float(battery_w or 0) if battery_w is not None else 0.0
+    load = max(0.0, float(load_w))
+    grid = float(grid_w) if grid_w is not None else None
+
+    supply = pv + (grid if grid is not None else 0.0) + bat
+    if grid is not None and load > supply + _FLOW_IMBALANCE_TOLERANCE_W:
+        derived_grid = load - pv - bat
+        if derived_grid - grid > _FLOW_IMBALANCE_TOLERANCE_W:
+            return load_w, derived_grid
+        return max(0.0, supply), grid_w
+    return load_w, grid_w
+
+
 def _finalize_live_metrics_for_sn(
     sn: str,
     bat: Optional[float],
@@ -72,6 +106,8 @@ def _finalize_live_metrics_for_sn(
         derived = flow_balance_grid_w(load_w, pv_w, bat)
         if derived is not None:
             grid_w = derived
+    else:
+        load_w, grid_w = _flow_balanced_load_and_grid_w(load_w, pv_w, grid_w, bat)
     return bat, load_w, pv_w, grid_w, freq_hz
 
 
@@ -758,8 +794,11 @@ def _row_value_to_watts(row: dict) -> Optional[float]:
 
 
 def _metric_key(raw: Any) -> str:
-    """Normalize metric key to UPPER_SNAKE, preserving letters/digits only."""
-    s = str(raw or "").strip().upper()
+    """Normalize Deye metric key to UPPER_SNAKE (handles camelCase e.g. TotalGridPower)."""
+    s = str(raw or "").strip()
+    s = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", s)
+    s = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", s)
+    s = s.upper()
     s = re.sub(r"[^A-Z0-9]+", "_", s)
     return s.strip("_")
 
@@ -839,15 +878,17 @@ def _load_power_watts_from_data_list(dl: Any) -> Optional[float]:
 
     candidates: list[float] = []
 
-    # Prefer aggregated/output load metrics first (closer to Deye flow graph UPS/load value).
+    # Prefer UPS / output load (matches Deye flow graph) before plant-wide consumption totals.
     for ek in (
-        "TOTAL_LOAD_POWER",
+        "UPS_LOAD_POWER",
+        "UPSLOAD_POWER",
         "OUTPUT_LOAD_POWER",
         "INVERTER_LOAD_POWER",
         "EPS_LOAD_POWER",
         "AC_LOAD_POWER",
         "LOAD_ACTIVE_POWER",
         "LOAD_POWER",
+        "TOTAL_LOAD_POWER",
         "TOTAL_CONSUMPTION_POWER",
         "CONSUMPTION_POWER",
         "HOME_LOAD_POWER",
@@ -858,10 +899,7 @@ def _load_power_watts_from_data_list(dl: Any) -> Optional[float]:
         "PLOAD",
     ):
         if ek in by_key:
-            candidates.append(abs(by_key[ek]))
-    if candidates:
-        # Some firmwares expose both "partial" and "total" load keys; take the largest.
-        return max(candidates)
+            return abs(by_key[ek])
 
     for k, w in by_key.items():
         if "REACTIVE" in k or "APPARENT" in k:
@@ -953,11 +991,12 @@ def _grid_power_signed_watts_from_data_list(dl: Any) -> Optional[float]:
         by_key[k] = w
 
     for ek in (
+        "TOTAL_GRID_POWER",
+        "GRID_TOTAL_POWER",
         "GRID_POWER",
         "GRID_ACTIVE_POWER",
         "UTILITY_POWER",
         "MAINS_POWER",
-        "GRID_TOTAL_POWER",
         "PGRID",
     ):
         if ek in by_key:
@@ -970,7 +1009,16 @@ def _grid_power_signed_watts_from_data_list(dl: Any) -> Optional[float]:
     if imp is not None or exp is not None:
         return (imp or 0.0) - (exp or 0.0)
 
-    for k, w in by_key.items():
+    phase_keys = ("GRID_POWER_L1", "GRID_POWER_L2", "GRID_POWER_L3")
+    phases = [by_key[k] for k in phase_keys if k in by_key]
+    if len(phases) >= 2:
+        return sum(phases)
+
+    totals = [w for k, w in by_key.items() if k.startswith("TOTAL") and "GRID" in k and "POWER" in k]
+    if totals:
+        return totals[0]
+
+    for k, w in sorted(by_key.items(), key=lambda kv: -abs(kv[1])):
         if "GRID" in k and "POWER" in k:
             return w
     return None
