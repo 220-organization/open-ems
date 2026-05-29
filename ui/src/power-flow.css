@@ -930,6 +930,54 @@ body {
   pointer-events: none;
 }
 
+.pf-share-dialog {
+  max-width: min(92vw, 420px);
+}
+
+.pf-share-modal-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.pf-share-modal-status {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--pf-text-secondary);
+  line-height: 1.4;
+}
+
+.pf-share-modal-status--error {
+  color: var(--pf-down, #f87171);
+}
+
+.pf-share-modal-qr {
+  display: block;
+  width: min(256px, 72vw);
+  height: auto;
+  border-radius: 12px;
+  background: #fff;
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+.pf-share-modal-url {
+  margin: 0;
+  width: 100%;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  word-break: break-all;
+  color: var(--pf-text-muted);
+}
+
+.pf-share-modal-actions {
+  width: 100%;
+  justify-content: center;
+  margin-top: 4px;
+}
+
 /* ─────────────────────────────────────────────────────────────
  * Lang/port bar under the graph.
  * ───────────────────────────────────────────────────────────── */
@@ -2412,6 +2460,60 @@ a.pf-node { cursor: pointer; }
 /* ─────────────────────────────────────────────────────────────
  * ROI card.
  * ───────────────────────────────────────────────────────────── */
+.pf-roi-details {
+  width: 100%;
+  margin-top: 2px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(252, 1, 155, 0.15);
+}
+
+.pf-roi-details-summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  user-select: none;
+  -webkit-user-select: none;
+  margin: 0;
+}
+
+.pf-roi-details-summary::-webkit-details-marker {
+  display: none;
+}
+
+.pf-roi-details-summary::marker {
+  content: '';
+}
+
+.pf-roi-details-summary::before {
+  content: '\25B6';
+  font-size: 0.58rem;
+  line-height: 1;
+  opacity: 0.72;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+  color: var(--pf-label, #e9d5f7);
+}
+
+.pf-roi-details[open] .pf-roi-details-summary::before {
+  transform: rotate(90deg);
+}
+
+.pf-roi-details-summary-label {
+  font-size: 0.78rem;
+  color: var(--pf-text-muted);
+  line-height: 1.35;
+}
+
+.pf-roi-details-summary:hover .pf-roi-details-summary-label {
+  color: var(--pf-label, #f9a8ef);
+}
+
+.pf-roi-details-body {
+  padding-top: 10px;
+}
+
 .pf-roi-stack {
   display: flex;
   flex-direction: column;
@@ -2643,6 +2745,37 @@ a.pf-node { cursor: pointer; }
 .pf-roi-modal-btn--primary:hover {
   background: #d40183;
   border-color: #d40183;
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * Masked kWh values (pending inverter calibration).
+ * ───────────────────────────────────────────────────────────── */
+.kwh-display--masked,
+.pf-landing-totals__counter-wrap--kwh-calibration {
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
+  text-decoration: underline dotted rgba(252, 1, 155, 0.45);
+  text-underline-offset: 0.15em;
+}
+
+.kwh-display--masked:hover,
+.pf-landing-totals__counter-wrap--kwh-calibration:hover {
+  text-decoration-color: rgba(252, 1, 155, 0.85);
+}
+
+.pf-kwh-calibration-message {
+  margin: 0 0 1rem;
+  line-height: 1.45;
+  color: rgba(255, 248, 252, 0.88);
+}
+
+[data-theme='light'] .pf-kwh-calibration-message {
+  color: rgba(20, 5, 30, 0.82);
 }
 
 /* ─────────────────────────────────────────────────────────────

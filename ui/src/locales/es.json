@@ -327,5 +327,9 @@
   "refreshInvertorCacheFailed": "Failed to refresh invertor cache",
   "androidInstallBannerLabel": "Install app",
   "androidInstallBannerAria": "Download Open EMS Android app",
-  "androidInstallBannerClose": "Close"
+  "androidInstallBannerClose": "Close",
+  "kwhCalibrationTitle": "Datos de energía",
+  "kwhCalibrationMessage": "Se necesita calibración para este inversor. ¿Mostrar datos aproximados?",
+  "kwhCalibrationConfirm": "Mostrar datos aproximados",
+  "kwhCalibrationDecline": "Mantener oculto"
 }

@@ -11,7 +11,8 @@ import uk from './locales/uk.json';
 
 const BUNDLES = { en, uk, pl, cs, nl, bg, fr, es, de };
 
-const SUPPORTED = ['en', 'uk', 'pl', 'cs', 'nl', 'bg', 'fr', 'es', 'de'];
+/** Languages shown in the header selector (bundles for others remain for legacy ?lang= URLs). */
+const SUPPORTED = ['en', 'uk'];
 
 const ALIASES = { cz: 'cs', ua: 'uk' };
 

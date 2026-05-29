@@ -93,6 +93,9 @@
   "sharePageAria": "Поділитися посиланням на цю сторінку (порт, мова, інвертор)",
   "sharePageCopied": "Посилання скопійовано",
   "sharePageFailed": "Не вдалося скопіювати посилання",
+  "sharePageModalTitle": "Поділитися сторінкою",
+  "sharePageQrAlt": "QR-код посилання на сторінку",
+  "sharePageModalClose": "Закрити",
   "powerFlowLandingTotalsAria": "Підсумки парку",
   "powerFlowLandingExportLabel": "кВт·год продано в мережу на піку РДН",
   "powerFlowLandingExportLabelInverter": "кВт·год продано в мережу на піку РДН",
@@ -115,6 +118,9 @@
   "powerFlowLandingMonthlyRatesHint": "Роздрібний тариф за поточний київський місяць: середнє РДН + розподіл + ПДВ. Натисніть, щоб відкрити історію по місяцях.",
   "powerFlowLandingMonthlyRatesHintDevice": "Тариф для цього інвертора: імпорт з мережі зважено по погодинному РДН (+ розподіл + ПДВ). Натисніть для історії по місяцях.",
   "powerFlowLandingMonthlyRatesClickHint": "Натисніть значення вище — відкриється місячний графік",
+  "powerFlowLandingTariffVsUkraineMore": "Ваш тариф на {{delta}}% вищий за середній тариф в Україні",
+  "powerFlowLandingTariffVsUkraineLess": "Ваш тариф на {{delta}}% нижчий за середній тариф в Україні",
+  "powerFlowLandingTariffVsUkraineEqual": "Ваш тариф відповідає середньому тарифу в Україні",
   "powerFlowLandingMonthlyRatesMom": "{{delta}} vs {{prevMonth}}",
   "powerFlowMonthlyRatesChartTitle": "Місячний роздрібний тариф (РДН + розподіл + ПДВ)",
   "powerFlowMonthlyRatesChartTitleDevice": "Місячний тариф — цей інвертор (імпорт × РДН + розподіл + ПДВ)",
@@ -378,5 +384,9 @@
   "refreshInvertorCacheFailed": "Failed to refresh invertor cache",
   "androidInstallBannerLabel": "Встановити застосунок",
   "androidInstallBannerAria": "Завантажити Android-застосунок Open EMS",
-  "androidInstallBannerClose": "Закрити"
+  "androidInstallBannerClose": "Закрити",
+  "kwhCalibrationTitle": "Дані про енергію",
+  "kwhCalibrationMessage": "Для цього інвертора потрібна калібровка. Показати приблизні дані?",
+  "kwhCalibrationConfirm": "Показати приблизні дані",
+  "kwhCalibrationDecline": "Залишити прихованими"
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import KwhDisplay from './KwhDisplay';
 import { readCachedInverterPin, rememberInverterPin } from './deyeInverterPinCache';
 
 function apiUrl(path) {
@@ -9,6 +10,27 @@ function apiUrl(path) {
 
 function roiConfigKey(deviceSn) {
   return `pf-roi-config-v1-${String(deviceSn || '').trim()}`;
+}
+
+const ROI_STACK_OPEN_KEY = 'pf-roi-stack-open';
+
+function readRoiStackOpen() {
+  try {
+    const v = localStorage.getItem(ROI_STACK_OPEN_KEY);
+    if (v === '1') return true;
+    if (v === '0') return false;
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
+function writeRoiStackOpen(open) {
+  try {
+    localStorage.setItem(ROI_STACK_OPEN_KEY, open ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
 }
 
 /** Local calendar YYYY-MM-DD (browser timezone). */
@@ -101,6 +123,7 @@ export default function RoiStackStatistics({
   onRoiCapexSaved,
 }) {
   const [setupOpen, setSetupOpen] = useState(false);
+  const [roiStackOpen, setRoiStackOpen] = useState(() => readRoiStackOpen());
   const [capexInput, setCapexInput] = useState('');
   const [startDateInput, setStartDateInput] = useState(() => localYmdToday());
   const [pinInput, setPinInput] = useState('');
@@ -446,6 +469,12 @@ export default function RoiStackStatistics({
     setSetupPinError('');
   }, []);
 
+  const onRoiStackToggle = useCallback(e => {
+    const open = e.currentTarget.open;
+    setRoiStackOpen(open);
+    writeRoiStackOpen(open);
+  }, []);
+
   const onOpenSetup = () => {
     setCapexInput(config ? String(Math.round(config.capexUsd)) : '');
     setStartDateInput(config?.startIso ? isoToKyivYmd(config.startIso) : localYmdToday());
@@ -541,7 +570,13 @@ export default function RoiStackStatistics({
         : null;
 
   return (
-    <div className="pf-roi-stack">
+    <>
+      <details className="pf-roi-details" open={roiStackOpen} onToggle={onRoiStackToggle}>
+        <summary className="pf-roi-details-summary">
+          <span className="pf-roi-details-summary-label">{t('roiSetupTitle')}</span>
+        </summary>
+        <div className="pf-roi-details-body">
+          <div className="pf-roi-stack">
       {pinRequired ? (
         <button type="button" className="pf-add-deye-btn pf-roi-setup-btn" onClick={onOpenSetup}>
           {t('roiSetupButton')}
@@ -612,7 +647,7 @@ export default function RoiStackStatistics({
             <div className="pf-roi-stack-seg pf-roi-stack-seg--load pf-roi-stack-seg--head-inline">
               <span className="pf-roi-stack-seg-title">{t('roiCatLoad')}</span>
               <span className="pf-roi-stack-seg-sub">
-                {roiStats.loading ? '…' : `${fmtKwh.format(consumptionKwh)} kWh`}
+                {roiStats.loading ? '…' : <KwhDisplay value={consumptionKwh} fmt={fmtKwh} unit="kWh" />}
               </span>
             </div>
             <div className="pf-roi-stack-seg pf-roi-stack-seg--placeholder">
@@ -630,6 +665,9 @@ export default function RoiStackStatistics({
           </div>
         </div>
       ) : null}
+          </div>
+        </div>
+      </details>
 
       {setupOpen ? (
         <div className="pf-messenger-scrim" role="presentation" onClick={closeSetupModal}>
@@ -699,6 +737,6 @@ export default function RoiStackStatistics({
           </div>
         </div>
       ) : null}
-    </div>
+    </>
   );
 }

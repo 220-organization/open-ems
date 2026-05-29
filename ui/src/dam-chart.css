@@ -305,6 +305,56 @@
   border-top: 1px solid rgba(252, 1, 155, 0.15);
 }
 
+/* Collapsible grid / gen-cons energy sections (closed by default; state in localStorage). */
+.dam-energy-bars-details {
+  width: 100%;
+}
+
+.dam-energy-bars-summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  user-select: none;
+  -webkit-user-select: none;
+  margin: 0;
+}
+
+.dam-energy-bars-summary::-webkit-details-marker {
+  display: none;
+}
+
+.dam-energy-bars-summary::marker {
+  content: '';
+}
+
+.dam-energy-bars-summary::before {
+  content: '\25B6';
+  font-size: 0.58rem;
+  line-height: 1;
+  opacity: 0.72;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+  color: var(--pf-label, #e9d5f7);
+}
+
+.dam-energy-bars-details[open] .dam-energy-bars-summary::before {
+  transform: rotate(90deg);
+}
+
+.dam-energy-bars-summary .dam-grid-bars-caption {
+  margin: 0;
+}
+
+.dam-energy-bars-summary:hover .dam-grid-bars-caption {
+  color: var(--pf-label, #f9a8ef);
+}
+
+.dam-energy-bars-details-body {
+  padding-top: 8px;
+}
+
 .dam-grid-bars-caption {
   margin: 0 0 8px;
   font-size: 0.78rem;

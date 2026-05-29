@@ -18,6 +18,8 @@ import './dam-chart.css';
 import { DEYE_FLOW_BALANCE_PV_FACTOR, usesDeyeFlowBalance } from './deyeFlowBalanceSites';
 import HuaweiTotalsPanel from './HuaweiTotalsPanel';
 import DeyeTotalsPanel from './DeyeTotalsPanel';
+import KwhDisplay from './KwhDisplay';
+import { useKwhCalibration } from './KwhCalibrationContext';
 import { OREE_DAM_CHART_URL } from './OreeDamChartModal';
 import { useTheme } from './useTheme';
 
@@ -25,6 +27,28 @@ function apiUrl(path) {
   const base = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
   if (!base) return path;
   return `${base}${path}`;
+}
+
+const DAM_GRID_BARS_OPEN_KEY = 'pf-dam-grid-bars-open';
+const DAM_PV_LOAD_BARS_OPEN_KEY = 'pf-dam-pv-load-bars-open';
+
+function readDamEnergySectionOpen(storageKey) {
+  try {
+    const v = localStorage.getItem(storageKey);
+    if (v === '1') return true;
+    if (v === '0') return false;
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
+function writeDamEnergySectionOpen(storageKey, open) {
+  try {
+    localStorage.setItem(storageKey, open ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
 }
 
 /** Matches `dam-chart.css` — on small screens Y-axis labels are hidden; series stay toggleable via legend. */
@@ -685,6 +709,7 @@ export default function DamChartPanel({
   huaweiStationCode: huaweiStationCodeProp,
 }) {
   const { theme, cycleTheme, isDark } = useTheme();
+  const { kwhHidden, formatEnergyKwh } = useKwhCalibration();
 
   // Chart color palette — adapts to resolved light/dark theme.
   const CHART = useMemo(() => isDark ? {
@@ -766,6 +791,8 @@ export default function DamChartPanel({
   const [indexesYesterdayLoading, setIndexesYesterdayLoading] = useState(false);
   /** OREE `<details>`: defer iframe ``src`` until expanded (default collapsed). */
   const [oreeDamMarketDetailsOpen, setOreeDamMarketDetailsOpen] = useState(false);
+  const [gridBarsOpen, setGridBarsOpen] = useState(() => readDamEnergySectionOpen(DAM_GRID_BARS_OPEN_KEY));
+  const [pvLoadBarsOpen, setPvLoadBarsOpen] = useState(() => readDamEnergySectionOpen(DAM_PV_LOAD_BARS_OPEN_KEY));
   const [urlInverterOnce] = useState(readInverterFromSearchOnce);
   /** NBU UAH per 1 EUR — scales ENTSO-E EUR/kWh onto the same axis as Ukraine DAM (UAH/kWh). */
   const [eurUahRate, setEurUahRate] = useState(null);
@@ -777,6 +804,18 @@ export default function DamChartPanel({
   const tradeDayLineInputRef = useRef(null);
   const tradeDayGridInputRef = useRef(null);
   const tradeDayPvInputRef = useRef(null);
+
+  const onGridBarsToggle = useCallback(e => {
+    const open = e.currentTarget.open;
+    setGridBarsOpen(open);
+    writeDamEnergySectionOpen(DAM_GRID_BARS_OPEN_KEY, open);
+  }, []);
+
+  const onPvLoadBarsToggle = useCallback(e => {
+    const open = e.currentTarget.open;
+    setPvLoadBarsOpen(open);
+    writeDamEnergySectionOpen(DAM_PV_LOAD_BARS_OPEN_KEY, open);
+  }, []);
 
   const effectiveInverterSn = (
     (inverterSnProp && String(inverterSnProp).trim()) ||
@@ -2265,8 +2304,15 @@ export default function DamChartPanel({
         ) : null}
 
         {hasChart && showEnergyBars ? (
-          <div className={loading ? 'dam-grid-bars-wrap dam-chart-content--loading' : 'dam-grid-bars-wrap'}>
-            <p className="dam-grid-bars-caption">{t('damGridBarsCaption')}</p>
+          <details
+            className={`dam-energy-bars-details dam-grid-bars-wrap${loading ? ' dam-chart-content--loading' : ''}`}
+            open={gridBarsOpen}
+            onToggle={onGridBarsToggle}
+          >
+            <summary className="dam-energy-bars-summary">
+              <span className="dam-grid-bars-caption">{t('damGridBarsCaption')}</span>
+            </summary>
+            <div className="dam-energy-bars-details-body">
             <ul className="dam-day-energy-totals dam-day-energy-totals--grid" aria-label={t('damEnergyTotalsGridAria')}>
               <li className="dam-day-energy-totals__item">
                 <span className="dam-day-energy-totals__swatch" style={{ background: '#f59e0b' }} aria-hidden />
@@ -2274,9 +2320,11 @@ export default function DamChartPanel({
                   <span className="dam-day-energy-totals__text">
                     {t('damEnergyTotalImport')}:{` `}
                     <span className="dam-day-energy-totals__value">
-                      {damDayEnergyTotals.importKwh != null
-                        ? `${fmt1.format(damDayEnergyTotals.importKwh)} ${t('damEnergyKwhUnit')}`
-                        : '—'}
+                      <KwhDisplay
+                        value={damDayEnergyTotals.importKwh}
+                        fmt={fmt1}
+                        unit={t('damEnergyKwhUnit')}
+                      />
                     </span>
                   </span>
                   {damDayEnergyTotals.importKwh != null && damGridWeightedMoneyUah?.importCostUah != null ? (
@@ -2300,9 +2348,11 @@ export default function DamChartPanel({
                   <span className="dam-day-energy-totals__text">
                     {t('damEnergyTotalExport')}:{` `}
                     <span className="dam-day-energy-totals__value">
-                      {damDayEnergyTotals.exportKwh != null
-                        ? `${fmt1.format(damDayEnergyTotals.exportKwh)} ${t('damEnergyKwhUnit')}`
-                        : '—'}
+                      <KwhDisplay
+                        value={damDayEnergyTotals.exportKwh}
+                        fmt={fmt1}
+                        unit={t('damEnergyKwhUnit')}
+                      />
                     </span>
                   </span>
                   {damDayEnergyTotals.exportKwh != null && damGridWeightedMoneyUah?.exportValueUah != null ? (
@@ -2419,10 +2469,14 @@ export default function DamChartPanel({
                     if (raw != null && raw !== '') {
                       const kw = Number(raw);
                       if (Number.isFinite(kw)) {
-                        valueLine =
-                          kw < 0
-                            ? `- ${fmt1.format(Math.abs(kw))} ${unit}`
-                            : `${fmt1.format(kw)} ${unit}`;
+                        if (kwhHidden) {
+                          valueLine = `— ${unit}`;
+                        } else {
+                          valueLine =
+                            kw < 0
+                              ? `- ${fmt1.format(Math.abs(kw))} ${unit}`
+                              : `${fmt1.format(kw)} ${unit}`;
+                        }
                       }
                     }
                     return (
@@ -2480,12 +2534,20 @@ export default function DamChartPanel({
                 />
               </ComposedChart>
             </ResponsiveContainer>
-          </div>
+            </div>
+          </details>
         ) : null}
 
         {hasChart && showEnergyBars ? (
-          <div className={loading ? 'dam-pv-load-bars-wrap dam-chart-content--loading' : 'dam-pv-load-bars-wrap'}>
-            <p className="dam-grid-bars-caption">{t('damPvLoadBarsCaption')}</p>
+          <details
+            className={`dam-energy-bars-details dam-pv-load-bars-wrap${loading ? ' dam-chart-content--loading' : ''}`}
+            open={pvLoadBarsOpen}
+            onToggle={onPvLoadBarsToggle}
+          >
+            <summary className="dam-energy-bars-summary">
+              <span className="dam-grid-bars-caption">{t('damPvLoadBarsCaption')}</span>
+            </summary>
+            <div className="dam-energy-bars-details-body">
             <ul
               className="dam-day-energy-totals dam-day-energy-totals--pv-load"
               aria-label={t('damEnergyTotalsPvLoadAria')}
@@ -2495,9 +2557,11 @@ export default function DamChartPanel({
                 <span className="dam-day-energy-totals__text">
                   {t('damEnergyTotalGeneration')}:{` `}
                   <span className="dam-day-energy-totals__value">
-                    {damDayEnergyTotals.generationKwh != null
-                      ? `${fmt1.format(damDayEnergyTotals.generationKwh)} ${t('damEnergyKwhUnit')}`
-                      : '—'}
+                    <KwhDisplay
+                      value={damDayEnergyTotals.generationKwh}
+                      fmt={fmt1}
+                      unit={t('damEnergyKwhUnit')}
+                    />
                   </span>
                 </span>
               </li>
@@ -2506,9 +2570,11 @@ export default function DamChartPanel({
                 <span className="dam-day-energy-totals__text">
                   {t('damEnergyTotalConsumption')}:{` `}
                   <span className="dam-day-energy-totals__value">
-                    {damDayEnergyTotals.consumptionKwh != null
-                      ? `${fmt1.format(damDayEnergyTotals.consumptionKwh)} ${t('damEnergyKwhUnit')}`
-                      : '—'}
+                    <KwhDisplay
+                      value={damDayEnergyTotals.consumptionKwh}
+                      fmt={fmt1}
+                      unit={t('damEnergyKwhUnit')}
+                    />
                   </span>
                 </span>
               </li>
@@ -2517,9 +2583,11 @@ export default function DamChartPanel({
                 <span className="dam-day-energy-totals__text">
                   {t('damEnergyTotalLostSolar')}:{` `}
                   <span className="dam-day-energy-totals__value">
-                    {damDayEnergyTotals.lostSolarKwh != null
-                      ? `${fmt1.format(damDayEnergyTotals.lostSolarKwh)} ${t('damEnergyKwhUnit')}`
-                      : '—'}
+                    <KwhDisplay
+                      value={damDayEnergyTotals.lostSolarKwh}
+                      fmt={fmt1}
+                      unit={t('damEnergyKwhUnit')}
+                    />
                   </span>
                 </span>
               </li>
@@ -2553,7 +2621,7 @@ export default function DamChartPanel({
                   hide={damChartMobile}
                   tick={{ fill: CHART.axisTextMuted, fontSize: 10 }}
                   tickLine={false}
-                  tickFormatter={v => fmtKwhTick.format(v)}
+                  tickFormatter={v => (kwhHidden ? '—' : fmtKwhTick.format(v))}
                   label={{
                     value: t('damPvLoadEnergyAxis'),
                     angle: -90,
@@ -2591,17 +2659,14 @@ export default function DamChartPanel({
                     if (!active || !payload?.length) return null;
                     const row = payload[0]?.payload;
                     const unit = t('damEnergyKwhUnit');
-                    const genVal =
-                      row?.pvKwh != null && row.pvKwh !== '' && Number.isFinite(Number(row.pvKwh))
-                        ? `${fmt1.format(Number(row.pvKwh))} ${unit}`
-                        : '—';
+                    const genVal = formatEnergyKwh(row?.pvKwh, fmt1, unit);
                     const consRaw = row?.consKwhNeg;
                     const consVal =
                       consRaw != null &&
                       consRaw !== '' &&
                       Number.isFinite(Number(consRaw)) &&
                       Number.isFinite(Math.abs(Number(consRaw)))
-                        ? `${fmt1.format(Math.abs(Number(consRaw)))} ${unit}`
+                        ? formatEnergyKwh(Math.abs(Number(consRaw)), fmt1, unit)
                         : '—';
                     const genLine = `${t('damPvLoadTooltipGen')}: ${genVal}`;
                     const consLine = `${t('damPvLoadTooltipCons')}: ${consVal}`;
@@ -2689,7 +2754,8 @@ export default function DamChartPanel({
                 />
               </ComposedChart>
             </ResponsiveContainer>
-          </div>
+            </div>
+          </details>
         ) : null}
 
         {damMarket === 'oree' ? (

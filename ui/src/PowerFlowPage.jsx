@@ -16,6 +16,8 @@ import DeyeInverterMessengerModal from './DeyeInverterMessengerModal';
 import PeakExportHourlyChartModal from './PeakExportHourlyChartModal';
 import MonthlyRetailTariffChartModal from './MonthlyRetailTariffChartModal';
 import RoiStackStatistics from './RoiStackStatistics';
+import SharePageModal from './SharePageModal';
+import { KwhCalibrationProvider, useKwhCalibration } from './KwhCalibrationContext';
 import { DEYE_FLOW_BALANCE_PV_FACTOR, usesDeyeFlowBalance } from './deyeFlowBalanceSites';
 import { inverterSelectShortLabel, parseEvPortStationNumber } from './deyeInverterDisplay';
 import { clearInverterPinCache, readCachedInverterPin, rememberInverterPin } from './deyeInverterPinCache';
@@ -508,6 +510,41 @@ function landingMonthlyRatesMom(dam, retailCurrent, bcp47, isDeviceScope) {
   return { deltaPct: pct, deltaStr, prevMonthLabel };
 }
 
+/** Device retail tariff vs national (OREE DAM avg) retail for the current Kyiv month. */
+function landingInverterTariffVsUkraineAverage(landingTotals, bcp47) {
+  if (!landingTotals?.ok) return null;
+  const scope = landingTotals.exportScope;
+  if (scope !== 'device' && scope !== 'huawei') return null;
+  const dam = landingTotals.dam;
+  if (!dam?.configured || dam.currentAvgUahPerKwh == null) return null;
+
+  const nationalRetail = landingRetailUahPerKwh(Number(dam.currentAvgUahPerKwh));
+  const personalRaw = dam.currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd;
+  const deviceDamAvg =
+    personalRaw != null && Number.isFinite(Number(personalRaw))
+      ? Number(personalRaw)
+      : Number(dam.currentAvgUahPerKwh);
+  const deviceRetail = landingRetailUahPerKwh(deviceDamAvg);
+  if (
+    nationalRetail == null ||
+    deviceRetail == null ||
+    !Number.isFinite(nationalRetail) ||
+    nationalRetail <= 1e-6
+  ) {
+    return null;
+  }
+  const pct = ((deviceRetail - nationalRetail) / nationalRetail) * 100;
+  if (!Number.isFinite(pct)) return null;
+  const fmtPct = new Intl.NumberFormat(bcp47, { maximumFractionDigits: 1, minimumFractionDigits: 1 });
+  return {
+    deltaPct: pct,
+    deltaStr: fmtPct.format(Math.abs(pct)),
+    more: pct > 0.05,
+    less: pct < -0.05,
+    equal: Math.abs(pct) <= 0.05,
+  };
+}
+
 const LANDING_MONTHLY_RATES_WRAP_CLASS =
   'pf-landing-totals__counter-wrap pf-landing-totals__counter-wrap--monthly-rates';
 const LANDING_MONTHLY_RATES_COUNTER_CLASS =
@@ -899,10 +936,81 @@ function MotionDot({ pathD }) {
   );
 }
 
+function LandingExportMetricCounter({
+  display,
+  t,
+  landingHuaweiEss,
+  showMonthlyRatesChart,
+  showExportHourlyChart,
+  landingExportMetric,
+  onOpenMonthlyRates,
+  onOpenExportChart,
+}) {
+  const { kwhHidden, requestReveal } = useKwhCalibration();
+  const masked = !display.valueIsCurrency && kwhHidden;
+  const counterText = masked
+    ? `— ${t('powerFlowLandingKwhUnit')}`
+    : formatLandingMetricCounterText(display.text, t, display.valueIsCurrency);
+
+  const counterInner = (
+    <div className="pf-landing-totals__counter-scroll">
+      <PfScrollNumber
+        direction="up"
+        duration={0.32}
+        ease={[0.33, 0, 0.2, 1]}
+        className={display.counterClass}
+        numberStyle={{ letterSpacing: '0.05em' }}
+      >
+        {counterText}
+      </PfScrollNumber>
+    </div>
+  );
+
+  if (masked) {
+    return (
+      <button
+        type="button"
+        className={`${display.wrapClass} pf-landing-totals__counter-wrap--kwh-calibration`}
+        aria-label={t('kwhCalibrationMessage')}
+        onClick={requestReveal}
+      >
+        {counterInner}
+      </button>
+    );
+  }
+
+  if (landingHuaweiEss && !showMonthlyRatesChart && !showExportHourlyChart) {
+    return (
+      <div className={display.wrapClass} aria-label={display.title || undefined}>
+        {counterInner}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className={`${display.wrapClass} pf-landing-totals__counter-wrap--export-chart-trigger`}
+      aria-label={
+        showMonthlyRatesChart
+          ? t('powerFlowMonthlyRatesChartOpenAria')
+          : landingExportMetric === LANDING_EXPORT_METRIC.LOST_SOLAR_7D
+            ? t('powerFlowLostSolarHourlyChartOpenAria')
+            : t('powerFlowPeakHourlyChartOpenAria')
+      }
+      onClick={() => {
+        if (showMonthlyRatesChart) onOpenMonthlyRates();
+        else onOpenExportChart();
+      }}
+    >
+      {counterInner}
+    </button>
+  );
+}
+
 export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LOCALE_NAMES, onLangSelectChange }) {
   const { theme, isDark, cycleTheme } = useTheme();
   const graphRef = useRef(null);
-  const shareFeedbackTimerRef = useRef(null);
   const [graphWidth, setGraphWidth] = useState(400);
   const [stationFilter, setStationFilter] = useState(() => {
     try {
@@ -974,7 +1082,10 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   });
   const [simTick, setSimTick] = useState(0);
   const [deyeMessengerOpen, setDeyeMessengerOpen] = useState(false);
-  const [shareFeedback, setShareFeedback] = useState(null);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [shareModalUrl, setShareModalUrl] = useState('');
+  const [shareModalCopied, setShareModalCopied] = useState(false);
+  const [shareModalCopyFailed, setShareModalCopyFailed] = useState(false);
 
   const closeDeyeMessenger = useCallback(() => {
     setDeyeMessengerOpen(false);
@@ -1176,7 +1287,6 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
 
   useEffect(() => {
     return () => {
-      if (shareFeedbackTimerRef.current != null) window.clearTimeout(shareFeedbackTimerRef.current);
     };
   }, []);
 
@@ -3410,32 +3520,39 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   }, [stationFilter, locale, inverterValue, landingExportMetric]);
 
   const handleSharePage = useCallback(async () => {
-    const url = powerFlowShareUrl;
-    if (!url) return;
-    const scheduleClear = key => {
-      setShareFeedback(key);
-      window.clearTimeout(shareFeedbackTimerRef.current);
-      shareFeedbackTimerRef.current = window.setTimeout(() => setShareFeedback(null), 2500);
-    };
-    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
-      try {
-        await navigator.share({ url, title: document.title });
-        return;
-      } catch (e) {
-        if (e && e.name === 'AbortError') return;
-      }
-    }
+    let url = powerFlowShareUrl;
     try {
-      await navigator.clipboard.writeText(url);
-      scheduleClear('copied');
+      const live = window.location.href.split('#')[0];
+      if (live) url = live;
     } catch {
-      scheduleClear('error');
+      /* use powerFlowShareUrl */
     }
+    if (!url) return;
+
+    let copied = false;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+        copied = true;
+      }
+    } catch {
+      copied = false;
+    }
+
+    setShareModalUrl(url);
+    setShareModalCopied(copied);
+    setShareModalCopyFailed(!copied);
+    setShareModalOpen(true);
   }, [powerFlowShareUrl]);
+
+  const closeShareModal = useCallback(() => {
+    setShareModalOpen(false);
+  }, []);
 
   const noEssListYet = (inverterRows.loading || huaweiRows.loading) && !deyeListReady && !huaweiListReady;
 
   return (
+    <KwhCalibrationProvider inverterSn={selInverterSn} t={t}>
     <div className="pf-body">
       <div className="pf-root">
         <div className="pf-top-bar">
@@ -3667,6 +3784,12 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                     landingExportMetricUi === LANDING_EXPORT_METRIC.ARBITRAGE ||
                     landingExportMetricUi === LANDING_EXPORT_METRIC.LOST_SOLAR_7D);
 
+                const inverterSelected = Boolean(selInverterSn || selHuaweiStationCode);
+                const tariffVsUkraine =
+                  inverterSelected && inverterListReady
+                    ? landingInverterTariffVsUkraineAverage(landingTotals, bcp47)
+                    : null;
+
                 const inverterMetricDisplay =
                   landingExportMetricUi === LANDING_EXPORT_METRIC.MONTHLY_RATES
                     ? formatLandingMonthlyRatesMetric(landingTotals, bcp47, t)
@@ -3838,59 +3961,17 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                                   chartAria={t('powerFlowMonthlyRatesChartOpenAria')}
                                   onChartOpen={() => setMonthlyRatesChartOpen(true)}
                                 />
-                              ) : landingHuaweiEss && !showMonthlyRatesChart && !showExportHourlyChart ? (
-                                <div
-                                  className={inverterMetricDisplay.wrapClass}
-                                  aria-label={inverterMetricDisplay.title || undefined}
-                                >
-                                  <div className="pf-landing-totals__counter-scroll">
-                                    <PfScrollNumber
-                                      direction="up"
-                                      duration={0.32}
-                                      ease={[0.33, 0, 0.2, 1]}
-                                      className={inverterMetricDisplay.counterClass}
-                                      numberStyle={{ letterSpacing: '0.05em' }}
-                                    >
-                                      {formatLandingMetricCounterText(
-                                        inverterMetricDisplay.text,
-                                        t,
-                                        inverterMetricDisplay.valueIsCurrency
-                                      )}
-                                    </PfScrollNumber>
-                                  </div>
-                                </div>
                               ) : (
-                                <button
-                                  type="button"
-                                  className={`${inverterMetricDisplay.wrapClass} pf-landing-totals__counter-wrap--export-chart-trigger`}
-                                  aria-label={
-                                    showMonthlyRatesChart
-                                      ? t('powerFlowMonthlyRatesChartOpenAria')
-                                      : landingExportMetric === LANDING_EXPORT_METRIC.LOST_SOLAR_7D
-                                        ? t('powerFlowLostSolarHourlyChartOpenAria')
-                                        : t('powerFlowPeakHourlyChartOpenAria')
-                                  }
-                                  onClick={() => {
-                                    if (showMonthlyRatesChart) setMonthlyRatesChartOpen(true);
-                                    else setExportHourlyChartOpen(true);
-                                  }}
-                                >
-                                  <div className="pf-landing-totals__counter-scroll">
-                                    <PfScrollNumber
-                                      direction="up"
-                                      duration={0.32}
-                                      ease={[0.33, 0, 0.2, 1]}
-                                      className={inverterMetricDisplay.counterClass}
-                                      numberStyle={{ letterSpacing: '0.05em' }}
-                                    >
-                                      {formatLandingMetricCounterText(
-                                        inverterMetricDisplay.text,
-                                        t,
-                                        inverterMetricDisplay.valueIsCurrency
-                                      )}
-                                    </PfScrollNumber>
-                                  </div>
-                                </button>
+                                <LandingExportMetricCounter
+                                  display={inverterMetricDisplay}
+                                  t={t}
+                                  landingHuaweiEss={landingHuaweiEss}
+                                  showMonthlyRatesChart={showMonthlyRatesChart}
+                                  showExportHourlyChart={showExportHourlyChart}
+                                  landingExportMetric={landingExportMetric}
+                                  onOpenMonthlyRates={() => setMonthlyRatesChartOpen(true)}
+                                  onOpenExportChart={() => setExportHourlyChartOpen(true)}
+                                />
                               )}
                               {inverterMetricDisplay.arbitrageMom ? (
                                 <span
@@ -3916,7 +3997,36 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                           )}
                         </div>
                       </div>
-                      {landingExportMetricUi === LANDING_EXPORT_METRIC.MONTHLY_RATES ? (
+                      {inverterSelected ? (
+                        <>
+                          {landingExportMetricUi === LANDING_EXPORT_METRIC.MONTHLY_RATES ? (
+                            <p className="pf-landing-totals__tariff pf-landing-totals__tariff--monthly-rates-hint">
+                              {t('powerFlowLandingMonthlyRatesClickHint')}
+                            </p>
+                          ) : null}
+                          {tariffVsUkraine ? (
+                            <p
+                              className={`pf-landing-totals__tariff pf-landing-totals__tariff--ukraine-avg${
+                                tariffVsUkraine.more
+                                  ? ' pf-landing-totals__delta--up'
+                                  : tariffVsUkraine.less
+                                    ? ' pf-landing-totals__delta--down'
+                                    : ''
+                              }`}
+                            >
+                              {tariffVsUkraine.equal
+                                ? t('powerFlowLandingTariffVsUkraineEqual')
+                                : tariffVsUkraine.more
+                                  ? t('powerFlowLandingTariffVsUkraineMore', { delta: tariffVsUkraine.deltaStr })
+                                  : t('powerFlowLandingTariffVsUkraineLess', { delta: tariffVsUkraine.deltaStr })}
+                            </p>
+                          ) : inverterListReady && landingTotals?.ok ? (
+                            <p className="pf-landing-totals__tariff pf-landing-totals__tariff--ukraine-avg">
+                              {t('powerFlowLandingTariffUnavailable')}
+                            </p>
+                          ) : null}
+                        </>
+                      ) : landingExportMetricUi === LANDING_EXPORT_METRIC.MONTHLY_RATES ? (
                         <p className="pf-landing-totals__tariff pf-landing-totals__tariff--monthly-rates-hint">
                           {t('powerFlowLandingMonthlyRatesClickHint')}
                         </p>
@@ -5295,11 +5405,15 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
         t={t}
         isDark={isDark}
       />
-      {shareFeedback ? (
-        <div className="pf-share-toast" role="status" aria-live="polite">
-          {shareFeedback === 'copied' ? t('sharePageCopied') : t('sharePageFailed')}
-        </div>
-      ) : null}
+      <SharePageModal
+        open={shareModalOpen}
+        url={shareModalUrl}
+        copied={shareModalCopied}
+        copyFailed={shareModalCopyFailed}
+        onClose={closeShareModal}
+        t={t}
+      />
     </div>
+    </KwhCalibrationProvider>
   );
 }
