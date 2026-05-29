@@ -1809,7 +1809,7 @@ export default function DamChartPanel({
     </div>
   );
 
-  const logoSrc = `${process.env.PUBLIC_URL || ''}/static/220-km-logo.svg`;
+  const logoSrc = `${process.env.PUBLIC_URL || ''}/static/open-ems-220-logo.svg`;
 
   return (
     <>

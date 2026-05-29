@@ -4225,7 +4225,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   >
                     <img
                       className="pf-hub-logo"
-                      src={`${qrBase}/static/220-km-logo.svg`}
+                      src={`${qrBase}/static/open-ems-220-logo.svg`}
                       alt=""
                       width="40"
                       height="40"
@@ -5004,7 +5004,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
               <div className="pf-page-rest-pending-loader">
                 <img
                   className="pf-page-rest-pending-loader__logo"
-                  src={`${qrBase}/static/220-km-logo.svg`}
+                  src={`${qrBase}/static/open-ems-220-logo.svg`}
                   alt=""
                   width={120}
                   height={120}
