@@ -1142,6 +1142,7 @@ async def get_night_charge(
             headers=_NO_STORE_CACHE,
         )
     en, pct = await get_night_charge_pref(db, deviceSn.strip())
+    sc = await get_self_consumption_pref(db, deviceSn.strip()) if en else False
     return JSONResponse(
         content={
             "ok": True,
@@ -1149,6 +1150,7 @@ async def get_night_charge(
             "deviceSn": deviceSn.strip(),
             "nightChargeEnabled": en,
             "chargeSocDeltaPct": pct,
+            "selfConsumptionEnabled": bool(sc) if en else None,
         },
         headers=_NO_STORE_CACHE,
     )

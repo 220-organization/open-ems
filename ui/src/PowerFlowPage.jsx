@@ -2085,13 +2085,24 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
         } else {
           setChargeSocDeltaPct(10);
         }
-        if (rSc.ok && dataSc.ok && dataSc.configured && typeof dataSc.enabled === 'boolean') {
-          setSelfConsumptionEnabled(dataSc.enabled);
+        if (rSc.ok && dataSc.ok && dataSc.configured) {
+          const autoDam =
+            typeof dataSc.enabled === 'boolean'
+              ? dataSc.enabled
+              : typeof dataSc.autoDamEnabled === 'boolean'
+                ? dataSc.autoDamEnabled
+                : false;
+          const manualSc =
+            typeof dataSc.selfConsumptionEnabled === 'boolean' ? dataSc.selfConsumptionEnabled : false;
+          setSelfConsumptionEnabled(autoDam || manualSc);
         } else {
           setSelfConsumptionEnabled(false);
         }
         if (rNight.ok && dataNight.ok && dataNight.configured && typeof dataNight.nightChargeEnabled === 'boolean') {
           setNightChargeEnabled(dataNight.nightChargeEnabled);
+          if (dataNight.nightChargeEnabled) {
+            setSelfConsumptionEnabled(true);
+          }
           if (
             dataNight.nightChargeEnabled &&
             dataNight.chargeSocDeltaPct != null &&
@@ -3315,7 +3326,9 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
         }
       } else if (g.kind === 'selfConsumption') {
         const data = await saveSelfConsumptionPref(g.nextEnabled, pin);
-        if (data && typeof data.enabled === 'boolean') {
+        if (data && typeof data.selfConsumptionEnabled === 'boolean') {
+          setSelfConsumptionEnabled(data.selfConsumptionEnabled);
+        } else if (data && typeof data.enabled === 'boolean') {
           setSelfConsumptionEnabled(data.enabled);
         }
       } else if (g.kind === 'nightCharge') {
@@ -4796,7 +4809,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                               <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
                                 <input
                                 type="checkbox"
-                                checked={selfConsumptionEnabled}
+                                checked={nightChargeEnabled || selfConsumptionEnabled}
                                 disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
                                 onChange={async e => {
                                   if (!remoteWriteConfigured) {
@@ -4813,7 +4826,9 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                                     setDischarge2Feedback('');
                                     try {
                                       const data = await saveSelfConsumptionPref(v, cached);
-                                      if (data && typeof data.enabled === 'boolean') {
+                                      if (data && typeof data.selfConsumptionEnabled === 'boolean') {
+                                        setSelfConsumptionEnabled(data.selfConsumptionEnabled);
+                                      } else if (data && typeof data.enabled === 'boolean') {
                                         setSelfConsumptionEnabled(data.enabled);
                                       }
                                     } catch (err) {
@@ -4828,7 +4843,9 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                                     setDischarge2Feedback('');
                                     try {
                                       const data = await saveSelfConsumptionPref(v, '');
-                                      if (data && typeof data.enabled === 'boolean') {
+                                      if (data && typeof data.selfConsumptionEnabled === 'boolean') {
+                                        setSelfConsumptionEnabled(data.selfConsumptionEnabled);
+                                      } else if (data && typeof data.enabled === 'boolean') {
                                         setSelfConsumptionEnabled(data.enabled);
                                       }
                                     } catch (err) {

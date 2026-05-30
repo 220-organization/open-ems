@@ -5,7 +5,7 @@ import logging
 
 from app import settings
 from app.deye_api import deye_configured
-from app.deye_night_charge_service import run_night_charge_tick
+from app.deye_night_charge_service import run_night_charge_day_discharge_tick, run_night_charge_tick
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +16,7 @@ async def deye_night_charge_loop(stop: asyncio.Event) -> None:
         if settings.DEYE_NIGHT_CHARGE_SCHEDULER_ENABLED and deye_configured():
             try:
                 await run_night_charge_tick()
+                await run_night_charge_day_discharge_tick()
             except Exception:
                 logger.exception("Night charge auto tick failed")
         else:

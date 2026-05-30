@@ -1,4 +1,8 @@
-"""Backend: auto charge during Kyiv night window 23:00–06:59 (inclusive), once per (night_window_start, device)."""
+"""Backend: auto charge during Kyiv night window 23:00–06:59 (inclusive), once per (night_window_start, device).
+
+During Kyiv 07:00–22:59, enabled devices switch to self-consumption (ZERO_EXPORT_TO_CT with discharge floor)
+so the battery can cover load after the night charge holds SoC at the charge target until 07:00.
+"""
 
 from __future__ import annotations
 
@@ -25,7 +29,7 @@ from app.deye_low_dam_charge_service import (
     normalize_charge_soc_delta_pct,
     upsert_low_dam_charge_pref,
 )
-from app.deye_peak_auto_service import get_peak_auto_pref, upsert_peak_auto_pref
+from app.deye_peak_auto_service import get_peak_auto_pref, upsert_peak_auto_pref, normalize_discharge_soc_delta_pct
 from app.deye_self_consumption_auto_dam_service import (
     get_self_consumption_auto_dam_pref,
     upsert_self_consumption_auto_dam_pref,
@@ -49,6 +53,11 @@ def kyiv_night_window_anchor_date(now: datetime) -> Optional[date]:
     if 0 <= h < 7:
         return d - timedelta(days=1)
     return None
+
+
+def kyiv_day_discharge_window_active(now: datetime) -> bool:
+    """True during Kyiv 07:00–22:59 — day self-consumption after night charge."""
+    return 7 <= now.astimezone(KYIV).hour < 23
 
 
 async def get_night_charge_pref(session: AsyncSession, device_sn: str) -> tuple[bool, int]:
@@ -138,12 +147,54 @@ async def set_night_charge_from_ui(
         await upsert_low_dam_charge_pref(session, sn, False, pct)
         await upsert_self_consumption_auto_dam_pref(session, sn, False)
         await upsert_self_consumption_pref(session, sn, True)
-        await apply_self_consumption_zero_export_ct(sn)
+        _, floor_pct = await get_peak_auto_pref(session, sn)
+        await apply_self_consumption_zero_export_ct(
+            sn,
+            tou_soc_floor_pct=float(normalize_discharge_soc_delta_pct(int(floor_pct))),
+        )
         if en_p:
             logger.info("Night charge enabled: peak DAM auto disabled device_sn=%s", sn)
     else:
         await upsert_night_charge_pref(session, sn, False, pct)
     return await toolbar_snapshot_after_night_change(session, sn)
+
+
+async def run_night_charge_day_discharge_tick() -> None:
+    """Apply self-consumption TOU (discharge floor) during Kyiv day window for night-charge devices."""
+    if not settings.DEYE_NIGHT_CHARGE_SCHEDULER_ENABLED:
+        return
+    if not deye_configured():
+        return
+
+    from app.db import async_session_factory
+
+    now = datetime.now(KYIV)
+    if not kyiv_day_discharge_window_active(now):
+        return
+
+    async with async_session_factory() as session:
+        res = await session.execute(
+            select(DeyeNightChargePref.device_sn).where(DeyeNightChargePref.enabled.is_(True))
+        )
+        devices = [str(r[0]) for r in res.all() if r[0]]
+    if not devices:
+        return
+
+    for sn in devices:
+        try:
+            async with async_session_factory() as session:
+                _, floor_pct = await get_peak_auto_pref(session, sn)
+            await apply_self_consumption_zero_export_ct(
+                sn,
+                tou_soc_floor_pct=float(normalize_discharge_soc_delta_pct(int(floor_pct))),
+            )
+            logger.debug(
+                "Night charge day discharge: self-consumption applied device_sn=%s floor_pct=%s",
+                sn,
+                floor_pct,
+            )
+        except Exception:
+            logger.exception("Night charge day discharge: apply failed device_sn=%s", sn)
 
 
 async def run_night_charge_tick() -> None:
