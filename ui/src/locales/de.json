@@ -72,7 +72,7 @@
   "nightChargeToggleHint": "Auf dem Server gespeichert (Flyway V23). Zeitzone Europe/Kyiv.",
   "nightChargeSaveError": "Nachtladung konnte nicht gespeichert werden",
   "peakDamDischargeToggle": "Peak DAM",
-  "peakDamDischargeToggleAria": "Aktiv — Server startet Verkauf ins Netz (Entladung) in der Kiewer Stunde mit dem heutigen DAM-Höchstpreis. Entladung stoppt bei {{tillSoc}} (Auswahlbereich 5–95%). Ein erfolgreicher Lauf pro Tag pro Wechselrichter in dieser Stunde; Wiederholung nach Fehler.",
+  "peakDamDischargeToggleAria": "Aktiv — Server startet Verkauf ins Netz (Entladung) in der Kiewer Stunde mit dem heutigen DAM-Höchstpreis. Entladung stoppt bei {{tillSoc}} (Auswahlbereich 0–95%). Ein erfolgreicher Lauf pro Tag pro Wechselrichter in dieser Stunde; Wiederholung nach Fehler.",
   "peakDamDischargeToggleHint": "Die Batterie speist in der Peak-DAM-Stunde des Tages (Kiewer Zeit) ins Netz ein, bis {{tillSoc}} erreicht ist.",
   "peakDamDischargeSaveError": "Peak-DAM-Einstellung konnte nicht gespeichert werden",
   "graphAriaLabel": "Energieflussdiagramm",

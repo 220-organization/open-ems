@@ -28,12 +28,12 @@ from app.oree_dam_service import KYIV, get_hourly_dam_uah_mwh
 logger = logging.getLogger(__name__)
 
 # Stored column ``discharge_soc_delta_pct`` holds target SoC % (floor after discharge), not a delta.
-DISCHARGE_TARGET_SOC_PCT_ALLOWED: tuple[int, ...] = (5, 10, 20, 50, 80, 95)
+DISCHARGE_TARGET_SOC_PCT_ALLOWED: tuple[int, ...] = (0, 1, 5, 10, 20, 50, 80, 95)
 _LEGACY_TO_TARGET: dict[int, int] = {2: 80, 10: 50, 20: 20, 100: 5}
 
 
 def normalize_discharge_soc_delta_pct(pct: int) -> int:
-    """Map stored / legacy values to an allowed target SoC % (5, 10, 20, 50, 80, 95)."""
+    """Map stored / legacy values to an allowed target SoC % (0, 1, 5, 10, 20, 50, 80, 95)."""
     p = int(pct)
     if p in DISCHARGE_TARGET_SOC_PCT_ALLOWED:
         return p
@@ -79,7 +79,7 @@ def peak_hour_index_from_hourly_uah_mwh(hourly: list[Optional[float]]) -> Option
 
 
 async def get_peak_auto_pref(session: AsyncSession, device_sn: str) -> tuple[bool, int]:
-    """(enabled, discharge_soc_delta_pct) — defaults: False, 80. Stored value is target SoC % (5..95)."""
+    """(enabled, discharge_soc_delta_pct) — defaults: False, 80. Stored value is target SoC % (0..95)."""
     sn = (device_sn or "").strip()
     if not sn:
         return False, 80

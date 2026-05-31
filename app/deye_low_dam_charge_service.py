@@ -14,7 +14,7 @@ from sqlalchemy.sql import func
 
 from app import settings
 from app.deye_api import assert_inverter_owned, charge_soc_delta_then_zero_export_ct, deye_configured
-from app.models import DeyeLowDamChargeFired, DeyeLowDamChargePref
+from app.models import DeyeLowDamChargeFired, DeyeLowDamChargePref, DeyeNightChargePref
 from app.oree_dam_service import KYIV, get_hourly_dam_uah_mwh
 
 logger = logging.getLogger(__name__)
@@ -127,9 +127,13 @@ async def run_low_dam_charge_tick() -> None:
             for r in res.all()
             if r[0]
         ]
-        if not devices:
-            return
+        night_res = await session.execute(
+            select(DeyeNightChargePref.device_sn).where(DeyeNightChargePref.enabled.is_(True))
+        )
+        night_charge_sns = {str(r[0]).strip() for r in night_res.all() if r[0]}
         hourly = await get_hourly_dam_uah_mwh(session, today, zone)
+    if not devices:
+        return
 
     low_idx = low_hour_index_from_hourly_uah_mwh(hourly)
     if low_idx is None:
@@ -139,6 +143,8 @@ async def run_low_dam_charge_tick() -> None:
         return
 
     for sn, delta_pct in devices:
+        if sn in night_charge_sns:
+            continue
         async with async_session_factory() as session:
             q = await session.execute(
                 select(DeyeLowDamChargeFired).where(

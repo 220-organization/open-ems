@@ -298,9 +298,9 @@ DEYE_PEAK_AUTO_DISCHARGE_INTERVAL_SEC: int = _env_int("DEYE_PEAK_AUTO_DISCHARGE_
 DEYE_LOW_DAM_CHARGE_SCHEDULER_ENABLED: bool = _env_bool("DEYE_LOW_DAM_CHARGE_SCHEDULER_ENABLED", True)
 DEYE_LOW_DAM_CHARGE_INTERVAL_SEC: int = _env_int("DEYE_LOW_DAM_CHARGE_INTERVAL_SEC", 600, 20, 600)
 
-# Backend: charge SoC during Kyiv night window 23:00–06:59 when pref enabled (one success per window per device).
+# Backend: charge SoC during Kyiv night window 23:00–07:00 when pref enabled (one success per window per device).
 DEYE_NIGHT_CHARGE_SCHEDULER_ENABLED: bool = _env_bool("DEYE_NIGHT_CHARGE_SCHEDULER_ENABLED", True)
-DEYE_NIGHT_CHARGE_INTERVAL_SEC: int = _env_int("DEYE_NIGHT_CHARGE_INTERVAL_SEC", 600, 20, 600)
+DEYE_NIGHT_CHARGE_INTERVAL_SEC: int = _env_int("DEYE_NIGHT_CHARGE_INTERVAL_SEC", 30, 20, 600)
 
 # Backend: toggle self-consumption when current Kyiv hour DAM (UAH/kWh) exceeds reference battery LCOE (per-device pref).
 DEYE_SELF_CONSUMPTION_AUTO_DAM_SCHEDULER_ENABLED: bool = _env_bool(

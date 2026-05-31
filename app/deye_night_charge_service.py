@@ -1,4 +1,4 @@
-"""Backend: auto charge during Kyiv night window 23:00–06:59 (inclusive), once per (night_window_start, device).
+"""Backend: auto charge during Kyiv night window 23:00–07:00 (Europe/Kyiv), once per (night_window_start, device).
 
 During Kyiv 07:00–22:59, enabled devices switch to self-consumption (ZERO_EXPORT_TO_CT with discharge floor)
 so the battery can cover load after the night charge holds SoC at the charge target until 07:00.
@@ -7,7 +7,7 @@ so the battery can cover load after the night charge holds SoC at the charge tar
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any, Optional
 
 from sqlalchemy import select
@@ -40,24 +40,45 @@ from app.oree_dam_service import KYIV
 
 logger = logging.getLogger(__name__)
 
+KYIV_NIGHT_START_HOUR = 23
+KYIV_NIGHT_END_HOUR = 7  # exclusive — charging stops when local hour reaches 07:00
+
+
+def kyiv_local(now: datetime) -> datetime:
+    """Wall clock in Europe/Kyiv regardless of server TZ (e.g. Germany)."""
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=KYIV)
+    return now.astimezone(KYIV)
+
 
 def kyiv_night_window_anchor_date(now: datetime) -> Optional[date]:
     """
-    Anchor calendar date for the current Kyiv night period (23:00–06:59).
+    Anchor calendar date for the current Kyiv night period (23:00–07:00).
     Same anchor for 23:00–23:59 and the following 00:00–06:59.
     """
-    loc = now.astimezone(KYIV)
+    loc = kyiv_local(now)
     d, h = loc.date(), loc.hour
-    if h == 23:
+    if h == KYIV_NIGHT_START_HOUR:
         return d
-    if 0 <= h < 7:
+    if 0 <= h < KYIV_NIGHT_END_HOUR:
         return d - timedelta(days=1)
     return None
 
 
 def kyiv_day_discharge_window_active(now: datetime) -> bool:
     """True during Kyiv 07:00–22:59 — day self-consumption after night charge."""
-    return 7 <= now.astimezone(KYIV).hour < 23
+    return KYIV_NIGHT_END_HOUR <= kyiv_local(now).hour < KYIV_NIGHT_START_HOUR
+
+
+def should_start_night_charge_now(now: datetime) -> bool:
+    """Start trigger only during Kyiv hour 23 (11 PM), not on later retries in the same window."""
+    return kyiv_local(now).hour == KYIV_NIGHT_START_HOUR
+
+
+def kyiv_night_charge_deadline(anchor: date) -> datetime:
+    """07:00 Kyiv on the morning after ``anchor`` (night that starts anchor 23:00)."""
+    morning = anchor + timedelta(days=1)
+    return datetime.combine(morning, time(KYIV_NIGHT_END_HOUR, 0), tzinfo=KYIV)
 
 
 async def get_night_charge_pref(session: AsyncSession, device_sn: str) -> tuple[bool, int]:
@@ -206,9 +227,12 @@ async def run_night_charge_tick() -> None:
     from app.db import async_session_factory
 
     now = datetime.now(KYIV)
+    if not should_start_night_charge_now(now):
+        return
     anchor = kyiv_night_window_anchor_date(now)
     if anchor is None:
         return
+    charge_deadline = kyiv_night_charge_deadline(anchor)
 
     async with async_session_factory() as session:
         res = await session.execute(
@@ -237,13 +261,19 @@ async def run_night_charge_tick() -> None:
                 continue
 
         logger.info(
-            "Night charge auto: starting device_sn=%s night_window_start=%s delta_pct=%s",
+            "Night charge auto: starting device_sn=%s night_window_start=%s delta_pct=%s deadline_kyiv=%s",
             sn,
             anchor.isoformat(),
             delta_pct,
+            charge_deadline.isoformat(),
         )
         try:
-            await charge_soc_delta_then_zero_export_ct(sn, float(delta_pct))
+            await charge_soc_delta_then_zero_export_ct(
+                sn,
+                float(delta_pct),
+                return_after_start=True,
+                deadline=charge_deadline,
+            )
         except Exception:
             logger.exception("Night charge auto: charge failed device_sn=%s", sn)
             continue

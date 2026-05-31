@@ -1956,17 +1956,28 @@ async def _charge_soc_delta_poll_loop_and_restore(
     poll: float,
     timeout: float,
     rated: int,
+    *,
+    deadline: Optional[datetime] = None,
 ) -> tuple[bool, float, Optional[str]]:
     """Poll until SoC reaches charge target; then set ZERO_EXPORT_TO_CT TOU SoC to that target (no min-TOU clamp).
 
     Restore keeps solar sell off (same as EV / discharge export) for zero-export / Solar Sell disabled sites.
+
+    Optional ``deadline`` (timezone-aware) stops polling when wall clock reaches that instant (e.g. Kyiv 07:00).
     """
     hit_target = False
     last_soc: float = float(soc0_f)
     restore_error: Optional[str] = None
+    deadline_utc = deadline.astimezone(timezone.utc) if deadline is not None else None
     try:
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
+        mono_deadline = time.monotonic() + timeout
+        if deadline_utc is not None:
+            wall_secs = (deadline_utc - datetime.now(timezone.utc)).total_seconds()
+            if wall_secs <= 0:
+                mono_deadline = time.monotonic()
+            else:
+                mono_deadline = min(mono_deadline, time.monotonic() + wall_secs)
+        while time.monotonic() < mono_deadline:
             await asyncio.sleep(poll)
             refreshed = await fetch_soc_map_refresh([sn])
             cur = refreshed.get(sn)
@@ -1996,6 +2007,7 @@ async def charge_soc_delta_then_zero_export_ct(
     soc_delta_pct: float,
     *,
     return_after_start: bool = False,
+    deadline: Optional[datetime] = None,
 ) -> dict[str, Any]:
     """
     1) Set ZERO_EXPORT_TO_CT with a high TOU SoC target (current SoC + delta, capped at 100).
@@ -2006,6 +2018,8 @@ async def charge_soc_delta_then_zero_export_ct(
 
     When return_after_start is True, step 1 is awaited and the caller may return immediately;
     steps 2–3 continue in a background task.
+
+    Optional ``deadline`` (timezone-aware) caps the poll loop at a wall-clock instant (e.g. Kyiv 07:00).
 
     Solar sell is not enabled (``solarSellAction`` ``off``), consistent with EV-port and discharge export.
     """
@@ -2042,7 +2056,7 @@ async def charge_soc_delta_then_zero_export_ct(
         async def _bg_charge() -> None:
             try:
                 _, _, restore_error = await _charge_soc_delta_poll_loop_and_restore(
-                    sn, soc0_f, target, poll, timeout, rated
+                    sn, soc0_f, target, poll, timeout, rated, deadline=deadline
                 )
                 if restore_error:
                     logger.error(
@@ -2066,7 +2080,7 @@ async def charge_soc_delta_then_zero_export_ct(
         }
 
     hit_target, last_soc, restore_error = await _charge_soc_delta_poll_loop_and_restore(
-        sn, soc0_f, target, poll, timeout, rated
+        sn, soc0_f, target, poll, timeout, rated, deadline=deadline
     )
 
     if restore_error:

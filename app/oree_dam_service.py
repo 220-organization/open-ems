@@ -17,7 +17,7 @@ from app.models import OreeDamIndex, OreeDamLazyFetch, OreeDamPrice
 
 logger = logging.getLogger(__name__)
 
-KYIV = ZoneInfo("Europe/Kiev")
+KYIV = ZoneInfo("Europe/Kyiv")
 
 DAM_INDEX_BANDS: tuple[str, ...] = ("DAY", "NIGHT", "PEAK", "HPEAK", "BASE")
 

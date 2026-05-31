@@ -826,7 +826,7 @@ function formatLandingTotalsDisplay(landingTotals, bcp47, t) {
 }
 
 /** Target SoC (%) after discharge; same order as the toolbar dropdown. */
-const DISCHARGE_TARGET_SOC_OPTIONS = Object.freeze([95, 80, 50, 20, 10, 5]);
+const DISCHARGE_TARGET_SOC_OPTIONS = Object.freeze([95, 80, 50, 20, 10, 5, 1, 0]);
 
 function peakPrefDischargePctForApi(pct) {
   return normalizeDischargeSocDeltaPct(pct);
