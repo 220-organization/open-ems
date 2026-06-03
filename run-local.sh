@@ -9,7 +9,7 @@ cd "$(dirname "$0")"
 # Fixed dev layout: CRA (Power flow UI) on 9220, FastAPI on 9221. Re-run kills listeners first.
 # Override: UI_PORT=9330 API_PORT=9331 ./run-local.sh
 #
-# Fresh DB (drops Postgres volume, re-runs Flyway): ./run-local.sh -clean
+# Recreate DB container (volume kept, Flyway re-runs on existing data): ./run-local.sh -clean
 
 CLEAN_DB=0
 while [[ $# -gt 0 ]]; do
@@ -22,7 +22,7 @@ while [[ $# -gt 0 ]]; do
       cat <<'EOF'
 Usage: ./run-local.sh [options]
 
-  -clean, --clean   Stop compose services and remove the PostgreSQL volume (empty DB, Flyway from scratch).
+  -clean, --clean   Stop compose services and recreate containers (PostgreSQL volume is kept).
                     Use after migration checksum conflicts or to reset local data.
 
   -h, --help        Show this help.
@@ -89,8 +89,8 @@ if ! command -v lsof >/dev/null 2>&1; then
 fi
 
 if [[ "${CLEAN_DB}" -eq 1 ]]; then
-  echo "Cleaning local database: docker compose down -v (removes volume open_ems_pgdata)…" >&2
-  docker compose down -v
+  echo "Recreating local DB container (volume open_ems_pgdata is kept)…" >&2
+  docker compose down
 fi
 
 docker compose up -d db
