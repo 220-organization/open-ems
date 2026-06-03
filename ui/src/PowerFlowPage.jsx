@@ -15,6 +15,7 @@ import RdnConsultationCallback from './RdnConsultationCallback';
 import DeyeInverterMessengerModal from './DeyeInverterMessengerModal';
 import PeakExportHourlyChartModal from './PeakExportHourlyChartModal';
 import MonthlyRetailTariffChartModal from './MonthlyRetailTariffChartModal';
+import GridBalancingChartModal from './GridBalancingChartModal';
 import RoiStackStatistics from './RoiStackStatistics';
 import SharePageModal from './SharePageModal';
 import { KwhCalibrationProvider, useKwhCalibration } from './KwhCalibrationContext';
@@ -320,6 +321,7 @@ const LANDING_TARIFF_VAT_MULTIPLIER = 1.2;
 
 /** Landing export block: metric dropdown + counter (fleet or one inverter; default: total export). */
 const LANDING_EXPORT_METRIC = Object.freeze({
+  GRID_BALANCING: 'grid_balancing',
   MONTHLY_RATES: 'monthly_rates',
   PEAK: 'peak',
   MANUAL: 'manual',
@@ -330,13 +332,74 @@ const LANDING_EXPORT_METRIC = Object.freeze({
 
 const LANDING_EXPORT_METRIC_VALUES = new Set(Object.values(LANDING_EXPORT_METRIC));
 
+/** Landing export metric appears in the selector only when its kWh / UAH counter is > 0. */
+function landingExportMetricHasPositiveValue(landingTotals, metric) {
+  if (!landingTotals?.ok) return false;
+  switch (metric) {
+    case LANDING_EXPORT_METRIC.PEAK: {
+      const v = landingTotals.peakDamLastSession?.exportSessionKwh;
+      return Number.isFinite(Number(v)) && Number(v) > 0;
+    }
+    case LANDING_EXPORT_METRIC.MANUAL: {
+      const v = landingTotals.manualDischargeLastSession?.exportSessionKwh;
+      return Number.isFinite(Number(v)) && Number(v) > 0;
+    }
+    case LANDING_EXPORT_METRIC.TOTAL: {
+      const v = landingTotals.totalExportKwh;
+      return Number.isFinite(Number(v)) && Number(v) > 0;
+    }
+    case LANDING_EXPORT_METRIC.ARBITRAGE: {
+      const v = landingTotals.arbitrageRevenueUah;
+      return Number.isFinite(Number(v)) && Number(v) > 0;
+    }
+    case LANDING_EXPORT_METRIC.LOST_SOLAR_7D: {
+      const v = landingTotals.lostSolarKwhTotal;
+      return Number.isFinite(Number(v)) && Number(v) > 0;
+    }
+    case LANDING_EXPORT_METRIC.GRID_BALANCING: {
+      const v = landingTotals.gridBalancing?.balancingPctMtd;
+      return landingTotals.gridBalancing?.configured !== false && Number.isFinite(Number(v));
+    }
+    default:
+      return true;
+  }
+}
+
+function preferredLandingExportMetric(offers) {
+  if (offers?.gridBalancing) return LANDING_EXPORT_METRIC.GRID_BALANCING;
+  return LANDING_EXPORT_METRIC.MONTHLY_RATES;
+}
+
 /** Query keys for landing export metric (values: peak | manual | total | arbitrage | lost_solar_7d). */
 const LANDING_EXPORT_METRIC_URL_KEYS = ['exportMetric', 'landingExport'];
 
 /** One preference for the whole UI session — survives inverter / station changes (still normalized for Huawei / fleet). */
-const LANDING_EXPORT_METRIC_STORAGE_GLOBAL = 'pf-landing-export-metric-v2-global';
+const LANDING_EXPORT_METRIC_STORAGE_GLOBAL = 'pf-landing-export-metric-v5-global';
+const LANDING_EXPORT_METRIC_STORAGE_LEGACY_KEYS = [
+  'pf-landing-export-metric-v4-global',
+  'pf-landing-export-metric-v3-global',
+];
+
+/** Only these metrics are restored from storage; grid balancing is always the default. */
+const PERSISTED_LANDING_EXPORT_METRICS = new Set([
+  LANDING_EXPORT_METRIC.PEAK,
+  LANDING_EXPORT_METRIC.MANUAL,
+  LANDING_EXPORT_METRIC.TOTAL,
+  LANDING_EXPORT_METRIC.ARBITRAGE,
+  LANDING_EXPORT_METRIC.LOST_SOLAR_7D,
+]);
+
+/** Grid balancing is the product default; do not restore monthly_rates from storage. */
+function landingExportMetricFromStoredRaw(raw) {
+  if (raw === LANDING_EXPORT_METRIC.MONTHLY_RATES) return LANDING_EXPORT_METRIC.GRID_BALANCING;
+  return raw;
+}
+
+function defaultLandingExportMetric() {
+  return LANDING_EXPORT_METRIC.GRID_BALANCING;
+}
 function normalizeLandingExportMetricForContext(metric, inverterSn, huaweiStationCode) {
-  if (!LANDING_EXPORT_METRIC_VALUES.has(metric)) return LANDING_EXPORT_METRIC.MONTHLY_RATES;
+  if (!LANDING_EXPORT_METRIC_VALUES.has(metric)) return LANDING_EXPORT_METRIC.GRID_BALANCING;
   const h = String(huaweiStationCode || '').trim();
   if (
     h &&
@@ -345,11 +408,11 @@ function normalizeLandingExportMetricForContext(metric, inverterSn, huaweiStatio
       metric === LANDING_EXPORT_METRIC.ARBITRAGE ||
       metric === LANDING_EXPORT_METRIC.LOST_SOLAR_7D)
   ) {
-    return LANDING_EXPORT_METRIC.MONTHLY_RATES;
+    return LANDING_EXPORT_METRIC.GRID_BALANCING;
   }
   const s = String(inverterSn || '').trim();
   if (!s && !h && metric === LANDING_EXPORT_METRIC.LOST_SOLAR_7D) {
-    return LANDING_EXPORT_METRIC.MONTHLY_RATES;
+    return LANDING_EXPORT_METRIC.GRID_BALANCING;
   }
   return metric;
 }
@@ -376,9 +439,14 @@ function replaceLandingExportMetricInUrl(metric) {
   try {
     const u = new URL(window.location.href);
     u.searchParams.delete('landingExport');
-    if (metric === LANDING_EXPORT_METRIC.TOTAL || metric === LANDING_EXPORT_METRIC.MONTHLY_RATES) {
+    if (
+      metric === LANDING_EXPORT_METRIC.TOTAL ||
+      metric === LANDING_EXPORT_METRIC.GRID_BALANCING
+    ) {
       u.searchParams.delete('exportMetric');
-    } else u.searchParams.set('exportMetric', metric);
+    } else {
+      u.searchParams.set('exportMetric', metric);
+    }
     window.history.replaceState({}, '', u);
   } catch {
     /* ignore */
@@ -389,6 +457,13 @@ function readStoredLandingExportMetric(inverterSn, huaweiStationCode) {
   try {
     let raw = localStorage.getItem(LANDING_EXPORT_METRIC_STORAGE_GLOBAL);
     if (!raw) {
+      for (const legacyKey of LANDING_EXPORT_METRIC_STORAGE_LEGACY_KEYS) {
+        const prev = localStorage.getItem(legacyKey);
+        if (prev && LANDING_EXPORT_METRIC_VALUES.has(prev)) {
+          raw = prev;
+          break;
+        }
+      }
       const s = String(inverterSn || '').trim();
       const h = String(huaweiStationCode || '').trim();
       const legacyDevice = h
@@ -397,22 +472,27 @@ function readStoredLandingExportMetric(inverterSn, huaweiStationCode) {
           ? localStorage.getItem(`pf-landing-export-metric-v1-${s}`)
           : null;
       const legacyFleet = localStorage.getItem('pf-landing-export-metric-v1-fleet');
-      raw = legacyDevice || legacyFleet || '';
-      if (raw && LANDING_EXPORT_METRIC_VALUES.has(raw)) {
-        try {
-          localStorage.setItem(LANDING_EXPORT_METRIC_STORAGE_GLOBAL, raw);
-        } catch {
-          /* ignore */
-        }
-      }
+      raw = raw || legacyDevice || legacyFleet || '';
     }
     if (raw && LANDING_EXPORT_METRIC_VALUES.has(raw)) {
-      return normalizeLandingExportMetricForContext(raw, inverterSn, huaweiStationCode);
+      const metric = normalizeLandingExportMetricForContext(
+        landingExportMetricFromStoredRaw(raw),
+        inverterSn,
+        huaweiStationCode
+      );
+      if (PERSISTED_LANDING_EXPORT_METRICS.has(metric)) {
+        return metric;
+      }
+      try {
+        localStorage.setItem(LANDING_EXPORT_METRIC_STORAGE_GLOBAL, defaultLandingExportMetric());
+      } catch {
+        /* ignore */
+      }
     }
   } catch {
     /* ignore */
   }
-  return LANDING_EXPORT_METRIC.MONTHLY_RATES;
+  return defaultLandingExportMetric();
 }
 
 function writeStoredLandingExportMetric(inverterSn, huaweiStationCode, value) {
@@ -510,39 +590,66 @@ function landingMonthlyRatesMom(dam, retailCurrent, bcp47, isDeviceScope) {
   return { deltaPct: pct, deltaStr, prevMonthLabel };
 }
 
-/** Device retail tariff vs national (OREE DAM avg) retail for the current Kyiv month. */
-function landingInverterTariffVsUkraineAverage(landingTotals, bcp47) {
-  if (!landingTotals?.ok) return null;
-  const scope = landingTotals.exportScope;
-  if (scope !== 'device' && scope !== 'huawei') return null;
-  const dam = landingTotals.dam;
-  if (!dam?.configured || dam.currentAvgUahPerKwh == null) return null;
+/** % vs average calendar DAM (device: retail vs DAM+dist+VAT; fleet: retail vs raw DAM UAH/kWh). */
+function landingMonthlyRatesVsAvgDam(dam, retailCurrent, bcp47, isDeviceScope) {
+  const damAvg = dam?.currentAvgUahPerKwh;
+  if (damAvg == null || !Number.isFinite(Number(damAvg)) || retailCurrent == null) return null;
+  const baseline = isDeviceScope
+    ? landingRetailUahPerKwh(Number(damAvg))
+    : Number(damAvg);
+  if (baseline == null || !Number.isFinite(baseline) || baseline <= 1e-6) return null;
+  const pct = ((retailCurrent - baseline) / baseline) * 100;
+  if (!Number.isFinite(pct) || Math.abs(pct) < 0.05) return null;
+  const fmtPct = new Intl.NumberFormat(bcp47, { maximumFractionDigits: 1, minimumFractionDigits: 1 });
+  const deltaStr = `${pct > 0 ? '+' : ''}${fmtPct.format(pct)}`;
+  return { deltaPct: pct, deltaStr };
+}
 
-  const nationalRetail = landingRetailUahPerKwh(Number(dam.currentAvgUahPerKwh));
-  const personalRaw = dam.currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd;
-  const deviceDamAvg =
-    personalRaw != null && Number.isFinite(Number(personalRaw))
-      ? Number(personalRaw)
-      : Number(dam.currentAvgUahPerKwh);
-  const deviceRetail = landingRetailUahPerKwh(deviceDamAvg);
-  if (
-    nationalRetail == null ||
-    deviceRetail == null ||
-    !Number.isFinite(nationalRetail) ||
-    nationalRetail <= 1e-6
-  ) {
-    return null;
+/** Retail tariff for landing monthly-rates (device import-weighted or fleet DAM average). */
+function landingMonthlyRatesRetailFromTotals(landingTotals) {
+  if (!landingTotals?.ok) return null;
+  const dam = landingTotals.dam;
+  if (!dam?.configured || !dam.currentMonthStart) return null;
+  const isDeviceScope =
+    landingTotals.exportScope === 'device' || landingTotals.exportScope === 'huawei';
+  let damAvg = dam.currentAvgUahPerKwh;
+  const personal = dam.currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd;
+  if (isDeviceScope && personal != null && Number.isFinite(Number(personal))) {
+    damAvg = Number(personal);
   }
-  const pct = ((deviceRetail - nationalRetail) / nationalRetail) * 100;
-  if (!Number.isFinite(pct)) return null;
+  const retail = landingRetailUahPerKwh(damAvg);
+  if (retail == null || !Number.isFinite(retail)) return null;
+  return { dam, retail, isDeviceScope };
+}
+
+/** One-line Grid Balancing MTD for landing (under metric when an inverter is selected). */
+function landingGridBalancingSupplement(landingTotals, bcp47) {
+  const gb = landingTotals?.gridBalancing;
+  if (!landingTotals?.ok || gb?.configured === false) return null;
+  const pct = gb?.balancingPctMtd;
+  const n = pct != null ? Number(pct) : null;
+  if (n == null || !Number.isFinite(n)) return null;
   const fmtPct = new Intl.NumberFormat(bcp47, { maximumFractionDigits: 1, minimumFractionDigits: 1 });
   return {
-    deltaPct: pct,
-    deltaStr: fmtPct.format(Math.abs(pct)),
-    more: pct > 0.05,
-    less: pct < -0.05,
-    equal: Math.abs(pct) <= 0.05,
+    pctStr: `${fmtPct.format(n)}%`,
+    tier: landingGridBalancingScoreTier(n),
   };
+}
+
+/** Device tariff vs calendar DAM retail (Ukraine average) for landing monthly-rates supplement. */
+function landingMonthlyRatesTariffVsUkraineSupplement(landingTotals, bcp47) {
+  const ctx = landingMonthlyRatesRetailFromTotals(landingTotals);
+  if (!ctx?.isDeviceScope) return null;
+  const vs = landingMonthlyRatesVsAvgDam(ctx.dam, ctx.retail, bcp47, true);
+  const fmtPct = new Intl.NumberFormat(bcp47, { maximumFractionDigits: 1, minimumFractionDigits: 1 });
+  if (vs == null) {
+    return { kind: 'equal' };
+  }
+  const deltaStr = fmtPct.format(Math.abs(vs.deltaPct));
+  if (vs.deltaPct > 0) {
+    return { kind: 'more', deltaPct: vs.deltaPct, deltaStr };
+  }
+  return { kind: 'less', deltaPct: vs.deltaPct, deltaStr };
 }
 
 const LANDING_MONTHLY_RATES_WRAP_CLASS =
@@ -637,18 +744,180 @@ function LandingMonthlyRatesDisplay({ display, t, asButton, chartAria, onChartOp
       {inBox}
     </div>
   );
+  function monthlyRatesMomBadge(mom, labelKey, labelParams) {
+    if (mom == null) return null;
+    return (
+      <span
+        className={
+          mom.deltaPct > 0
+            ? 'pf-landing-totals__monthly-rates-mom-out pf-landing-totals__monthly-rates-mom-out--up'
+            : mom.deltaPct < 0
+              ? 'pf-landing-totals__monthly-rates-mom-out pf-landing-totals__monthly-rates-mom-out--down'
+              : 'pf-landing-totals__monthly-rates-mom-out pf-landing-totals__monthly-rates-mom-out--flat'
+        }
+      >
+        {t(labelKey, labelParams)}
+      </span>
+    );
+  }
+  const mom = monthlyRatesMomBadge(display.monthlyRatesMom, 'powerFlowLandingMonthlyRatesMom', {
+    delta: display.monthlyRatesMom?.deltaStr,
+    prevMonth: display.monthlyRatesMom?.prevMonthLabel,
+  });
+  return (
+    <>
+      {display.monthLabel ? (
+        <span className="pf-landing-totals__monthly-rates-month">{display.monthLabel}</span>
+      ) : null}
+      {box}
+      <span className="pf-landing-totals__monthly-rates-unit">{display.unitSuffix}</span>
+      {mom}
+    </>
+  );
+}
+
+/** MoM percentage points for grid-balancing score (Kyiv MTD vs same span in previous month). */
+function landingGridBalancingMom(gb, bcp47) {
+  const pp = gb?.kyivMonthMomDeltaPp;
+  const amY = gb?.kyivMonthMomYear;
+  const amM = gb?.kyivMonthMomMonth;
+  if (typeof pp !== 'number' || !Number.isFinite(pp) || typeof amY !== 'number' || typeof amM !== 'number') {
+    return null;
+  }
+  const fmtPp = new Intl.NumberFormat(bcp47, { maximumFractionDigits: 1, minimumFractionDigits: 1 });
+  const deltaStr = `${pp > 0 ? '+' : ''}${fmtPp.format(pp)}`;
+  const amPct = pp;
+  const prevStart = gb?.prevMonthStart;
+  let prevMonthLabel = '';
+  if (prevStart) {
+    const [py, pm] = prevStart.split('-').map(Number);
+    prevMonthLabel = formatKyivMonthYearMmYy(py, pm);
+  } else if (amM >= 1 && amM <= 12) {
+    const pm = amM === 1 ? 12 : amM - 1;
+    const py = amM === 1 ? amY - 1 : amY;
+    prevMonthLabel = formatKyivMonthYearMmYy(py, pm);
+  }
+  return { deltaPct: amPct, deltaStr, prevMonthLabel };
+}
+
+const LANDING_GRID_BALANCING_WRAP_CLASS =
+  'pf-landing-totals__counter-wrap pf-landing-totals__counter-wrap--monthly-rates pf-landing-totals__counter-wrap--grid-balancing';
+const LANDING_GRID_BALANCING_COUNTER_CLASS =
+  'pf-landing-totals__counter pf-landing-totals__counter--monthly-rates pf-landing-totals__counter--grid-balancing';
+
+function formatLandingGridBalancingPct(pct, bcp47) {
+  const n = pct != null ? Number(pct) : null;
+  if (n == null || !Number.isFinite(n)) return '—';
+  const fmt = new Intl.NumberFormat(bcp47, { maximumFractionDigits: 1, minimumFractionDigits: 1 });
+  return `${fmt.format(n)}%`;
+}
+
+/** Grid-balancing score color tier: &lt;20 red, &lt;60 yellow, else green (up to 100%). */
+function landingGridBalancingScoreTier(pct) {
+  const n = pct != null ? Number(pct) : null;
+  if (n == null || !Number.isFinite(n)) return null;
+  if (n < 20) return 'low';
+  if (n < 60) return 'mid';
+  return 'high';
+}
+
+function landingGridBalancingCounterClass(tier) {
+  const base = LANDING_GRID_BALANCING_COUNTER_CLASS;
+  if (!tier) return base;
+  return `${base} pf-landing-totals__counter--grid-balancing--${tier}`;
+}
+
+function formatLandingGridBalancingMetric(landingTotals, bcp47, t) {
+  const base = {
+    monthlyRatesLayout: true,
+    unitSuffix: '',
+    wrapClass: LANDING_GRID_BALANCING_WRAP_CLASS,
+    counterClass: LANDING_GRID_BALANCING_COUNTER_CLASS,
+  };
+  const gb = landingTotals?.gridBalancing;
+  if (!landingTotals?.ok || gb?.configured === false) {
+    return {
+      ...base,
+      text: '—',
+      rateInBox: '—',
+      monthLabel: '',
+      title: t('powerFlowLandingGridBalancingHint'),
+      counterAria: t('powerFlowLandingGridBalancingHint'),
+      monthlyRatesMom: null,
+    };
+  }
+  const dam = landingTotals.dam;
+  let curMonth = '';
+  if (dam?.currentMonthStart) {
+    const [cy, cm] = dam.currentMonthStart.split('-').map(Number);
+    curMonth = formatKyivMonthYearMmYy(cy, cm);
+  } else if (gb?.kyivMonthMomYear != null && gb?.kyivMonthMomMonth != null) {
+    curMonth = formatKyivMonthYearMmYy(gb.kyivMonthMomYear, gb.kyivMonthMomMonth);
+  }
+  const pctRaw = gb?.balancingPctMtd;
+  const pctStr = formatLandingGridBalancingPct(pctRaw, bcp47);
+  const scoreTier = landingGridBalancingScoreTier(pctRaw);
+  const scopeFleet = landingTotals.exportScope === 'fleet';
+  const hintKey = scopeFleet
+    ? 'powerFlowLandingGridBalancingHintFleet'
+    : 'powerFlowLandingGridBalancingHint';
+  const mom = landingGridBalancingMom(
+    { ...gb, prevMonthStart: dam?.prevMonthStart },
+    bcp47
+  );
+  return {
+    ...base,
+    text: pctStr,
+    rateInBox: pctStr,
+    monthLabel: curMonth,
+    counterClass: landingGridBalancingCounterClass(scoreTier),
+    title: t(hintKey),
+    counterAria: t('powerFlowLandingGridBalancingCounterAria', { month: curMonth, pct: pctStr.replace('%', '') }),
+    monthlyRatesMom: mom,
+  };
+}
+
+/** Same layout as monthly rates; % in the pill. */
+function LandingGridBalancingDisplay({ display, t, asButton, chartAria, onChartOpen }) {
+  const pctText = display.rateInBox ?? '—';
+  const inBox = (
+    <div className="pf-landing-totals__counter-scroll">
+      <PfScrollNumber
+        direction="up"
+        duration={0.32}
+        ease={[0.33, 0, 0.2, 1]}
+        className={display.counterClass}
+        numberStyle={{ letterSpacing: '0.03em' }}
+      >
+        {formatLandingMetricCounterText(pctText, t, true)}
+      </PfScrollNumber>
+    </div>
+  );
+  const wrapClass = asButton
+    ? `${display.wrapClass} pf-landing-totals__counter-wrap--export-chart-trigger`
+    : display.wrapClass;
+  const aria = display.counterAria || display.title || undefined;
+  const box = asButton ? (
+    <button type="button" className={wrapClass} aria-label={chartAria || aria} onClick={onChartOpen}>
+      {inBox}
+    </button>
+  ) : (
+    <div className={wrapClass} aria-label={aria}>
+      {inBox}
+    </div>
+  );
   const mom =
     display.monthlyRatesMom != null ? (
       <span
         className={
           display.monthlyRatesMom.deltaPct > 0
-            ? 'pf-landing-totals__monthly-rates-mom-out pf-landing-totals__monthly-rates-mom-out--up'
+            ? 'pf-landing-totals__monthly-rates-mom-out pf-landing-totals__grid-balancing-mom-out--up'
             : display.monthlyRatesMom.deltaPct < 0
-              ? 'pf-landing-totals__monthly-rates-mom-out pf-landing-totals__monthly-rates-mom-out--down'
+              ? 'pf-landing-totals__monthly-rates-mom-out pf-landing-totals__grid-balancing-mom-out--down'
               : 'pf-landing-totals__monthly-rates-mom-out pf-landing-totals__monthly-rates-mom-out--flat'
         }
       >
-        {t('powerFlowLandingMonthlyRatesMom', {
+        {t('powerFlowLandingGridBalancingMom', {
           delta: display.monthlyRatesMom.deltaStr,
           prevMonth: display.monthlyRatesMom.prevMonthLabel,
         })}
@@ -660,7 +929,6 @@ function LandingMonthlyRatesDisplay({ display, t, asButton, chartAria, onChartOp
         <span className="pf-landing-totals__monthly-rates-month">{display.monthLabel}</span>
       ) : null}
       {box}
-      <span className="pf-landing-totals__monthly-rates-unit">{display.unitSuffix}</span>
       {mom}
     </>
   );
@@ -708,7 +976,7 @@ function formatLandingTotalsDisplay(landingTotals, bcp47, t) {
   const fmtRate = new Intl.NumberFormat(bcp47, { maximumFractionDigits: 3, minimumFractionDigits: 3 });
   const arbRaw = landingTotals.arbitrageRevenueUah;
   let arbitrage = null;
-  if (typeof arbRaw === 'number' && Number.isFinite(arbRaw)) {
+  if (typeof arbRaw === 'number' && Number.isFinite(arbRaw) && arbRaw > 0) {
     const amPct = landingTotals.arbitrageKyivMonthMomPct;
     const amY = landingTotals.arbitrageKyivMonthMomYear;
     const amM = landingTotals.arbitrageKyivMonthMomMonth;
@@ -744,14 +1012,24 @@ function formatLandingTotalsDisplay(landingTotals, bcp47, t) {
   }
   const pds = landingTotals.peakDamLastSession;
   let peakDam = null;
-  if (pds && typeof pds.exportSessionKwh === 'number' && Number.isFinite(pds.exportSessionKwh)) {
+  if (
+    pds &&
+    typeof pds.exportSessionKwh === 'number' &&
+    Number.isFinite(pds.exportSessionKwh) &&
+    pds.exportSessionKwh > 0
+  ) {
     peakDam = {
       exportText: fmtKwh.format(pds.exportSessionKwh),
     };
   }
   const mds = landingTotals.manualDischargeLastSession;
   let manualDischarge = null;
-  if (mds && typeof mds.exportSessionKwh === 'number' && Number.isFinite(mds.exportSessionKwh)) {
+  if (
+    mds &&
+    typeof mds.exportSessionKwh === 'number' &&
+    Number.isFinite(mds.exportSessionKwh) &&
+    mds.exportSessionKwh > 0
+  ) {
     manualDischarge = {
       exportText: fmtKwh.format(mds.exportSessionKwh),
     };
@@ -1795,6 +2073,8 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const dischargeHoverTipTimerRef = useRef(null);
   /** After first load, inverter/station changes keep ``landingExportMetric`` unless URL overrides or context forbids it. */
   const landingExportMetricHydratedRef = useRef(false);
+  /** One-shot: after landing totals load, promote legacy monthly_rates selection to grid balancing. */
+  const landingExportMetricDefaultedRef = useRef(false);
   /** Previous Deye ``selInverterSn`` (Huawei mode uses empty SN); used to reset metric to total export on inverter change. */
   const prevSelInverterSnForMetricRef = useRef(null);
   const [peakDamDischargeEnabled, setPeakDamDischargeEnabled] = useState(false);
@@ -1807,7 +2087,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   /** Fleet or per-inverter totals from GET /api/power-flow/landing-totals. */
   const [landingTotals, setLandingTotals] = useState(null);
   const [landingTotalsLoading, setLandingTotalsLoading] = useState(false);
-  const [landingExportMetric, setLandingExportMetric] = useState(LANDING_EXPORT_METRIC.MONTHLY_RATES);
+  const [landingExportMetric, setLandingExportMetric] = useState(LANDING_EXPORT_METRIC.GRID_BALANCING);
 
   /** Self-consumption hint / aria: reference LCOE + same till-SoC label as the discharge dropdown. */
   const selfConsumptionHintWithLcoe = useMemo(() => {
@@ -1877,32 +2157,109 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     if (prev === cur) return;
     prevSelInverterSnForMetricRef.current = cur;
     if (readLandingExportMetricFromUrl(selInverterSn, selHuaweiStationCode) != null) return;
-    setLandingExportMetric(LANDING_EXPORT_METRIC.MONTHLY_RATES);
-    writeStoredLandingExportMetric(selInverterSn, selHuaweiStationCode, LANDING_EXPORT_METRIC.MONTHLY_RATES);
-  }, [selInverterSn, selHuaweiStationCode]);
+    const gridBalancingConfigured = Boolean(
+      landingTotals?.ok && landingTotals?.gridBalancing?.configured !== false
+    );
+    const offers = {
+      gridBalancing: gridBalancingConfigured,
+      peak:
+        !selHuaweiStationCode &&
+        landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.PEAK),
+      manual:
+        !selHuaweiStationCode &&
+        landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.MANUAL),
+      total: landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.TOTAL),
+      arbitrage:
+        !selHuaweiStationCode &&
+        landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.ARBITRAGE),
+      lostSolar:
+        Boolean(selInverterSn?.trim()) &&
+        landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.LOST_SOLAR_7D),
+    };
+    setLandingExportMetric(preferredLandingExportMetric(offers));
+    writeStoredLandingExportMetric(
+      selInverterSn,
+      selHuaweiStationCode,
+      preferredLandingExportMetric(offers)
+    );
+  }, [selInverterSn, selHuaweiStationCode, landingTotals]);
 
   useEffect(() => {
     replaceLandingExportMetricInUrl(landingExportMetric);
   }, [landingExportMetric]);
 
-  /** Arbitrage counter is hidden when we know cumulative sample export is zero (fleet or device). */
-  const canOfferLandingArbitrageMetric = useMemo(() => {
-    if (selHuaweiStationCode) return false;
-    if (!landingTotals?.ok) return true;
-    const te = landingTotals.totalExportKwh;
-    if (te == null || !Number.isFinite(Number(te))) return true;
-    return Number(te) > 1e-9;
-  }, [selHuaweiStationCode, landingTotals?.ok, landingTotals?.totalExportKwh]);
+  const landingExportMetricOffers = useMemo(() => {
+    const gridBalancingConfigured = Boolean(
+      landingTotals?.ok && landingTotals?.gridBalancing?.configured !== false
+    );
+    return {
+      gridBalancing:
+        landingTotalsLoading || !landingTotals?.ok ? true : gridBalancingConfigured,
+      peak:
+        !selHuaweiStationCode &&
+        landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.PEAK),
+      manual:
+        !selHuaweiStationCode &&
+        landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.MANUAL),
+      total: landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.TOTAL),
+      arbitrage:
+        !selHuaweiStationCode &&
+        landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.ARBITRAGE),
+      lostSolar:
+        Boolean(selInverterSn?.trim()) &&
+        landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.LOST_SOLAR_7D),
+    };
+  }, [selHuaweiStationCode, selInverterSn, landingTotals, landingTotalsLoading]);
 
   useEffect(() => {
-    if (!canOfferLandingArbitrageMetric && landingExportMetric === LANDING_EXPORT_METRIC.ARBITRAGE) {
-      setLandingExportMetric(LANDING_EXPORT_METRIC.MONTHLY_RATES);
-      writeStoredLandingExportMetric(selInverterSn, selHuaweiStationCode, LANDING_EXPORT_METRIC.MONTHLY_RATES);
+    if (landingTotalsLoading || !landingTotals?.ok) return;
+    const unavailable =
+      (landingExportMetric === LANDING_EXPORT_METRIC.GRID_BALANCING &&
+        !landingExportMetricOffers.gridBalancing) ||
+      (landingExportMetric === LANDING_EXPORT_METRIC.PEAK && !landingExportMetricOffers.peak) ||
+      (landingExportMetric === LANDING_EXPORT_METRIC.MANUAL && !landingExportMetricOffers.manual) ||
+      (landingExportMetric === LANDING_EXPORT_METRIC.TOTAL && !landingExportMetricOffers.total) ||
+      (landingExportMetric === LANDING_EXPORT_METRIC.ARBITRAGE && !landingExportMetricOffers.arbitrage) ||
+      (landingExportMetric === LANDING_EXPORT_METRIC.LOST_SOLAR_7D && !landingExportMetricOffers.lostSolar);
+    if (unavailable) {
+      const next = preferredLandingExportMetric(landingExportMetricOffers);
+      setLandingExportMetric(next);
+      writeStoredLandingExportMetric(selInverterSn, selHuaweiStationCode, next);
     }
-  }, [canOfferLandingArbitrageMetric, landingExportMetric, selInverterSn, selHuaweiStationCode]);
+  }, [
+    landingExportMetricOffers,
+    landingExportMetric,
+    selInverterSn,
+    selHuaweiStationCode,
+    landingTotalsLoading,
+    landingTotals,
+  ]);
+
+  useEffect(() => {
+    if (landingExportMetricDefaultedRef.current) return;
+    if (landingTotalsLoading || !landingTotals?.ok) return;
+    landingExportMetricDefaultedRef.current = true;
+    if (readLandingExportMetricFromUrl(selInverterSn, selHuaweiStationCode) != null) return;
+    if (!landingExportMetricOffers.gridBalancing) return;
+    if (landingExportMetric !== LANDING_EXPORT_METRIC.MONTHLY_RATES) return;
+    setLandingExportMetric(LANDING_EXPORT_METRIC.GRID_BALANCING);
+    writeStoredLandingExportMetric(
+      selInverterSn,
+      selHuaweiStationCode,
+      LANDING_EXPORT_METRIC.GRID_BALANCING
+    );
+  }, [
+    landingTotalsLoading,
+    landingTotals,
+    landingExportMetricOffers.gridBalancing,
+    landingExportMetric,
+    selInverterSn,
+    selHuaweiStationCode,
+  ]);
 
   const [exportHourlyChartOpen, setExportHourlyChartOpen] = useState(false);
   const [monthlyRatesChartOpen, setMonthlyRatesChartOpen] = useState(false);
+  const [gridBalancingChartOpen, setGridBalancingChartOpen] = useState(false);
   const exportHourlyScope = useMemo(() => {
     if (landingExportMetric === LANDING_EXPORT_METRIC.PEAK) return 'peak';
     if (landingExportMetric === LANDING_EXPORT_METRIC.MANUAL) return 'manual';
@@ -1932,6 +2289,14 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     if (sn) q.set('deviceSn', sn);
     else if (hw) q.set('huaweiStationCode', hw);
     return apiUrl(`/api/power-flow/monthly-retail-tariff-bars?${q}`);
+  }, [selInverterSn, selHuaweiStationCode]);
+  const gridBalancingChartFetchUrl = useMemo(() => {
+    const q = new URLSearchParams({ months: '12' });
+    const sn = selInverterSn?.trim();
+    const hw = selHuaweiStationCode?.trim();
+    if (sn) q.set('deviceSn', sn);
+    else if (hw) q.set('huaweiStationCode', hw);
+    return apiUrl(`/api/power-flow/monthly-grid-balancing-bars?${q}`);
   }, [selInverterSn, selHuaweiStationCode]);
   const peakHourlyChartKind = landingExportMetric === LANDING_EXPORT_METRIC.LOST_SOLAR_7D ? 'lostSolar' : 'export';
 
@@ -3522,7 +3887,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       if (
         landingExportMetric &&
         landingExportMetric !== LANDING_EXPORT_METRIC.TOTAL &&
-        landingExportMetric !== LANDING_EXPORT_METRIC.MONTHLY_RATES
+        landingExportMetric !== LANDING_EXPORT_METRIC.GRID_BALANCING
       ) {
         u.searchParams.set('exportMetric', landingExportMetric);
       }
@@ -3775,20 +4140,49 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                 const landingTotalsScopeFleet = landingTotals?.exportScope === 'fleet';
                 const listPending = !inverterListReady;
                 const landingHuaweiEss = Boolean(selHuaweiStationCode);
-                const landingExportMetricUi =
-                  landingHuaweiEss &&
-                  (landingExportMetric === LANDING_EXPORT_METRIC.PEAK ||
-                    landingExportMetric === LANDING_EXPORT_METRIC.MANUAL ||
-                    landingExportMetric === LANDING_EXPORT_METRIC.ARBITRAGE ||
-                    landingExportMetric === LANDING_EXPORT_METRIC.LOST_SOLAR_7D)
-                    ? LANDING_EXPORT_METRIC.MONTHLY_RATES
-                    : !canOfferLandingArbitrageMetric && landingExportMetric === LANDING_EXPORT_METRIC.ARBITRAGE
-                      ? LANDING_EXPORT_METRIC.MONTHLY_RATES
-                      : landingExportMetric;
+                const landingExportMetricUi = (() => {
+                  const m = landingExportMetric;
+                  const offers = landingExportMetricOffers;
+                  if (
+                    landingHuaweiEss &&
+                    (m === LANDING_EXPORT_METRIC.PEAK ||
+                      m === LANDING_EXPORT_METRIC.MANUAL ||
+                      m === LANDING_EXPORT_METRIC.ARBITRAGE ||
+                      m === LANDING_EXPORT_METRIC.LOST_SOLAR_7D)
+                  ) {
+                    return preferredLandingExportMetric(offers);
+                  }
+                  if (
+                    landingTotals?.ok &&
+                    m === LANDING_EXPORT_METRIC.GRID_BALANCING &&
+                    !offers.gridBalancing
+                  ) {
+                    return LANDING_EXPORT_METRIC.MONTHLY_RATES;
+                  }
+                  if (m === LANDING_EXPORT_METRIC.PEAK && !offers.peak) {
+                    return preferredLandingExportMetric(offers);
+                  }
+                  if (m === LANDING_EXPORT_METRIC.MANUAL && !offers.manual) {
+                    return preferredLandingExportMetric(offers);
+                  }
+                  if (m === LANDING_EXPORT_METRIC.TOTAL && !offers.total) {
+                    return preferredLandingExportMetric(offers);
+                  }
+                  if (m === LANDING_EXPORT_METRIC.ARBITRAGE && !offers.arbitrage) {
+                    return preferredLandingExportMetric(offers);
+                  }
+                  if (m === LANDING_EXPORT_METRIC.LOST_SOLAR_7D && !offers.lostSolar) {
+                    return preferredLandingExportMetric(offers);
+                  }
+                  return m;
+                })();
 
+                const showGridBalancingChart =
+                  landingExportMetricUi === LANDING_EXPORT_METRIC.GRID_BALANCING;
                 const showMonthlyRatesChart =
                   landingExportMetricUi === LANDING_EXPORT_METRIC.MONTHLY_RATES;
                 const showExportHourlyChart =
+                  !showGridBalancingChart &&
                   !showMonthlyRatesChart &&
                   !landingHuaweiEss &&
                   (landingExportMetricUi === LANDING_EXPORT_METRIC.PEAK ||
@@ -3798,15 +4192,27 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                     landingExportMetricUi === LANDING_EXPORT_METRIC.LOST_SOLAR_7D);
 
                 const inverterSelected = Boolean(selInverterSn || selHuaweiStationCode);
-                const tariffVsUkraine =
-                  inverterSelected && inverterListReady
-                    ? landingInverterTariffVsUkraineAverage(landingTotals, bcp47)
-                    : null;
-
+                const showMonthlyRatesInverterSupplements =
+                  inverterSelected &&
+                  inverterListReady &&
+                  landingExportMetricUi === LANDING_EXPORT_METRIC.MONTHLY_RATES;
+                const showGridBalancingSupplement =
+                  inverterSelected &&
+                  inverterListReady &&
+                  (showMonthlyRatesInverterSupplements ||
+                    landingExportMetricUi !== LANDING_EXPORT_METRIC.GRID_BALANCING);
+                const gridBalancingSupplement = showGridBalancingSupplement
+                  ? landingGridBalancingSupplement(landingTotals, bcp47)
+                  : null;
+                const monthlyRatesTariffVsUkraineSupplement = showMonthlyRatesInverterSupplements
+                  ? landingMonthlyRatesTariffVsUkraineSupplement(landingTotals, bcp47)
+                  : null;
                 const inverterMetricDisplay =
-                  landingExportMetricUi === LANDING_EXPORT_METRIC.MONTHLY_RATES
-                    ? formatLandingMonthlyRatesMetric(landingTotals, bcp47, t)
-                    : ltd
+                  landingExportMetricUi === LANDING_EXPORT_METRIC.GRID_BALANCING
+                    ? formatLandingGridBalancingMetric(landingTotals, bcp47, t)
+                    : landingExportMetricUi === LANDING_EXPORT_METRIC.MONTHLY_RATES
+                      ? formatLandingMonthlyRatesMetric(landingTotals, bcp47, t)
+                      : ltd
                   ? (() => {
                       if (landingExportMetricUi === LANDING_EXPORT_METRIC.TOTAL) {
                         return {
@@ -3858,12 +4264,14 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                       }
                       if (landingExportMetricUi === LANDING_EXPORT_METRIC.LOST_SOLAR_7D) {
                         const ls = landingTotals?.lostSolarKwhTotal;
+                        const lsNum = ls != null ? Number(ls) : null;
                         const fmtLs = new Intl.NumberFormat(bcp47, {
                           maximumFractionDigits: 1,
                           minimumFractionDigits: 0,
                         });
                         return {
-                          text: ls != null && Number.isFinite(Number(ls)) ? fmtLs.format(Number(ls)) : '—',
+                          text:
+                            lsNum != null && Number.isFinite(lsNum) && lsNum > 0 ? fmtLs.format(lsNum) : '—',
                           title: landingTotalsScopeFleet
                             ? t('powerFlowLandingExportMetricLostSolar7dHintFleet')
                             : t('powerFlowLandingExportMetricLostSolar7dHint'),
@@ -3925,28 +4333,35 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                               writeStoredLandingExportMetric(selInverterSn, selHuaweiStationCode, v);
                             }}
                           >
+                            {landingExportMetricOffers.gridBalancing ? (
+                              <option value={LANDING_EXPORT_METRIC.GRID_BALANCING}>
+                                {t('powerFlowLandingExportMetricGridBalancing')}
+                              </option>
+                            ) : null}
                             <option value={LANDING_EXPORT_METRIC.MONTHLY_RATES}>
                               {t('powerFlowLandingExportMetricMonthlyRates')}
                             </option>
-                            {landingHuaweiEss ? null : (
-                              <>
-                                <option value={LANDING_EXPORT_METRIC.PEAK}>
-                                  {t('powerFlowLandingExportMetricPeak')}
-                                </option>
-                                <option value={LANDING_EXPORT_METRIC.MANUAL}>
-                                  {t('powerFlowLandingExportMetricManual')}
-                                </option>
-                              </>
+                            {landingHuaweiEss || !landingExportMetricOffers.peak ? null : (
+                              <option value={LANDING_EXPORT_METRIC.PEAK}>
+                                {t('powerFlowLandingExportMetricPeak')}
+                              </option>
                             )}
-                            <option value={LANDING_EXPORT_METRIC.TOTAL}>
-                              {t('powerFlowLandingExportMetricTotal')}
-                            </option>
-                            {landingHuaweiEss || !selInverterSn?.trim() ? null : (
+                            {landingHuaweiEss || !landingExportMetricOffers.manual ? null : (
+                              <option value={LANDING_EXPORT_METRIC.MANUAL}>
+                                {t('powerFlowLandingExportMetricManual')}
+                              </option>
+                            )}
+                            {landingExportMetricOffers.total ? (
+                              <option value={LANDING_EXPORT_METRIC.TOTAL}>
+                                {t('powerFlowLandingExportMetricTotal')}
+                              </option>
+                            ) : null}
+                            {landingHuaweiEss || !landingExportMetricOffers.lostSolar ? null : (
                               <option value={LANDING_EXPORT_METRIC.LOST_SOLAR_7D}>
                                 {t('powerFlowLandingExportMetricLostSolar7d')}
                               </option>
                             )}
-                            {landingHuaweiEss || !canOfferLandingArbitrageMetric ? null : (
+                            {landingHuaweiEss || !landingExportMetricOffers.arbitrage ? null : (
                               <option value={LANDING_EXPORT_METRIC.ARBITRAGE}>
                                 {t('powerFlowLandingExportMetricArbitrage')}
                               </option>
@@ -3964,7 +4379,17 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                                     : 'pf-landing-totals__export-value'
                               }
                             >
-                              {inverterMetricDisplay.monthlyRatesLayout ? (
+                              {landingExportMetricUi === LANDING_EXPORT_METRIC.GRID_BALANCING ? (
+                                <LandingGridBalancingDisplay
+                                  display={inverterMetricDisplay}
+                                  t={t}
+                                  asButton={
+                                    !landingHuaweiEss || showGridBalancingChart || showExportHourlyChart
+                                  }
+                                  chartAria={t('powerFlowGridBalancingChartOpenAria')}
+                                  onChartOpen={() => setGridBalancingChartOpen(true)}
+                                />
+                              ) : inverterMetricDisplay.monthlyRatesLayout ? (
                                 <LandingMonthlyRatesDisplay
                                   display={inverterMetricDisplay}
                                   t={t}
@@ -4012,38 +4437,54 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                       </div>
                       {inverterSelected ? (
                         <>
-                          {landingExportMetricUi === LANDING_EXPORT_METRIC.MONTHLY_RATES ? (
+                          {landingExportMetricUi === LANDING_EXPORT_METRIC.GRID_BALANCING ? (
                             <p className="pf-landing-totals__tariff pf-landing-totals__tariff--monthly-rates-hint">
-                              {t('powerFlowLandingMonthlyRatesClickHint')}
+                              {t('powerFlowLandingGridBalancingClickHint')}
                             </p>
                           ) : null}
-                          {tariffVsUkraine ? (
-                            <p
-                              className={`pf-landing-totals__tariff pf-landing-totals__tariff--ukraine-avg${
-                                tariffVsUkraine.more
-                                  ? ' pf-landing-totals__delta--up'
-                                  : tariffVsUkraine.less
-                                    ? ' pf-landing-totals__delta--down'
-                                    : ''
-                              }`}
-                            >
-                              {tariffVsUkraine.equal
-                                ? t('powerFlowLandingTariffVsUkraineEqual')
-                                : tariffVsUkraine.more
-                                  ? t('powerFlowLandingTariffVsUkraineMore', { delta: tariffVsUkraine.deltaStr })
-                                  : t('powerFlowLandingTariffVsUkraineLess', { delta: tariffVsUkraine.deltaStr })}
+                          {gridBalancingSupplement ? (
+                            <p className="pf-landing-totals__tariff pf-landing-totals__tariff--grid-balancing-supplement">
+                              {t('powerFlowLandingGridBalancingSupplementBefore')}
+                              <span
+                                className={
+                                  gridBalancingSupplement.tier
+                                    ? `pf-landing-totals__grid-balancing-supplement-pct pf-landing-totals__grid-balancing-supplement-pct--${gridBalancingSupplement.tier}`
+                                    : 'pf-landing-totals__grid-balancing-supplement-pct'
+                                }
+                              >
+                                {gridBalancingSupplement.pctStr}
+                              </span>
                             </p>
-                          ) : inverterListReady && landingTotals?.ok ? (
-                            <p className="pf-landing-totals__tariff pf-landing-totals__tariff--ukraine-avg">
-                              {t('powerFlowLandingTariffUnavailable')}
+                          ) : null}
+                          {monthlyRatesTariffVsUkraineSupplement ? (
+                            <p className="pf-landing-totals__tariff pf-landing-totals__tariff--monthly-rates-vs-ukraine">
+                              {monthlyRatesTariffVsUkraineSupplement.kind === 'equal' ? (
+                                t('powerFlowLandingTariffVsUkraineEqual')
+                              ) : monthlyRatesTariffVsUkraineSupplement.kind === 'more' ? (
+                                <>
+                                  {t('powerFlowLandingTariffVsUkraineMoreBefore')}
+                                  <span className="pf-landing-totals__monthly-rates-vs-ukraine-pct pf-landing-totals__monthly-rates-vs-ukraine-pct--up">
+                                    {monthlyRatesTariffVsUkraineSupplement.deltaStr}%
+                                  </span>
+                                  {t('powerFlowLandingTariffVsUkraineMoreAfter')}
+                                </>
+                              ) : (
+                                <>
+                                  {t('powerFlowLandingTariffVsUkraineLessBefore')}
+                                  <span className="pf-landing-totals__monthly-rates-vs-ukraine-pct pf-landing-totals__monthly-rates-vs-ukraine-pct--down">
+                                    {monthlyRatesTariffVsUkraineSupplement.deltaStr}%
+                                  </span>
+                                  {t('powerFlowLandingTariffVsUkraineLessAfter')}
+                                </>
+                              )}
                             </p>
                           ) : null}
                         </>
-                      ) : landingExportMetricUi === LANDING_EXPORT_METRIC.MONTHLY_RATES ? (
+                      ) : landingExportMetricUi === LANDING_EXPORT_METRIC.GRID_BALANCING ? (
                         <p className="pf-landing-totals__tariff pf-landing-totals__tariff--monthly-rates-hint">
-                          {t('powerFlowLandingMonthlyRatesClickHint')}
+                          {t('powerFlowLandingGridBalancingClickHint')}
                         </p>
-                      ) : (
+                      ) : landingExportMetricUi === LANDING_EXPORT_METRIC.MONTHLY_RATES ? null : (
                         <>
                           <p className="pf-landing-totals__tariff">
                             {ltd?.tariffCompare ? (
@@ -5411,13 +5852,23 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
         fetchUrl={peakHourlyChartFetchUrl}
         chartKind={peakHourlyChartKind}
         hourlyScope={exportHourlyScope}
-        exportRevenueUah={canOfferLandingArbitrageMetric && landingExportMetric === LANDING_EXPORT_METRIC.ARBITRAGE}
+        exportRevenueUah={
+          landingExportMetricOffers.arbitrage && landingExportMetric === LANDING_EXPORT_METRIC.ARBITRAGE
+        }
         t={t}
       />
       <MonthlyRetailTariffChartModal
         open={monthlyRatesChartOpen}
         onClose={() => setMonthlyRatesChartOpen(false)}
         fetchUrl={monthlyRatesChartFetchUrl}
+        bcp47={bcp47}
+        t={t}
+        isDark={isDark}
+      />
+      <GridBalancingChartModal
+        open={gridBalancingChartOpen}
+        onClose={() => setGridBalancingChartOpen(false)}
+        fetchUrl={gridBalancingChartFetchUrl}
         bcp47={bcp47}
         t={t}
         isDark={isDark}

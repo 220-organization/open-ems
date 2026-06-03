@@ -313,7 +313,11 @@ body {
   justify-content: center;
   gap: 8px 14px;
 }
-.pf-landing-totals__export-value--with-monthly-rates-mom { justify-content: center; }
+.pf-landing-totals__export-value--with-monthly-rates-mom {
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+}
 
 .pf-landing-totals__monthly-rates-month {
   flex: 0 0 auto;
@@ -3154,6 +3158,84 @@ a.pf-node { cursor: pointer; }
 
 .pf-monthly-rates-chart-title { max-width: 44rem; }
 
+.pf-monthly-rates-chart-head-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.pf-monthly-rates-chart-grid-balancing {
+  margin: 6px 0 0;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  color: var(--pf-text-secondary);
+  max-width: 44rem;
+}
+
+.pf-landing-totals__tariff--grid-balancing-supplement,
+.pf-landing-totals__tariff--monthly-rates-supplement {
+  opacity: 0.88;
+}
+
+.pf-landing-totals__monthly-rates-vs-ukraine-pct {
+  font-family: var(--pf-font-mono);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.pf-landing-totals__monthly-rates-vs-ukraine-pct--up {
+  color: var(--pf-up);
+}
+.pf-landing-totals__monthly-rates-vs-ukraine-pct--down {
+  color: var(--pf-down);
+}
+
+.pf-landing-totals__grid-balancing-supplement-pct {
+  font-family: var(--pf-font-mono);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.pf-landing-totals__grid-balancing-supplement-pct--low {
+  color: #f87171;
+}
+.pf-landing-totals__grid-balancing-supplement-pct--mid {
+  color: #facc15;
+}
+.pf-landing-totals__grid-balancing-supplement-pct--high {
+  color: #4ade80;
+}
+
+/* Combined with --monthly-rates so light-theme pill color does not override score tiers. */
+.pf-landing-totals__counter--monthly-rates.pf-landing-totals__counter--grid-balancing--low {
+  color: #f87171;
+  text-shadow: 0 0 18px rgba(248, 113, 113, 0.35);
+}
+.pf-landing-totals__counter--monthly-rates.pf-landing-totals__counter--grid-balancing--mid {
+  color: #facc15;
+  text-shadow: 0 0 18px rgba(250, 204, 21, 0.28);
+}
+.pf-landing-totals__counter--monthly-rates.pf-landing-totals__counter--grid-balancing--high {
+  color: #4ade80;
+  text-shadow: 0 0 18px rgba(74, 222, 128, 0.32);
+}
+
+/* Grid-balancing MoM: higher score = good (green), lower = bad (red) — opposite of retail tariff MoM. */
+.pf-landing-totals__grid-balancing-mom-out--up {
+  color: #4ade80;
+  background: rgba(74, 222, 128, 0.12);
+}
+.pf-landing-totals__grid-balancing-mom-out--down {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.12);
+}
+
+[data-theme="light"] .pf-landing-totals__grid-balancing-mom-out--up {
+  color: #2f7a4b;
+  background: rgba(47, 122, 75, 0.1);
+}
+[data-theme="light"] .pf-landing-totals__grid-balancing-mom-out--down {
+  color: #c1453d;
+  background: rgba(193, 69, 61, 0.1);
+}
+
 .pf-monthly-rates-chart-inner {
   padding: 12px 14px 8px;
   box-sizing: border-box;
@@ -3467,8 +3549,23 @@ a.pf-node { cursor: pointer; }
   background: #fafaf8;
 }
 
-[data-theme="light"] .pf-landing-totals__counter--monthly-rates {
+[data-theme="light"] .pf-landing-totals__counter--monthly-rates:not(.pf-landing-totals__counter--grid-balancing--low):not(
+    .pf-landing-totals__counter--grid-balancing--mid
+  ):not(.pf-landing-totals__counter--grid-balancing--high) {
   color: var(--pf-value);
+  text-shadow: none;
+}
+
+[data-theme="light"] .pf-landing-totals__counter--monthly-rates.pf-landing-totals__counter--grid-balancing--low {
+  color: #c1453d;
+  text-shadow: none;
+}
+[data-theme="light"] .pf-landing-totals__counter--monthly-rates.pf-landing-totals__counter--grid-balancing--mid {
+  color: #a16207;
+  text-shadow: none;
+}
+[data-theme="light"] .pf-landing-totals__counter--monthly-rates.pf-landing-totals__counter--grid-balancing--high {
+  color: #2f7a4b;
   text-shadow: none;
 }
 
@@ -3479,6 +3576,11 @@ a.pf-node { cursor: pointer; }
 
 [data-theme="light"] .pf-landing-totals__monthly-rates-mom-out--up   { color: var(--pf-up); text-shadow: none; }
 [data-theme="light"] .pf-landing-totals__monthly-rates-mom-out--down { color: var(--pf-down); text-shadow: none; }
+[data-theme="light"] .pf-landing-totals__monthly-rates-vs-ukraine-pct--up   { color: var(--pf-up); }
+[data-theme="light"] .pf-landing-totals__monthly-rates-vs-ukraine-pct--down { color: var(--pf-down); }
+[data-theme="light"] .pf-landing-totals__grid-balancing-supplement-pct--low  { color: #dc2626; }
+[data-theme="light"] .pf-landing-totals__grid-balancing-supplement-pct--mid  { color: #ca8a04; }
+[data-theme="light"] .pf-landing-totals__grid-balancing-supplement-pct--high { color: #16a34a; }
 [data-theme="light"] .pf-landing-totals__monthly-rates-mom-out {
   background: rgba(16, 18, 22, 0.04);
 }
@@ -3582,8 +3684,23 @@ a.pf-node { cursor: pointer; }
     box-shadow: none;
   }
 
-  :root:not([data-theme]) .pf-landing-totals__counter--monthly-rates,
+  :root:not([data-theme]) .pf-landing-totals__counter--monthly-rates:not(.pf-landing-totals__counter--grid-balancing--low):not(
+      .pf-landing-totals__counter--grid-balancing--mid
+    ):not(.pf-landing-totals__counter--grid-balancing--high),
   :root:not([data-theme]) .pf-landing-totals__counter { color: var(--pf-value); text-shadow: none; }
+
+  :root:not([data-theme]) .pf-landing-totals__counter--monthly-rates.pf-landing-totals__counter--grid-balancing--low {
+    color: #c1453d;
+    text-shadow: none;
+  }
+  :root:not([data-theme]) .pf-landing-totals__counter--monthly-rates.pf-landing-totals__counter--grid-balancing--mid {
+    color: #a16207;
+    text-shadow: none;
+  }
+  :root:not([data-theme]) .pf-landing-totals__counter--monthly-rates.pf-landing-totals__counter--grid-balancing--high {
+    color: #2f7a4b;
+    text-shadow: none;
+  }
 
   :root:not([data-theme]) .pf-landing-totals__monthly-rates-month,
   :root:not([data-theme]) .pf-landing-totals__monthly-rates-unit,

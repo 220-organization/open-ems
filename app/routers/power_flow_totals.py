@@ -411,6 +411,209 @@ def _landing_retail_uah_per_kwh(dam_avg_uah_per_kwh: Optional[float]) -> Optiona
     return (x + _LANDING_TARIFF_DISTRIBUTION_UAH_PER_KWH) * _LANDING_TARIFF_VAT_MULTIPLIER
 
 
+def _grid_balancing_sample_sql_parts(
+    device_sn: Optional[str], huawei_station_code: Optional[str], d0: date, d1: date
+) -> tuple[str, str, dict[str, Any]] | None:
+    """(sample_from, device_pred, params) for grid-balancing queries; None if invalid scope."""
+    zone = settings.OREE_COMPARE_ZONE_EIC
+    sn = (device_sn or "").strip()
+    hw = (huawei_station_code or "").strip()
+    if sn and hw:
+        return None
+    if hw:
+        return (
+            "huawei_power_sample s",
+            " AND s.station_code = :hw",
+            {"zone": zone, "d0": d0, "d1": d1, "hw": hw},
+        )
+    if sn:
+        return (
+            "deye_soc_sample s",
+            " AND s.device_sn = :sn",
+            {"zone": zone, "d0": d0, "d1": d1, "sn": sn},
+        )
+    return ("deye_soc_sample s", "", {"zone": zone, "d0": d0, "d1": d1})
+
+
+_GRID_BALANCING_PCT_SQL = """
+        WITH hourly AS (
+            SELECT
+                ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date) AS kyiv_day,
+                (EXTRACT(HOUR FROM (s.bucket_start AT TIME ZONE 'Europe/Kiev'))::int) AS kyiv_hour,
+                SUM(
+                    CASE WHEN s.grid_power_w > 0 THEN s.grid_power_w::double precision / 12000.0
+                    ELSE 0 END
+                ) AS import_kwh
+            FROM {sample_from}
+            WHERE s.grid_power_w IS NOT NULL
+              AND ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date) >= :d0
+              AND ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date) <= :d1
+            {device_pred}
+            GROUP BY 1, 2
+        ),
+        dam_hourly AS (
+            SELECT
+                p.trade_day AS kyiv_day,
+                (p.period - 1)::int AS kyiv_hour,
+                (p.price_uah_mwh / 1000.0)::double precision AS dam_uah
+            FROM oree_dam_price p
+            WHERE p.zone_eic = :zone
+              AND p.trade_day >= :d0
+              AND p.trade_day <= :d1
+        ),
+        peak_hour AS (
+            SELECT DISTINCT ON (kyiv_day)
+                kyiv_day,
+                kyiv_hour AS peak_hour
+            FROM dam_hourly
+            ORDER BY kyiv_day, dam_uah DESC, kyiv_hour ASC
+        ),
+        daily AS (
+            SELECT
+                h.kyiv_day,
+                SUM(h.import_kwh)::double precision AS total_kwh,
+                SUM(
+                    CASE
+                        WHEN LEAST(
+                            ABS(h.kyiv_hour - p.peak_hour),
+                            24 - ABS(h.kyiv_hour - p.peak_hour)
+                        ) <= 1
+                        THEN h.import_kwh
+                        ELSE 0
+                    END
+                )::double precision AS peak_window_kwh
+            FROM hourly h
+            INNER JOIN peak_hour p ON p.kyiv_day = h.kyiv_day
+            GROUP BY h.kyiv_day
+        ),
+        daily_scores AS (
+            SELECT
+                kyiv_day,
+                total_kwh,
+                peak_window_kwh,
+                CASE
+                    WHEN peak_window_kwh <= 1e-9 THEN 100.0
+                    WHEN total_kwh <= 1e-9 THEN NULL::double precision
+                    ELSE LEAST(
+                        100.0,
+                        GREATEST(0.0, 100.0 * (1.0 - peak_window_kwh / total_kwh))
+                    )
+                END AS day_pct
+            FROM daily
+        )
+        SELECT
+            AVG(day_pct)::double precision AS balancing_pct,
+            COALESCE(SUM(peak_window_kwh), 0)::double precision AS peak_window_import_kwh,
+            COALESCE(SUM(total_kwh), 0)::double precision AS import_total_kwh,
+            COUNT(day_pct)::int AS scored_days
+        FROM daily_scores
+        WHERE day_pct IS NOT NULL
+        """
+
+
+async def _grid_balancing_pct_kyiv(
+    session: AsyncSession,
+    d0: date,
+    d1: date,
+    *,
+    device_sn: Optional[str] = None,
+    huawei_station_code: Optional[str] = None,
+) -> tuple[Optional[float], float, float]:
+    """
+    Average daily grid-balancing score (0–100) for Kyiv [d0, d1].
+
+    Per day: peak DAM hour (max UAH/kWh, earliest tie) ±1 clock hour window.
+    Day score = 100% when peak-window import is 0; else 100×(1 − peak_window/total).
+    """
+    parts = _grid_balancing_sample_sql_parts(device_sn, huawei_station_code, d0, d1)
+    if parts is None:
+        return None, 0.0, 0.0
+    sample_from, device_pred, params = parts
+    sql = _GRID_BALANCING_PCT_SQL.format(sample_from=sample_from, device_pred=device_pred)
+    r = await session.execute(text(sql), params)
+    row = r.one()
+    scored = int(row[3] or 0)
+    if scored <= 0:
+        return None, 0.0, 0.0
+    pct = row[0]
+    if pct is None or not math.isfinite(float(pct)):
+        return None, float(row[1] or 0.0), float(row[2] or 0.0)
+    return float(pct), float(row[1] or 0.0), float(row[2] or 0.0)
+
+
+async def _grid_balancing_kyiv_month_mom_fields(
+    session: AsyncSession,
+    *,
+    device_sn: Optional[str] = None,
+    huawei_station_code: Optional[str] = None,
+) -> tuple[Optional[float], Optional[float], int, int]:
+    """(balancing_pct_mtd, mom_delta_pp, kyiv_year, kyiv_month).
+
+    mom = current Kyiv MTD % minus previous calendar month % (full month), same as the monthly chart bars.
+    """
+    today = _kyiv_today()
+    month_first = _month_first(today)
+    prev_start, prev_end = _prev_calendar_month(today)
+    curr, _, _ = await _grid_balancing_pct_kyiv(
+        session, month_first, today, device_sn=device_sn, huawei_station_code=huawei_station_code
+    )
+    prev, _, _ = await _grid_balancing_pct_kyiv(
+        session, prev_start, prev_end, device_sn=device_sn, huawei_station_code=huawei_station_code
+    )
+    mom_pp: Optional[float] = None
+    if curr is not None and prev is not None:
+        mom_pp = curr - prev
+    return curr, mom_pp, today.year, today.month
+
+
+async def _monthly_grid_balancing_bars(
+    session: AsyncSession,
+    months: int = 12,
+    *,
+    device_sn: Optional[str] = None,
+    huawei_station_code: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    """One bar per Kyiv month: average daily grid-balancing % (peak DAM hour ±1)."""
+    if not oree_dam_configured():
+        return []
+    today = _kyiv_today()
+    n = max(1, min(int(months), 36))
+    raw_bars: list[dict[str, Any]] = []
+    y, m = today.year, today.month
+    for i in range(n):
+        first = date(y, m, 1)
+        if i == 0:
+            end = today
+            partial = True
+        else:
+            if m == 12:
+                end = date(y, 12, 31)
+            else:
+                end = date(y, m + 1, 1) - timedelta(days=1)
+            partial = False
+        pct, peak_kwh, total_kwh = await _grid_balancing_pct_kyiv(
+            session,
+            first,
+            end,
+            device_sn=device_sn,
+            huawei_station_code=huawei_station_code,
+        )
+        raw_bars.append(
+            {
+                "monthStart": first.isoformat(),
+                "monthLabel": f"{y:04d}-{m:02d}",
+                "balancingPct": pct,
+                "peakWindowImportKwh": peak_kwh,
+                "importTotalKwh": total_kwh,
+                "partialMonth": partial,
+            }
+        )
+        last_prev = first - timedelta(days=1)
+        y, m = last_prev.year, last_prev.month
+    raw_bars.reverse()
+    return raw_bars
+
+
 async def _deye_import_weighted_dam_kyiv(
     session: AsyncSession, device_sn: str, d0: date, d1: date
 ) -> tuple[float, Optional[float]]:
@@ -528,12 +731,17 @@ async def _monthly_retail_tariff_bars(
         else:
             dam_avg = await _avg_dam_uah_per_kwh(session, zone, first, end)
         retail = _landing_retail_uah_per_kwh(dam_avg)
+        fleet_avg_retail: Optional[float] = None
+        if device_scope:
+            calendar_dam_avg = await _avg_dam_uah_per_kwh(session, zone, first, end)
+            fleet_avg_retail = _landing_retail_uah_per_kwh(calendar_dam_avg)
         raw_bars.append(
             {
                 "monthStart": first.isoformat(),
                 "monthLabel": f"{y:04d}-{m:02d}",
                 "damAvgUahPerKwh": dam_avg,
                 "retailUahPerKwh": retail,
+                "fleetAvgRetailUahPerKwh": fleet_avg_retail,
                 "gridImportKwh": import_kwh,
                 "partialMonth": partial,
                 "importWeighted": device_scope and dam_avg is not None,
@@ -656,6 +864,28 @@ async def _finalize_landing_response(
                 dam["currentMonthDeviceGridImportKwhMtd"] = None
                 dam["currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd"] = None
                 dam["deviceImportDamDetail"] = "huawei_station_import_dam_failed"
+
+    gb: dict[str, Any] = {"configured": oree_dam_configured()}
+    if oree_dam_configured():
+        try:
+            pct_mtd, mom_pp, mom_y, mom_m = await _grid_balancing_kyiv_month_mom_fields(
+                session,
+                device_sn=sn_imp or None,
+                huawei_station_code=hw_imp or None,
+            )
+            gb["balancingPctMtd"] = pct_mtd
+            gb["kyivMonthMomDeltaPp"] = mom_pp
+            gb["kyivMonthMomYear"] = mom_y
+            gb["kyivMonthMomMonth"] = mom_m
+        except Exception as exc:
+            logger.exception("landing-totals grid balancing: %s", exc)
+            gb["balancingPctMtd"] = None
+            gb["kyivMonthMomDeltaPp"] = None
+            gb["detail"] = "grid_balancing_failed"
+    else:
+        gb["balancingPctMtd"] = None
+        gb["kyivMonthMomDeltaPp"] = None
+    payload["gridBalancing"] = gb
 
     return JSONResponse(content=payload, headers=_NO_STORE)
 
@@ -1093,6 +1323,83 @@ async def _lost_solar_hourly_bars_kyiv(
         "days": n,
         "bars": bars,
     }
+
+
+@router.get("/monthly-grid-balancing-bars")
+async def monthly_grid_balancing_bars(
+    months: int = Query(
+        default=12,
+        ge=1,
+        le=36,
+        description="Number of Kyiv calendar months ending with the current month (MTD).",
+    ),
+    device_sn: Optional[str] = Query(
+        default=None,
+        alias="deviceSn",
+        min_length=6,
+        max_length=32,
+        pattern=r"^[0-9]+$",
+        description="Deye inverter — grid import in low-DAM hours from deye_soc_sample.",
+    ),
+    huawei_station_code: Optional[str] = Query(
+        default=None,
+        alias="huaweiStationCode",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[\w\-.=]+$",
+        description="Huawei plant — grid import in low-DAM hours from huawei_power_sample.",
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """
+    Monthly «Grid balancing» bars: extra grid-import kWh in low-DAM Kyiv hours vs a flat hourly spread.
+
+    Low-DAM hour = clock hour where DAM UAH/kWh is at or below that trade day's median DAM (OREE zone).
+    """
+    sn = (device_sn or "").strip()
+    hw = (huawei_station_code or "").strip()
+    if sn and hw:
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "device_sn_and_huawei_mutually_exclusive"},
+            headers=_NO_STORE,
+        )
+    if not oree_dam_configured():
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": False,
+                "zoneEic": settings.OREE_COMPARE_ZONE_EIC,
+                "months": months,
+                "bars": [],
+            },
+            headers=_NO_STORE,
+        )
+    try:
+        bars = await _monthly_grid_balancing_bars(
+            db, months=months, device_sn=sn or None, huawei_station_code=hw or None
+        )
+        scope = "device" if (sn or hw) else "fleet"
+        return JSONResponse(
+            content={
+                "ok": True,
+                "configured": True,
+                "zoneEic": settings.OREE_COMPARE_ZONE_EIC,
+                "months": len(bars),
+                "scope": scope,
+                "deviceSn": sn or None,
+                "huaweiStationCode": hw or None,
+                "bars": bars,
+            },
+            headers=_NO_STORE,
+        )
+    except Exception as exc:
+        logger.exception("monthly-grid-balancing-bars: %s", exc)
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": "monthly_grid_balancing_bars_failed"},
+            headers=_NO_STORE,
+        )
 
 
 @router.get("/monthly-retail-tariff-bars")
