@@ -93,6 +93,12 @@ async def sync_self_consumption_auto_dam_for_device(session: AsyncSession, devic
     night_on, _ = await get_night_charge_pref(session, sn)
     if night_on:
         return
+    from app.deye_low_dam_charge_service import get_low_dam_charge_pref
+
+    low_on, _ = await get_low_dam_charge_pref(session, sn)
+    if low_on:
+        # Low-DAM day discharge tick manages TOU outside min hour; do not lock SoC via auto-DAM off path.
+        return
     if not oree_dam_configured():
         return
     lcoe = await compute_reference_battery_uah_per_kwh()

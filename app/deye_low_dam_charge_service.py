@@ -1,4 +1,8 @@
-"""Backend: auto charge at Kyiv clock hour of minimum DAM price (DB), once per (day, device, low hour)."""
+"""Backend: auto charge at Kyiv clock hour of minimum DAM price (DB), once per (day, device, low hour).
+
+Outside the min-DAM hour, enabled devices get periodic self-consumption TOU (discharge floor) so the
+battery can cover load until the next min-DAM charge window (same idea as night-charge day discharge).
+"""
 
 from __future__ import annotations
 
@@ -13,7 +17,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import func
 
 from app import settings
-from app.deye_api import assert_inverter_owned, charge_soc_delta_then_zero_export_ct, deye_configured
+from app.deye_api import (
+    assert_inverter_owned,
+    apply_self_consumption_zero_export_ct,
+    charge_soc_delta_then_zero_export_ct,
+    deye_configured,
+)
+from app.deye_peak_auto_service import get_peak_auto_pref, normalize_discharge_soc_delta_pct
+from app.deye_self_consumption_service import upsert_self_consumption_pref
 from app.models import DeyeLowDamChargeFired, DeyeLowDamChargePref, DeyeNightChargePref
 from app.oree_dam_service import KYIV, get_hourly_dam_uah_mwh
 
@@ -27,6 +38,20 @@ def normalize_charge_soc_delta_pct(pct: int) -> int:
     if pct in CHARGE_SOC_DELTA_PCT_ALLOWED:
         return pct
     return min(CHARGE_SOC_DELTA_PCT_ALLOWED, key=lambda x: abs(x - pct))
+
+
+def kyiv_local(now: datetime) -> datetime:
+    """Wall clock in Europe/Kyiv regardless of server TZ."""
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=KYIV)
+    return now.astimezone(KYIV)
+
+
+def kyiv_low_dam_discharge_hour_active(now: datetime, low_hour: Optional[int]) -> bool:
+    """True outside the min-DAM charge hour — battery should self-consume/discharge toward floor."""
+    if low_hour is None:
+        return False
+    return kyiv_local(now).hour != low_hour
 
 
 def low_hour_index_from_hourly_uah_mwh(hourly: list[Optional[float]]) -> Optional[int]:
@@ -186,16 +211,78 @@ async def run_low_dam_charge_tick() -> None:
                 logger.info("Low DAM auto: success recorded device_sn=%s", sn)
 
 
+async def run_low_dam_day_discharge_tick() -> None:
+    """Apply self-consumption TOU (discharge floor) outside min-DAM hour for low-DAM devices."""
+    if not settings.DEYE_LOW_DAM_CHARGE_SCHEDULER_ENABLED:
+        return
+    if not deye_configured():
+        return
+
+    from app.db import async_session_factory
+
+    now = datetime.now(KYIV)
+    today: date = now.date()
+    zone = settings.OREE_COMPARE_ZONE_EIC
+
+    async with async_session_factory() as session:
+        res = await session.execute(
+            select(DeyeLowDamChargePref.device_sn).where(DeyeLowDamChargePref.enabled.is_(True))
+        )
+        devices = [str(r[0]) for r in res.all() if r[0]]
+        night_res = await session.execute(
+            select(DeyeNightChargePref.device_sn).where(DeyeNightChargePref.enabled.is_(True))
+        )
+        night_charge_sns = {str(r[0]).strip() for r in night_res.all() if r[0]}
+        hourly = await get_hourly_dam_uah_mwh(session, today, zone)
+    if not devices:
+        return
+
+    low_idx = low_hour_index_from_hourly_uah_mwh(hourly)
+    if not kyiv_low_dam_discharge_hour_active(now, low_idx):
+        return
+
+    for sn in devices:
+        if sn in night_charge_sns:
+            continue
+        try:
+            async with async_session_factory() as session:
+                _, floor_pct = await get_peak_auto_pref(session, sn)
+            await apply_self_consumption_zero_export_ct(
+                sn,
+                tou_soc_floor_pct=float(normalize_discharge_soc_delta_pct(int(floor_pct))),
+            )
+            logger.debug(
+                "Low DAM day discharge: self-consumption applied device_sn=%s floor_pct=%s low_hour=%s",
+                sn,
+                floor_pct,
+                low_idx,
+            )
+        except Exception:
+            logger.exception("Low DAM day discharge: apply failed device_sn=%s", sn)
+
+
 async def set_low_dam_charge_from_ui(
     session: AsyncSession,
     device_sn: str,
     enabled: bool,
     charge_soc_delta_pct: int,
 ) -> None:
-    """Validate ownership when enabling; upsert pref including SoC charge delta %."""
+    """Validate ownership when enabling; upsert pref; enable self-consumption on inverter when enabling."""
     sn = (device_sn or "").strip()
     if not sn:
         raise ValueError("device_sn required")
+    pct = normalize_charge_soc_delta_pct(int(charge_soc_delta_pct))
     if enabled:
         await assert_inverter_owned(sn)
-    await upsert_low_dam_charge_pref(session, sn, enabled, charge_soc_delta_pct)
+        if not deye_configured():
+            raise RuntimeError("Deye API credentials not configured")
+        await upsert_low_dam_charge_pref(session, sn, True, pct)
+        await upsert_self_consumption_pref(session, sn, True)
+        _, floor_pct = await get_peak_auto_pref(session, sn)
+        await apply_self_consumption_zero_export_ct(
+            sn,
+            tou_soc_floor_pct=float(normalize_discharge_soc_delta_pct(int(floor_pct))),
+        )
+        logger.info("Low DAM enabled: self-consumption applied device_sn=%s floor_pct=%s", sn, floor_pct)
+    else:
+        await upsert_low_dam_charge_pref(session, sn, False, pct)
