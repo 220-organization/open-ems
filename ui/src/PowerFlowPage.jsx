@@ -1561,7 +1561,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     };
   }, []);
 
-  useOpenEmsSeo(t('pageTitle'), locale, t);
+  useOpenEmsSeo(t('pageTitle'), locale, t, { variant: 'default', canonicalPath: '/' });
 
   useEffect(() => {
     return () => {

@@ -11,50 +11,48 @@
     <link rel="icon" href="%PUBLIC_URL%/static/favicon-32.png" sizes="32x32" type="image/png" />
     <link rel="icon" href="%PUBLIC_URL%/static/favicon-16.png" sizes="16x16" type="image/png" />
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/static/apple-touch-icon.png" />
-    <title>Open EMS — EMS для України: РДН, ВДР, арбітраж | сонце, АКБ, зарядка EV</title>
+    <link rel="sitemap" type="application/xml" href="/sitemap.xml" />
+    <title>Open EMS — система розумного керування енергією | мікромережа, BESS, РДН/ВДР</title>
 
     <meta
       name="description"
-      content="Open EMS — відкрита EMS для України: інтеграція з ОРЕЄ (РДН — ринок доба наперед, ВДР), арбітраж електроенергії, ОЕС. Моніторинг потоків потужності, інвертори Deye та Huawei, розумна зарядка EV. Self-hosted, без vendor lock-in. English: open-source EMS with OREE DAM/IDM, arbitrage, real-time power flow."
+      content="Open EMS — система розумного керування енергією для мікромереж в Україні: СЕС, BESS та зарядка EV. Автоматизоване сценарне керування заряд/розряд, арбітраж на РДН та ВДР (OREE), ML-прогноз сонячної генерації та цін РДН, Modbus/MQTT/OPC UA, острівний режим, балансування ОЕС. Deye, Huawei. Self-hosted, open-source."
     />
     <meta
       name="keywords"
-      content="Open EMS, EMS Україна, РДН, ВДР, арбітраж електроенергії, ОРЕЄ, ОЕС України, ринок доба наперед, внутрішньодобовий ринок, DAM, IDM, day-ahead market, intraday market, OREE, IPS Ukraine, Deye inverter, Huawei FusionSolar, DER, VPP, smart charging, EV charging, power flow, open source EMS, 220-km"
+      content="система розумного керування енергією, мікромережа EMS, BESS моніторинг, моніторинг СЕС, ML-прогноз сонячної генерації, ML-прогноз цін РДН, арбітраж РДН ВДР, активний споживач, острівний режим, Modbus MQTT OPC UA, Open EMS, EMS Україна, РДН, ВДР, OREE, ОЕС України, Deye, Huawei FusionSolar, VPP, розумна зарядка, 220-km, балансування ОЕС, grid balancing, smart energy management, microgrid EMS, electricity arbitrage, island mode"
     />
-    <meta name="robots" content="index, follow" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
     <meta name="author" content="220-km.com" />
     <meta name="geo.region" content="UA" />
     <meta name="geo.placename" content="Ukraine" />
     <link rel="canonical" href="https://220-km.com:9220/" />
+    <link rel="alternate" hreflang="uk" href="https://220-km.com:9220/?lang=uk" />
+    <link rel="alternate" hreflang="en" href="https://220-km.com:9220/?lang=en" />
+    <link rel="alternate" hreflang="x-default" href="https://220-km.com:9220/" />
 
     <!-- Open Graph / social previews -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Open EMS" />
-    <meta property="og:title" content="Open EMS — РДН, ВДР, арбітраж | EMS для України" />
+    <meta property="og:title" content="Open EMS — smart EMS для мікромереж | РДН, ВДР, BESS, СЕС" />
     <meta
       property="og:description"
-      content="Моніторинг потоків потужності, ціни РДН/ВДР (ОРЕЄ), арбітраж, Deye та Huawei. Відкрита EMS для сонця, акумуляторів та зарядки електромобілів. Self-hosted."
+      content="Автоматизоване керування мікромережею: СЕС, BESS, EV. Арбітраж РДН/ВДР, ML-прогноз, Modbus/MQTT/OPC UA, острівний режим. Deye та Huawei. Відкрита EMS від 220-km."
     />
     <meta property="og:url" content="https://220-km.com:9220/" />
-    <meta
-      property="og:image"
-      content="https://220-km.com:9220/static/open-ems-og.png"
-    />
+    <meta property="og:image" content="https://220-km.com:9220/static/open-ems-og.png" />
     <meta property="og:locale" content="uk_UA" />
     <meta property="og:locale:alternate" content="en_US" />
 
     <!-- Twitter / X card -->
-    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:site" content="@220kmua" />
-    <meta name="twitter:title" content="Open EMS — РДН, ВДР, арбітраж | Україна" />
+    <meta name="twitter:title" content="Open EMS — smart EMS | microgrid, BESS, RDN/VDN" />
     <meta
       name="twitter:description"
-      content="OREE DAM/IDM, arbitrage, real-time power flow, Deye &amp; Huawei. Open-source EMS for Ukraine and worldwide."
+      content="Smart energy management for microgrids: solar, BESS, EV. DAM/IDM arbitrage, ML forecasts, Modbus/MQTT/OPC UA, island mode. Open-source from 220-km."
     />
-    <meta
-      name="twitter:image"
-      content="https://220-km.com:9220/static/open-ems-og.png"
-    />
+    <meta name="twitter:image" content="https://220-km.com:9220/static/open-ems-og.png" />
 
     <!-- JSON-LD structured data -->
     <script type="application/ld+json">
@@ -62,11 +60,12 @@
       "@context": "https://schema.org",
       "@type": "SoftwareApplication",
       "name": "Open EMS",
+      "alternateName": ["open-ems", "220-km Open EMS"],
       "url": "https://220-km.com:9220/",
-      "applicationCategory": "EnergyApplication",
+      "applicationCategory": "EnergyManagementApplication",
       "operatingSystem": "Linux, Docker",
-      "description": "Open-source EMS for Ukraine and global operators: OREE DAM (РДН) and intraday (ВДР), electricity arbitrage, integrated power system (ОЕС). Deye and Huawei, solar, battery, EV smart charging, real-time power flow.",
-      "keywords": "Open EMS, EMS Ukraine, RDN, VDR, electricity arbitrage, OREE, IPS, DAM, IDM, Deye, Huawei, DER, smart charging, power flow",
+      "description": "Open-source smart energy management for microgrids: solar, BESS, EV charging. Automated charge/discharge, OREE DAM/IDM arbitrage, ML solar and price forecasts, Modbus/MQTT/OPC UA, island mode, real-time power flow, ROI analytics — self-hosted FastAPI + React.",
+      "keywords": "smart energy management, microgrid EMS, BESS monitoring, ML solar forecast, electricity arbitrage, RDN, VDR, OREE, island mode, Modbus, MQTT, OPC UA, Deye, Huawei, Open EMS",
       "inLanguage": ["uk-UA", "en"],
       "license": "https://www.gnu.org/licenses/gpl-3.0.html",
       "codeRepository": "https://github.com/220-organization/open-ems",
@@ -79,15 +78,23 @@
         "@type": "Offer",
         "price": "0",
         "priceCurrency": "USD"
-      }
+      },
+      "featureList": [
+        "Microgrid automation",
+        "BESS and solar monitoring",
+        "DAM/IDM arbitrage (OREE)",
+        "ML generation and price forecast",
+        "Island mode",
+        "Modbus, MQTT, OPC UA",
+        "EV smart charging integration"
+      ]
     }
     </script>
   </head>
   <body>
     <noscript>
-      Open EMS — open-source energy management system for solar, battery, and EV charging.
-      Monitor real-time power flow and day-ahead market prices.
-      JavaScript is required to run this app.
+      Open EMS — smart energy management for microgrids: solar, BESS, and EV charging in Ukraine.
+      DAM/IDM arbitrage, ML forecasts, real-time power flow. JavaScript is required to run this app.
     </noscript>
     <div id="root"></div>
   </body>

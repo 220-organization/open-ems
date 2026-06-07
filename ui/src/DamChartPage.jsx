@@ -14,7 +14,7 @@ export default function DamChartPage({
   onLangSelectChange,
 }) {
   useTheme();
-  useOpenEmsSeo(t('damPageTitle'), locale, t);
+  useOpenEmsSeo(t('damPageTitle'), locale, t, { variant: 'dam', canonicalPath: '/dam-chart' });
 
   return (
     <div className="pf-body dam-page">
