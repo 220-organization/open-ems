@@ -64,7 +64,7 @@
   "chargeConfirmNoSoc": "Current battery SoC is not available. Wait for the value to load, then try again.",
   "chargeConfirmNoHeadroom": "Not enough room to add that much SoC (already near 100%).",
   "lowDamChargeToggle": "Low DAM",
-  "lowDamChargeToggleAria": "Server runs charge at the Kyiv clock hour of today’s lowest DAM price; depth is the dropdown value (+10% … +100%). One successful run per day per inverter per low hour; retries after failure.",
+  "lowDamChargeToggleAria": "Server finds today’s lowest DAM hour, scans ±3 h around it, and starts charge at the cheapest 3 consecutive hours; depth is the dropdown value (+10% … +100%). One successful run per day per inverter; retries after failure.",
   "lowDamChargeToggleHint": "Stored on the server (Flyway V9). Low-DAM auto uses the same SoC rise % as the dropdown.",
   "lowDamChargeSaveError": "Could not save low-DAM charge preference",
   "nightChargeToggle": "Night charge 23:00–07:00",
