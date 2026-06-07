@@ -84,7 +84,8 @@ export function useI18n() {
   const t = useCallback(
     (key, vars) => {
       const raw = bundle[key];
-      const str = raw != null ? raw : key;
+      const fallback = raw != null ? raw : BUNDLES.en[key];
+      const str = fallback != null ? fallback : key;
       return interpolate(str, vars);
     },
     [bundle],

@@ -40,18 +40,6 @@ const QR_SUPPORT_URL = 'https://b12.army/';
 /** Open EMS repository (open source). */
 const OPEN_EMS_GITHUB_URL = 'https://github.com/220-organization/open-ems';
 
-/** Short language codes in header (saves horizontal space). */
-const LANG_HEADER_CODE = {
-  en: 'EN',
-  uk: 'UA',
-  pl: 'PL',
-  cs: 'CS',
-  nl: 'NL',
-  bg: 'BG',
-  fr: 'FR',
-  es: 'ES',
-};
-
 function apiUrl(path) {
   const base = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
   if (!base) return path;
@@ -4042,20 +4030,6 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   />
                 </svg>
               </button>
-              <select
-                id="pf-lang"
-                className="pf-lang-select pf-header-select--lang"
-                aria-label={t('langSelectAria')}
-                title={t('langSelectAria')}
-                value={locale}
-                onChange={onLangSelectChange}
-              >
-                {SUPPORTED.map(code => (
-                  <option key={code} value={code} title={LOCALE_NAMES[code] || code}>
-                    {LANG_HEADER_CODE[code] || String(code).toUpperCase().slice(0, 2)}
-                  </option>
-                ))}
-              </select>
               <button
                 type="button"
                 className="pf-theme-btn"

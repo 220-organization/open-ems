@@ -33,7 +33,7 @@ function upsertLink(rel, href, extraAttrs = {}) {
  * @param {string} pageTitle — document.title
  * @param {string} locale — uk | en | …
  * @param {Function} t — i18n translate
- * @param {{ variant?: 'default' | 'dam', canonicalPath?: string }} [options]
+ * @param {{ variant?: 'default' | 'dam' | 'landing', canonicalPath?: string }} [options]
  */
 export function useOpenEmsSeo(pageTitle, locale, t, options = {}) {
   const { variant = 'default', canonicalPath } = options;
@@ -43,8 +43,14 @@ export function useOpenEmsSeo(pageTitle, locale, t, options = {}) {
     document.documentElement.lang = htmlLang;
     document.title = pageTitle;
 
-    const descKey = variant === 'dam' ? 'damSeoMetaDescription' : 'seoMetaDescription';
-    const ogTitleKey = variant === 'dam' ? 'damSeoOgTitle' : 'seoOgTitle';
+    const descKey =
+      variant === 'dam'
+        ? 'damSeoMetaDescription'
+        : variant === 'landing'
+          ? 'landingSeoMetaDescription'
+          : 'seoMetaDescription';
+    const ogTitleKey =
+      variant === 'dam' ? 'damSeoOgTitle' : variant === 'landing' ? 'landingSeoOgTitle' : 'seoOgTitle';
     const desc = t(descKey);
     const kw = t('seoMetaKeywords');
     const ogTitle = t(ogTitleKey) || pageTitle;

@@ -4,9 +4,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -255,7 +255,7 @@ async def lifespan(app: FastAPI):
 
 
 _spa_desc = (
-    "Power flow UI (React): [/](/), [/power-flow](/power-flow), [/dam-chart](/dam-chart). API docs: [/docs](/docs)."
+    "Power flow UI (React): [/](/), [/about](/about). API docs: [/docs](/docs)."
     if settings.OPEN_EMS_SERVE_SPA
     else "REST API only — run the CRA dev server for the Power flow UI. API docs: [/docs](/docs)."
 )
@@ -316,9 +316,15 @@ if settings.OPEN_EMS_SERVE_SPA:
     async def power_flow_page() -> FileResponse:
         return _react_spa_index()
 
-    @app.get("/dam-chart", include_in_schema=False)
-    async def dam_chart_page() -> FileResponse:
+    @app.get("/about", include_in_schema=False)
+    async def about_page() -> FileResponse:
         return _react_spa_index()
+
+    @app.get("/dam-chart", include_in_schema=False)
+    async def dam_chart_page_redirect(request: Request) -> RedirectResponse:
+        qs = request.url.query
+        target = f"/?{qs}" if qs else "/"
+        return RedirectResponse(url=target, status_code=301)
 else:
 
     @app.get("/", include_in_schema=False)

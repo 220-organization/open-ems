@@ -1871,26 +1871,8 @@ export default function DamChartPanel({
       ) : null}
       {variant === 'fullpage' ? (
         <header className="pf-header dam-header">
-          <div className="dam-header-left">
-            <a className="pf-nav-link" href="/power-flow">
-              {t('damNavToPowerFlow')}
-            </a>
-          </div>
           {marketControls}
           {showEnergyBars ? null : dateBar}
-          <select
-            id="dam-lang"
-            className="pf-lang-select"
-            aria-label={t('langSelectAria')}
-            value={locale}
-            onChange={onLangSelectChange}
-          >
-            {SUPPORTED.map(code => (
-              <option key={code} value={code}>
-                {LOCALE_NAMES[code] || code}
-              </option>
-            ))}
-          </select>
           <button
             type="button"
             className="pf-theme-btn"
