@@ -63,13 +63,63 @@
 .landing-nav__link:hover,
 .landing-nav__link--active {
   color: var(--pf-text);
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--oe-nav-link-hover-bg, rgba(255, 255, 255, 0.06));
+}
+
+[data-theme='light'] {
+  --oe-nav-link-hover-bg: rgba(20, 22, 28, 0.06);
 }
 
 .landing-header__actions {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.landing-header__actions .pf-lang-select {
+  background: var(--km220-card);
+  color: var(--km220-text);
+  border-color: var(--km220-input-border);
+  box-shadow: none;
+  min-height: 36px;
+  height: 36px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+.landing-header__actions .pf-lang-select:hover {
+  border-color: var(--pf-border-strong);
+}
+
+.landing-header__actions .pf-share-btn,
+.landing-header__actions .pf-theme-btn {
+  background: var(--km220-card);
+  color: var(--km220-text);
+  border-color: var(--km220-input-border);
+  box-shadow: none;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.landing-header__actions .pf-share-btn:hover,
+.landing-header__actions .pf-theme-btn:hover {
+  border-color: var(--pf-border-strong);
+}
+
+/* Light theme — align site header with pf-top-bar */
+[data-theme='light'] .landing-header,
+[data-theme='light'] .open-ems-header {
+  background: rgba(247, 245, 241, 0.92);
+  border-bottom: 1px solid var(--pf-divider);
+  color: var(--km220-text);
+}
+
+[data-theme='light'] .landing-header__brand {
+  color: var(--pf-text);
 }
 
 .landing-main {
@@ -97,6 +147,22 @@
   font-size: clamp(16px, 2.5vw, 18px);
   line-height: 1.55;
   color: var(--pf-text-secondary);
+}
+
+.landing-hero__capacity {
+  margin: 0 auto 20px;
+  max-width: 640px;
+  font-size: clamp(15px, 2.2vw, 17px);
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--pf-text);
+  font-family: var(--pf-font-mono);
+  letter-spacing: -0.01em;
+}
+
+.landing-hero__capacity--loading {
+  color: var(--pf-text-muted);
+  font-weight: 500;
 }
 
 .landing-hero__cta {
@@ -174,7 +240,7 @@
   margin-bottom: 24px;
   border-radius: var(--km220-radius);
   border: 1px dashed var(--pf-border-strong);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--landing-subtle-bg, rgba(255, 255, 255, 0.02));
   font-size: 14px;
   color: var(--pf-text-secondary);
 }
@@ -240,7 +306,10 @@
   padding: 20px;
   border-radius: var(--km220-radius);
   border: 1px solid var(--pf-border);
-  background: linear-gradient(165deg, rgba(28, 32, 38, 0.95) 0%, rgba(22, 25, 30, 0.85) 100%);
+  background: var(
+    --landing-module-bg,
+    linear-gradient(165deg, rgba(28, 32, 38, 0.95) 0%, rgba(22, 25, 30, 0.85) 100%)
+  );
 }
 
 .landing-module__tier {
@@ -321,7 +390,7 @@
   padding: 18px;
   border-radius: var(--km220-radius-sm);
   border: 1px solid var(--pf-border);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--landing-subtle-bg, rgba(255, 255, 255, 0.02));
 }
 
 .landing-benefit__title {
@@ -425,6 +494,44 @@
 
 .landing-footer__links a:hover {
   color: var(--pf-pink);
+}
+
+/* Light theme — landing cards and surfaces */
+[data-theme='light'] {
+  --landing-module-bg: #ffffff;
+  --landing-card-bg: #ffffff;
+  --landing-subtle-bg: #ffffff;
+  --landing-btn-secondary-hover: rgba(20, 22, 28, 0.06);
+}
+
+[data-theme='light'] .landing-module,
+[data-theme='light'] .landing-scenario,
+[data-theme='light'] .landing-audience-card,
+[data-theme='light'] .landing-step,
+[data-theme='light'] .landing-benefit,
+[data-theme='light'] .landing-diagram {
+  background: var(--landing-card-bg);
+  box-shadow: none;
+}
+
+[data-theme='light'] .landing-diagram__node {
+  background: #fafaf8;
+}
+
+[data-theme='light'] .landing-btn--secondary:hover {
+  background: var(--landing-btn-secondary-hover);
+}
+
+[data-theme='light'] .landing-btn--primary {
+  box-shadow: 0 2px 12px rgba(252, 1, 155, 0.22);
+}
+
+[data-theme='light'] .landing-btn--primary:hover {
+  box-shadow: 0 4px 18px rgba(252, 1, 155, 0.28);
+}
+
+[data-theme='light'] .landing-step__num {
+  background: rgba(252, 1, 155, 0.1);
 }
 
 @media (max-width: 640px) {

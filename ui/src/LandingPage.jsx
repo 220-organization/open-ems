@@ -1,7 +1,13 @@
+import { useEffect, useState } from 'react';
 import './landing.css';
 import { useOpenEmsSeo } from './useOpenEmsSeo';
 import { useTheme } from './useTheme';
 import RdnConsultationCallback from './RdnConsultationCallback';
+
+function apiUrl(path) {
+  const base = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
+  return `${base}${path}`;
+}
 
 const OPEN_EMS_GITHUB_URL = 'https://github.com/220-organization/open-ems';
 const SITE_220KM = 'https://220-km.com';
@@ -79,6 +85,31 @@ const STEP_KEYS = [
 export default function LandingPage({ t, locale }) {
   useTheme();
   useOpenEmsSeo(t('landingPageTitle'), locale, t, { variant: 'landing', canonicalPath: '/about' });
+  const [batteryCapacityMwh, setBatteryCapacityMwh] = useState(null);
+  const [batteryCapacityLoading, setBatteryCapacityLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(apiUrl('/api/power-flow/fleet-battery-capacity'), { cache: 'no-store' });
+        if (!r.ok) return;
+        const data = await r.json();
+        if (cancelled || !data?.ok) return;
+        const mwh = data.totalCapacityMwh;
+        if (typeof mwh === 'number' && Number.isFinite(mwh) && mwh > 0) {
+          setBatteryCapacityMwh(mwh);
+        }
+      } catch {
+        /* landing stat is optional */
+      } finally {
+        if (!cancelled) setBatteryCapacityLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="landing-page">
@@ -88,6 +119,13 @@ export default function LandingPage({ t, locale }) {
             {t('landingHeroTitle')}
           </h1>
           <p className="landing-hero__subtitle">{t('landingHeroSubtitle')}</p>
+          {batteryCapacityLoading ? (
+            <p className="landing-hero__capacity landing-hero__capacity--loading">{t('landingBatteryCapacityLoading')}</p>
+          ) : batteryCapacityMwh != null ? (
+            <p className="landing-hero__capacity">
+              {t('landingBatteryCapacity', { value: batteryCapacityMwh.toFixed(2) })}
+            </p>
+          ) : null}
           <div className="landing-hero__cta">
             <a className="landing-btn landing-btn--primary" href="/">
               {t('landingCtaDemo')}

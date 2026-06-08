@@ -17,7 +17,6 @@ import PeakExportHourlyChartModal from './PeakExportHourlyChartModal';
 import MonthlyRetailTariffChartModal from './MonthlyRetailTariffChartModal';
 import GridBalancingChartModal from './GridBalancingChartModal';
 import RoiStackStatistics from './RoiStackStatistics';
-import SharePageModal from './SharePageModal';
 import { KwhCalibrationProvider, useKwhCalibration } from './KwhCalibrationContext';
 import { DEYE_FLOW_BALANCE_PV_FACTOR, usesDeyeFlowBalance } from './deyeFlowBalanceSites';
 import { inverterSelectShortLabel, parseEvPortStationNumber } from './deyeInverterDisplay';
@@ -26,7 +25,6 @@ import { ESS_PREFIX_DEYE, ESS_PREFIX_HUAWEI, normalizeEssSelectionValue, parseEs
 import PfScrollNumber from './PfScrollNumber';
 import './power-flow.css';
 import './dam-chart.css';
-import { useTheme } from './useTheme';
 import { useOpenEmsSeo } from './useOpenEmsSeo';
 
 const INVERTER_STORAGE = 'pf-deye-inverter';
@@ -1274,8 +1272,7 @@ function LandingExportMetricCounter({
   );
 }
 
-export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LOCALE_NAMES, onLangSelectChange }) {
-  const { theme, isDark, cycleTheme } = useTheme();
+export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LOCALE_NAMES, onLangSelectChange, isDark }) {
   const graphRef = useRef(null);
   const [graphWidth, setGraphWidth] = useState(400);
   const [stationFilter, setStationFilter] = useState(() => {
@@ -1348,10 +1345,6 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   });
   const [simTick, setSimTick] = useState(0);
   const [deyeMessengerOpen, setDeyeMessengerOpen] = useState(false);
-  const [shareModalOpen, setShareModalOpen] = useState(false);
-  const [shareModalUrl, setShareModalUrl] = useState('');
-  const [shareModalCopied, setShareModalCopied] = useState(false);
-  const [shareModalCopyFailed, setShareModalCopyFailed] = useState(false);
 
   const closeDeyeMessenger = useCallback(() => {
     setDeyeMessengerOpen(false);
@@ -3864,57 +3857,6 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       !huaweiRows.error &&
       (huaweiHydratedCode !== selHuaweiStationCode || huaweiLiveLoading));
 
-  const powerFlowShareUrl = useMemo(() => {
-    try {
-      const u = new URL(`${window.location.origin}/`);
-      const st = stationFilter.trim();
-      if (st) u.searchParams.set('station', st);
-      u.searchParams.set('lang', locale);
-      const inv = normalizeEssSelectionValue(inverterValue).trim();
-      if (inv) u.searchParams.set('inverter', inv);
-      if (
-        landingExportMetric &&
-        landingExportMetric !== LANDING_EXPORT_METRIC.TOTAL &&
-        landingExportMetric !== LANDING_EXPORT_METRIC.GRID_BALANCING
-      ) {
-        u.searchParams.set('exportMetric', landingExportMetric);
-      }
-      return u.toString();
-    } catch {
-      return '';
-    }
-  }, [stationFilter, locale, inverterValue, landingExportMetric]);
-
-  const handleSharePage = useCallback(async () => {
-    let url = powerFlowShareUrl;
-    try {
-      const live = window.location.href.split('#')[0];
-      if (live) url = live;
-    } catch {
-      /* use powerFlowShareUrl */
-    }
-    if (!url) return;
-
-    let copied = false;
-    try {
-      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(url);
-        copied = true;
-      }
-    } catch {
-      copied = false;
-    }
-
-    setShareModalUrl(url);
-    setShareModalCopied(copied);
-    setShareModalCopyFailed(!copied);
-    setShareModalOpen(true);
-  }, [powerFlowShareUrl]);
-
-  const closeShareModal = useCallback(() => {
-    setShareModalOpen(false);
-  }, []);
-
   const noEssListYet = (inverterRows.loading || huaweiRows.loading) && !deyeListReady && !huaweiListReady;
 
   return (
@@ -4007,102 +3949,6 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
                   {t('addDeyeInverterButton')}
                 </button>
               </div>
-            </div>
-            <div className="pf-header-lang">
-              <button
-                type="button"
-                className="pf-share-btn"
-                onClick={() => void handleSharePage()}
-                aria-label={t('sharePageAria')}
-                title={t('sharePageAria')}
-              >
-                <svg
-                  className="pf-share-btn__icon"
-                  viewBox="0 0 24 24"
-                  width="18"
-                  height="18"
-                  aria-hidden="true"
-                  focusable="false"
-                >
-                  <path
-                    fill="currentColor"
-                    d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"
-                  />
-                </svg>
-              </button>
-              <button
-                type="button"
-                className="pf-theme-btn"
-                onClick={cycleTheme}
-                aria-label={
-                  theme === 'dark'
-                    ? 'Switch to system theme'
-                    : theme === 'light'
-                      ? 'Switch to dark theme'
-                      : 'Switch to light theme'
-                }
-                title={
-                  theme === 'dark'
-                    ? 'Dark theme (click for system)'
-                    : theme === 'light'
-                      ? 'Light theme (click for dark)'
-                      : 'System theme (click for light)'
-                }
-              >
-                {theme === 'dark' ? (
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z" />
-                  </svg>
-                ) : theme === 'light' ? (
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <circle cx="12" cy="12" r="5" />
-                    <line x1="12" y1="1" x2="12" y2="3" />
-                    <line x1="12" y1="21" x2="12" y2="23" />
-                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-                    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-                    <line x1="1" y1="12" x2="3" y2="12" />
-                    <line x1="21" y1="12" x2="23" y2="12" />
-                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-                    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-                  </svg>
-                ) : (
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-                    <line x1="8" y1="21" x2="16" y2="21" />
-                    <line x1="12" y1="17" x2="12" y2="21" />
-                  </svg>
-                )}
-              </button>
             </div>
           </header>
         </div>
@@ -5846,14 +5692,6 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
         bcp47={bcp47}
         t={t}
         isDark={isDark}
-      />
-      <SharePageModal
-        open={shareModalOpen}
-        url={shareModalUrl}
-        copied={shareModalCopied}
-        copyFailed={shareModalCopyFailed}
-        onClose={closeShareModal}
-        t={t}
       />
     </div>
     </KwhCalibrationProvider>

@@ -15,7 +15,7 @@ function readCurrentPage() {
 
 export default function App() {
   const i18n = useI18n();
-  useTheme();
+  const { theme, isDark, cycleTheme } = useTheme();
   const [page, setPage] = useState(readCurrentPage);
 
   useEffect(() => {
@@ -30,9 +30,9 @@ export default function App() {
   return (
     <div className="app-root-layout">
       <AndroidInstallBanner t={i18n.t} />
-      <OpenEmsHeader {...i18n} activePage={page} />
+      <OpenEmsHeader {...i18n} activePage={page} theme={theme} cycleTheme={cycleTheme} />
       <div className="app-root-layout__main">
-        {page === 'landing' ? <LandingPage {...i18n} /> : <PowerFlowPage {...i18n} />}
+        {page === 'landing' ? <LandingPage {...i18n} /> : <PowerFlowPage {...i18n} isDark={isDark} />}
       </div>
       <footer className="app-shell-footer">
         <ServerMetricsBar />

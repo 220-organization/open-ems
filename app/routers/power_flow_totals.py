@@ -14,6 +14,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
+from app.deye_battery_capacity_service import estimate_device_capacity_kwh, fleet_battery_capacity_summary
 from app.deye_api import get_inverter_station_coordinates
 from app.lost_solar_deye import (
     lost_solar_hourly_breakdown_one_kyiv_day,
@@ -888,6 +889,55 @@ async def _finalize_landing_response(
     payload["gridBalancing"] = gb
 
     return JSONResponse(content=payload, headers=_NO_STORE)
+
+
+@router.get("/fleet-battery-capacity")
+async def fleet_battery_capacity(db: AsyncSession = Depends(get_db)) -> JSONResponse:
+    """
+    Fleet nominal BESS capacity (kWh/MWh) from the latest deep discharge per device:
+    load − grid import − solar during the session window, scaled by SoC drop.
+    """
+    try:
+        payload = await fleet_battery_capacity_summary(db)
+    except Exception as exc:
+        logger.exception("fleet-battery-capacity failed: %s", exc)
+        return JSONResponse(
+            content={"ok": False, "error": "fleet_battery_capacity_failed"},
+            headers=_NO_STORE,
+        )
+    return JSONResponse(content=payload, headers=_NO_STORE)
+
+
+@router.get("/device-battery-capacity")
+async def device_battery_capacity(
+    device_sn: str = Query(
+        ...,
+        alias="deviceSn",
+        min_length=6,
+        max_length=32,
+        pattern=r"^[0-9]+$",
+        description="Deye inverter serial",
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Per-device nominal kWh from the latest qualifying deep discharge."""
+    try:
+        cap = await estimate_device_capacity_kwh(db, device_sn)
+    except Exception as exc:
+        logger.exception("device-battery-capacity failed sn=%s: %s", device_sn, exc)
+        return JSONResponse(
+            content={"ok": False, "deviceSn": device_sn.strip(), "error": "device_battery_capacity_failed"},
+            headers=_NO_STORE,
+        )
+    return JSONResponse(
+        content={
+            "ok": True,
+            "deviceSn": device_sn.strip(),
+            "capacityKwh": round(cap, 1) if cap is not None else None,
+            "capacityMwh": round(cap / 1000.0, 2) if cap is not None else None,
+        },
+        headers=_NO_STORE,
+    )
 
 
 @router.get("/landing-totals")

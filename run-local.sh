@@ -41,6 +41,9 @@ Environment: UI_PORT, API_PORT, DATABASE_URL, UVICORN_RELOAD, REACT_APP_API_BASE
   Power-flow demo seed: POWER_FLOW_DEMO_SN (default 2410102121) — export samples + peak DAM + manual discharge
   rows for landing totals (http://localhost:9220/?inverter=<SN>); non-fatal if it fails.
 
+  Fleet battery capacity seed: ./scripts/seed_fleet_battery_capacity_demo.sql — deep discharge on two flow-balance
+  SNs (2512291445, 2407316052) so /about shows «Поточна ємність акумуляторів: ~ 1.23 МВт·год»; non-fatal if it fails.
+
   When POWER_FLOW_DEMO_SN differs from DEVICE_SN, ROI stack seed (./scripts/seed_roi_dev_data.sh) also runs for
   POWER_FLOW_DEMO_SN (3 months PV/load samples + deye_roi_capex + DAM rows) before the power-flow demo overlay.
 EOF
@@ -181,6 +184,15 @@ if [[ -f ./scripts/seed_power_flow_demo_sn.sql ]]; then
   fi
 else
   echo "WARN: scripts/seed_power_flow_demo_sn.sql missing — skip power-flow demo seed." >&2
+fi
+
+echo "Seeding fleet battery capacity demo (~1.23 MWh on /about)…" >&2
+if [[ -f ./scripts/seed_fleet_battery_capacity_demo.sql ]]; then
+  if ! docker compose exec -T db psql -U openems -d openems < ./scripts/seed_fleet_battery_capacity_demo.sql; then
+    echo "WARN: Fleet battery capacity seed failed (non-fatal). Run: docker compose exec -T db psql -U openems -d openems < ./scripts/seed_fleet_battery_capacity_demo.sql" >&2
+  fi
+else
+  echo "WARN: scripts/seed_fleet_battery_capacity_demo.sql missing — skip fleet battery capacity seed." >&2
 fi
 
 if [[ ! -d .venv ]]; then
