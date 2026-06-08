@@ -109,6 +109,11 @@ body {
   padding-left: 0;
 }
 
+/* Site chrome header owns safe-area; avoid double top inset under App shell. */
+.app-root-layout__main .pf-root {
+  padding-top: 0;
+}
+
 /* ─────────────────────────────────────────────────────────────
  * Top bar — flat, hairline divider, no gradient.
  * ───────────────────────────────────────────────────────────── */
@@ -121,8 +126,8 @@ body {
   flex-shrink: 0;
   width: 100%;
   position: sticky;
-  top: max(0px, env(safe-area-inset-top, 0px));
-  z-index: 30;
+  top: var(--open-ems-site-header-h, max(0px, env(safe-area-inset-top, 0px)));
+  z-index: 24;
   box-sizing: border-box;
   padding-left: max(14px, env(safe-area-inset-left, 0px));
   padding-right: max(14px, env(safe-area-inset-right, 0px));
@@ -1980,6 +1985,7 @@ a.pf-node { cursor: pointer; }
  * ───────────────────────────────────────────────────────────── */
 @media (max-width: 720px) {
   .pf-top-bar { --pf-header-control-h: 40px; }
+
   .pf-header { gap: var(--pf-header-gap, 8px); padding-bottom: 10px; }
 
   .pf-header-primary {

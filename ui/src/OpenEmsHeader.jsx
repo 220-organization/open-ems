@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import SharePageModal from './SharePageModal';
 import './power-flow.css';
 import './landing.css';
@@ -99,6 +99,7 @@ export default function OpenEmsHeader({
   activePage,
   theme,
   cycleTheme,
+  chromeHidden = false,
 }) {
   const logoSrc = `${process.env.PUBLIC_URL || ''}/static/open-ems-220-logo.svg`;
   const [shareModalOpen, setShareModalOpen] = useState(false);
@@ -138,9 +139,37 @@ export default function OpenEmsHeader({
     setShareModalOpen(false);
   }, []);
 
+  const shellRef = useRef(null);
+
+  useEffect(() => {
+    const el = shellRef.current;
+    if (!el) return undefined;
+
+    const syncHeaderOffset = () => {
+      const headerInner = el.querySelector('.landing-header');
+      const naturalH = headerInner ? Math.ceil(headerInner.getBoundingClientRect().height) : 0;
+      document.documentElement.style.setProperty('--open-ems-site-header-h', chromeHidden ? '0px' : `${naturalH}px`);
+    };
+
+    const headerInner = el.querySelector('.landing-header');
+
+    syncHeaderOffset();
+    const ro = new ResizeObserver(syncHeaderOffset);
+    ro.observe(el);
+    if (headerInner) ro.observe(headerInner);
+    window.addEventListener('resize', syncHeaderOffset);
+
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', syncHeaderOffset);
+      document.documentElement.style.removeProperty('--open-ems-site-header-h');
+    };
+  }, [locale, activePage, chromeHidden]);
+
   return (
     <>
-      <header className="landing-header open-ems-header">
+      <div ref={shellRef} className="open-ems-header-shell">
+        <header className="landing-header open-ems-header">
         <a className="landing-header__brand" href="/">
           <img className="landing-header__logo" src={logoSrc} alt="" width={36} height={36} decoding="async" />
           <span className="landing-header__name">{t('appBrandName')}</span>
@@ -200,7 +229,8 @@ export default function OpenEmsHeader({
             ))}
           </select>
         </div>
-      </header>
+        </header>
+      </div>
       <SharePageModal
         open={shareModalOpen}
         url={shareModalUrl}

@@ -8,10 +8,27 @@
   font-family: var(--pf-font-sans);
 }
 
-.landing-header {
+.open-ems-header-shell {
   position: sticky;
   top: 0;
-  z-index: 20;
+  z-index: 25;
+}
+
+@media (max-width: 720px) {
+  html.open-ems-chrome-autohide .open-ems-header-shell {
+    transition: transform 0.16s ease, opacity 0.12s ease;
+    will-change: transform;
+  }
+
+  html.open-ems-chrome-autohide.open-ems-chrome-hidden .open-ems-header-shell {
+    transform: translateY(-100%);
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+.landing-header {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -22,6 +39,7 @@
   background: rgba(11, 13, 16, 0.92);
   border-bottom: 1px solid var(--pf-border);
   backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 .landing-header__brand {
@@ -536,14 +554,62 @@
 
 @media (max-width: 640px) {
   .landing-header {
-    padding-left: 14px;
-    padding-right: 14px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'brand actions'
+      'nav nav';
+    align-items: center;
+    gap: 8px 10px;
+    padding: 10px 14px;
+    padding-top: max(10px, env(safe-area-inset-top));
+  }
+
+  .landing-header__brand {
+    grid-area: brand;
+    min-width: 0;
+  }
+
+  .landing-header__name {
+    font-size: 14px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .landing-header__actions {
+    grid-area: actions;
+    flex-shrink: 0;
+  }
+
+  .landing-header__actions .pf-lang-select {
+    min-width: 0;
+    max-width: 108px;
+    font-size: 12px;
+    padding: 0 8px;
   }
 
   .landing-nav {
-    order: 3;
+    grid-area: nav;
     width: 100%;
-    justify-content: center;
+    min-width: 0;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+
+  .landing-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .landing-nav__link {
+    padding: 6px 10px;
+    font-size: 13px;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .landing-hero {
