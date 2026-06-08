@@ -88,7 +88,7 @@ function ThemeToggleIcon({ theme }) {
 
 /**
  * Site-wide sticky header (brand, nav, language).
- * @param {'power' | 'landing'} activePage
+ * @param {'power' | 'landing' | 'evTv'} activePage
  */
 export default function OpenEmsHeader({
   t,
@@ -180,6 +180,9 @@ export default function OpenEmsHeader({
           </a>
           <a className={navLinkClass('landing')} href="/about">
             {t('landingNavHome')}
+          </a>
+          <a className={navLinkClass('evTv')} href="/ev-tv">
+            {t('evTvNavLabel')}
           </a>
           <a className="landing-nav__link" href={OPEN_EMS_GITHUB_URL} target="_blank" rel="noopener noreferrer">
             {t('landingNavGithub')}

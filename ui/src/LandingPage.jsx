@@ -140,7 +140,13 @@ export default function LandingPage({ t, locale }) {
           <h2 id="landing-how-title" className="landing-section__title">
             {t('landingHowTitle')}
           </h2>
-          <p className="landing-section__lead">{t('landingHowLead')}</p>
+          <p className="landing-section__lead">
+            {t('landingHowLeadPrefix')}
+            <a className="landing-section__lead-link" href="/ev-tv">
+              {t('landingHowLeadEvHubsLink')}
+            </a>
+            {t('landingHowLeadSuffix')}
+          </p>
           <div className="landing-diagram" aria-hidden="true">
             <span className="landing-diagram__node">{t('landingDiagramSolar')}</span>
             <span className="landing-diagram__arrow">→</span>

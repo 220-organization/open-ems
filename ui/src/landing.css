@@ -248,6 +248,18 @@
   font-size: 16px;
 }
 
+.landing-section__lead-link {
+  color: var(--pf-text);
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: var(--pf-pink-soft, rgba(252, 1, 155, 0.45));
+  text-underline-offset: 3px;
+}
+
+.landing-section__lead-link:hover {
+  color: var(--pf-pink, #fc019b);
+}
+
 .landing-diagram {
   display: flex;
   flex-wrap: wrap;
@@ -550,6 +562,22 @@
 
 [data-theme='light'] .landing-step__num {
   background: rgba(252, 1, 155, 0.1);
+}
+
+.ev-tv-downloads {
+  flex-wrap: wrap;
+}
+
+.ev-tv-downloads__meta {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--pf-text-secondary);
+  text-align: center;
+}
+
+.ev-tv-section-list {
+  max-width: 720px;
+  margin: 0 auto;
 }
 
 @media (max-width: 640px) {

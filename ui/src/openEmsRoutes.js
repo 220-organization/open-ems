@@ -2,6 +2,7 @@
 export const OPEN_EMS_ROUTES = {
   power: '/',
   landing: '/about',
+  evTv: '/ev-tv',
 };
 
 const LEGACY_POWER_PATH = '/power-flow';
@@ -24,6 +25,7 @@ export function redirectLegacyDamChartPath() {
 export function normalizeOpenEmsPathname(pathname) {
   const p = (pathname || '/').replace(/\/$/, '') || '/';
   if (p === OPEN_EMS_ROUTES.landing) return OPEN_EMS_ROUTES.landing;
+  if (p === OPEN_EMS_ROUTES.evTv) return OPEN_EMS_ROUTES.evTv;
   if (p === OPEN_EMS_ROUTES.power || p === LEGACY_POWER_PATH || p === LEGACY_DAM_PATH) {
     return OPEN_EMS_ROUTES.power;
   }
@@ -33,5 +35,6 @@ export function normalizeOpenEmsPathname(pathname) {
 export function resolveOpenEmsPage(pathname) {
   const path = normalizeOpenEmsPathname(pathname);
   if (path === OPEN_EMS_ROUTES.landing) return 'landing';
+  if (path === OPEN_EMS_ROUTES.evTv) return 'evTv';
   return 'power';
 }

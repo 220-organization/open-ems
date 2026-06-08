@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import LandingPage from './LandingPage';
+import EvTvPage from './EvTvPage';
 import OpenEmsHeader from './OpenEmsHeader';
 import PowerFlowPage from './PowerFlowPage';
 import ServerMetricsBar from './ServerMetricsBar';
@@ -45,7 +46,13 @@ export default function App() {
         chromeHidden={chromeHidden}
       />
       <div className="app-root-layout__main">
-        {page === 'landing' ? <LandingPage {...i18n} /> : <PowerFlowPage {...i18n} isDark={isDark} />}
+        {page === 'landing' ? (
+          <LandingPage {...i18n} />
+        ) : page === 'evTv' ? (
+          <EvTvPage {...i18n} />
+        ) : (
+          <PowerFlowPage {...i18n} isDark={isDark} />
+        )}
       </div>
       <footer className="app-shell-footer">
         <ServerMetricsBar />
