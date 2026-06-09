@@ -6,8 +6,13 @@ const EV_TV_APK_PATH = '/download/ev-ua-android-tv-1.5.0-98.apk';
 const EV_TV_PDF_PATH = '/download/ev-ua-tv.pdf';
 
 const SECTION_KEYS = [
-  { title: 'evTvProblemTitle', text: 'evTvProblemText' },
-  { title: 'evTvSolutionTitle', text: 'evTvSolutionText' },
+  {
+    title: 'evTvGreenEnergyTitle',
+    text: 'evTvGreenEnergyText',
+    list: ['evTvGreenEnergyItem1', 'evTvGreenEnergyItem2', 'evTvGreenEnergyItem3'],
+    highlight: true,
+  },
+  { title: 'evTvLiveStatusTitle', text: 'evTvLiveStatusText' },
   { title: 'evTvSetupTitle', text: 'evTvSetupText', list: ['evTvSetupStep1', 'evTvSetupStep2', 'evTvSetupStep3'] },
   { title: 'evTvDataTitle', text: 'evTvDataText' },
   { title: 'evTvCostTitle', text: 'evTvCostText', list: ['evTvCostItem1', 'evTvCostItem2', 'evTvCostItem3'] },
@@ -25,6 +30,7 @@ export default function EvTvPage({ t, locale }) {
             {t('evTvHeroTitle')}
           </h1>
           <p className="landing-hero__subtitle">{t('evTvHeroSubtitle')}</p>
+          <p className="ev-tv-hero__lead">{t('evTvHeroLead')}</p>
           <div className="landing-hero__cta ev-tv-downloads">
             <a className="landing-btn landing-btn--primary" href={EV_TV_APK_PATH} download>
               {t('evTvDownloadApk')}
@@ -37,7 +43,11 @@ export default function EvTvPage({ t, locale }) {
         </section>
 
         {SECTION_KEYS.map(section => (
-          <section key={section.title} className="landing-section" aria-labelledby={section.title}>
+          <section
+            key={section.title}
+            className={`landing-section${section.highlight ? ' ev-tv-section--green' : ''}`}
+            aria-labelledby={section.title}
+          >
             <h2 id={section.title} className="landing-section__title">
               {t(section.title)}
             </h2>

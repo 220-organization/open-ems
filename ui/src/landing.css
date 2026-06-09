@@ -564,6 +564,30 @@
   background: rgba(252, 1, 155, 0.1);
 }
 
+.ev-tv-hero__lead {
+  max-width: 720px;
+  margin: 0 auto 28px;
+  font-size: 17px;
+  line-height: 1.55;
+  color: #4ade80;
+  text-align: center;
+}
+
+[data-theme='light'] .ev-tv-hero__lead {
+  color: #15803d;
+}
+
+.ev-tv-section--green {
+  border: 1px solid rgba(74, 222, 128, 0.35);
+  border-radius: var(--km220-radius-md, 12px);
+  background: rgba(74, 222, 128, 0.06);
+}
+
+[data-theme='light'] .ev-tv-section--green {
+  border-color: rgba(21, 128, 61, 0.25);
+  background: rgba(21, 128, 61, 0.05);
+}
+
 .ev-tv-downloads {
   flex-wrap: wrap;
 }
