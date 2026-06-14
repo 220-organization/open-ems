@@ -1,0 +1,23 @@
+{
+  "short_name": "Народна ЕМС",
+  "name": "Народна ЕМС — Потоки потужності",
+  "icons": [
+    {
+      "src": "static/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "static/favicon-32.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    }
+  ],
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#141414",
+  "background_color": "#141414",
+  "lang": "uk"
+}

@@ -56,6 +56,25 @@ class DeyeSocSample(Base):
     )
 
 
+class EvPortPowerSample(Base):
+    """
+    Aggregate EV charger power (W) per fleet (dc | ac) in 5-minute UTC buckets.
+    Stored power_w is total charging power (= grid import for the EV-ports power-flow view).
+    """
+
+    __tablename__ = "ev_port_power_sample"
+
+    acdc: Mapped[str] = mapped_column(String(2), primary_key=True)
+    bucket_start: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), primary_key=True
+    )
+    power_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    active_sessions: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class HuaweiPowerSample(Base):
     """
     Huawei plant power in 5-minute UTC buckets (aligned with Deye snapshot cadence).

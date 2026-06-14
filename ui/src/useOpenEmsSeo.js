@@ -68,9 +68,12 @@ export function useOpenEmsSeo(pageTitle, locale, t, options = {}) {
     upsertMeta('name', 'keywords', kw);
     upsertMeta('name', 'robots', 'index, follow, max-image-preview:large');
     upsertMeta('name', 'author', '220-km.com');
+    upsertMeta('name', 'apple-mobile-web-app-capable', 'yes');
+    upsertMeta('name', 'apple-mobile-web-app-title', t('appBrandName'));
+    upsertMeta('name', 'application-name', t('appBrandName'));
 
     upsertMeta('property', 'og:type', 'website');
-    upsertMeta('property', 'og:site_name', 'Open EMS');
+    upsertMeta('property', 'og:site_name', t('appBrandName'));
     upsertMeta('property', 'og:title', ogTitle);
     upsertMeta('property', 'og:description', desc);
     upsertMeta('property', 'og:url', canonicalUrl);

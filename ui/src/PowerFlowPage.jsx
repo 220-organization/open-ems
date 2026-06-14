@@ -21,7 +21,15 @@ import { KwhCalibrationProvider, useKwhCalibration } from './KwhCalibrationConte
 import { DEYE_FLOW_BALANCE_PV_FACTOR, usesDeyeFlowBalance } from './deyeFlowBalanceSites';
 import { inverterSelectShortLabel, parseEvPortStationNumber } from './deyeInverterDisplay';
 import { clearInverterPinCache, readCachedInverterPin, rememberInverterPin } from './deyeInverterPinCache';
-import { ESS_PREFIX_DEYE, ESS_PREFIX_HUAWEI, normalizeEssSelectionValue, parseEssSelection } from './essSelection';
+import {
+  ESS_PREFIX_AC_EV,
+  ESS_PREFIX_DEYE,
+  ESS_PREFIX_DC_EV,
+  ESS_PREFIX_HUAWEI,
+  evPortsAcdcFromProvider,
+  normalizeEssSelectionValue,
+  parseEssSelection,
+} from './essSelection';
 import PfScrollNumber from './PfScrollNumber';
 import './power-flow.css';
 import './dam-chart.css';
@@ -425,10 +433,7 @@ function replaceLandingExportMetricInUrl(metric) {
   try {
     const u = new URL(window.location.href);
     u.searchParams.delete('landingExport');
-    if (
-      metric === LANDING_EXPORT_METRIC.TOTAL ||
-      metric === LANDING_EXPORT_METRIC.GRID_BALANCING
-    ) {
+    if (metric === LANDING_EXPORT_METRIC.TOTAL || metric === LANDING_EXPORT_METRIC.GRID_BALANCING) {
       u.searchParams.delete('exportMetric');
     } else {
       u.searchParams.set('exportMetric', metric);
@@ -580,9 +585,7 @@ function landingMonthlyRatesMom(dam, retailCurrent, bcp47, isDeviceScope) {
 function landingMonthlyRatesVsAvgDam(dam, retailCurrent, bcp47, isDeviceScope) {
   const damAvg = dam?.currentAvgUahPerKwh;
   if (damAvg == null || !Number.isFinite(Number(damAvg)) || retailCurrent == null) return null;
-  const baseline = isDeviceScope
-    ? landingRetailUahPerKwh(Number(damAvg))
-    : Number(damAvg);
+  const baseline = isDeviceScope ? landingRetailUahPerKwh(Number(damAvg)) : Number(damAvg);
   if (baseline == null || !Number.isFinite(baseline) || baseline <= 1e-6) return null;
   const pct = ((retailCurrent - baseline) / baseline) * 100;
   if (!Number.isFinite(pct) || Math.abs(pct) < 0.05) return null;
@@ -596,8 +599,7 @@ function landingMonthlyRatesRetailFromTotals(landingTotals) {
   if (!landingTotals?.ok) return null;
   const dam = landingTotals.dam;
   if (!dam?.configured || !dam.currentMonthStart) return null;
-  const isDeviceScope =
-    landingTotals.exportScope === 'device' || landingTotals.exportScope === 'huawei';
+  const isDeviceScope = landingTotals.exportScope === 'device' || landingTotals.exportScope === 'huawei';
   let damAvg = dam.currentAvgUahPerKwh;
   const personal = dam.currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd;
   if (isDeviceScope && personal != null && Number.isFinite(Number(personal))) {
@@ -640,8 +642,7 @@ function landingMonthlyRatesTariffVsUkraineSupplement(landingTotals, bcp47) {
 
 const LANDING_MONTHLY_RATES_WRAP_CLASS =
   'pf-landing-totals__counter-wrap pf-landing-totals__counter-wrap--monthly-rates';
-const LANDING_MONTHLY_RATES_COUNTER_CLASS =
-  'pf-landing-totals__counter pf-landing-totals__counter--monthly-rates';
+const LANDING_MONTHLY_RATES_COUNTER_CLASS = 'pf-landing-totals__counter pf-landing-totals__counter--monthly-rates';
 
 /** Counter model for landing «Monthly rates» — rate+₴ in pill; month, unit, MoM outside. */
 function formatLandingMonthlyRatesMetric(landingTotals, bcp47, t) {
@@ -686,9 +687,7 @@ function formatLandingMonthlyRatesMetric(landingTotals, bcp47, t) {
   const retail = landingRetailUahPerKwh(damAvg);
   const rate = retail != null ? fmtRate.format(retail) : '—';
   const monthlyRatesMom = retail != null ? landingMonthlyRatesMom(dam, retail, bcp47, isDeviceScope) : null;
-  const hintKey = isDeviceScope
-    ? 'powerFlowLandingMonthlyRatesHintDevice'
-    : 'powerFlowLandingMonthlyRatesHint';
+  const hintKey = isDeviceScope ? 'powerFlowLandingMonthlyRatesHintDevice' : 'powerFlowLandingMonthlyRatesHint';
   return {
     ...base,
     monthLabel: curMonth,
@@ -752,9 +751,7 @@ function LandingMonthlyRatesDisplay({ display, t, asButton, chartAria, onChartOp
   });
   return (
     <>
-      {display.monthLabel ? (
-        <span className="pf-landing-totals__monthly-rates-month">{display.monthLabel}</span>
-      ) : null}
+      {display.monthLabel ? <span className="pf-landing-totals__monthly-rates-month">{display.monthLabel}</span> : null}
       {box}
       <span className="pf-landing-totals__monthly-rates-unit">{display.unitSuffix}</span>
       {mom}
@@ -844,13 +841,8 @@ function formatLandingGridBalancingMetric(landingTotals, bcp47, t) {
   const pctStr = formatLandingGridBalancingPct(pctRaw, bcp47);
   const scoreTier = landingGridBalancingScoreTier(pctRaw);
   const scopeFleet = landingTotals.exportScope === 'fleet';
-  const hintKey = scopeFleet
-    ? 'powerFlowLandingGridBalancingHintFleet'
-    : 'powerFlowLandingGridBalancingHint';
-  const mom = landingGridBalancingMom(
-    { ...gb, prevMonthStart: dam?.prevMonthStart },
-    bcp47
-  );
+  const hintKey = scopeFleet ? 'powerFlowLandingGridBalancingHintFleet' : 'powerFlowLandingGridBalancingHint';
+  const mom = landingGridBalancingMom({ ...gb, prevMonthStart: dam?.prevMonthStart }, bcp47);
   return {
     ...base,
     text: pctStr,
@@ -911,9 +903,7 @@ function LandingGridBalancingDisplay({ display, t, asButton, chartAria, onChartO
     ) : null;
   return (
     <>
-      {display.monthLabel ? (
-        <span className="pf-landing-totals__monthly-rates-month">{display.monthLabel}</span>
-      ) : null}
+      {display.monthLabel ? <span className="pf-landing-totals__monthly-rates-month">{display.monthLabel}</span> : null}
       {box}
       {mom}
     </>
@@ -1272,7 +1262,15 @@ function LandingExportMetricCounter({
   );
 }
 
-export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LOCALE_NAMES, onLangSelectChange, isDark }) {
+export default function PowerFlowPage({
+  t,
+  getBcp47Locale,
+  locale,
+  SUPPORTED,
+  LOCALE_NAMES,
+  onLangSelectChange,
+  isDark,
+}) {
   const graphRef = useRef(null);
   const [graphWidth, setGraphWidth] = useState(400);
   const [stationFilter, setStationFilter] = useState(() => {
@@ -1324,6 +1322,8 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   /** Charging power (W) from GET /api/b2b/station-status for the selected EV port; null = unknown / error. */
   const [evStationPowerW, setEvStationPowerW] = useState(null);
   const [evStationPowerLoading, setEvStationPowerLoading] = useState(false);
+  /** Sum of EV charger power (W) from GET /api/b2b/ev-ports-power when EV DC/AC aggregate source is selected. */
+  const [evPortsLive, setEvPortsLive] = useState({ loading: false, powerW: null, activeSessions: 0, acdc: null });
   /**
    * Fallback: network-wide volume-weighted avg UAH/kWh from GET /api/b2b/charging-network-tariff-avg (past UTC days).
    * EV node prefers live session tariffs from charging-ports when any active job includes costPerKwt.
@@ -1545,8 +1545,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   useOpenEmsSeo(t('pageTitle'), locale, t, { variant: 'default', canonicalPath: '/' });
 
   useEffect(() => {
-    return () => {
-    };
+    return () => {};
   }, []);
 
   useEffect(() => {
@@ -1799,6 +1798,8 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
       if (huaweiRows.items.some(r => r.stationCode === parsed.id)) {
         setInverterValue(want);
       }
+    } else if (parsed.provider === 'dc-ev' || parsed.provider === 'ac-ev') {
+      setInverterValue(`${parsed.provider === 'ac-ev' ? ESS_PREFIX_AC_EV : ESS_PREFIX_DC_EV}${parsed.id || 'all'}`);
     }
   }, [inverterRows, huaweiRows, deyeCombinedItems, deyeSnToRepresentative]);
 
@@ -1822,7 +1823,9 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const essSel = useMemo(() => parseEssSelection(inverterValue), [inverterValue]);
   const selInverterSn = essSel.provider === 'deye' ? essSel.id.trim() : '';
   const selHuaweiStationCode = essSel.provider === 'huawei' ? essSel.id.trim() : '';
-  const essAnySelected = Boolean(selInverterSn || selHuaweiStationCode);
+  const selEvPortsAcdc = evPortsAcdcFromProvider(essSel.provider);
+  const selEvPortsAggregate = selEvPortsAcdc != null;
+  const essAnySelected = Boolean(selInverterSn || selHuaweiStationCode || selEvPortsAggregate);
 
   const inverterSnsKey = useMemo(
     () =>
@@ -2138,31 +2141,20 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     if (prev === cur) return;
     prevSelInverterSnForMetricRef.current = cur;
     if (readLandingExportMetricFromUrl(selInverterSn, selHuaweiStationCode) != null) return;
-    const gridBalancingConfigured = Boolean(
-      landingTotals?.ok && landingTotals?.gridBalancing?.configured !== false
-    );
+    const gridBalancingConfigured = Boolean(landingTotals?.ok && landingTotals?.gridBalancing?.configured !== false);
     const offers = {
       gridBalancing: gridBalancingConfigured,
-      peak:
-        !selHuaweiStationCode &&
-        landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.PEAK),
-      manual:
-        !selHuaweiStationCode &&
-        landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.MANUAL),
+      peak: !selHuaweiStationCode && landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.PEAK),
+      manual: !selHuaweiStationCode && landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.MANUAL),
       total: landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.TOTAL),
       arbitrage:
-        !selHuaweiStationCode &&
-        landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.ARBITRAGE),
+        !selHuaweiStationCode && landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.ARBITRAGE),
       lostSolar:
         Boolean(selInverterSn?.trim()) &&
         landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.LOST_SOLAR_7D),
     };
     setLandingExportMetric(preferredLandingExportMetric(offers));
-    writeStoredLandingExportMetric(
-      selInverterSn,
-      selHuaweiStationCode,
-      preferredLandingExportMetric(offers)
-    );
+    writeStoredLandingExportMetric(selInverterSn, selHuaweiStationCode, preferredLandingExportMetric(offers));
   }, [selInverterSn, selHuaweiStationCode, landingTotals]);
 
   useEffect(() => {
@@ -2170,22 +2162,14 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   }, [landingExportMetric]);
 
   const landingExportMetricOffers = useMemo(() => {
-    const gridBalancingConfigured = Boolean(
-      landingTotals?.ok && landingTotals?.gridBalancing?.configured !== false
-    );
+    const gridBalancingConfigured = Boolean(landingTotals?.ok && landingTotals?.gridBalancing?.configured !== false);
     return {
-      gridBalancing:
-        landingTotalsLoading || !landingTotals?.ok ? true : gridBalancingConfigured,
-      peak:
-        !selHuaweiStationCode &&
-        landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.PEAK),
-      manual:
-        !selHuaweiStationCode &&
-        landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.MANUAL),
+      gridBalancing: landingTotalsLoading || !landingTotals?.ok ? true : gridBalancingConfigured,
+      peak: !selHuaweiStationCode && landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.PEAK),
+      manual: !selHuaweiStationCode && landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.MANUAL),
       total: landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.TOTAL),
       arbitrage:
-        !selHuaweiStationCode &&
-        landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.ARBITRAGE),
+        !selHuaweiStationCode && landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.ARBITRAGE),
       lostSolar:
         Boolean(selInverterSn?.trim()) &&
         landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.LOST_SOLAR_7D),
@@ -2195,8 +2179,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   useEffect(() => {
     if (landingTotalsLoading || !landingTotals?.ok) return;
     const unavailable =
-      (landingExportMetric === LANDING_EXPORT_METRIC.GRID_BALANCING &&
-        !landingExportMetricOffers.gridBalancing) ||
+      (landingExportMetric === LANDING_EXPORT_METRIC.GRID_BALANCING && !landingExportMetricOffers.gridBalancing) ||
       (landingExportMetric === LANDING_EXPORT_METRIC.PEAK && !landingExportMetricOffers.peak) ||
       (landingExportMetric === LANDING_EXPORT_METRIC.MANUAL && !landingExportMetricOffers.manual) ||
       (landingExportMetric === LANDING_EXPORT_METRIC.TOTAL && !landingExportMetricOffers.total) ||
@@ -2224,11 +2207,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
     if (!landingExportMetricOffers.gridBalancing) return;
     if (landingExportMetric !== LANDING_EXPORT_METRIC.MONTHLY_RATES) return;
     setLandingExportMetric(LANDING_EXPORT_METRIC.GRID_BALANCING);
-    writeStoredLandingExportMetric(
-      selInverterSn,
-      selHuaweiStationCode,
-      LANDING_EXPORT_METRIC.GRID_BALANCING
-    );
+    writeStoredLandingExportMetric(selInverterSn, selHuaweiStationCode, LANDING_EXPORT_METRIC.GRID_BALANCING);
   }, [
     landingTotalsLoading,
     landingTotals,
@@ -2438,8 +2417,7 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
               : typeof dataSc.autoDamEnabled === 'boolean'
                 ? dataSc.autoDamEnabled
                 : false;
-          const manualSc =
-            typeof dataSc.selfConsumptionEnabled === 'boolean' ? dataSc.selfConsumptionEnabled : false;
+          const manualSc = typeof dataSc.selfConsumptionEnabled === 'boolean' ? dataSc.selfConsumptionEnabled : false;
           setSelfConsumptionEnabled(autoDam || manualSc);
         } else {
           setSelfConsumptionEnabled(false);
@@ -2846,6 +2824,42 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   }, [selHuaweiStationCode, huaweiLiveLoading, huaweiRows.configured, huaweiRows.error, huaweiRows.authFailed]);
 
   useEffect(() => {
+    if (!selEvPortsAcdc) {
+      setEvPortsLive({ loading: false, powerW: null, activeSessions: 0, acdc: null });
+      return undefined;
+    }
+    let cancelled = false;
+    const acdc = selEvPortsAcdc;
+    const load = async () => {
+      setEvPortsLive(prev => ({ ...prev, loading: true, acdc }));
+      try {
+        const q = new URLSearchParams({ acdc });
+        const r = await fetch(`${apiUrl('/api/b2b/ev-ports-power')}?${q}`, { cache: 'no-store' });
+        const data = await r.json().catch(() => ({}));
+        if (cancelled) return;
+        if (r.ok && data?.ok && data.powerW != null && Number.isFinite(Number(data.powerW))) {
+          setEvPortsLive({
+            loading: false,
+            powerW: Math.max(0, Number(data.powerW)),
+            activeSessions: Number(data.activeSessions) || 0,
+            acdc,
+          });
+        } else {
+          setEvPortsLive({ loading: false, powerW: null, activeSessions: 0, acdc });
+        }
+      } catch {
+        if (!cancelled) setEvPortsLive({ loading: false, powerW: null, activeSessions: 0, acdc });
+      }
+    };
+    void load();
+    const id = setInterval(() => void load(), 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [selEvPortsAcdc]);
+
+  useEffect(() => {
     if (!selInverterSn || !inverterRows.configured || inverterRows.error) {
       solarInsolationInitialFetchRef.current = true;
       setSolarForecast({
@@ -3147,16 +3161,29 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
 
   /** B2B EV port selected without a site ESS: diagram is virtual grid → EV only (220-km station power). */
   const evPortFocusMode = !essAnySelected && Boolean(stationFilter.trim());
-  const graphDisplaySolarW = evPortFocusMode ? null : displaySolarW;
-  const graphDisplayLoadW = evPortFocusMode ? null : displayLoadW;
-  const graphDisplayEssW = evPortFocusMode ? null : displayEssW;
-  const graphDisplayMinerW = evPortFocusMode ? null : displayMinerW;
-  const graphMinerFlowW = evPortFocusMode ? 0 : minerFlowW;
+  /** EV DC/AC aggregate selected as ESS source: grid → all active sessions of that type. */
+  const evPortsFocusMode = selEvPortsAggregate;
+  const evOnlyFocusMode = evPortFocusMode || evPortsFocusMode;
+  const evPortsDisplayPowerW = evPortsFocusMode
+    ? evPortsLive.loading && evPortsLive.powerW == null
+      ? null
+      : Math.max(0, Number(evPortsLive.powerW ?? 0))
+    : null;
+  const evOnlyGraphLoading =
+    (evPortFocusMode && evStationPowerLoading && evStationPowerW == null) ||
+    (evPortsFocusMode && evPortsLive.loading && evPortsDisplayPowerW == null);
+  const graphDisplaySolarW = evOnlyFocusMode ? null : displaySolarW;
+  const graphDisplayLoadW = evOnlyFocusMode ? null : displayLoadW;
+  const graphDisplayEssW = evOnlyFocusMode ? null : displayEssW;
+  const graphDisplayMinerW = evOnlyFocusMode ? null : displayMinerW;
+  const graphMinerFlowW = evOnlyFocusMode ? 0 : minerFlowW;
   const graphDisplayGridW = evPortFocusMode
     ? evStationPowerLoading && evStationPowerW == null
       ? null
       : Math.max(0, Number(evStationPowerW ?? 0))
-    : displayGridW;
+    : evPortsFocusMode
+      ? evPortsDisplayPowerW
+      : displayGridW;
   const graphDisplayEssCharging = graphDisplayEssW != null && graphDisplayEssW < 0;
 
   const loadFlowActive = graphDisplayLoadW != null && graphDisplayLoadW > 0;
@@ -3174,7 +3201,8 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
   const stationEvFlowActive = !showEvAggregate && Boolean(stationFilter.trim()) && (evStationPowerW ?? 0) > 0;
   const evFlowActive =
     (evPortFocusMode && (evStationPowerW ?? 0) > 0) ||
-    (showEvAggregate && !evPortFocusMode && aggregateEvFlowW > 0) ||
+    (evPortsFocusMode && (evPortsDisplayPowerW ?? 0) > 0) ||
+    (showEvAggregate && !evOnlyFocusMode && aggregateEvFlowW > 0) ||
     stationEvFlowActive;
   const hasFlow =
     evFlowActive ||
@@ -3861,1839 +3889,1876 @@ export default function PowerFlowPage({ t, getBcp47Locale, locale, SUPPORTED, LO
 
   return (
     <KwhCalibrationProvider inverterSn={selInverterSn} t={t}>
-    <div className="pf-body">
-      <div className="pf-root">
-        <div className="pf-top-bar">
-          <header className="pf-header">
-            <div className="pf-header-primary">
-              <div className="pf-station-field pf-inverter-field">
-                <select
-                  id="pf-inverter"
-                  className="pf-inverter-select pf-header-select--inverter"
-                  aria-label={t('inverterSelectLabel')}
-                  value={noEssListYet ? '' : inverterValue}
-                  onChange={onInverterChange}
-                >
-                  {noEssListYet ? (
-                    <option value="" disabled>
-                      …
-                    </option>
-                  ) : inverterRows.error && huaweiRows.error ? (
-                    <option value="" disabled>
-                      {t('inverterLoadError')}
-                    </option>
-                  ) : !inverterRows.configured && !huaweiRows.configured ? (
-                    <option value="" disabled>
-                      {t('inverterSourcesNotConfigured')}
-                    </option>
-                  ) : (
-                    <>
-                      <option value="">{t('inverterSelectLabel')}</option>
-                      {deyeListReady && deyeCombinedItems.length > 0 ? (
-                        <optgroup label={t('essDeyeCloud')}>
-                          {deyeCombinedItems.map(row => {
-                            const p = firstFiniteSocForDeyeRow(row, socBySn);
-                            const socSuffix = p != null && Number.isFinite(p) ? ` · ${inverterSocFmt.format(p)}%` : '';
-                            const c = row.capexUsd;
-                            const capexSuffix =
-                              c != null && Number.isFinite(Number(c)) ? ` · ${formatInverterCapexUsd(Number(c))}` : '';
-                            return (
-                              <option
-                                key={`deye-${row.representativeSn}`}
-                                value={`${ESS_PREFIX_DEYE}${row.representativeSn}`}
-                              >
-                                {row.shortLabel + socSuffix + capexSuffix}
-                              </option>
-                            );
-                          })}
+      <div className="pf-body">
+        <div className="pf-root">
+          <div className="pf-top-bar">
+            <header className="pf-header">
+              <div className="pf-header-primary">
+                <div className="pf-station-field pf-inverter-field">
+                  <select
+                    id="pf-inverter"
+                    className="pf-inverter-select pf-header-select--inverter"
+                    aria-label={t('inverterSelectLabel')}
+                    value={noEssListYet ? '' : inverterValue}
+                    onChange={onInverterChange}
+                  >
+                    {noEssListYet ? (
+                      <option value="" disabled>
+                        …
+                      </option>
+                    ) : inverterRows.error && huaweiRows.error && !inverterRows.configured && !huaweiRows.configured ? (
+                      <option value="" disabled>
+                        {t('inverterLoadError')}
+                      </option>
+                    ) : (
+                      <>
+                        <option value="">{t('inverterSelectLabel')}</option>
+                        {deyeListReady && deyeCombinedItems.length > 0 ? (
+                          <optgroup label={t('essDeyeCloud')}>
+                            {deyeCombinedItems.map(row => {
+                              const p = firstFiniteSocForDeyeRow(row, socBySn);
+                              const socSuffix =
+                                p != null && Number.isFinite(p) ? ` · ${inverterSocFmt.format(p)}%` : '';
+                              const c = row.capexUsd;
+                              const capexSuffix =
+                                c != null && Number.isFinite(Number(c))
+                                  ? ` · ${formatInverterCapexUsd(Number(c))}`
+                                  : '';
+                              return (
+                                <option
+                                  key={`deye-${row.representativeSn}`}
+                                  value={`${ESS_PREFIX_DEYE}${row.representativeSn}`}
+                                >
+                                  {row.shortLabel + socSuffix + capexSuffix}
+                                </option>
+                              );
+                            })}
+                          </optgroup>
+                        ) : null}
+                        <optgroup label={t('essEvPorts')}>
+                          <option value={`${ESS_PREFIX_DC_EV}all`}>{t('essEvPortsDc')}</option>
+                          <option value={`${ESS_PREFIX_AC_EV}all`}>{t('essEvPortsAc')}</option>
                         </optgroup>
-                      ) : null}
-                      {huaweiRows.configured && !huaweiRows.loading && !huaweiRows.error && huaweiRows.authFailed ? (
-                        <optgroup label={t('essHuaweiFusionSolar')}>
-                          <option value="" disabled>
-                            {t('huaweiAuthFailedHint')}
-                          </option>
-                        </optgroup>
-                      ) : huaweiListReady && huaweiRows.northboundRateLimited && huaweiRows.items.length === 0 ? (
-                        <optgroup label={t('essHuaweiFusionSolar')}>
-                          <option value="" disabled>
-                            {t('huaweiNorthboundRateLimited')}
-                          </option>
-                        </optgroup>
-                      ) : huaweiListReady && huaweiRows.items.length > 0 ? (
-                        <optgroup label={t('essHuaweiFusionSolar')}>
-                          {huaweiRows.items.map(row => {
-                            const shortLabel = inverterSelectShortLabel(row.stationName, row.stationCode);
-                            return (
-                              <option
-                                key={`huawei-${row.stationCode}`}
-                                value={`${ESS_PREFIX_HUAWEI}${row.stationCode}`}
-                              >
-                                {shortLabel}
-                              </option>
-                            );
-                          })}
-                        </optgroup>
-                      ) : null}
-                    </>
-                  )}
-                </select>
-                <button
-                  type="button"
-                  id="addInverterToOpenEms"
-                  className="pf-add-deye-btn"
-                  aria-label={t('addDeyeInverterAria')}
-                  title={t('addDeyeInverterAria')}
-                  onClick={() => setDeyeMessengerOpen(true)}
-                >
-                  {t('addDeyeInverterButton')}
-                </button>
+                        {huaweiRows.configured && !huaweiRows.loading && !huaweiRows.error && huaweiRows.authFailed ? (
+                          <optgroup label={t('essHuaweiFusionSolar')}>
+                            <option value="" disabled>
+                              {t('huaweiAuthFailedHint')}
+                            </option>
+                          </optgroup>
+                        ) : huaweiListReady && huaweiRows.northboundRateLimited && huaweiRows.items.length === 0 ? (
+                          <optgroup label={t('essHuaweiFusionSolar')}>
+                            <option value="" disabled>
+                              {t('huaweiNorthboundRateLimited')}
+                            </option>
+                          </optgroup>
+                        ) : huaweiListReady && huaweiRows.items.length > 0 ? (
+                          <optgroup label={t('essHuaweiFusionSolar')}>
+                            {huaweiRows.items.map(row => {
+                              const shortLabel = inverterSelectShortLabel(row.stationName, row.stationCode);
+                              return (
+                                <option
+                                  key={`huawei-${row.stationCode}`}
+                                  value={`${ESS_PREFIX_HUAWEI}${row.stationCode}`}
+                                >
+                                  {shortLabel}
+                                </option>
+                              );
+                            })}
+                          </optgroup>
+                        ) : null}
+                      </>
+                    )}
+                  </select>
+                  <button
+                    type="button"
+                    id="addInverterToOpenEms"
+                    className="pf-add-deye-btn"
+                    aria-label={t('addDeyeInverterAria')}
+                    title={t('addDeyeInverterAria')}
+                    onClick={() => setDeyeMessengerOpen(true)}
+                  >
+                    {t('addDeyeInverterButton')}
+                  </button>
+                </div>
               </div>
-            </div>
-          </header>
-        </div>
+            </header>
+          </div>
 
-        <div className="pf-page-main" aria-busy={pageRestHydrationPending ? 'true' : undefined}>
-          {showPowerFlowSections
-            ? (() => {
-                const ltd = inverterListReady ? formatLandingTotalsDisplay(landingTotals, bcp47, t) : null;
-                const landingTotalsScopeFleet = landingTotals?.exportScope === 'fleet';
-                const listPending = !inverterListReady;
-                const landingHuaweiEss = Boolean(selHuaweiStationCode);
-                const landingExportMetricUi = (() => {
-                  const m = landingExportMetric;
-                  const offers = landingExportMetricOffers;
-                  if (
-                    landingHuaweiEss &&
-                    (m === LANDING_EXPORT_METRIC.PEAK ||
-                      m === LANDING_EXPORT_METRIC.MANUAL ||
-                      m === LANDING_EXPORT_METRIC.ARBITRAGE ||
-                      m === LANDING_EXPORT_METRIC.LOST_SOLAR_7D)
-                  ) {
-                    return preferredLandingExportMetric(offers);
-                  }
-                  if (
-                    landingTotals?.ok &&
-                    m === LANDING_EXPORT_METRIC.GRID_BALANCING &&
-                    !offers.gridBalancing
-                  ) {
-                    return LANDING_EXPORT_METRIC.MONTHLY_RATES;
-                  }
-                  if (m === LANDING_EXPORT_METRIC.PEAK && !offers.peak) {
-                    return preferredLandingExportMetric(offers);
-                  }
-                  if (m === LANDING_EXPORT_METRIC.MANUAL && !offers.manual) {
-                    return preferredLandingExportMetric(offers);
-                  }
-                  if (m === LANDING_EXPORT_METRIC.TOTAL && !offers.total) {
-                    return preferredLandingExportMetric(offers);
-                  }
-                  if (m === LANDING_EXPORT_METRIC.ARBITRAGE && !offers.arbitrage) {
-                    return preferredLandingExportMetric(offers);
-                  }
-                  if (m === LANDING_EXPORT_METRIC.LOST_SOLAR_7D && !offers.lostSolar) {
-                    return preferredLandingExportMetric(offers);
-                  }
-                  return m;
-                })();
+          <div className="pf-page-main" aria-busy={pageRestHydrationPending ? 'true' : undefined}>
+            {showPowerFlowSections
+              ? (() => {
+                  const ltd = inverterListReady ? formatLandingTotalsDisplay(landingTotals, bcp47, t) : null;
+                  const landingTotalsScopeFleet = landingTotals?.exportScope === 'fleet';
+                  const listPending = !inverterListReady;
+                  const landingHuaweiEss = Boolean(selHuaweiStationCode);
+                  const landingExportMetricUi = (() => {
+                    const m = landingExportMetric;
+                    const offers = landingExportMetricOffers;
+                    if (
+                      landingHuaweiEss &&
+                      (m === LANDING_EXPORT_METRIC.PEAK ||
+                        m === LANDING_EXPORT_METRIC.MANUAL ||
+                        m === LANDING_EXPORT_METRIC.ARBITRAGE ||
+                        m === LANDING_EXPORT_METRIC.LOST_SOLAR_7D)
+                    ) {
+                      return preferredLandingExportMetric(offers);
+                    }
+                    if (landingTotals?.ok && m === LANDING_EXPORT_METRIC.GRID_BALANCING && !offers.gridBalancing) {
+                      return LANDING_EXPORT_METRIC.MONTHLY_RATES;
+                    }
+                    if (m === LANDING_EXPORT_METRIC.PEAK && !offers.peak) {
+                      return preferredLandingExportMetric(offers);
+                    }
+                    if (m === LANDING_EXPORT_METRIC.MANUAL && !offers.manual) {
+                      return preferredLandingExportMetric(offers);
+                    }
+                    if (m === LANDING_EXPORT_METRIC.TOTAL && !offers.total) {
+                      return preferredLandingExportMetric(offers);
+                    }
+                    if (m === LANDING_EXPORT_METRIC.ARBITRAGE && !offers.arbitrage) {
+                      return preferredLandingExportMetric(offers);
+                    }
+                    if (m === LANDING_EXPORT_METRIC.LOST_SOLAR_7D && !offers.lostSolar) {
+                      return preferredLandingExportMetric(offers);
+                    }
+                    return m;
+                  })();
 
-                const showGridBalancingChart =
-                  landingExportMetricUi === LANDING_EXPORT_METRIC.GRID_BALANCING;
-                const showMonthlyRatesChart =
-                  landingExportMetricUi === LANDING_EXPORT_METRIC.MONTHLY_RATES;
-                const showExportHourlyChart =
-                  !showGridBalancingChart &&
-                  !showMonthlyRatesChart &&
-                  !landingHuaweiEss &&
-                  (landingExportMetricUi === LANDING_EXPORT_METRIC.PEAK ||
-                    landingExportMetricUi === LANDING_EXPORT_METRIC.MANUAL ||
-                    landingExportMetricUi === LANDING_EXPORT_METRIC.TOTAL ||
-                    landingExportMetricUi === LANDING_EXPORT_METRIC.ARBITRAGE ||
-                    landingExportMetricUi === LANDING_EXPORT_METRIC.LOST_SOLAR_7D);
+                  const showGridBalancingChart = landingExportMetricUi === LANDING_EXPORT_METRIC.GRID_BALANCING;
+                  const showMonthlyRatesChart = landingExportMetricUi === LANDING_EXPORT_METRIC.MONTHLY_RATES;
+                  const showExportHourlyChart =
+                    !showGridBalancingChart &&
+                    !showMonthlyRatesChart &&
+                    !landingHuaweiEss &&
+                    (landingExportMetricUi === LANDING_EXPORT_METRIC.PEAK ||
+                      landingExportMetricUi === LANDING_EXPORT_METRIC.MANUAL ||
+                      landingExportMetricUi === LANDING_EXPORT_METRIC.TOTAL ||
+                      landingExportMetricUi === LANDING_EXPORT_METRIC.ARBITRAGE ||
+                      landingExportMetricUi === LANDING_EXPORT_METRIC.LOST_SOLAR_7D);
 
-                const inverterSelected = Boolean(selInverterSn || selHuaweiStationCode);
-                const showMonthlyRatesInverterSupplements =
-                  inverterSelected &&
-                  inverterListReady &&
-                  landingExportMetricUi === LANDING_EXPORT_METRIC.MONTHLY_RATES;
-                const showGridBalancingSupplement =
-                  inverterSelected &&
-                  inverterListReady &&
-                  (showMonthlyRatesInverterSupplements ||
-                    landingExportMetricUi !== LANDING_EXPORT_METRIC.GRID_BALANCING);
-                const gridBalancingSupplement = showGridBalancingSupplement
-                  ? landingGridBalancingSupplement(landingTotals, bcp47)
-                  : null;
-                const monthlyRatesTariffVsUkraineSupplement = showMonthlyRatesInverterSupplements
-                  ? landingMonthlyRatesTariffVsUkraineSupplement(landingTotals, bcp47)
-                  : null;
-                const inverterMetricDisplay =
-                  landingExportMetricUi === LANDING_EXPORT_METRIC.GRID_BALANCING
-                    ? formatLandingGridBalancingMetric(landingTotals, bcp47, t)
-                    : landingExportMetricUi === LANDING_EXPORT_METRIC.MONTHLY_RATES
-                      ? formatLandingMonthlyRatesMetric(landingTotals, bcp47, t)
-                      : ltd
-                  ? (() => {
-                      if (landingExportMetricUi === LANDING_EXPORT_METRIC.TOTAL) {
-                        return {
-                          text: formatLandingTotalExportSamplesKwh(landingTotals.totalExportKwh, bcp47),
-                          title: landingTotalsScopeFleet
-                            ? t('powerFlowLandingExportTotalHintFleet')
-                            : t('powerFlowLandingExportTotalHint'),
-                          wrapClass: 'pf-landing-totals__counter-wrap',
-                          counterClass: 'pf-landing-totals__counter',
-                          valueIsCurrency: false,
-                        };
-                      }
-                      if (landingExportMetricUi === LANDING_EXPORT_METRIC.PEAK) {
-                        const p = ltd.peakDam;
-                        return {
-                          text: p ? p.exportText : '—',
-                          title: landingTotalsScopeFleet
-                            ? t('powerFlowLandingPeakDamSessionHintFleet')
-                            : t('powerFlowLandingPeakDamSessionHint'),
-                          wrapClass: `pf-landing-totals__counter-wrap${p ? ' pf-landing-totals__counter-wrap--peak-dam' : ''}`,
-                          counterClass: `pf-landing-totals__counter${p ? ' pf-landing-totals__counter--peak-dam' : ''}`,
-                          valueIsCurrency: false,
-                        };
-                      }
-                      if (landingExportMetricUi === LANDING_EXPORT_METRIC.MANUAL) {
-                        const m = ltd.manualDischarge;
-                        return {
-                          text: m ? m.exportText : '—',
-                          title: landingTotalsScopeFleet
-                            ? t('powerFlowLandingManualDischargeHintFleet')
-                            : t('powerFlowLandingManualDischargeHint'),
-                          wrapClass: `pf-landing-totals__counter-wrap${m ? ' pf-landing-totals__counter-wrap--manual-discharge' : ''}`,
-                          counterClass: `pf-landing-totals__counter${m ? ' pf-landing-totals__counter--manual-discharge' : ''}`,
-                          valueIsCurrency: false,
-                        };
-                      }
-                      if (landingExportMetricUi === LANDING_EXPORT_METRIC.ARBITRAGE) {
-                        const a = ltd.arbitrage;
-                        return {
-                          text: a ? a.revenueText : '—',
-                          title: landingTotalsScopeFleet
-                            ? t('powerFlowLandingArbitrageHintFleet')
-                            : t('powerFlowLandingArbitrageHint'),
-                          wrapClass: `pf-landing-totals__counter-wrap${a ? ' pf-landing-totals__counter-wrap--arbitrage' : ''}`,
-                          counterClass: `pf-landing-totals__counter${a ? ' pf-landing-totals__counter--arbitrage' : ''}`,
-                          valueIsCurrency: true,
-                          arbitrageMom: a?.mom ?? null,
-                        };
-                      }
-                      if (landingExportMetricUi === LANDING_EXPORT_METRIC.LOST_SOLAR_7D) {
-                        const ls = landingTotals?.lostSolarKwhTotal;
-                        const lsNum = ls != null ? Number(ls) : null;
-                        const fmtLs = new Intl.NumberFormat(bcp47, {
-                          maximumFractionDigits: 1,
-                          minimumFractionDigits: 0,
-                        });
-                        return {
-                          text:
-                            lsNum != null && Number.isFinite(lsNum) && lsNum > 0 ? fmtLs.format(lsNum) : '—',
-                          title: landingTotalsScopeFleet
-                            ? t('powerFlowLandingExportMetricLostSolar7dHintFleet')
-                            : t('powerFlowLandingExportMetricLostSolar7dHint'),
-                          wrapClass: 'pf-landing-totals__counter-wrap pf-landing-totals__counter-wrap--lost-solar',
-                          counterClass: 'pf-landing-totals__counter pf-landing-totals__counter--lost-solar',
-                          valueIsCurrency: false,
-                        };
-                      }
-                      return {
-                        text: formatLandingTotalExportSamplesKwh(landingTotals.totalExportKwh, bcp47),
-                        title: landingTotalsScopeFleet
-                          ? t('powerFlowLandingExportTotalHintFleet')
-                          : t('powerFlowLandingExportTotalHint'),
-                        wrapClass: 'pf-landing-totals__counter-wrap',
-                        counterClass: 'pf-landing-totals__counter',
-                        valueIsCurrency: false,
-                      };
-                    })()
-                  : null;
+                  const inverterSelected = Boolean(selInverterSn || selHuaweiStationCode);
+                  const showMonthlyRatesInverterSupplements =
+                    inverterSelected &&
+                    inverterListReady &&
+                    landingExportMetricUi === LANDING_EXPORT_METRIC.MONTHLY_RATES;
+                  const showGridBalancingSupplement =
+                    inverterSelected &&
+                    inverterListReady &&
+                    (showMonthlyRatesInverterSupplements ||
+                      landingExportMetricUi !== LANDING_EXPORT_METRIC.GRID_BALANCING);
+                  const gridBalancingSupplement = showGridBalancingSupplement
+                    ? landingGridBalancingSupplement(landingTotals, bcp47)
+                    : null;
+                  const monthlyRatesTariffVsUkraineSupplement = showMonthlyRatesInverterSupplements
+                    ? landingMonthlyRatesTariffVsUkraineSupplement(landingTotals, bcp47)
+                    : null;
+                  const inverterMetricDisplay =
+                    landingExportMetricUi === LANDING_EXPORT_METRIC.GRID_BALANCING
+                      ? formatLandingGridBalancingMetric(landingTotals, bcp47, t)
+                      : landingExportMetricUi === LANDING_EXPORT_METRIC.MONTHLY_RATES
+                        ? formatLandingMonthlyRatesMetric(landingTotals, bcp47, t)
+                        : ltd
+                          ? (() => {
+                              if (landingExportMetricUi === LANDING_EXPORT_METRIC.TOTAL) {
+                                return {
+                                  text: formatLandingTotalExportSamplesKwh(landingTotals.totalExportKwh, bcp47),
+                                  title: landingTotalsScopeFleet
+                                    ? t('powerFlowLandingExportTotalHintFleet')
+                                    : t('powerFlowLandingExportTotalHint'),
+                                  wrapClass: 'pf-landing-totals__counter-wrap',
+                                  counterClass: 'pf-landing-totals__counter',
+                                  valueIsCurrency: false,
+                                };
+                              }
+                              if (landingExportMetricUi === LANDING_EXPORT_METRIC.PEAK) {
+                                const p = ltd.peakDam;
+                                return {
+                                  text: p ? p.exportText : '—',
+                                  title: landingTotalsScopeFleet
+                                    ? t('powerFlowLandingPeakDamSessionHintFleet')
+                                    : t('powerFlowLandingPeakDamSessionHint'),
+                                  wrapClass: `pf-landing-totals__counter-wrap${p ? ' pf-landing-totals__counter-wrap--peak-dam' : ''}`,
+                                  counterClass: `pf-landing-totals__counter${p ? ' pf-landing-totals__counter--peak-dam' : ''}`,
+                                  valueIsCurrency: false,
+                                };
+                              }
+                              if (landingExportMetricUi === LANDING_EXPORT_METRIC.MANUAL) {
+                                const m = ltd.manualDischarge;
+                                return {
+                                  text: m ? m.exportText : '—',
+                                  title: landingTotalsScopeFleet
+                                    ? t('powerFlowLandingManualDischargeHintFleet')
+                                    : t('powerFlowLandingManualDischargeHint'),
+                                  wrapClass: `pf-landing-totals__counter-wrap${m ? ' pf-landing-totals__counter-wrap--manual-discharge' : ''}`,
+                                  counterClass: `pf-landing-totals__counter${m ? ' pf-landing-totals__counter--manual-discharge' : ''}`,
+                                  valueIsCurrency: false,
+                                };
+                              }
+                              if (landingExportMetricUi === LANDING_EXPORT_METRIC.ARBITRAGE) {
+                                const a = ltd.arbitrage;
+                                return {
+                                  text: a ? a.revenueText : '—',
+                                  title: landingTotalsScopeFleet
+                                    ? t('powerFlowLandingArbitrageHintFleet')
+                                    : t('powerFlowLandingArbitrageHint'),
+                                  wrapClass: `pf-landing-totals__counter-wrap${a ? ' pf-landing-totals__counter-wrap--arbitrage' : ''}`,
+                                  counterClass: `pf-landing-totals__counter${a ? ' pf-landing-totals__counter--arbitrage' : ''}`,
+                                  valueIsCurrency: true,
+                                  arbitrageMom: a?.mom ?? null,
+                                };
+                              }
+                              if (landingExportMetricUi === LANDING_EXPORT_METRIC.LOST_SOLAR_7D) {
+                                const ls = landingTotals?.lostSolarKwhTotal;
+                                const lsNum = ls != null ? Number(ls) : null;
+                                const fmtLs = new Intl.NumberFormat(bcp47, {
+                                  maximumFractionDigits: 1,
+                                  minimumFractionDigits: 0,
+                                });
+                                return {
+                                  text:
+                                    lsNum != null && Number.isFinite(lsNum) && lsNum > 0 ? fmtLs.format(lsNum) : '—',
+                                  title: landingTotalsScopeFleet
+                                    ? t('powerFlowLandingExportMetricLostSolar7dHintFleet')
+                                    : t('powerFlowLandingExportMetricLostSolar7dHint'),
+                                  wrapClass:
+                                    'pf-landing-totals__counter-wrap pf-landing-totals__counter-wrap--lost-solar',
+                                  counterClass: 'pf-landing-totals__counter pf-landing-totals__counter--lost-solar',
+                                  valueIsCurrency: false,
+                                };
+                              }
+                              return {
+                                text: formatLandingTotalExportSamplesKwh(landingTotals.totalExportKwh, bcp47),
+                                title: landingTotalsScopeFleet
+                                  ? t('powerFlowLandingExportTotalHintFleet')
+                                  : t('powerFlowLandingExportTotalHint'),
+                                wrapClass: 'pf-landing-totals__counter-wrap',
+                                counterClass: 'pf-landing-totals__counter',
+                                valueIsCurrency: false,
+                              };
+                            })()
+                          : null;
 
-                if (listPending) {
-                  return (
-                    <div className="pf-landing-totals-slot">
-                      <div
-                        className="pf-landing-totals pf-landing-totals--skeleton"
-                        aria-busy="true"
-                        aria-label={t('powerFlowLandingTotalsAria')}
-                      >
-                        <div className="pf-landing-totals__export">
-                          <div className="pf-landing-totals__metric-row">
-                            <div className="pf-skeleton-line pf-skeleton-line--metric-select" />
-                            <div className="pf-landing-totals__counter-wrap pf-landing-totals__counter-wrap--skeleton">
-                              <span className="pf-skeleton-line pf-skeleton-line--counter" />
+                  if (listPending) {
+                    return (
+                      <div className="pf-landing-totals-slot">
+                        <div
+                          className="pf-landing-totals pf-landing-totals--skeleton"
+                          aria-busy="true"
+                          aria-label={t('powerFlowLandingTotalsAria')}
+                        >
+                          <div className="pf-landing-totals__export">
+                            <div className="pf-landing-totals__metric-row">
+                              <div className="pf-skeleton-line pf-skeleton-line--metric-select" />
+                              <div className="pf-landing-totals__counter-wrap pf-landing-totals__counter-wrap--skeleton">
+                                <span className="pf-skeleton-line pf-skeleton-line--counter" />
+                              </div>
                             </div>
                           </div>
+                          <div className="pf-skeleton-line pf-skeleton-line--center pf-skeleton-line--tariff" />
                         </div>
-                        <div className="pf-skeleton-line pf-skeleton-line--center pf-skeleton-line--tariff" />
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="pf-landing-totals-slot">
+                      <div className="pf-landing-totals" aria-label={t('powerFlowLandingTotalsAria')}>
+                        <div className="pf-landing-totals__export pf-landing-totals__export--inverter-metric">
+                          <div
+                            className="pf-landing-totals__metric-row"
+                            title={inverterMetricDisplay?.title ?? undefined}
+                          >
+                            <select
+                              id="pf-landing-export-metric"
+                              className="pf-lang-select pf-landing-totals__metric-select"
+                              aria-label={t('powerFlowLandingExportMetricAria')}
+                              value={landingExportMetricUi}
+                              onChange={e => {
+                                const v = e.target.value;
+                                setLandingExportMetric(v);
+                                writeStoredLandingExportMetric(selInverterSn, selHuaweiStationCode, v);
+                              }}
+                            >
+                              {landingExportMetricOffers.gridBalancing ? (
+                                <option value={LANDING_EXPORT_METRIC.GRID_BALANCING}>
+                                  {t('powerFlowLandingExportMetricGridBalancing')}
+                                </option>
+                              ) : null}
+                              <option value={LANDING_EXPORT_METRIC.MONTHLY_RATES}>
+                                {t('powerFlowLandingExportMetricMonthlyRates')}
+                              </option>
+                              {landingHuaweiEss || !landingExportMetricOffers.peak ? null : (
+                                <option value={LANDING_EXPORT_METRIC.PEAK}>
+                                  {t('powerFlowLandingExportMetricPeak')}
+                                </option>
+                              )}
+                              {landingHuaweiEss || !landingExportMetricOffers.manual ? null : (
+                                <option value={LANDING_EXPORT_METRIC.MANUAL}>
+                                  {t('powerFlowLandingExportMetricManual')}
+                                </option>
+                              )}
+                              {landingExportMetricOffers.total ? (
+                                <option value={LANDING_EXPORT_METRIC.TOTAL}>
+                                  {t('powerFlowLandingExportMetricTotal')}
+                                </option>
+                              ) : null}
+                              {landingHuaweiEss || !landingExportMetricOffers.lostSolar ? null : (
+                                <option value={LANDING_EXPORT_METRIC.LOST_SOLAR_7D}>
+                                  {t('powerFlowLandingExportMetricLostSolar7d')}
+                                </option>
+                              )}
+                              {landingHuaweiEss || !landingExportMetricOffers.arbitrage ? null : (
+                                <option value={LANDING_EXPORT_METRIC.ARBITRAGE}>
+                                  {t('powerFlowLandingExportMetricArbitrage')}
+                                </option>
+                              )}
+                            </select>
+                            {inverterMetricDisplay ? (
+                              <div
+                                className={
+                                  inverterMetricDisplay.monthlyRatesLayout
+                                    ? inverterMetricDisplay.monthlyRatesMom
+                                      ? 'pf-landing-totals__export-value pf-landing-totals__export-value--monthly-rates pf-landing-totals__export-value--with-monthly-rates-mom'
+                                      : 'pf-landing-totals__export-value pf-landing-totals__export-value--monthly-rates'
+                                    : inverterMetricDisplay.arbitrageMom
+                                      ? 'pf-landing-totals__export-value pf-landing-totals__export-value--with-arbitrage-mom'
+                                      : 'pf-landing-totals__export-value'
+                                }
+                              >
+                                {landingExportMetricUi === LANDING_EXPORT_METRIC.GRID_BALANCING ? (
+                                  <LandingGridBalancingDisplay
+                                    display={inverterMetricDisplay}
+                                    t={t}
+                                    asButton={!landingHuaweiEss || showGridBalancingChart || showExportHourlyChart}
+                                    chartAria={t('powerFlowGridBalancingChartOpenAria')}
+                                    onChartOpen={() => setGridBalancingChartOpen(true)}
+                                  />
+                                ) : inverterMetricDisplay.monthlyRatesLayout ? (
+                                  <LandingMonthlyRatesDisplay
+                                    display={inverterMetricDisplay}
+                                    t={t}
+                                    asButton={!landingHuaweiEss || showMonthlyRatesChart || showExportHourlyChart}
+                                    chartAria={t('powerFlowMonthlyRatesChartOpenAria')}
+                                    onChartOpen={() => setMonthlyRatesChartOpen(true)}
+                                  />
+                                ) : (
+                                  <LandingExportMetricCounter
+                                    display={inverterMetricDisplay}
+                                    t={t}
+                                    landingHuaweiEss={landingHuaweiEss}
+                                    showMonthlyRatesChart={showMonthlyRatesChart}
+                                    showExportHourlyChart={showExportHourlyChart}
+                                    landingExportMetric={landingExportMetric}
+                                    onOpenMonthlyRates={() => setMonthlyRatesChartOpen(true)}
+                                    onOpenExportChart={() => setExportHourlyChartOpen(true)}
+                                  />
+                                )}
+                                {inverterMetricDisplay.arbitrageMom ? (
+                                  <span
+                                    className={
+                                      inverterMetricDisplay.arbitrageMom.deltaPct > 0
+                                        ? 'pf-landing-totals__arbitrage-mom-out pf-landing-totals__arbitrage-mom-out--up'
+                                        : inverterMetricDisplay.arbitrageMom.deltaPct < 0
+                                          ? 'pf-landing-totals__arbitrage-mom-out pf-landing-totals__arbitrage-mom-out--down'
+                                          : 'pf-landing-totals__arbitrage-mom-out pf-landing-totals__arbitrage-mom-out--flat'
+                                    }
+                                  >
+                                    {t('powerFlowLandingArbitrageMomDelta', {
+                                      delta: inverterMetricDisplay.arbitrageMom.deltaStr,
+                                      month: inverterMetricDisplay.arbitrageMom.monthLabel,
+                                    })}
+                                  </span>
+                                ) : null}
+                              </div>
+                            ) : (
+                              <div className="pf-landing-totals__counter-wrap pf-landing-totals__counter-wrap--loading">
+                                <span className="pf-landing-totals__counter">…</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        {inverterSelected ? (
+                          <>
+                            {landingExportMetricUi === LANDING_EXPORT_METRIC.GRID_BALANCING ? (
+                              <p className="pf-landing-totals__tariff pf-landing-totals__tariff--monthly-rates-hint">
+                                {t('powerFlowLandingGridBalancingClickHint')}
+                              </p>
+                            ) : null}
+                            {gridBalancingSupplement ? (
+                              <p className="pf-landing-totals__tariff pf-landing-totals__tariff--grid-balancing-supplement">
+                                {t('powerFlowLandingGridBalancingSupplementBefore')}
+                                <span
+                                  className={
+                                    gridBalancingSupplement.tier
+                                      ? `pf-landing-totals__grid-balancing-supplement-pct pf-landing-totals__grid-balancing-supplement-pct--${gridBalancingSupplement.tier}`
+                                      : 'pf-landing-totals__grid-balancing-supplement-pct'
+                                  }
+                                >
+                                  {gridBalancingSupplement.pctStr}
+                                </span>
+                              </p>
+                            ) : null}
+                            {monthlyRatesTariffVsUkraineSupplement ? (
+                              <p className="pf-landing-totals__tariff pf-landing-totals__tariff--monthly-rates-vs-ukraine">
+                                {monthlyRatesTariffVsUkraineSupplement.kind === 'equal' ? (
+                                  t('powerFlowLandingTariffVsUkraineEqual')
+                                ) : monthlyRatesTariffVsUkraineSupplement.kind === 'more' ? (
+                                  <>
+                                    {t('powerFlowLandingTariffVsUkraineMoreBefore')}
+                                    <span className="pf-landing-totals__monthly-rates-vs-ukraine-pct pf-landing-totals__monthly-rates-vs-ukraine-pct--up">
+                                      {monthlyRatesTariffVsUkraineSupplement.deltaStr}%
+                                    </span>
+                                    {t('powerFlowLandingTariffVsUkraineMoreAfter')}
+                                  </>
+                                ) : (
+                                  <>
+                                    {t('powerFlowLandingTariffVsUkraineLessBefore')}
+                                    <span className="pf-landing-totals__monthly-rates-vs-ukraine-pct pf-landing-totals__monthly-rates-vs-ukraine-pct--down">
+                                      {monthlyRatesTariffVsUkraineSupplement.deltaStr}%
+                                    </span>
+                                    {t('powerFlowLandingTariffVsUkraineLessAfter')}
+                                  </>
+                                )}
+                              </p>
+                            ) : null}
+                          </>
+                        ) : landingExportMetricUi === LANDING_EXPORT_METRIC.GRID_BALANCING ? (
+                          <p className="pf-landing-totals__tariff pf-landing-totals__tariff--monthly-rates-hint">
+                            {t('powerFlowLandingGridBalancingClickHint')}
+                          </p>
+                        ) : landingExportMetricUi === LANDING_EXPORT_METRIC.MONTHLY_RATES ? null : (
+                          <>
+                            <p className="pf-landing-totals__tariff">
+                              {ltd?.tariffCompare ? (
+                                <>
+                                  {ltd.tariffCompare.lead}
+                                  <span
+                                    className={
+                                      ltd.tariffCompare.deltaPct > 0
+                                        ? 'pf-landing-totals__delta pf-landing-totals__delta--up'
+                                        : ltd.tariffCompare.deltaPct < 0
+                                          ? 'pf-landing-totals__delta pf-landing-totals__delta--down'
+                                          : 'pf-landing-totals__delta pf-landing-totals__delta--flat'
+                                    }
+                                  >
+                                    {ltd.tariffCompare.deltaStr}
+                                  </span>
+                                  {ltd.tariffCompare.tail}
+                                </>
+                              ) : ltd?.tariffLine != null ? (
+                                ltd.tariffLine
+                              ) : (
+                                t('powerFlowLandingTariffLoading')
+                              )}
+                            </p>
+                            {ltd?.damTariffLine ? (
+                              <p className="pf-landing-totals__tariff pf-landing-totals__tariff--dam">
+                                {ltd.damTariffLine}
+                              </p>
+                            ) : null}
+                          </>
+                        )}
                       </div>
                     </div>
                   );
-                }
+                })()
+              : null}
 
-                return (
-                  <div className="pf-landing-totals-slot">
-                    <div className="pf-landing-totals" aria-label={t('powerFlowLandingTotalsAria')}>
-                      <div className="pf-landing-totals__export pf-landing-totals__export--inverter-metric">
-                        <div
-                          className="pf-landing-totals__metric-row"
-                          title={inverterMetricDisplay?.title ?? undefined}
-                        >
-                          <select
-                            id="pf-landing-export-metric"
-                            className="pf-lang-select pf-landing-totals__metric-select"
-                            aria-label={t('powerFlowLandingExportMetricAria')}
-                            value={landingExportMetricUi}
-                            onChange={e => {
-                              const v = e.target.value;
-                              setLandingExportMetric(v);
-                              writeStoredLandingExportMetric(selInverterSn, selHuaweiStationCode, v);
-                            }}
-                          >
-                            {landingExportMetricOffers.gridBalancing ? (
-                              <option value={LANDING_EXPORT_METRIC.GRID_BALANCING}>
-                                {t('powerFlowLandingExportMetricGridBalancing')}
-                              </option>
-                            ) : null}
-                            <option value={LANDING_EXPORT_METRIC.MONTHLY_RATES}>
-                              {t('powerFlowLandingExportMetricMonthlyRates')}
-                            </option>
-                            {landingHuaweiEss || !landingExportMetricOffers.peak ? null : (
-                              <option value={LANDING_EXPORT_METRIC.PEAK}>
-                                {t('powerFlowLandingExportMetricPeak')}
-                              </option>
-                            )}
-                            {landingHuaweiEss || !landingExportMetricOffers.manual ? null : (
-                              <option value={LANDING_EXPORT_METRIC.MANUAL}>
-                                {t('powerFlowLandingExportMetricManual')}
-                              </option>
-                            )}
-                            {landingExportMetricOffers.total ? (
-                              <option value={LANDING_EXPORT_METRIC.TOTAL}>
-                                {t('powerFlowLandingExportMetricTotal')}
-                              </option>
-                            ) : null}
-                            {landingHuaweiEss || !landingExportMetricOffers.lostSolar ? null : (
-                              <option value={LANDING_EXPORT_METRIC.LOST_SOLAR_7D}>
-                                {t('powerFlowLandingExportMetricLostSolar7d')}
-                              </option>
-                            )}
-                            {landingHuaweiEss || !landingExportMetricOffers.arbitrage ? null : (
-                              <option value={LANDING_EXPORT_METRIC.ARBITRAGE}>
-                                {t('powerFlowLandingExportMetricArbitrage')}
-                              </option>
-                            )}
-                          </select>
-                          {inverterMetricDisplay ? (
-                            <div
-                              className={
-                                inverterMetricDisplay.monthlyRatesLayout
-                                  ? inverterMetricDisplay.monthlyRatesMom
-                                    ? 'pf-landing-totals__export-value pf-landing-totals__export-value--monthly-rates pf-landing-totals__export-value--with-monthly-rates-mom'
-                                    : 'pf-landing-totals__export-value pf-landing-totals__export-value--monthly-rates'
-                                  : inverterMetricDisplay.arbitrageMom
-                                    ? 'pf-landing-totals__export-value pf-landing-totals__export-value--with-arbitrage-mom'
-                                    : 'pf-landing-totals__export-value'
-                              }
-                            >
-                              {landingExportMetricUi === LANDING_EXPORT_METRIC.GRID_BALANCING ? (
-                                <LandingGridBalancingDisplay
-                                  display={inverterMetricDisplay}
-                                  t={t}
-                                  asButton={
-                                    !landingHuaweiEss || showGridBalancingChart || showExportHourlyChart
-                                  }
-                                  chartAria={t('powerFlowGridBalancingChartOpenAria')}
-                                  onChartOpen={() => setGridBalancingChartOpen(true)}
-                                />
-                              ) : inverterMetricDisplay.monthlyRatesLayout ? (
-                                <LandingMonthlyRatesDisplay
-                                  display={inverterMetricDisplay}
-                                  t={t}
-                                  asButton={
-                                    !landingHuaweiEss || showMonthlyRatesChart || showExportHourlyChart
-                                  }
-                                  chartAria={t('powerFlowMonthlyRatesChartOpenAria')}
-                                  onChartOpen={() => setMonthlyRatesChartOpen(true)}
-                                />
-                              ) : (
-                                <LandingExportMetricCounter
-                                  display={inverterMetricDisplay}
-                                  t={t}
-                                  landingHuaweiEss={landingHuaweiEss}
-                                  showMonthlyRatesChart={showMonthlyRatesChart}
-                                  showExportHourlyChart={showExportHourlyChart}
-                                  landingExportMetric={landingExportMetric}
-                                  onOpenMonthlyRates={() => setMonthlyRatesChartOpen(true)}
-                                  onOpenExportChart={() => setExportHourlyChartOpen(true)}
-                                />
-                              )}
-                              {inverterMetricDisplay.arbitrageMom ? (
-                                <span
-                                  className={
-                                    inverterMetricDisplay.arbitrageMom.deltaPct > 0
-                                      ? 'pf-landing-totals__arbitrage-mom-out pf-landing-totals__arbitrage-mom-out--up'
-                                      : inverterMetricDisplay.arbitrageMom.deltaPct < 0
-                                        ? 'pf-landing-totals__arbitrage-mom-out pf-landing-totals__arbitrage-mom-out--down'
-                                        : 'pf-landing-totals__arbitrage-mom-out pf-landing-totals__arbitrage-mom-out--flat'
-                                  }
-                                >
-                                  {t('powerFlowLandingArbitrageMomDelta', {
-                                    delta: inverterMetricDisplay.arbitrageMom.deltaStr,
-                                    month: inverterMetricDisplay.arbitrageMom.monthLabel,
-                                  })}
-                                </span>
-                              ) : null}
-                            </div>
-                          ) : (
-                            <div className="pf-landing-totals__counter-wrap pf-landing-totals__counter-wrap--loading">
-                              <span className="pf-landing-totals__counter">…</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      {inverterSelected ? (
-                        <>
-                          {landingExportMetricUi === LANDING_EXPORT_METRIC.GRID_BALANCING ? (
-                            <p className="pf-landing-totals__tariff pf-landing-totals__tariff--monthly-rates-hint">
-                              {t('powerFlowLandingGridBalancingClickHint')}
-                            </p>
-                          ) : null}
-                          {gridBalancingSupplement ? (
-                            <p className="pf-landing-totals__tariff pf-landing-totals__tariff--grid-balancing-supplement">
-                              {t('powerFlowLandingGridBalancingSupplementBefore')}
-                              <span
-                                className={
-                                  gridBalancingSupplement.tier
-                                    ? `pf-landing-totals__grid-balancing-supplement-pct pf-landing-totals__grid-balancing-supplement-pct--${gridBalancingSupplement.tier}`
-                                    : 'pf-landing-totals__grid-balancing-supplement-pct'
-                                }
-                              >
-                                {gridBalancingSupplement.pctStr}
-                              </span>
-                            </p>
-                          ) : null}
-                          {monthlyRatesTariffVsUkraineSupplement ? (
-                            <p className="pf-landing-totals__tariff pf-landing-totals__tariff--monthly-rates-vs-ukraine">
-                              {monthlyRatesTariffVsUkraineSupplement.kind === 'equal' ? (
-                                t('powerFlowLandingTariffVsUkraineEqual')
-                              ) : monthlyRatesTariffVsUkraineSupplement.kind === 'more' ? (
-                                <>
-                                  {t('powerFlowLandingTariffVsUkraineMoreBefore')}
-                                  <span className="pf-landing-totals__monthly-rates-vs-ukraine-pct pf-landing-totals__monthly-rates-vs-ukraine-pct--up">
-                                    {monthlyRatesTariffVsUkraineSupplement.deltaStr}%
-                                  </span>
-                                  {t('powerFlowLandingTariffVsUkraineMoreAfter')}
-                                </>
-                              ) : (
-                                <>
-                                  {t('powerFlowLandingTariffVsUkraineLessBefore')}
-                                  <span className="pf-landing-totals__monthly-rates-vs-ukraine-pct pf-landing-totals__monthly-rates-vs-ukraine-pct--down">
-                                    {monthlyRatesTariffVsUkraineSupplement.deltaStr}%
-                                  </span>
-                                  {t('powerFlowLandingTariffVsUkraineLessAfter')}
-                                </>
-                              )}
-                            </p>
-                          ) : null}
-                        </>
-                      ) : landingExportMetricUi === LANDING_EXPORT_METRIC.GRID_BALANCING ? (
-                        <p className="pf-landing-totals__tariff pf-landing-totals__tariff--monthly-rates-hint">
-                          {t('powerFlowLandingGridBalancingClickHint')}
-                        </p>
-                      ) : landingExportMetricUi === LANDING_EXPORT_METRIC.MONTHLY_RATES ? null : (
-                        <>
-                          <p className="pf-landing-totals__tariff">
-                            {ltd?.tariffCompare ? (
-                              <>
-                                {ltd.tariffCompare.lead}
-                                <span
-                                  className={
-                                    ltd.tariffCompare.deltaPct > 0
-                                      ? 'pf-landing-totals__delta pf-landing-totals__delta--up'
-                                      : ltd.tariffCompare.deltaPct < 0
-                                        ? 'pf-landing-totals__delta pf-landing-totals__delta--down'
-                                        : 'pf-landing-totals__delta pf-landing-totals__delta--flat'
-                                  }
-                                >
-                                  {ltd.tariffCompare.deltaStr}
-                                </span>
-                                {ltd.tariffCompare.tail}
-                              </>
-                            ) : ltd?.tariffLine != null ? (
-                              ltd.tariffLine
-                            ) : (
-                              t('powerFlowLandingTariffLoading')
-                            )}
-                          </p>
-                          {ltd?.damTariffLine ? (
-                            <p className="pf-landing-totals__tariff pf-landing-totals__tariff--dam">
-                              {ltd.damTariffLine}
-                            </p>
-                          ) : null}
-                        </>
-                      )}
-                    </div>
-                  </div>
-                );
-              })()
-            : null}
+            <div className="pf-graph-wrap">
+              <div
+                id="pf-graph"
+                ref={graphRef}
+                className="pf-graph"
+                style={{ '--pf-graph-anchor-pct': `${graphAnchorPct}%` }}
+                aria-label={t('graphAriaLabel')}
+              >
+                <div className="pf-graph-sizer" aria-hidden="true" />
+                <svg id="pf-svg" className="pf-flow-svg" viewBox="0 0 400 400" preserveAspectRatio="xMidYMid meet">
+                  <defs>
+                    <radialGradient id="pf-flow-dot-grad" cx="40%" cy="40%" r="65%" gradientUnits="objectBoundingBox">
+                      <stop offset="0%" stopColor="#fdf4ff" />
+                      <stop offset="60%" stopColor="#e879f9" />
+                      <stop offset="100%" stopColor="#a855f7" />
+                    </radialGradient>
+                  </defs>
+                  <g id="pf-lines">
+                    <line
+                      id="pf-line-solar"
+                      className="pf-line"
+                      data-active={solarFlowActive ? 'true' : 'false'}
+                      x1={geom.solarLine.start.x}
+                      y1={geom.solarLine.start.y}
+                      x2={geom.solarLine.end.x}
+                      y2={geom.solarLine.end.y}
+                    />
+                    <line
+                      id="pf-line-grid"
+                      className="pf-line"
+                      data-active={gridLineCoords.active ? 'true' : 'false'}
+                      x1={gridLineCoords.start.x}
+                      y1={gridLineCoords.start.y}
+                      x2={gridLineCoords.end.x}
+                      y2={gridLineCoords.end.y}
+                    />
+                    <line
+                      id="pf-line-load"
+                      className="pf-line"
+                      data-active={loadFlowActive ? 'true' : 'false'}
+                      x1={geom.loadLine.start.x}
+                      y1={geom.loadLine.start.y}
+                      x2={geom.loadLine.end.x}
+                      y2={geom.loadLine.end.y}
+                    />
+                    <line
+                      id="pf-line-ess"
+                      className="pf-line"
+                      data-active={essActive ? 'true' : 'false'}
+                      x1={essCoords.start.x}
+                      y1={essCoords.start.y}
+                      x2={essCoords.end.x}
+                      y2={essCoords.end.y}
+                    />
+                    <line
+                      id="pf-line-miner"
+                      className="pf-line"
+                      data-active={hasFlow && graphMinerFlowW > 0 ? 'true' : 'false'}
+                      x1={geom.minerLine.start.x}
+                      y1={geom.minerLine.start.y}
+                      x2={geom.minerLine.end.x}
+                      y2={geom.minerLine.end.y}
+                    />
+                    <line
+                      id="pf-line-cons"
+                      className="pf-line"
+                      data-active={evFlowActive ? 'true' : 'false'}
+                      x1={geom.consumptionLine.start.x}
+                      y1={geom.consumptionLine.start.y}
+                      x2={geom.consumptionLine.end.x}
+                      y2={geom.consumptionLine.end.y}
+                    />
+                  </g>
+                  <g id="pf-dots">
+                    <g id="pf-dot-solar" style={{ display: solarFlowActive ? undefined : 'none' }}>
+                      <MotionDot
+                        pathD={flowMotionPath(
+                          geom.solarLine.start.x,
+                          geom.solarLine.start.y,
+                          geom.solarLine.end.x,
+                          geom.solarLine.end.y
+                        )}
+                      />
+                    </g>
+                    <g id="pf-dot-grid" style={{ display: gridLineCoords.active ? undefined : 'none' }}>
+                      <MotionDot pathD={gridDotPath} />
+                    </g>
+                    <g id="pf-dot-load" style={{ display: loadFlowActive ? undefined : 'none' }}>
+                      <MotionDot
+                        pathD={flowMotionPath(
+                          geom.loadLine.start.x,
+                          geom.loadLine.start.y,
+                          geom.loadLine.end.x,
+                          geom.loadLine.end.y
+                        )}
+                      />
+                    </g>
+                    <g id="pf-dot-ess" style={{ display: essActive ? undefined : 'none' }}>
+                      <MotionDot pathD={essPath} />
+                    </g>
+                    <g id="pf-dot-miner" style={{ display: hasFlow && graphMinerFlowW > 0 ? undefined : 'none' }}>
+                      <MotionDot
+                        pathD={flowMotionPath(
+                          geom.minerLine.start.x,
+                          geom.minerLine.start.y,
+                          geom.minerLine.end.x,
+                          geom.minerLine.end.y
+                        )}
+                      />
+                    </g>
+                    <g id="pf-dot-cons" style={{ display: evFlowActive ? undefined : 'none' }}>
+                      <MotionDot
+                        pathD={flowMotionPath(
+                          geom.consumptionLine.start.x,
+                          geom.consumptionLine.start.y,
+                          geom.consumptionLine.end.x,
+                          geom.consumptionLine.end.y
+                        )}
+                      />
+                    </g>
+                  </g>
+                </svg>
 
-          <div className="pf-graph-wrap">
-            <div
-              id="pf-graph"
-              ref={graphRef}
-              className="pf-graph"
-              style={{ '--pf-graph-anchor-pct': `${graphAnchorPct}%` }}
-              aria-label={t('graphAriaLabel')}
-            >
-              <div className="pf-graph-sizer" aria-hidden="true" />
-              <svg id="pf-svg" className="pf-flow-svg" viewBox="0 0 400 400" preserveAspectRatio="xMidYMid meet">
-                <defs>
-                  <radialGradient id="pf-flow-dot-grad" cx="40%" cy="40%" r="65%" gradientUnits="objectBoundingBox">
-                    <stop offset="0%" stopColor="#fdf4ff" />
-                    <stop offset="60%" stopColor="#e879f9" />
-                    <stop offset="100%" stopColor="#a855f7" />
-                  </radialGradient>
-                </defs>
-                <g id="pf-lines">
-                  <line
-                    id="pf-line-solar"
-                    className="pf-line"
+                <div id="pf-nodes">
+                  <div
+                    className="pf-node"
+                    data-pos="left-top"
+                    id="pf-node-solar"
                     data-active={solarFlowActive ? 'true' : 'false'}
-                    x1={geom.solarLine.start.x}
-                    y1={geom.solarLine.start.y}
-                    x2={geom.solarLine.end.x}
-                    y2={geom.solarLine.end.y}
-                  />
-                  <line
-                    id="pf-line-grid"
-                    className="pf-line"
-                    data-active={gridLineCoords.active ? 'true' : 'false'}
-                    x1={gridLineCoords.start.x}
-                    y1={gridLineCoords.start.y}
-                    x2={gridLineCoords.end.x}
-                    y2={gridLineCoords.end.y}
-                  />
-                  <line
-                    id="pf-line-load"
-                    className="pf-line"
-                    data-active={loadFlowActive ? 'true' : 'false'}
-                    x1={geom.loadLine.start.x}
-                    y1={geom.loadLine.start.y}
-                    x2={geom.loadLine.end.x}
-                    y2={geom.loadLine.end.y}
-                  />
-                  <line
-                    id="pf-line-ess"
-                    className="pf-line"
-                    data-active={essActive ? 'true' : 'false'}
-                    x1={essCoords.start.x}
-                    y1={essCoords.start.y}
-                    x2={essCoords.end.x}
-                    y2={essCoords.end.y}
-                  />
-                  <line
-                    id="pf-line-miner"
-                    className="pf-line"
-                    data-active={hasFlow && graphMinerFlowW > 0 ? 'true' : 'false'}
-                    x1={geom.minerLine.start.x}
-                    y1={geom.minerLine.start.y}
-                    x2={geom.minerLine.end.x}
-                    y2={geom.minerLine.end.y}
-                  />
-                  <line
-                    id="pf-line-cons"
-                    className="pf-line"
-                    data-active={evFlowActive ? 'true' : 'false'}
-                    x1={geom.consumptionLine.start.x}
-                    y1={geom.consumptionLine.start.y}
-                    x2={geom.consumptionLine.end.x}
-                    y2={geom.consumptionLine.end.y}
-                  />
-                </g>
-                <g id="pf-dots">
-                  <g id="pf-dot-solar" style={{ display: solarFlowActive ? undefined : 'none' }}>
-                    <MotionDot
-                      pathD={flowMotionPath(
-                        geom.solarLine.start.x,
-                        geom.solarLine.start.y,
-                        geom.solarLine.end.x,
-                        geom.solarLine.end.y
-                      )}
-                    />
-                  </g>
-                  <g id="pf-dot-grid" style={{ display: gridLineCoords.active ? undefined : 'none' }}>
-                    <MotionDot pathD={gridDotPath} />
-                  </g>
-                  <g id="pf-dot-load" style={{ display: loadFlowActive ? undefined : 'none' }}>
-                    <MotionDot
-                      pathD={flowMotionPath(
-                        geom.loadLine.start.x,
-                        geom.loadLine.start.y,
-                        geom.loadLine.end.x,
-                        geom.loadLine.end.y
-                      )}
-                    />
-                  </g>
-                  <g id="pf-dot-ess" style={{ display: essActive ? undefined : 'none' }}>
-                    <MotionDot pathD={essPath} />
-                  </g>
-                  <g id="pf-dot-miner" style={{ display: hasFlow && graphMinerFlowW > 0 ? undefined : 'none' }}>
-                    <MotionDot
-                      pathD={flowMotionPath(
-                        geom.minerLine.start.x,
-                        geom.minerLine.start.y,
-                        geom.minerLine.end.x,
-                        geom.minerLine.end.y
-                      )}
-                    />
-                  </g>
-                  <g id="pf-dot-cons" style={{ display: evFlowActive ? undefined : 'none' }}>
-                    <MotionDot
-                      pathD={flowMotionPath(
-                        geom.consumptionLine.start.x,
-                        geom.consumptionLine.start.y,
-                        geom.consumptionLine.end.x,
-                        geom.consumptionLine.end.y
-                      )}
-                    />
-                  </g>
-                </g>
-              </svg>
-
-              <div id="pf-nodes">
-                <div
-                  className="pf-node"
-                  data-pos="left-top"
-                  id="pf-node-solar"
-                  data-active={solarFlowActive ? 'true' : 'false'}
-                  role="button"
-                  tabIndex={0}
-                  onClick={e => openNodePopup(e, { title: t('nodeSolar') })}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' || e.key === ' ') openNodePopup(e, { title: t('nodeSolar') });
-                  }}
-                >
-                  <div className="pf-solar-header">
-                    <span
-                      className="pf-node-icon"
-                      aria-hidden={!solarForecastIconAria}
-                      aria-label={solarForecastIconAria}
-                      title={solarForecastIconAria}
-                    >
-                      {solarForecastIconChar}
+                    role="button"
+                    tabIndex={0}
+                    onClick={e => openNodePopup(e, { title: t('nodeSolar') })}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ' ') openNodePopup(e, { title: t('nodeSolar') });
+                    }}
+                  >
+                    <div className="pf-solar-header">
+                      <span
+                        className="pf-node-icon"
+                        aria-hidden={!solarForecastIconAria}
+                        aria-label={solarForecastIconAria}
+                        title={solarForecastIconAria}
+                      >
+                        {solarForecastIconChar}
+                      </span>
+                      {selInverterSn && (solarForecast.loading || solarForecast.todayPct != null) ? (
+                        <span className="pf-solar-today-near-icon" id="pf-solar-insolation-today">
+                          {solarForecast.loading ? '…' : t('solarInsolationToday', { pct: solarForecast.todayPct })}
+                        </span>
+                      ) : null}
+                    </div>
+                    <span className="pf-node-label">{t('nodeSolar')}</span>
+                    <span className="pf-node-value" id="pf-val-solar">
+                      {evOnlyGraphLoading ? '…' : formatPower(graphDisplaySolarW, t, bcp47)}
                     </span>
-                    {selInverterSn && (solarForecast.loading || solarForecast.todayPct != null) ? (
-                      <span className="pf-solar-today-near-icon" id="pf-solar-insolation-today">
-                        {solarForecast.loading ? '…' : t('solarInsolationToday', { pct: solarForecast.todayPct })}
+                    {selInverterSn ? (
+                      <span className="pf-node-sub pf-node-solar-forecast" id="pf-solar-insolation-forecast">
+                        {solarForecast.loading ? (
+                          ''
+                        ) : solarForecast.tomorrowPct != null ? (
+                          <span className="pf-solar-insolation-line">
+                            {t('solarInsolationTomorrow', { pct: solarForecast.tomorrowPct })}
+                          </span>
+                        ) : solarForecast.hintKey ? (
+                          t(solarForecast.hintKey)
+                        ) : (
+                          ''
+                        )}
                       </span>
                     ) : null}
+                    <div className="pf-node-meta" id="pf-solar-lcoe" title={t('lcoeSolarMetaTitle')}>
+                      {!referenceLcoe.loading && referenceLcoe.ok
+                        ? formatUahPerKwhTariffLine(referenceLcoe.solarUahPerKwh)
+                        : ''}
+                    </div>
                   </div>
-                  <span className="pf-node-label">{t('nodeSolar')}</span>
-                  <span className="pf-node-value" id="pf-val-solar">
-                    {evPortFocusMode && evStationPowerLoading && evStationPowerW == null
-                      ? '…'
-                      : formatPower(graphDisplaySolarW, t, bcp47)}
-                  </span>
-                  {selInverterSn ? (
-                    <span className="pf-node-sub pf-node-solar-forecast" id="pf-solar-insolation-forecast">
-                      {solarForecast.loading ? (
-                        ''
-                      ) : solarForecast.tomorrowPct != null ? (
-                        <span className="pf-solar-insolation-line">
-                          {t('solarInsolationTomorrow', { pct: solarForecast.tomorrowPct })}
-                        </span>
-                      ) : solarForecast.hintKey ? (
-                        t(solarForecast.hintKey)
-                      ) : (
-                        ''
-                      )}
+                  <button
+                    type="button"
+                    className="pf-graph-refresh"
+                    data-pos="top-center"
+                    onClick={() => window.location.reload()}
+                    aria-label={t('hubRefreshAria')}
+                    title={t('hubRefreshAria')}
+                  >
+                    <span className="pf-graph-refresh-icon" aria-hidden>
+                      ↻
                     </span>
-                  ) : null}
-                  <div className="pf-node-meta" id="pf-solar-lcoe" title={t('lcoeSolarMetaTitle')}>
-                    {!referenceLcoe.loading && referenceLcoe.ok
-                      ? formatUahPerKwhTariffLine(referenceLcoe.solarUahPerKwh)
-                      : ''}
+                  </button>
+                  <div className="pf-node-stack" data-pos="left-center">
+                    <button
+                      type="button"
+                      className="pf-node"
+                      id="pf-node-grid"
+                      data-active={hasFlow && gridFlowActive ? 'true' : 'false'}
+                      onClick={e => openNodePopup(e, { title: t('nodeGrid') })}
+                    >
+                      <span className="pf-node-icon" aria-hidden>
+                        ⚡
+                      </span>
+                      <span className="pf-node-label">{t('nodeGrid')}</span>
+                      <span className="pf-node-value" id="pf-val-grid">
+                        {evOnlyGraphLoading
+                          ? '…'
+                          : gridSelling
+                            ? `↓ ${formatPower(Math.abs(graphDisplayGridW), t, bcp47)}`
+                            : formatPower(graphDisplayGridW, t, bcp47)}
+                      </span>
+                      <span className="pf-ess-status" id="pf-grid-selling" hidden={!gridSelling}>
+                        {t('gridSelling')}
+                      </span>
+                      <div className="pf-node-meta" id="pf-grid-tariff" title={t('gridDamTariffNodeTitle')}>
+                        {formatUahPerKwhTariffLine(gridDamTariffUahPerKwh)}
+                      </div>
+                    </button>
                   </div>
-                </div>
-                <button
-                  type="button"
-                  className="pf-graph-refresh"
-                  data-pos="top-center"
-                  onClick={() => window.location.reload()}
-                  aria-label={t('hubRefreshAria')}
-                  title={t('hubRefreshAria')}
-                >
-                  <span className="pf-graph-refresh-icon" aria-hidden>
-                    ↻
-                  </span>
-                </button>
-                <div className="pf-node-stack" data-pos="left-center">
+                  <div
+                    className="pf-node"
+                    data-pos="left-bottom"
+                    id="pf-node-load"
+                    data-active={loadFlowActive ? 'true' : 'false'}
+                    role="button"
+                    tabIndex={0}
+                    onClick={e => openNodePopup(e, { title: t('nodeLoad') })}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ' ') openNodePopup(e, { title: t('nodeLoad') });
+                    }}
+                  >
+                    <span className="pf-node-icon" aria-hidden>
+                      🏠
+                    </span>
+                    <span className="pf-node-label">{t('nodeLoad')}</span>
+                    <span className="pf-node-value" id="pf-val-load">
+                      {!essAnySelected
+                        ? evOnlyFocusMode
+                          ? evStationPowerLoading && evStationPowerW == null
+                            ? '…'
+                            : formatPower(graphDisplayLoadW, t, bcp47)
+                          : fleetDeyePollBusy
+                            ? '…'
+                            : fleetLoadTelemetryActive
+                              ? formatPower(displayLoadW, t, bcp47)
+                              : formatPower(null, t, bcp47)
+                        : selHuaweiStationCode
+                          ? huaweiLiveLoading
+                            ? '…'
+                            : displayLoadW != null
+                              ? formatPower(displayLoadW, t, bcp47)
+                              : formatPower(null, t, bcp47)
+                          : deyeLiveLoading
+                            ? '…'
+                            : displayLoadW != null
+                              ? formatPower(displayLoadW, t, bcp47)
+                              : formatPower(null, t, bcp47)}
+                    </span>
+                  </div>
+                  <div className="pf-hub" id="pf-hub">
+                    <a
+                      className={hubLogoInboundFlow ? 'pf-hub-brand pf-hub-brand--flow-ends-here' : 'pf-hub-brand'}
+                      href={SITE_220KM_HOME}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={t('hubBrandLinkAria')}
+                    >
+                      <img
+                        className="pf-hub-logo"
+                        src={`${qrBase}/static/open-ems-220-logo.svg`}
+                        alt=""
+                        width="40"
+                        height="40"
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    </a>
+                    <span className="pf-hub-label">{t('hubLabel')}</span>
+                    <a
+                      className="pf-hub-opensource"
+                      href={OPEN_EMS_GITHUB_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={t('openSourceGithubAria')}
+                    >
+                      <svg
+                        className="pf-hub-opensource-icon"
+                        viewBox="0 0 98 96"
+                        xmlns="http://www.w3.org/2000/svg"
+                        aria-hidden="true"
+                        focusable="false"
+                      >
+                        <path
+                          fill="currentColor"
+                          fillRule="evenodd"
+                          clipRule="evenodd"
+                          d="M48.854 0C21.839 0 0 22 0 49.217c0 21.756 13.993 40.172 33.405 46.69 2.427.49 3.316-1.059 3.316-2.362 0-1.141-.08-5.052-.08-9.127-13.59 2.934-16.42-5.867-16.42-5.867-2.184-5.704-5.42-7.17-5.42-7.17-4.448-3.015.324-3.015.324-3.015 4.934.326 7.523 5.052 7.523 5.052 4.367 7.496 11.404 5.378 14.235 4.074.404-3.178 1.699-5.378 3.074-6.6-10.839-1.225-22.23-5.546-22.23-24.727 0-5.378 1.94-9.778 5.014-13.2-.485-1.222-2.184-6.275.486-13.038 0 0 4.125-1.304 13.426 5.052a46.97 46.97 0 0 1 12.214-1.63c4.125 0 8.33.571 12.213 1.63 9.302-6.356 13.427-5.052 13.427-5.052 2.67 6.763.97 11.816.485 13.038 3.155 3.422 5.015 7.822 5.015 13.2 0 19.343-11.424 23.502-22.307 24.727 1.814 1.577 3.483 4.731 3.483 9.578 0 6.896-.08 12.55-.08 14.29 0 1.307.89 2.853 3.316 2.364 19.412-6.52 33.405-24.935 33.405-46.691C97.707 22 75.788 0 48.854 0z"
+                        />
+                      </svg>
+                      <span className="pf-hub-opensource-text">{t('openSourceLabel')}</span>
+                    </a>
+                  </div>
                   <button
                     type="button"
                     className="pf-node"
-                    id="pf-node-grid"
-                    data-active={hasFlow && gridFlowActive ? 'true' : 'false'}
-                    onClick={e => openNodePopup(e, { title: t('nodeGrid') })}
+                    data-pos="right-top"
+                    id="pf-node-ess"
+                    data-active={essActive ? 'true' : 'false'}
+                    onClick={e => openNodePopup(e, { title: t('nodeEss') })}
                   >
-                    <span className="pf-node-icon" aria-hidden>
-                      ⚡
+                    <span className="pf-node-icon" id="pf-ess-icon" aria-hidden>
+                      {graphDisplayEssCharging ? (
+                        <span className="pf-ess-icon-charging">
+                          <span className="pf-ess-icon-charging-bat">🔋</span>
+                          <span className="pf-ess-icon-charging-bolt">⚡</span>
+                        </span>
+                      ) : (
+                        '🔋'
+                      )}
                     </span>
-                    <span className="pf-node-label">{t('nodeGrid')}</span>
-                    <span className="pf-node-value" id="pf-val-grid">
-                      {evPortFocusMode && evStationPowerLoading && evStationPowerW == null
-                        ? '…'
-                        : gridSelling
-                          ? `↓ ${formatPower(Math.abs(graphDisplayGridW), t, bcp47)}`
-                          : formatPower(graphDisplayGridW, t, bcp47)}
+                    <span className="pf-node-label">{t('nodeEss')}</span>
+                    <span className="pf-node-value" id="pf-val-ess">
+                      {evOnlyGraphLoading ? '…' : formatPower(graphDisplayEssW != null ? Math.abs(graphDisplayEssW) : null, t, bcp47)}
                     </span>
-                    <span className="pf-ess-status" id="pf-grid-selling" hidden={!gridSelling}>
-                      {t('gridSelling')}
-                    </span>
-                    <div className="pf-node-meta" id="pf-grid-tariff" title={t('gridDamTariffNodeTitle')}>
-                      {formatUahPerKwhTariffLine(gridDamTariffUahPerKwh)}
+                    {selInverterSn && essSocPercent != null && Number.isFinite(essSocPercent) ? (
+                      <span
+                        className={`pf-node-sub pf-ess-soc ${essSocBandClassName(essSocPercent)}`.trim()}
+                        id="pf-ess-soc"
+                      >
+                        {t('essSoc', {
+                          value: inverterSocFmt.format(essSocPercent),
+                        })}
+                      </span>
+                    ) : null}
+                    {essSocPending ? (
+                      <span className="pf-node-sub pf-ess-soc pf-ess-soc-loading" id="pf-ess-soc-loading">
+                        {t('essSocLoading')}
+                      </span>
+                    ) : null}
+                    <div className="pf-node-meta" id="pf-ess-lcoe" title={t('lcoeBatteryMetaTitle')}>
+                      {!referenceLcoe.loading && referenceLcoe.ok
+                        ? formatUahPerKwhTariffLine(referenceLcoe.batteryUahPerKwh)
+                        : ''}
                     </div>
                   </button>
-                </div>
-                <div
-                  className="pf-node"
-                  data-pos="left-bottom"
-                  id="pf-node-load"
-                  data-active={loadFlowActive ? 'true' : 'false'}
-                  role="button"
-                  tabIndex={0}
-                  onClick={e => openNodePopup(e, { title: t('nodeLoad') })}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' || e.key === ' ') openNodePopup(e, { title: t('nodeLoad') });
-                  }}
-                >
-                  <span className="pf-node-icon" aria-hidden>
-                    🏠
-                  </span>
-                  <span className="pf-node-label">{t('nodeLoad')}</span>
-                  <span className="pf-node-value" id="pf-val-load">
-                    {!essAnySelected
-                      ? evPortFocusMode
-                        ? evStationPowerLoading && evStationPowerW == null
-                          ? '…'
-                          : formatPower(graphDisplayLoadW, t, bcp47)
-                        : fleetDeyePollBusy
-                          ? '…'
-                          : fleetLoadTelemetryActive
-                            ? formatPower(displayLoadW, t, bcp47)
-                            : formatPower(null, t, bcp47)
-                      : selHuaweiStationCode
-                        ? huaweiLiveLoading
-                          ? '…'
-                          : displayLoadW != null
-                            ? formatPower(displayLoadW, t, bcp47)
-                            : formatPower(null, t, bcp47)
-                        : deyeLiveLoading
-                          ? '…'
-                          : displayLoadW != null
-                            ? formatPower(displayLoadW, t, bcp47)
-                            : formatPower(null, t, bcp47)}
-                  </span>
-                </div>
-                <div className="pf-hub" id="pf-hub">
                   <a
-                    className={hubLogoInboundFlow ? 'pf-hub-brand pf-hub-brand--flow-ends-here' : 'pf-hub-brand'}
-                    href={SITE_220KM_HOME}
+                    className="pf-node"
+                    data-pos="right-center"
+                    id="pf-node-miner"
+                    href={BINANCE_MINER_URL}
                     target="_blank"
                     rel="noopener noreferrer"
-                    aria-label={t('hubBrandLinkAria')}
+                    data-active={hasFlow && graphMinerFlowW > 0 ? 'true' : 'false'}
+                    onClick={e =>
+                      openNodePopup(e, {
+                        title: t('nodeMiner'),
+                        actionHref: BINANCE_MINER_URL,
+                        actionLabel: 'Open Binance',
+                      })
+                    }
                   >
-                    <img
-                      className="pf-hub-logo"
-                      src={`${qrBase}/static/open-ems-220-logo.svg`}
-                      alt=""
-                      width="40"
-                      height="40"
-                      loading="lazy"
-                      decoding="async"
-                    />
+                    <span className="pf-node-icon" aria-hidden>
+                      💠
+                    </span>
+                    <span className="pf-node-label" id="pf-miner-label">
+                      {minerLabel}
+                    </span>
+                    <span className="pf-node-value" id="pf-val-miner">
+                      {evOnlyGraphLoading ? '…' : formatPower(graphDisplayMinerW, t, bcp47)}
+                    </span>
+                    <div className="pf-node-meta" id="pf-miner-tariff">
+                      {formatUahPerKwhTariffLine(tf)}
+                    </div>
                   </a>
-                  <span className="pf-hub-label">{t('hubLabel')}</span>
-                  <a
-                    className="pf-hub-opensource"
-                    href={OPEN_EMS_GITHUB_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label={t('openSourceGithubAria')}
-                  >
-                    <svg
-                      className="pf-hub-opensource-icon"
-                      viewBox="0 0 98 96"
-                      xmlns="http://www.w3.org/2000/svg"
-                      aria-hidden="true"
-                      focusable="false"
+                  {stationFilter.trim() ? (
+                    <a
+                      className="pf-node"
+                      data-pos="right-bottom"
+                      id="pf-node-ev"
+                      href={`${EV_START_URL}?station=${encodeURIComponent(stationFilter.trim())}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      data-active={evFlowActive ? 'true' : 'false'}
+                      title={t('stationLabel')}
+                      onClick={e =>
+                        openNodePopup(e, {
+                          title: t('nodeEv'),
+                          actionHref: `${EV_START_URL}?station=${encodeURIComponent(stationFilter.trim())}`,
+                          actionLabel: 'Open EV station',
+                        })
+                      }
                     >
-                      <path
-                        fill="currentColor"
-                        fillRule="evenodd"
-                        clipRule="evenodd"
-                        d="M48.854 0C21.839 0 0 22 0 49.217c0 21.756 13.993 40.172 33.405 46.69 2.427.49 3.316-1.059 3.316-2.362 0-1.141-.08-5.052-.08-9.127-13.59 2.934-16.42-5.867-16.42-5.867-2.184-5.704-5.42-7.17-5.42-7.17-4.448-3.015.324-3.015.324-3.015 4.934.326 7.523 5.052 7.523 5.052 4.367 7.496 11.404 5.378 14.235 4.074.404-3.178 1.699-5.378 3.074-6.6-10.839-1.225-22.23-5.546-22.23-24.727 0-5.378 1.94-9.778 5.014-13.2-.485-1.222-2.184-6.275.486-13.038 0 0 4.125-1.304 13.426 5.052a46.97 46.97 0 0 1 12.214-1.63c4.125 0 8.33.571 12.213 1.63 9.302-6.356 13.427-5.052 13.427-5.052 2.67 6.763.97 11.816.485 13.038 3.155 3.422 5.015 7.822 5.015 13.2 0 19.343-11.424 23.502-22.307 24.727 1.814 1.577 3.483 4.731 3.483 9.578 0 6.896-.08 12.55-.08 14.29 0 1.307.89 2.853 3.316 2.364 19.412-6.52 33.405-24.935 33.405-46.691C97.707 22 75.788 0 48.854 0z"
-                      />
-                    </svg>
-                    <span className="pf-hub-opensource-text">{t('openSourceLabel')}</span>
-                  </a>
-                </div>
-                <button
-                  type="button"
-                  className="pf-node"
-                  data-pos="right-top"
-                  id="pf-node-ess"
-                  data-active={essActive ? 'true' : 'false'}
-                  onClick={e => openNodePopup(e, { title: t('nodeEss') })}
-                >
-                  <span className="pf-node-icon" id="pf-ess-icon" aria-hidden>
-                    {graphDisplayEssCharging ? (
-                      <span className="pf-ess-icon-charging">
-                        <span className="pf-ess-icon-charging-bat">🔋</span>
-                        <span className="pf-ess-icon-charging-bolt">⚡</span>
+                      <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
+                        <EvCarMark className="pf-node-icon__tesla" />
                       </span>
-                    ) : (
-                      '🔋'
-                    )}
-                  </span>
-                  <span className="pf-node-label">{t('nodeEss')}</span>
-                  <span className="pf-node-value" id="pf-val-ess">
-                    {evPortFocusMode && evStationPowerLoading && evStationPowerW == null
-                      ? '…'
-                      : formatPower(graphDisplayEssW != null ? Math.abs(graphDisplayEssW) : null, t, bcp47)}
-                  </span>
-                  {selInverterSn && essSocPercent != null && Number.isFinite(essSocPercent) ? (
-                    <span
-                      className={`pf-node-sub pf-ess-soc ${essSocBandClassName(essSocPercent)}`.trim()}
-                      id="pf-ess-soc"
+                      <span className="pf-node-label">{t('nodeEv')}</span>
+                      <span className="pf-node-value" id="pf-val-ev">
+                        {evStationPowerLoading && evStationPowerW == null
+                          ? '…'
+                          : formatPower(evStationPowerW, t, bcp47)}
+                      </span>
+                      <div className="pf-node-meta" id="pf-ev-tariff">
+                        {evDisplayTariffUahPerKwh != null ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh) : ''}
+                      </div>
+                    </a>
+                  ) : selEvPortsAggregate ? (
+                    <a
+                      className="pf-node"
+                      data-pos="right-bottom"
+                      id="pf-node-ev"
+                      href={SITE_220KM_HOME}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      data-active={evFlowActive ? 'true' : 'false'}
+                      title={selEvPortsAcdc === 'ac' ? t('essEvPortsAc') : t('essEvPortsDc')}
+                      onClick={e =>
+                        openNodePopup(e, {
+                          title: t('nodeEv'),
+                          actionHref: SITE_220KM_HOME,
+                          actionLabel: 'Open EV station',
+                        })
+                      }
                     >
-                      {t('essSoc', {
-                        value: inverterSocFmt.format(essSocPercent),
-                      })}
-                    </span>
-                  ) : null}
-                  {essSocPending ? (
-                    <span className="pf-node-sub pf-ess-soc pf-ess-soc-loading" id="pf-ess-soc-loading">
-                      {t('essSocLoading')}
-                    </span>
-                  ) : null}
-                  <div className="pf-node-meta" id="pf-ess-lcoe" title={t('lcoeBatteryMetaTitle')}>
-                    {!referenceLcoe.loading && referenceLcoe.ok
-                      ? formatUahPerKwhTariffLine(referenceLcoe.batteryUahPerKwh)
-                      : ''}
-                  </div>
-                </button>
-                <a
-                  className="pf-node"
-                  data-pos="right-center"
-                  id="pf-node-miner"
-                  href={BINANCE_MINER_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  data-active={hasFlow && graphMinerFlowW > 0 ? 'true' : 'false'}
-                  onClick={e =>
-                    openNodePopup(e, {
-                      title: t('nodeMiner'),
-                      actionHref: BINANCE_MINER_URL,
-                      actionLabel: 'Open Binance',
-                    })
-                  }
-                >
-                  <span className="pf-node-icon" aria-hidden>
-                    💠
-                  </span>
-                  <span className="pf-node-label" id="pf-miner-label">
-                    {minerLabel}
-                  </span>
-                  <span className="pf-node-value" id="pf-val-miner">
-                    {evPortFocusMode && evStationPowerLoading && evStationPowerW == null
-                      ? '…'
-                      : formatPower(graphDisplayMinerW, t, bcp47)}
-                  </span>
-                  <div className="pf-node-meta" id="pf-miner-tariff">
-                    {formatUahPerKwhTariffLine(tf)}
-                  </div>
-                </a>
-                {stationFilter.trim() ? (
-                  <a
-                    className="pf-node"
-                    data-pos="right-bottom"
-                    id="pf-node-ev"
-                    href={`${EV_START_URL}?station=${encodeURIComponent(stationFilter.trim())}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    data-active={evFlowActive ? 'true' : 'false'}
-                    title={t('stationLabel')}
-                    onClick={e =>
-                      openNodePopup(e, {
-                        title: t('nodeEv'),
-                        actionHref: `${EV_START_URL}?station=${encodeURIComponent(stationFilter.trim())}`,
-                        actionLabel: 'Open EV station',
-                      })
-                    }
-                  >
-                    <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
-                      <EvCarMark className="pf-node-icon__tesla" />
-                    </span>
-                    <span className="pf-node-label">{t('nodeEv')}</span>
-                    <span className="pf-node-value" id="pf-val-ev">
-                      {evStationPowerLoading && evStationPowerW == null ? '…' : formatPower(evStationPowerW, t, bcp47)}
-                    </span>
-                    <div className="pf-node-meta" id="pf-ev-tariff">
-                      {evDisplayTariffUahPerKwh != null ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh) : ''}
-                    </div>
-                  </a>
-                ) : showEvAggregate ? (
-                  <a
-                    className="pf-node"
-                    data-pos="right-bottom"
-                    id="pf-node-ev"
-                    href={SITE_220KM_HOME}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    data-active={evFlowActive ? 'true' : 'false'}
-                    onClick={e =>
-                      openNodePopup(e, {
-                        title: t('nodeEv'),
-                        actionHref: SITE_220KM_HOME,
-                        actionLabel: 'Open EV station',
-                      })
-                    }
-                  >
-                    <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
-                      <EvCarMark className="pf-node-icon__tesla" />
-                    </span>
-                    <span className="pf-node-label">{t('nodeEv')}</span>
-                    <span className="pf-node-value" id="pf-val-ev">
-                      {evBusy ? '…' : formatPower(aggregateEvFlowW, t, bcp47)}
-                    </span>
-                    <div className="pf-node-meta" id="pf-ev-tariff">
-                      {evDisplayTariffUahPerKwh != null ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh) : ''}
-                    </div>
-                  </a>
-                ) : (
-                  <div
-                    className="pf-node pf-node-ev-disabled"
-                    data-pos="right-bottom"
-                    id="pf-node-ev"
-                    data-active="false"
-                    title={t('evHiddenByInverter')}
-                    role="button"
-                    tabIndex={0}
-                    onClick={e => openNodePopup(e, { title: t('nodeEv') })}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' || e.key === ' ') openNodePopup(e, { title: t('nodeEv') });
-                    }}
-                  >
-                    <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
-                      <EvCarMark className="pf-node-icon__tesla" />
-                    </span>
-                    <span className="pf-node-label">{t('nodeEv')}</span>
-                    <span className="pf-node-value" id="pf-val-ev">
-                      {formatPower(null, t, bcp47)}
-                    </span>
-                    <div className="pf-node-meta" id="pf-ev-tariff">
-                      {evDisplayTariffUahPerKwh != null ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh) : ''}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-            <div id="pf-error" className="pf-error" hidden={!loadError}>
-              {loadError}
-            </div>
-          </div>
-
-          <div className="pf-lang-port-bar" style={{ '--pf-graph-anchor-pct': `${graphAnchorPct}%` }}>
-            <div className="pf-lang-port-port-track">
-              <div className="pf-lang-port-port-align">
-                <span
-                  className="pf-ev-ports-used-count"
-                  aria-label={`${t('stationPlaceholder')}: ${evPortsUsedCount} x`}
-                >
-                  {evPortsUsedCount} x
-                </span>
-                <select
-                  id="pf-station"
-                  className="pf-inverter-select pf-header-select--port"
-                  aria-label={t('stationLabel')}
-                  title={t('stationPlaceholder')}
-                  value={stationFilter}
-                  onChange={onStationChange}
-                >
-                  <option value="">{chargingPorts.loading ? '…' : t('stationPlaceholder')}</option>
-                  {portSelectOptions.map(row => {
-                    const num = String(row.number);
-                    const maxW = Number(row.maxPowerWt);
-                    const maxLabel = Number.isFinite(maxW) && maxW > 0 ? ` · ${formatPower(maxW, t, bcp47)}` : '';
-                    return (
-                      <option key={num} value={num}>
-                        {num}
-                        {maxLabel}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-            </div>
-          </div>
-
-          <section className="pf-dam-section" aria-label={t('damChartHeading')}>
-            <DamChartPanel
-              variant="embedded"
-              inverterSn={essSel.provider === 'deye' ? selInverterSn || undefined : undefined}
-              huaweiStationCode={
-                essSel.provider === 'huawei' && huaweiListReady && !huaweiRows.error
-                  ? selHuaweiStationCode || undefined
-                  : undefined
-              }
-              t={t}
-              getBcp47Locale={getBcp47Locale}
-              chartHeight={320}
-            />
-          </section>
-
-          <div className="pf-post-charts-bar">
-            <div className="pf-roi-bar">
-              <RoiStackStatistics
-                t={t}
-                bcp47={bcp47}
-                selInverterSn={selInverterSn}
-                inverterHeaderOk={inverterListReady}
-                inverterListPending={inverterRows.loading && !inverterRows.error}
-                pinRequired={remoteWriteConfigured}
-                cachedPin={cachedWritePin}
-                pinCacheBust={pinCacheBust}
-                onPinRemembered={() => setPinCacheBust(x => x + 1)}
-                onRoiCapexSaved={loadInverters}
-              />
-            </div>
-            {showPowerFlowSections ? (
-              !inverterListReady ? (
-                <div className="pf-header-discharge-row pf-header-discharge-row--skeleton" aria-busy="true">
-                  <div className="pf-discharge-toolbar pf-discharge-toolbar--combined pf-discharge-toolbar--skeleton">
-                    <div className="pf-discharge-skeleton-rows" aria-hidden>
-                      <div className="pf-discharge-skeleton-row" />
-                      <div className="pf-discharge-skeleton-row" />
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  {selHuaweiStationCode ? null : (
-                    <div className="pf-header-discharge-row">
-                      <div className="pf-discharge-toolbar pf-discharge-toolbar--combined">
-                        <div className="pf-deye-command-stack">
-                          <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header pf-deye-command-line">
-                            <div className="pf-discharge-delta-controls">
-                              <span
-                                className="pf-discharge-go-hover-wrap"
-                                onMouseEnter={onDischargeGoWrapMouseEnter}
-                                onMouseLeave={onDischargeGoWrapMouseLeave}
-                              >
-                                {dischargeHoverTipOpen ? (
-                                  <span
-                                    id="pf-discharge-go-tooltip"
-                                    role="tooltip"
-                                    className="pf-discharge-go-tooltip"
-                                  >
-                                    {dischargeHoverTipText}
-                                  </span>
-                                ) : null}
-                                <button
-                                  type="button"
-                                  className="pf-discharge-btn pf-discharge-go-btn"
-                                  onClick={requestDischarge2Pct}
-                                  disabled={
-                                    deyeWritesHardBlocked ||
-                                    toolbarLockedByNightCharge ||
-                                    dischargeGoDisabledInsufficientSoc ||
-                                    (Boolean(selInverterSn.trim()) && !essSocHasKey)
-                                  }
-                                  aria-label={t('dischargeGoAria')}
-                                  aria-describedby={dischargeHoverTipOpen ? 'pf-discharge-go-tooltip' : undefined}
-                                >
-                                  {t('dischargeGoButton')}
-                                </button>
-                              </span>
-                              <select
-                                id="pf-discharge-delta-select"
-                                className="pf-discharge-delta-select pf-discharge-delta-select--header"
-                                value={String(dischargeSocDeltaPct)}
-                                disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
-                                aria-label={t('dischargeSocDeltaAria')}
-                                onChange={e => {
-                                  if (!remoteWriteConfigured) {
-                                    setRemoteWriteNeedsPinOpen(true);
-                                    return;
-                                  }
-                                  const n = normalizeDischargeSocDeltaPct(e.target.value);
-                                  const apiPct = peakPrefDischargePctForApi(n);
-                                  const cached = readCachedInverterPin(selInverterSn?.trim() || '');
-                                  if (cached) {
-                                    void (async () => {
-                                      try {
-                                        const data = await savePeakAutoPref(peakDamEnabledRef.current, apiPct, cached);
-                                        setDischargeSocDeltaPct(n);
-                                        if (data && typeof data.enabled === 'boolean') {
-                                          setPeakDamDischargeEnabled(data.enabled);
-                                        }
-                                        const p = data?.dischargeSocDeltaPct;
-                                        if (p != null && Number.isFinite(Number(p))) {
-                                          setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
-                                        }
-                                      } catch (err) {
-                                        const m = err instanceof Error ? err.message : String(err);
-                                        setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
-                                      }
-                                    })();
-                                    return;
-                                  }
-                                  if (selInverterEvportBound) {
-                                    void (async () => {
-                                      try {
-                                        const data = await savePeakAutoPref(peakDamEnabledRef.current, apiPct, '');
-                                        setDischargeSocDeltaPct(n);
-                                        if (data && typeof data.enabled === 'boolean') {
-                                          setPeakDamDischargeEnabled(data.enabled);
-                                        }
-                                        const p = data?.dischargeSocDeltaPct;
-                                        if (p != null && Number.isFinite(Number(p))) {
-                                          setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
-                                        }
-                                      } catch (err) {
-                                        const m = err instanceof Error ? err.message : String(err);
-                                        setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
-                                      }
-                                    })();
-                                    return;
-                                  }
-                                  setWritePinGate({ kind: 'peakPct', nextPct: apiPct });
-                                }}
-                              >
-                                {DISCHARGE_TARGET_SOC_OPTIONS.map(o => (
-                                  <option key={o} value={o}>
-                                    {t('dischargeTillSocOption', { pct: o })}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                            <DelayedHintTooltip hintText={peakDamHintWithTillSoc.hint}>
-                              <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
-                                <input
-                                type="checkbox"
-                                checked={peakDamDischargeEnabled}
-                                disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
-                                onChange={async e => {
-                                  if (!remoteWriteConfigured) {
-                                    setRemoteWriteNeedsPinOpen(true);
-                                    return;
-                                  }
-                                  const v = e.target.checked;
-                                  const sn = selInverterSn?.trim();
-                                  if (!sn) return;
-                                  const prev = peakDamDischargeEnabled;
-                                  const prevPct = dischargeSocDeltaPct;
-                                  if (peakPrefSaveTimerRef.current != null) {
-                                    clearTimeout(peakPrefSaveTimerRef.current);
-                                    peakPrefSaveTimerRef.current = null;
-                                  }
-                                  if (chargePrefSaveTimerRef.current != null) {
-                                    clearTimeout(chargePrefSaveTimerRef.current);
-                                    chargePrefSaveTimerRef.current = null;
-                                  }
-                                  const cached = readCachedInverterPin(sn);
-                                  if (cached) {
-                                    setPeakDamDischargeEnabled(v);
-                                    setDischarge2Feedback('');
-                                    try {
-                                      const data = await savePeakAutoPref(
-                                        v,
-                                        peakPrefDischargePctForApi(dischargeSocDeltaPct),
-                                        cached
-                                      );
-                                      if (data && typeof data.enabled === 'boolean') {
-                                        setPeakDamDischargeEnabled(data.enabled);
-                                      }
-                                      const p = data?.dischargeSocDeltaPct;
-                                      if (p != null && Number.isFinite(Number(p))) {
-                                        setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
-                                      }
-                                    } catch (err) {
-                                      setPeakDamDischargeEnabled(prev);
-                                      setDischargeSocDeltaPct(prevPct);
-                                      const m = err instanceof Error ? err.message : String(err);
-                                      setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
-                                    }
-                                    return;
-                                  }
-                                  if (selInverterEvportBound) {
-                                    setPeakDamDischargeEnabled(v);
-                                    setDischarge2Feedback('');
-                                    try {
-                                      const data = await savePeakAutoPref(
-                                        v,
-                                        peakPrefDischargePctForApi(dischargeSocDeltaPct),
-                                        ''
-                                      );
-                                      if (data && typeof data.enabled === 'boolean') {
-                                        setPeakDamDischargeEnabled(data.enabled);
-                                      }
-                                      const p = data?.dischargeSocDeltaPct;
-                                      if (p != null && Number.isFinite(Number(p))) {
-                                        setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
-                                      }
-                                    } catch (err) {
-                                      setPeakDamDischargeEnabled(prev);
-                                      setDischargeSocDeltaPct(prevPct);
-                                      const m = err instanceof Error ? err.message : String(err);
-                                      setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
-                                    }
-                                    return;
-                                  }
-                                  setWritePinGate({
-                                    kind: 'peak',
-                                    nextEnabled: v,
-                                    nextPct: peakPrefDischargePctForApi(dischargeSocDeltaPct),
-                                  });
-                                }}
-                                aria-label={peakDamHintWithTillSoc.aria}
-                              />
-                                <span className="pf-peak-dam-toggle-label">{t('peakDamDischargeToggle')}</span>
-                              </label>
-                            </DelayedHintTooltip>
-                            <DelayedHintTooltip hintText={selfConsumptionHintWithLcoe.hint}>
-                              <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
-                                <input
-                                type="checkbox"
-                                checked={nightChargeEnabled || selfConsumptionEnabled}
-                                disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
-                                onChange={async e => {
-                                  if (!remoteWriteConfigured) {
-                                    setRemoteWriteNeedsPinOpen(true);
-                                    return;
-                                  }
-                                  const v = e.target.checked;
-                                  const sn = selInverterSn?.trim();
-                                  if (!sn) return;
-                                  const prev = selfConsumptionEnabled;
-                                  const cached = readCachedInverterPin(sn);
-                                  if (cached) {
-                                    setSelfConsumptionEnabled(v);
-                                    setDischarge2Feedback('');
-                                    try {
-                                      const data = await saveSelfConsumptionPref(v, cached);
-                                      if (data && typeof data.selfConsumptionEnabled === 'boolean') {
-                                        setSelfConsumptionEnabled(data.selfConsumptionEnabled);
-                                      } else if (data && typeof data.enabled === 'boolean') {
-                                        setSelfConsumptionEnabled(data.enabled);
-                                      }
-                                    } catch (err) {
-                                      setSelfConsumptionEnabled(prev);
-                                      const m = err instanceof Error ? err.message : String(err);
-                                      setDischarge2Feedback(`${t('selfConsumptionSaveError')}: ${m}`);
-                                    }
-                                    return;
-                                  }
-                                  if (selInverterEvportBound) {
-                                    setSelfConsumptionEnabled(v);
-                                    setDischarge2Feedback('');
-                                    try {
-                                      const data = await saveSelfConsumptionPref(v, '');
-                                      if (data && typeof data.selfConsumptionEnabled === 'boolean') {
-                                        setSelfConsumptionEnabled(data.selfConsumptionEnabled);
-                                      } else if (data && typeof data.enabled === 'boolean') {
-                                        setSelfConsumptionEnabled(data.enabled);
-                                      }
-                                    } catch (err) {
-                                      setSelfConsumptionEnabled(prev);
-                                      const m = err instanceof Error ? err.message : String(err);
-                                      setDischarge2Feedback(`${t('selfConsumptionSaveError')}: ${m}`);
-                                    }
-                                    return;
-                                  }
-                                  setWritePinGate({ kind: 'selfConsumption', nextEnabled: v });
-                                }}
-                                aria-label={selfConsumptionHintWithLcoe.aria}
-                              />
-                                <span className="pf-peak-dam-toggle-label">{t('selfConsumptionToggle')}</span>
-                              </label>
-                            </DelayedHintTooltip>
-                          </div>
-                          <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header pf-deye-command-line pf-deye-command-line--charge">
-                            <div className="pf-discharge-delta-controls">
-                              <button
-                                type="button"
-                                className="pf-discharge-btn pf-discharge-go-btn pf-charge-go-btn"
-                                onClick={requestCharge2Pct}
-                                disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
-                                title={t('chargeSoc2Hint')}
-                                aria-label={t('chargeGoAria')}
-                              >
-                                {t('chargeGoButton')}
-                              </button>
-                              <select
-                                id="pf-charge-delta-select"
-                                className="pf-discharge-delta-select pf-discharge-delta-select--header"
-                                value={chargeSocDeltaPct}
-                                disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
-                                aria-label={t('chargeSocDeltaAria')}
-                                onChange={e => {
-                                  if (!remoteWriteConfigured) {
-                                    setRemoteWriteNeedsPinOpen(true);
-                                    return;
-                                  }
-                                  const n = normalizeChargeSocDeltaPct(e.target.value);
-                                  const cached = readCachedInverterPin(selInverterSn?.trim() || '');
-                                  if (cached) {
-                                    void (async () => {
-                                      try {
-                                        const data = await saveLowDamChargePref(lowDamEnabledRef.current, n, cached);
-                                        setChargeSocDeltaPct(n);
-                                        if (data && typeof data.enabled === 'boolean') {
-                                          setLowDamChargeEnabled(data.enabled);
-                                        }
-                                        const p = data?.chargeSocDeltaPct;
-                                        if (p != null && Number.isFinite(Number(p))) {
-                                          setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
-                                        }
-                                      } catch (err) {
-                                        const m = err instanceof Error ? err.message : String(err);
-                                        setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
-                                      }
-                                    })();
-                                    return;
-                                  }
-                                  if (selInverterEvportBound) {
-                                    void (async () => {
-                                      try {
-                                        const data = await saveLowDamChargePref(lowDamEnabledRef.current, n, '');
-                                        setChargeSocDeltaPct(n);
-                                        if (data && typeof data.enabled === 'boolean') {
-                                          setLowDamChargeEnabled(data.enabled);
-                                        }
-                                        const p = data?.chargeSocDeltaPct;
-                                        if (p != null && Number.isFinite(Number(p))) {
-                                          setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
-                                        }
-                                      } catch (err) {
-                                        const m = err instanceof Error ? err.message : String(err);
-                                        setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
-                                      }
-                                    })();
-                                    return;
-                                  }
-                                  setWritePinGate({ kind: 'lowPct', nextPct: n });
-                                }}
-                              >
-                                {CHARGE_SOC_DELTA_OPTIONS.map(o => (
-                                  <option key={o} value={o}>
-                                    {t('chargeSocDeltaValue', { pct: o })}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                            <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
-                              <input
-                                type="checkbox"
-                                checked={lowDamChargeEnabled}
-                                disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
-                                onChange={async e => {
-                                  if (!remoteWriteConfigured) {
-                                    setRemoteWriteNeedsPinOpen(true);
-                                    return;
-                                  }
-                                  const v = e.target.checked;
-                                  const sn = selInverterSn?.trim();
-                                  if (!sn) return;
-                                  const prev = lowDamChargeEnabled;
-                                  const prevPct = chargeSocDeltaPct;
-                                  if (peakPrefSaveTimerRef.current != null) {
-                                    clearTimeout(peakPrefSaveTimerRef.current);
-                                    peakPrefSaveTimerRef.current = null;
-                                  }
-                                  if (chargePrefSaveTimerRef.current != null) {
-                                    clearTimeout(chargePrefSaveTimerRef.current);
-                                    chargePrefSaveTimerRef.current = null;
-                                  }
-                                  const cached = readCachedInverterPin(sn);
-                                  if (cached) {
-                                    setLowDamChargeEnabled(v);
-                                    setDischarge2Feedback('');
-                                    try {
-                                      const data = await saveLowDamChargePref(v, chargeSocDeltaPct, cached);
-                                      if (data && typeof data.enabled === 'boolean') {
-                                        setLowDamChargeEnabled(data.enabled);
-                                      }
-                                      const p = data?.chargeSocDeltaPct;
-                                      if (p != null && Number.isFinite(Number(p))) {
-                                        setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
-                                      }
-                                    } catch (err) {
-                                      setLowDamChargeEnabled(prev);
-                                      setChargeSocDeltaPct(prevPct);
-                                      const m = err instanceof Error ? err.message : String(err);
-                                      setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
-                                    }
-                                    return;
-                                  }
-                                  if (selInverterEvportBound) {
-                                    setLowDamChargeEnabled(v);
-                                    setDischarge2Feedback('');
-                                    try {
-                                      const data = await saveLowDamChargePref(v, chargeSocDeltaPct, '');
-                                      if (data && typeof data.enabled === 'boolean') {
-                                        setLowDamChargeEnabled(data.enabled);
-                                      }
-                                      const p = data?.chargeSocDeltaPct;
-                                      if (p != null && Number.isFinite(Number(p))) {
-                                        setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
-                                      }
-                                    } catch (err) {
-                                      setLowDamChargeEnabled(prev);
-                                      setChargeSocDeltaPct(prevPct);
-                                      const m = err instanceof Error ? err.message : String(err);
-                                      setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
-                                    }
-                                    return;
-                                  }
-                                  setWritePinGate({
-                                    kind: 'low',
-                                    nextEnabled: v,
-                                    nextPct: chargeSocDeltaPct,
-                                  });
-                                }}
-                                aria-label={t('lowDamChargeToggleAria')}
-                              />
-                              <span className="pf-peak-dam-toggle-label" title={t('lowDamChargeToggleHint')}>
-                                {t('lowDamChargeToggle')}
-                              </span>
-                            </label>
-                            <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
-                              <input
-                                type="checkbox"
-                                checked={nightChargeEnabled}
-                                disabled={deyeWritesHardBlocked}
-                                onChange={async e => {
-                                  if (!remoteWriteConfigured) {
-                                    setRemoteWriteNeedsPinOpen(true);
-                                    return;
-                                  }
-                                  const v = e.target.checked;
-                                  const sn = selInverterSn?.trim();
-                                  if (!sn) return;
-                                  const prevNight = nightChargeEnabled;
-                                  const prevPeak = peakDamDischargeEnabled;
-                                  const prevLow = lowDamChargeEnabled;
-                                  const prevSc = selfConsumptionEnabled;
-                                  const prevChargePct = chargeSocDeltaPct;
-                                  if (peakPrefSaveTimerRef.current != null) {
-                                    clearTimeout(peakPrefSaveTimerRef.current);
-                                    peakPrefSaveTimerRef.current = null;
-                                  }
-                                  if (chargePrefSaveTimerRef.current != null) {
-                                    clearTimeout(chargePrefSaveTimerRef.current);
-                                    chargePrefSaveTimerRef.current = null;
-                                  }
-                                  const cached = readCachedInverterPin(sn);
-                                  const pct = chargeSocDeltaPct;
-                                  if (cached) {
-                                    setNightChargeEnabled(v);
-                                    if (v) {
-                                      setPeakDamDischargeEnabled(false);
-                                      setLowDamChargeEnabled(false);
-                                      setSelfConsumptionEnabled(true);
-                                    }
-                                    setDischarge2Feedback('');
-                                    try {
-                                      const data = await saveNightChargePref(v, pct, cached);
-                                      applyNightChargeToolbarSnap(data);
-                                    } catch (err) {
-                                      setNightChargeEnabled(prevNight);
-                                      setPeakDamDischargeEnabled(prevPeak);
-                                      setLowDamChargeEnabled(prevLow);
-                                      setSelfConsumptionEnabled(prevSc);
-                                      setChargeSocDeltaPct(prevChargePct);
-                                      const m = err instanceof Error ? err.message : String(err);
-                                      setDischarge2Feedback(`${t('nightChargeSaveError')}: ${m}`);
-                                    }
-                                    return;
-                                  }
-                                  if (selInverterEvportBound) {
-                                    setNightChargeEnabled(v);
-                                    if (v) {
-                                      setPeakDamDischargeEnabled(false);
-                                      setLowDamChargeEnabled(false);
-                                      setSelfConsumptionEnabled(true);
-                                    }
-                                    setDischarge2Feedback('');
-                                    try {
-                                      const data = await saveNightChargePref(v, pct, '');
-                                      applyNightChargeToolbarSnap(data);
-                                    } catch (err) {
-                                      setNightChargeEnabled(prevNight);
-                                      setPeakDamDischargeEnabled(prevPeak);
-                                      setLowDamChargeEnabled(prevLow);
-                                      setSelfConsumptionEnabled(prevSc);
-                                      setChargeSocDeltaPct(prevChargePct);
-                                      const m = err instanceof Error ? err.message : String(err);
-                                      setDischarge2Feedback(`${t('nightChargeSaveError')}: ${m}`);
-                                    }
-                                    return;
-                                  }
-                                  setWritePinGate({
-                                    kind: 'nightCharge',
-                                    nextEnabled: v,
-                                    nextPct: pct,
-                                  });
-                                }}
-                                aria-label={t('nightChargeToggleAria')}
-                              />
-                              <span className="pf-peak-dam-toggle-label" title={t('nightChargeToggleHint')}>
-                                {t('nightChargeToggle')}
-                              </span>
-                            </label>
-                          </div>
-                        </div>
+                      <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
+                        <EvCarMark className="pf-node-icon__tesla" />
+                      </span>
+                      <span className="pf-node-label">{t('nodeEv')}</span>
+                      <span className="pf-node-value" id="pf-val-ev">
+                        {evPortsLive.loading && evPortsDisplayPowerW == null
+                          ? '…'
+                          : formatPower(evPortsDisplayPowerW, t, bcp47)}
+                      </span>
+                      <div className="pf-node-meta" id="pf-ev-tariff">
+                        {evPortsLive.activeSessions > 0
+                          ? t('essEvPortsActiveCount', { count: evPortsLive.activeSessions })
+                          : ''}
+                      </div>
+                    </a>
+                  ) : showEvAggregate ? (
+                    <a
+                      className="pf-node"
+                      data-pos="right-bottom"
+                      id="pf-node-ev"
+                      href={SITE_220KM_HOME}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      data-active={evFlowActive ? 'true' : 'false'}
+                      onClick={e =>
+                        openNodePopup(e, {
+                          title: t('nodeEv'),
+                          actionHref: SITE_220KM_HOME,
+                          actionLabel: 'Open EV station',
+                        })
+                      }
+                    >
+                      <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
+                        <EvCarMark className="pf-node-icon__tesla" />
+                      </span>
+                      <span className="pf-node-label">{t('nodeEv')}</span>
+                      <span className="pf-node-value" id="pf-val-ev">
+                        {evBusy ? '…' : formatPower(aggregateEvFlowW, t, bcp47)}
+                      </span>
+                      <div className="pf-node-meta" id="pf-ev-tariff">
+                        {evDisplayTariffUahPerKwh != null ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh) : ''}
+                      </div>
+                    </a>
+                  ) : (
+                    <div
+                      className="pf-node pf-node-ev-disabled"
+                      data-pos="right-bottom"
+                      id="pf-node-ev"
+                      data-active="false"
+                      title={t('evHiddenByInverter')}
+                      role="button"
+                      tabIndex={0}
+                      onClick={e => openNodePopup(e, { title: t('nodeEv') })}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' || e.key === ' ') openNodePopup(e, { title: t('nodeEv') });
+                      }}
+                    >
+                      <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
+                        <EvCarMark className="pf-node-icon__tesla" />
+                      </span>
+                      <span className="pf-node-label">{t('nodeEv')}</span>
+                      <span className="pf-node-value" id="pf-val-ev">
+                        {formatPower(null, t, bcp47)}
+                      </span>
+                      <div className="pf-node-meta" id="pf-ev-tariff">
+                        {evDisplayTariffUahPerKwh != null ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh) : ''}
                       </div>
                     </div>
                   )}
-                </>
-              )
-            ) : null}
-          </div>
-
-          {dischargeFeedbackText ? (
-            <div className="pf-discharge-feedback" role="status">
-              <p>{dischargeFeedbackText}</p>
+                </div>
+              </div>
+              <div id="pf-error" className="pf-error" hidden={!loadError}>
+                {loadError}
+              </div>
             </div>
-          ) : null}
 
-          <aside className="pf-ukraine-qr" aria-label={t('qrAsideAria')}>
-            <a className="pf-ukraine-qr-link" href={QR_SUPPORT_URL} target="_blank" rel="noopener noreferrer">
-              <img
-                className="pf-ukraine-qr-img"
-                src={`${qrBase}/static/power-flow/protect-ukraine-qr.png`}
-                width={120}
-                height={120}
-                alt={t('qrImageAlt')}
-                decoding="async"
+            <div className="pf-lang-port-bar" style={{ '--pf-graph-anchor-pct': `${graphAnchorPct}%` }}>
+              <div className="pf-lang-port-port-track">
+                <div className="pf-lang-port-port-align">
+                  <span
+                    className="pf-ev-ports-used-count"
+                    aria-label={`${t('stationPlaceholder')}: ${evPortsUsedCount} x`}
+                  >
+                    {evPortsUsedCount} x
+                  </span>
+                  <select
+                    id="pf-station"
+                    className="pf-inverter-select pf-header-select--port"
+                    aria-label={t('stationLabel')}
+                    title={t('stationPlaceholder')}
+                    value={stationFilter}
+                    onChange={onStationChange}
+                  >
+                    <option value="">{chargingPorts.loading ? '…' : t('stationPlaceholder')}</option>
+                    {portSelectOptions.map(row => {
+                      const num = String(row.number);
+                      const maxW = Number(row.maxPowerWt);
+                      const maxLabel = Number.isFinite(maxW) && maxW > 0 ? ` · ${formatPower(maxW, t, bcp47)}` : '';
+                      return (
+                        <option key={num} value={num}>
+                          {num}
+                          {maxLabel}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <section className="pf-dam-section" aria-label={t('damChartHeading')}>
+              <DamChartPanel
+                variant="embedded"
+                inverterSn={essSel.provider === 'deye' ? selInverterSn || undefined : undefined}
+                huaweiStationCode={
+                  essSel.provider === 'huawei' && huaweiListReady && !huaweiRows.error
+                    ? selHuaweiStationCode || undefined
+                    : undefined
+                }
+                evPortsAcdc={selEvPortsAcdc || undefined}
+                liveEvPortsPowerW={
+                  selEvPortsAcdc && evPortsLive.powerW != null ? Number(evPortsLive.powerW) : undefined
+                }
+                t={t}
+                getBcp47Locale={getBcp47Locale}
+                chartHeight={320}
               />
-              <span className="pf-ukraine-qr-caption">{t('qrCaption')}</span>
-            </a>
-          </aside>
+            </section>
 
-          {pageRestHydrationPending ? (
-            <div className="pf-page-rest-pending-overlay" aria-hidden="true">
-              <div className="pf-page-rest-pending-loader">
+            <div className="pf-post-charts-bar">
+              <div className="pf-roi-bar">
+                <RoiStackStatistics
+                  t={t}
+                  bcp47={bcp47}
+                  selInverterSn={selInverterSn}
+                  inverterHeaderOk={inverterListReady}
+                  inverterListPending={inverterRows.loading && !inverterRows.error}
+                  pinRequired={remoteWriteConfigured}
+                  cachedPin={cachedWritePin}
+                  pinCacheBust={pinCacheBust}
+                  onPinRemembered={() => setPinCacheBust(x => x + 1)}
+                  onRoiCapexSaved={loadInverters}
+                />
+              </div>
+              {showPowerFlowSections ? (
+                !inverterListReady ? (
+                  <div className="pf-header-discharge-row pf-header-discharge-row--skeleton" aria-busy="true">
+                    <div className="pf-discharge-toolbar pf-discharge-toolbar--combined pf-discharge-toolbar--skeleton">
+                      <div className="pf-discharge-skeleton-rows" aria-hidden>
+                        <div className="pf-discharge-skeleton-row" />
+                        <div className="pf-discharge-skeleton-row" />
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {selHuaweiStationCode ? null : (
+                      <div className="pf-header-discharge-row">
+                        <div className="pf-discharge-toolbar pf-discharge-toolbar--combined">
+                          <div className="pf-deye-command-stack">
+                            <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header pf-deye-command-line">
+                              <div className="pf-discharge-delta-controls">
+                                <span
+                                  className="pf-discharge-go-hover-wrap"
+                                  onMouseEnter={onDischargeGoWrapMouseEnter}
+                                  onMouseLeave={onDischargeGoWrapMouseLeave}
+                                >
+                                  {dischargeHoverTipOpen ? (
+                                    <span
+                                      id="pf-discharge-go-tooltip"
+                                      role="tooltip"
+                                      className="pf-discharge-go-tooltip"
+                                    >
+                                      {dischargeHoverTipText}
+                                    </span>
+                                  ) : null}
+                                  <button
+                                    type="button"
+                                    className="pf-discharge-btn pf-discharge-go-btn"
+                                    onClick={requestDischarge2Pct}
+                                    disabled={
+                                      deyeWritesHardBlocked ||
+                                      toolbarLockedByNightCharge ||
+                                      dischargeGoDisabledInsufficientSoc ||
+                                      (Boolean(selInverterSn.trim()) && !essSocHasKey)
+                                    }
+                                    aria-label={t('dischargeGoAria')}
+                                    aria-describedby={dischargeHoverTipOpen ? 'pf-discharge-go-tooltip' : undefined}
+                                  >
+                                    {t('dischargeGoButton')}
+                                  </button>
+                                </span>
+                                <select
+                                  id="pf-discharge-delta-select"
+                                  className="pf-discharge-delta-select pf-discharge-delta-select--header"
+                                  value={String(dischargeSocDeltaPct)}
+                                  disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
+                                  aria-label={t('dischargeSocDeltaAria')}
+                                  onChange={e => {
+                                    if (!remoteWriteConfigured) {
+                                      setRemoteWriteNeedsPinOpen(true);
+                                      return;
+                                    }
+                                    const n = normalizeDischargeSocDeltaPct(e.target.value);
+                                    const apiPct = peakPrefDischargePctForApi(n);
+                                    const cached = readCachedInverterPin(selInverterSn?.trim() || '');
+                                    if (cached) {
+                                      void (async () => {
+                                        try {
+                                          const data = await savePeakAutoPref(
+                                            peakDamEnabledRef.current,
+                                            apiPct,
+                                            cached
+                                          );
+                                          setDischargeSocDeltaPct(n);
+                                          if (data && typeof data.enabled === 'boolean') {
+                                            setPeakDamDischargeEnabled(data.enabled);
+                                          }
+                                          const p = data?.dischargeSocDeltaPct;
+                                          if (p != null && Number.isFinite(Number(p))) {
+                                            setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
+                                          }
+                                        } catch (err) {
+                                          const m = err instanceof Error ? err.message : String(err);
+                                          setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
+                                        }
+                                      })();
+                                      return;
+                                    }
+                                    if (selInverterEvportBound) {
+                                      void (async () => {
+                                        try {
+                                          const data = await savePeakAutoPref(peakDamEnabledRef.current, apiPct, '');
+                                          setDischargeSocDeltaPct(n);
+                                          if (data && typeof data.enabled === 'boolean') {
+                                            setPeakDamDischargeEnabled(data.enabled);
+                                          }
+                                          const p = data?.dischargeSocDeltaPct;
+                                          if (p != null && Number.isFinite(Number(p))) {
+                                            setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
+                                          }
+                                        } catch (err) {
+                                          const m = err instanceof Error ? err.message : String(err);
+                                          setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
+                                        }
+                                      })();
+                                      return;
+                                    }
+                                    setWritePinGate({ kind: 'peakPct', nextPct: apiPct });
+                                  }}
+                                >
+                                  {DISCHARGE_TARGET_SOC_OPTIONS.map(o => (
+                                    <option key={o} value={o}>
+                                      {t('dischargeTillSocOption', { pct: o })}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              <DelayedHintTooltip hintText={peakDamHintWithTillSoc.hint}>
+                                <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
+                                  <input
+                                    type="checkbox"
+                                    checked={peakDamDischargeEnabled}
+                                    disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
+                                    onChange={async e => {
+                                      if (!remoteWriteConfigured) {
+                                        setRemoteWriteNeedsPinOpen(true);
+                                        return;
+                                      }
+                                      const v = e.target.checked;
+                                      const sn = selInverterSn?.trim();
+                                      if (!sn) return;
+                                      const prev = peakDamDischargeEnabled;
+                                      const prevPct = dischargeSocDeltaPct;
+                                      if (peakPrefSaveTimerRef.current != null) {
+                                        clearTimeout(peakPrefSaveTimerRef.current);
+                                        peakPrefSaveTimerRef.current = null;
+                                      }
+                                      if (chargePrefSaveTimerRef.current != null) {
+                                        clearTimeout(chargePrefSaveTimerRef.current);
+                                        chargePrefSaveTimerRef.current = null;
+                                      }
+                                      const cached = readCachedInverterPin(sn);
+                                      if (cached) {
+                                        setPeakDamDischargeEnabled(v);
+                                        setDischarge2Feedback('');
+                                        try {
+                                          const data = await savePeakAutoPref(
+                                            v,
+                                            peakPrefDischargePctForApi(dischargeSocDeltaPct),
+                                            cached
+                                          );
+                                          if (data && typeof data.enabled === 'boolean') {
+                                            setPeakDamDischargeEnabled(data.enabled);
+                                          }
+                                          const p = data?.dischargeSocDeltaPct;
+                                          if (p != null && Number.isFinite(Number(p))) {
+                                            setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
+                                          }
+                                        } catch (err) {
+                                          setPeakDamDischargeEnabled(prev);
+                                          setDischargeSocDeltaPct(prevPct);
+                                          const m = err instanceof Error ? err.message : String(err);
+                                          setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
+                                        }
+                                        return;
+                                      }
+                                      if (selInverterEvportBound) {
+                                        setPeakDamDischargeEnabled(v);
+                                        setDischarge2Feedback('');
+                                        try {
+                                          const data = await savePeakAutoPref(
+                                            v,
+                                            peakPrefDischargePctForApi(dischargeSocDeltaPct),
+                                            ''
+                                          );
+                                          if (data && typeof data.enabled === 'boolean') {
+                                            setPeakDamDischargeEnabled(data.enabled);
+                                          }
+                                          const p = data?.dischargeSocDeltaPct;
+                                          if (p != null && Number.isFinite(Number(p))) {
+                                            setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
+                                          }
+                                        } catch (err) {
+                                          setPeakDamDischargeEnabled(prev);
+                                          setDischargeSocDeltaPct(prevPct);
+                                          const m = err instanceof Error ? err.message : String(err);
+                                          setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
+                                        }
+                                        return;
+                                      }
+                                      setWritePinGate({
+                                        kind: 'peak',
+                                        nextEnabled: v,
+                                        nextPct: peakPrefDischargePctForApi(dischargeSocDeltaPct),
+                                      });
+                                    }}
+                                    aria-label={peakDamHintWithTillSoc.aria}
+                                  />
+                                  <span className="pf-peak-dam-toggle-label">{t('peakDamDischargeToggle')}</span>
+                                </label>
+                              </DelayedHintTooltip>
+                              <DelayedHintTooltip hintText={selfConsumptionHintWithLcoe.hint}>
+                                <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
+                                  <input
+                                    type="checkbox"
+                                    checked={nightChargeEnabled || selfConsumptionEnabled}
+                                    disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
+                                    onChange={async e => {
+                                      if (!remoteWriteConfigured) {
+                                        setRemoteWriteNeedsPinOpen(true);
+                                        return;
+                                      }
+                                      const v = e.target.checked;
+                                      const sn = selInverterSn?.trim();
+                                      if (!sn) return;
+                                      const prev = selfConsumptionEnabled;
+                                      const cached = readCachedInverterPin(sn);
+                                      if (cached) {
+                                        setSelfConsumptionEnabled(v);
+                                        setDischarge2Feedback('');
+                                        try {
+                                          const data = await saveSelfConsumptionPref(v, cached);
+                                          if (data && typeof data.selfConsumptionEnabled === 'boolean') {
+                                            setSelfConsumptionEnabled(data.selfConsumptionEnabled);
+                                          } else if (data && typeof data.enabled === 'boolean') {
+                                            setSelfConsumptionEnabled(data.enabled);
+                                          }
+                                        } catch (err) {
+                                          setSelfConsumptionEnabled(prev);
+                                          const m = err instanceof Error ? err.message : String(err);
+                                          setDischarge2Feedback(`${t('selfConsumptionSaveError')}: ${m}`);
+                                        }
+                                        return;
+                                      }
+                                      if (selInverterEvportBound) {
+                                        setSelfConsumptionEnabled(v);
+                                        setDischarge2Feedback('');
+                                        try {
+                                          const data = await saveSelfConsumptionPref(v, '');
+                                          if (data && typeof data.selfConsumptionEnabled === 'boolean') {
+                                            setSelfConsumptionEnabled(data.selfConsumptionEnabled);
+                                          } else if (data && typeof data.enabled === 'boolean') {
+                                            setSelfConsumptionEnabled(data.enabled);
+                                          }
+                                        } catch (err) {
+                                          setSelfConsumptionEnabled(prev);
+                                          const m = err instanceof Error ? err.message : String(err);
+                                          setDischarge2Feedback(`${t('selfConsumptionSaveError')}: ${m}`);
+                                        }
+                                        return;
+                                      }
+                                      setWritePinGate({ kind: 'selfConsumption', nextEnabled: v });
+                                    }}
+                                    aria-label={selfConsumptionHintWithLcoe.aria}
+                                  />
+                                  <span className="pf-peak-dam-toggle-label">{t('selfConsumptionToggle')}</span>
+                                </label>
+                              </DelayedHintTooltip>
+                            </div>
+                            <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header pf-deye-command-line pf-deye-command-line--charge">
+                              <div className="pf-discharge-delta-controls">
+                                <button
+                                  type="button"
+                                  className="pf-discharge-btn pf-discharge-go-btn pf-charge-go-btn"
+                                  onClick={requestCharge2Pct}
+                                  disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
+                                  title={t('chargeSoc2Hint')}
+                                  aria-label={t('chargeGoAria')}
+                                >
+                                  {t('chargeGoButton')}
+                                </button>
+                                <select
+                                  id="pf-charge-delta-select"
+                                  className="pf-discharge-delta-select pf-discharge-delta-select--header"
+                                  value={chargeSocDeltaPct}
+                                  disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
+                                  aria-label={t('chargeSocDeltaAria')}
+                                  onChange={e => {
+                                    if (!remoteWriteConfigured) {
+                                      setRemoteWriteNeedsPinOpen(true);
+                                      return;
+                                    }
+                                    const n = normalizeChargeSocDeltaPct(e.target.value);
+                                    const cached = readCachedInverterPin(selInverterSn?.trim() || '');
+                                    if (cached) {
+                                      void (async () => {
+                                        try {
+                                          const data = await saveLowDamChargePref(lowDamEnabledRef.current, n, cached);
+                                          setChargeSocDeltaPct(n);
+                                          if (data && typeof data.enabled === 'boolean') {
+                                            setLowDamChargeEnabled(data.enabled);
+                                          }
+                                          const p = data?.chargeSocDeltaPct;
+                                          if (p != null && Number.isFinite(Number(p))) {
+                                            setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
+                                          }
+                                        } catch (err) {
+                                          const m = err instanceof Error ? err.message : String(err);
+                                          setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
+                                        }
+                                      })();
+                                      return;
+                                    }
+                                    if (selInverterEvportBound) {
+                                      void (async () => {
+                                        try {
+                                          const data = await saveLowDamChargePref(lowDamEnabledRef.current, n, '');
+                                          setChargeSocDeltaPct(n);
+                                          if (data && typeof data.enabled === 'boolean') {
+                                            setLowDamChargeEnabled(data.enabled);
+                                          }
+                                          const p = data?.chargeSocDeltaPct;
+                                          if (p != null && Number.isFinite(Number(p))) {
+                                            setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
+                                          }
+                                        } catch (err) {
+                                          const m = err instanceof Error ? err.message : String(err);
+                                          setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
+                                        }
+                                      })();
+                                      return;
+                                    }
+                                    setWritePinGate({ kind: 'lowPct', nextPct: n });
+                                  }}
+                                >
+                                  {CHARGE_SOC_DELTA_OPTIONS.map(o => (
+                                    <option key={o} value={o}>
+                                      {t('chargeSocDeltaValue', { pct: o })}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
+                                <input
+                                  type="checkbox"
+                                  checked={lowDamChargeEnabled}
+                                  disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
+                                  onChange={async e => {
+                                    if (!remoteWriteConfigured) {
+                                      setRemoteWriteNeedsPinOpen(true);
+                                      return;
+                                    }
+                                    const v = e.target.checked;
+                                    const sn = selInverterSn?.trim();
+                                    if (!sn) return;
+                                    const prev = lowDamChargeEnabled;
+                                    const prevPct = chargeSocDeltaPct;
+                                    if (peakPrefSaveTimerRef.current != null) {
+                                      clearTimeout(peakPrefSaveTimerRef.current);
+                                      peakPrefSaveTimerRef.current = null;
+                                    }
+                                    if (chargePrefSaveTimerRef.current != null) {
+                                      clearTimeout(chargePrefSaveTimerRef.current);
+                                      chargePrefSaveTimerRef.current = null;
+                                    }
+                                    const cached = readCachedInverterPin(sn);
+                                    if (cached) {
+                                      setLowDamChargeEnabled(v);
+                                      setDischarge2Feedback('');
+                                      try {
+                                        const data = await saveLowDamChargePref(v, chargeSocDeltaPct, cached);
+                                        if (data && typeof data.enabled === 'boolean') {
+                                          setLowDamChargeEnabled(data.enabled);
+                                        }
+                                        const p = data?.chargeSocDeltaPct;
+                                        if (p != null && Number.isFinite(Number(p))) {
+                                          setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
+                                        }
+                                      } catch (err) {
+                                        setLowDamChargeEnabled(prev);
+                                        setChargeSocDeltaPct(prevPct);
+                                        const m = err instanceof Error ? err.message : String(err);
+                                        setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
+                                      }
+                                      return;
+                                    }
+                                    if (selInverterEvportBound) {
+                                      setLowDamChargeEnabled(v);
+                                      setDischarge2Feedback('');
+                                      try {
+                                        const data = await saveLowDamChargePref(v, chargeSocDeltaPct, '');
+                                        if (data && typeof data.enabled === 'boolean') {
+                                          setLowDamChargeEnabled(data.enabled);
+                                        }
+                                        const p = data?.chargeSocDeltaPct;
+                                        if (p != null && Number.isFinite(Number(p))) {
+                                          setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
+                                        }
+                                      } catch (err) {
+                                        setLowDamChargeEnabled(prev);
+                                        setChargeSocDeltaPct(prevPct);
+                                        const m = err instanceof Error ? err.message : String(err);
+                                        setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
+                                      }
+                                      return;
+                                    }
+                                    setWritePinGate({
+                                      kind: 'low',
+                                      nextEnabled: v,
+                                      nextPct: chargeSocDeltaPct,
+                                    });
+                                  }}
+                                  aria-label={t('lowDamChargeToggleAria')}
+                                />
+                                <span className="pf-peak-dam-toggle-label" title={t('lowDamChargeToggleHint')}>
+                                  {t('lowDamChargeToggle')}
+                                </span>
+                              </label>
+                              <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
+                                <input
+                                  type="checkbox"
+                                  checked={nightChargeEnabled}
+                                  disabled={deyeWritesHardBlocked}
+                                  onChange={async e => {
+                                    if (!remoteWriteConfigured) {
+                                      setRemoteWriteNeedsPinOpen(true);
+                                      return;
+                                    }
+                                    const v = e.target.checked;
+                                    const sn = selInverterSn?.trim();
+                                    if (!sn) return;
+                                    const prevNight = nightChargeEnabled;
+                                    const prevPeak = peakDamDischargeEnabled;
+                                    const prevLow = lowDamChargeEnabled;
+                                    const prevSc = selfConsumptionEnabled;
+                                    const prevChargePct = chargeSocDeltaPct;
+                                    if (peakPrefSaveTimerRef.current != null) {
+                                      clearTimeout(peakPrefSaveTimerRef.current);
+                                      peakPrefSaveTimerRef.current = null;
+                                    }
+                                    if (chargePrefSaveTimerRef.current != null) {
+                                      clearTimeout(chargePrefSaveTimerRef.current);
+                                      chargePrefSaveTimerRef.current = null;
+                                    }
+                                    const cached = readCachedInverterPin(sn);
+                                    const pct = chargeSocDeltaPct;
+                                    if (cached) {
+                                      setNightChargeEnabled(v);
+                                      if (v) {
+                                        setPeakDamDischargeEnabled(false);
+                                        setLowDamChargeEnabled(false);
+                                        setSelfConsumptionEnabled(true);
+                                      }
+                                      setDischarge2Feedback('');
+                                      try {
+                                        const data = await saveNightChargePref(v, pct, cached);
+                                        applyNightChargeToolbarSnap(data);
+                                      } catch (err) {
+                                        setNightChargeEnabled(prevNight);
+                                        setPeakDamDischargeEnabled(prevPeak);
+                                        setLowDamChargeEnabled(prevLow);
+                                        setSelfConsumptionEnabled(prevSc);
+                                        setChargeSocDeltaPct(prevChargePct);
+                                        const m = err instanceof Error ? err.message : String(err);
+                                        setDischarge2Feedback(`${t('nightChargeSaveError')}: ${m}`);
+                                      }
+                                      return;
+                                    }
+                                    if (selInverterEvportBound) {
+                                      setNightChargeEnabled(v);
+                                      if (v) {
+                                        setPeakDamDischargeEnabled(false);
+                                        setLowDamChargeEnabled(false);
+                                        setSelfConsumptionEnabled(true);
+                                      }
+                                      setDischarge2Feedback('');
+                                      try {
+                                        const data = await saveNightChargePref(v, pct, '');
+                                        applyNightChargeToolbarSnap(data);
+                                      } catch (err) {
+                                        setNightChargeEnabled(prevNight);
+                                        setPeakDamDischargeEnabled(prevPeak);
+                                        setLowDamChargeEnabled(prevLow);
+                                        setSelfConsumptionEnabled(prevSc);
+                                        setChargeSocDeltaPct(prevChargePct);
+                                        const m = err instanceof Error ? err.message : String(err);
+                                        setDischarge2Feedback(`${t('nightChargeSaveError')}: ${m}`);
+                                      }
+                                      return;
+                                    }
+                                    setWritePinGate({
+                                      kind: 'nightCharge',
+                                      nextEnabled: v,
+                                      nextPct: pct,
+                                    });
+                                  }}
+                                  aria-label={t('nightChargeToggleAria')}
+                                />
+                                <span className="pf-peak-dam-toggle-label" title={t('nightChargeToggleHint')}>
+                                  {t('nightChargeToggle')}
+                                </span>
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )
+              ) : null}
+            </div>
+
+            {dischargeFeedbackText ? (
+              <div className="pf-discharge-feedback" role="status">
+                <p>{dischargeFeedbackText}</p>
+              </div>
+            ) : null}
+
+            <aside className="pf-ukraine-qr" aria-label={t('qrAsideAria')}>
+              <a className="pf-ukraine-qr-link" href={QR_SUPPORT_URL} target="_blank" rel="noopener noreferrer">
                 <img
-                  className="pf-page-rest-pending-loader__logo"
-                  src={`${qrBase}/static/open-ems-220-logo.svg`}
-                  alt=""
+                  className="pf-ukraine-qr-img"
+                  src={`${qrBase}/static/power-flow/protect-ukraine-qr.png`}
                   width={120}
                   height={120}
+                  alt={t('qrImageAlt')}
                   decoding="async"
                 />
+                <span className="pf-ukraine-qr-caption">{t('qrCaption')}</span>
+              </a>
+            </aside>
+
+            {pageRestHydrationPending ? (
+              <div className="pf-page-rest-pending-overlay" aria-hidden="true">
+                <div className="pf-page-rest-pending-loader">
+                  <img
+                    className="pf-page-rest-pending-loader__logo"
+                    src={`${qrBase}/static/open-ems-220-logo.svg`}
+                    alt=""
+                    width={120}
+                    height={120}
+                    decoding="async"
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            <section
+              className="pf-rdn-callback-section pf-rdn-callback-section--page-end"
+              aria-label={t('rdnCallbackSectionAria')}
+            >
+              <RdnConsultationCallback t={t} />
+            </section>
+          </div>
+
+          {nodePopup ? (
+            <div className="pf-modal-backdrop pf-node-popup-backdrop" role="presentation" onClick={closeNodePopup}>
+              <div
+                className="pf-modal pf-node-popup-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-label={nodePopup.title || 'Node details'}
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="pf-node pf-node-popup-tile" dangerouslySetInnerHTML={{ __html: nodePopup.html }} />
+                {nodePopup.actionHref ? (
+                  <a
+                    className="pf-modal-btn pf-modal-btn--primary pf-node-popup-link"
+                    href={nodePopup.actionHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {nodePopup.actionLabel || nodePopup.actionHref}
+                  </a>
+                ) : null}
               </div>
             </div>
           ) : null}
 
-          <section
-            className="pf-rdn-callback-section pf-rdn-callback-section--page-end"
-            aria-label={t('rdnCallbackSectionAria')}
-          >
-            <RdnConsultationCallback t={t} />
-          </section>
-        </div>
-
-        {nodePopup ? (
-          <div className="pf-modal-backdrop pf-node-popup-backdrop" role="presentation" onClick={closeNodePopup}>
-            <div
-              className="pf-modal pf-node-popup-modal"
-              role="dialog"
-              aria-modal="true"
-              aria-label={nodePopup.title || 'Node details'}
-              onClick={e => e.stopPropagation()}
-            >
-              <div className="pf-node pf-node-popup-tile" dangerouslySetInnerHTML={{ __html: nodePopup.html }} />
-              {nodePopup.actionHref ? (
-                <a
-                  className="pf-modal-btn pf-modal-btn--primary pf-node-popup-link"
-                  href={nodePopup.actionHref}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  {nodePopup.actionLabel || nodePopup.actionHref}
-                </a>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
-
-        {dischargeConfirmOpen && essSocPercent != null && Number.isFinite(Number(essSocPercent)) ? (
-          <div className="pf-modal-backdrop" role="presentation" onClick={cancelDischargeConfirm}>
-            <div
-              className="pf-modal"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="pf-discharge-confirm-title"
-              onClick={e => e.stopPropagation()}
-            >
-              <p id="pf-discharge-confirm-title" className="pf-modal-message">
-                {t('dischargeConfirmMessage', {
-                  from: inverterSocFmt.format(Number(essSocPercent)),
-                  to: inverterSocFmt.format(Math.round(Number(dischargeSocDeltaPct))),
-                })}
-              </p>
-              {selInverterPinRequired && !cachedWritePin ? (
-                <div className="pf-modal-pin-row">
-                  <label htmlFor="pf-discharge-confirm-pin" className="pf-modal-pin-label">
-                    {t('deyeWritePinLabel')}
-                  </label>
-                  <input
-                    id="pf-discharge-confirm-pin"
-                    type="password"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    className="pf-modal-pin-input"
-                    value={dischargeConfirmPin}
-                    onChange={e => setDischargeConfirmPin(e.target.value)}
-                    aria-label={t('deyeWritePinLabel')}
-                  />
-                </div>
-              ) : null}
-              <div className="pf-modal-actions">
-                <button type="button" className="pf-modal-btn pf-modal-btn--secondary" onClick={cancelDischargeConfirm}>
-                  {t('dischargeConfirmCancel')}
-                </button>
-                <button
-                  type="button"
-                  className="pf-modal-btn pf-modal-btn--primary"
-                  onClick={confirmDischargeFromModal}
-                >
-                  {t('dischargeConfirmOk')}
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        {chargeConfirmOpen && essSocPercent != null && Number.isFinite(Number(essSocPercent)) ? (
-          <div className="pf-modal-backdrop" role="presentation" onClick={cancelChargeConfirm}>
-            <div
-              className="pf-modal"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="pf-charge-confirm-title"
-              onClick={e => e.stopPropagation()}
-            >
-              <p id="pf-charge-confirm-title" className="pf-modal-message">
-                {t('chargeConfirmMessage', {
-                  from: inverterSocFmt.format(Number(essSocPercent)),
-                  to: inverterSocFmt.format(Math.min(100, Number(essSocPercent) + chargeSocDeltaPct)),
-                })}
-              </p>
-              {selInverterPinRequired && !cachedWritePin ? (
-                <div className="pf-modal-pin-row">
-                  <label htmlFor="pf-charge-confirm-pin" className="pf-modal-pin-label">
-                    {t('deyeWritePinLabel')}
-                  </label>
-                  <input
-                    id="pf-charge-confirm-pin"
-                    type="password"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    className="pf-modal-pin-input"
-                    value={chargeConfirmPin}
-                    onChange={e => setChargeConfirmPin(e.target.value)}
-                    aria-label={t('deyeWritePinLabel')}
-                  />
-                </div>
-              ) : null}
-              <div className="pf-modal-actions">
-                <button type="button" className="pf-modal-btn pf-modal-btn--secondary" onClick={cancelChargeConfirm}>
-                  {t('chargeConfirmCancel')}
-                </button>
-                <button
-                  type="button"
-                  className="pf-modal-btn pf-modal-btn--primary pf-modal-btn--charge"
-                  onClick={confirmChargeFromModal}
-                >
-                  {t('chargeConfirmOk')}
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        {remoteWriteNeedsPinOpen ? (
-          <div className="pf-modal-backdrop" role="presentation" onClick={closeRemoteWriteNeedsPinModal}>
-            <div
-              className="pf-modal pf-modal--remote-write-needs-pin"
-              role="alertdialog"
-              aria-modal="true"
-              aria-labelledby="pf-remote-write-needs-pin-title"
-              onClick={e => e.stopPropagation()}
-            >
-              <p id="pf-remote-write-needs-pin-title" className="pf-modal-message pf-modal-message--multiline">
-                {t('deyeRemoteWriteNeedsPin')}
-              </p>
-              <div className="pf-modal-actions">
-                <button
-                  type="button"
-                  className="pf-modal-btn pf-modal-btn--primary"
-                  onClick={closeRemoteWriteNeedsPinModal}
-                >
-                  {t('deyeRemoteWriteNeedsPinOk')}
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        {writePinGate ? (
-          <div className="pf-modal-backdrop" role="presentation" onClick={cancelWritePinGate}>
-            <div
-              className="pf-modal"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="pf-write-pin-title"
-              onClick={e => e.stopPropagation()}
-            >
-              <p id="pf-write-pin-title" className="pf-modal-message">
-                {writePinGate.kind === 'peak'
-                  ? t('deyeWritePinTitlePeak')
-                  : writePinGate.kind === 'low'
-                    ? t('deyeWritePinTitleLow')
-                    : writePinGate.kind === 'peakPct'
-                      ? t('deyeWritePinTitlePeakPct')
-                      : writePinGate.kind === 'lowPct'
-                        ? t('deyeWritePinTitleLowPct')
-                        : writePinGate.kind === 'selfConsumption'
-                          ? t('deyeWritePinTitleSelfConsumption')
-                          : writePinGate.kind === 'nightCharge'
-                            ? t('deyeWritePinTitleNightCharge')
-                            : t('deyeWritePinTitleLowPct')}
-              </p>
-              <div className="pf-modal-pin-row">
-                <label htmlFor="pf-write-pin-input" className="pf-modal-pin-label">
-                  {t('deyeWritePinLabel')}
-                </label>
-                <input
-                  id="pf-write-pin-input"
-                  type="password"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  className="pf-modal-pin-input"
-                  value={writePinValue}
-                  onChange={e => setWritePinValue(e.target.value)}
-                  aria-label={t('deyeWritePinLabel')}
-                />
-              </div>
-              {writePinError ? (
-                <p className="pf-modal-pin-error" role="alert">
-                  {writePinError}
+          {dischargeConfirmOpen && essSocPercent != null && Number.isFinite(Number(essSocPercent)) ? (
+            <div className="pf-modal-backdrop" role="presentation" onClick={cancelDischargeConfirm}>
+              <div
+                className="pf-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="pf-discharge-confirm-title"
+                onClick={e => e.stopPropagation()}
+              >
+                <p id="pf-discharge-confirm-title" className="pf-modal-message">
+                  {t('dischargeConfirmMessage', {
+                    from: inverterSocFmt.format(Number(essSocPercent)),
+                    to: inverterSocFmt.format(Math.round(Number(dischargeSocDeltaPct))),
+                  })}
                 </p>
-              ) : null}
-              <div className="pf-modal-actions">
-                <button type="button" className="pf-modal-btn pf-modal-btn--secondary" onClick={cancelWritePinGate}>
-                  {t('dischargeConfirmCancel')}
-                </button>
-                <button
-                  type="button"
-                  className="pf-modal-btn pf-modal-btn--primary"
-                  onClick={() => void submitWritePinGate()}
-                >
-                  {t('deyeWritePinConfirm')}
-                </button>
+                {selInverterPinRequired && !cachedWritePin ? (
+                  <div className="pf-modal-pin-row">
+                    <label htmlFor="pf-discharge-confirm-pin" className="pf-modal-pin-label">
+                      {t('deyeWritePinLabel')}
+                    </label>
+                    <input
+                      id="pf-discharge-confirm-pin"
+                      type="password"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      className="pf-modal-pin-input"
+                      value={dischargeConfirmPin}
+                      onChange={e => setDischargeConfirmPin(e.target.value)}
+                      aria-label={t('deyeWritePinLabel')}
+                    />
+                  </div>
+                ) : null}
+                <div className="pf-modal-actions">
+                  <button
+                    type="button"
+                    className="pf-modal-btn pf-modal-btn--secondary"
+                    onClick={cancelDischargeConfirm}
+                  >
+                    {t('dischargeConfirmCancel')}
+                  </button>
+                  <button
+                    type="button"
+                    className="pf-modal-btn pf-modal-btn--primary"
+                    onClick={confirmDischargeFromModal}
+                  >
+                    {t('dischargeConfirmOk')}
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        ) : null}
+          ) : null}
 
-        {deyeCommandModal ? (
-          <div
-            className="pf-modal-backdrop"
-            role="presentation"
-            onClick={deyeCommandModal.phase === 'result' ? closeDeyeCommandModal : undefined}
-          >
-            <div
-              className="pf-modal pf-modal--deye-command"
-              role="dialog"
-              aria-modal="true"
-              aria-busy={deyeCommandModal.phase === 'loading' ? 'true' : 'false'}
-              aria-labelledby={
-                deyeCommandModal.phase === 'loading' ? 'pf-deye-command-loading-title' : 'pf-deye-command-result-title'
-              }
-              onClick={e => e.stopPropagation()}
-            >
-              {deyeCommandModal.phase === 'loading' ? (
-                <>
-                  <div className="pf-modal-loading" aria-live="polite">
-                    <div className="pf-modal-spinner" aria-hidden="true" />
-                    <p id="pf-deye-command-loading-title" className="pf-modal-message">
-                      {t('deyeCommandWaiting')}
-                    </p>
+          {chargeConfirmOpen && essSocPercent != null && Number.isFinite(Number(essSocPercent)) ? (
+            <div className="pf-modal-backdrop" role="presentation" onClick={cancelChargeConfirm}>
+              <div
+                className="pf-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="pf-charge-confirm-title"
+                onClick={e => e.stopPropagation()}
+              >
+                <p id="pf-charge-confirm-title" className="pf-modal-message">
+                  {t('chargeConfirmMessage', {
+                    from: inverterSocFmt.format(Number(essSocPercent)),
+                    to: inverterSocFmt.format(Math.min(100, Number(essSocPercent) + chargeSocDeltaPct)),
+                  })}
+                </p>
+                {selInverterPinRequired && !cachedWritePin ? (
+                  <div className="pf-modal-pin-row">
+                    <label htmlFor="pf-charge-confirm-pin" className="pf-modal-pin-label">
+                      {t('deyeWritePinLabel')}
+                    </label>
+                    <input
+                      id="pf-charge-confirm-pin"
+                      type="password"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      className="pf-modal-pin-input"
+                      value={chargeConfirmPin}
+                      onChange={e => setChargeConfirmPin(e.target.value)}
+                      aria-label={t('deyeWritePinLabel')}
+                    />
                   </div>
-                </>
-              ) : (
-                <>
-                  <p
-                    id="pf-deye-command-result-title"
-                    className={`pf-modal-message pf-modal-message--multiline${
-                      deyeCommandModal.ok ? '' : ' pf-modal-message--error'
-                    }`}
+                ) : null}
+                <div className="pf-modal-actions">
+                  <button type="button" className="pf-modal-btn pf-modal-btn--secondary" onClick={cancelChargeConfirm}>
+                    {t('chargeConfirmCancel')}
+                  </button>
+                  <button
+                    type="button"
+                    className="pf-modal-btn pf-modal-btn--primary pf-modal-btn--charge"
+                    onClick={confirmChargeFromModal}
                   >
-                    {deyeCommandModal.message}
-                  </p>
-                  <div className="pf-modal-actions">
-                    <button
-                      type="button"
-                      className="pf-modal-btn pf-modal-btn--primary"
-                      onClick={closeDeyeCommandModal}
-                    >
-                      {t('deyeCommandResultClose')}
-                    </button>
-                  </div>
-                </>
-              )}
+                    {t('chargeConfirmOk')}
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
-        ) : null}
+          ) : null}
+
+          {remoteWriteNeedsPinOpen ? (
+            <div className="pf-modal-backdrop" role="presentation" onClick={closeRemoteWriteNeedsPinModal}>
+              <div
+                className="pf-modal pf-modal--remote-write-needs-pin"
+                role="alertdialog"
+                aria-modal="true"
+                aria-labelledby="pf-remote-write-needs-pin-title"
+                onClick={e => e.stopPropagation()}
+              >
+                <p id="pf-remote-write-needs-pin-title" className="pf-modal-message pf-modal-message--multiline">
+                  {t('deyeRemoteWriteNeedsPin')}
+                </p>
+                <div className="pf-modal-actions">
+                  <button
+                    type="button"
+                    className="pf-modal-btn pf-modal-btn--primary"
+                    onClick={closeRemoteWriteNeedsPinModal}
+                  >
+                    {t('deyeRemoteWriteNeedsPinOk')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {writePinGate ? (
+            <div className="pf-modal-backdrop" role="presentation" onClick={cancelWritePinGate}>
+              <div
+                className="pf-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="pf-write-pin-title"
+                onClick={e => e.stopPropagation()}
+              >
+                <p id="pf-write-pin-title" className="pf-modal-message">
+                  {writePinGate.kind === 'peak'
+                    ? t('deyeWritePinTitlePeak')
+                    : writePinGate.kind === 'low'
+                      ? t('deyeWritePinTitleLow')
+                      : writePinGate.kind === 'peakPct'
+                        ? t('deyeWritePinTitlePeakPct')
+                        : writePinGate.kind === 'lowPct'
+                          ? t('deyeWritePinTitleLowPct')
+                          : writePinGate.kind === 'selfConsumption'
+                            ? t('deyeWritePinTitleSelfConsumption')
+                            : writePinGate.kind === 'nightCharge'
+                              ? t('deyeWritePinTitleNightCharge')
+                              : t('deyeWritePinTitleLowPct')}
+                </p>
+                <div className="pf-modal-pin-row">
+                  <label htmlFor="pf-write-pin-input" className="pf-modal-pin-label">
+                    {t('deyeWritePinLabel')}
+                  </label>
+                  <input
+                    id="pf-write-pin-input"
+                    type="password"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    className="pf-modal-pin-input"
+                    value={writePinValue}
+                    onChange={e => setWritePinValue(e.target.value)}
+                    aria-label={t('deyeWritePinLabel')}
+                  />
+                </div>
+                {writePinError ? (
+                  <p className="pf-modal-pin-error" role="alert">
+                    {writePinError}
+                  </p>
+                ) : null}
+                <div className="pf-modal-actions">
+                  <button type="button" className="pf-modal-btn pf-modal-btn--secondary" onClick={cancelWritePinGate}>
+                    {t('dischargeConfirmCancel')}
+                  </button>
+                  <button
+                    type="button"
+                    className="pf-modal-btn pf-modal-btn--primary"
+                    onClick={() => void submitWritePinGate()}
+                  >
+                    {t('deyeWritePinConfirm')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {deyeCommandModal ? (
+            <div
+              className="pf-modal-backdrop"
+              role="presentation"
+              onClick={deyeCommandModal.phase === 'result' ? closeDeyeCommandModal : undefined}
+            >
+              <div
+                className="pf-modal pf-modal--deye-command"
+                role="dialog"
+                aria-modal="true"
+                aria-busy={deyeCommandModal.phase === 'loading' ? 'true' : 'false'}
+                aria-labelledby={
+                  deyeCommandModal.phase === 'loading'
+                    ? 'pf-deye-command-loading-title'
+                    : 'pf-deye-command-result-title'
+                }
+                onClick={e => e.stopPropagation()}
+              >
+                {deyeCommandModal.phase === 'loading' ? (
+                  <>
+                    <div className="pf-modal-loading" aria-live="polite">
+                      <div className="pf-modal-spinner" aria-hidden="true" />
+                      <p id="pf-deye-command-loading-title" className="pf-modal-message">
+                        {t('deyeCommandWaiting')}
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p
+                      id="pf-deye-command-result-title"
+                      className={`pf-modal-message pf-modal-message--multiline${
+                        deyeCommandModal.ok ? '' : ' pf-modal-message--error'
+                      }`}
+                    >
+                      {deyeCommandModal.message}
+                    </p>
+                    <div className="pf-modal-actions">
+                      <button
+                        type="button"
+                        className="pf-modal-btn pf-modal-btn--primary"
+                        onClick={closeDeyeCommandModal}
+                      >
+                        {t('deyeCommandResultClose')}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          ) : null}
+        </div>
+        <DeyeInverterMessengerModal open={deyeMessengerOpen} onClose={closeDeyeMessenger} t={t} />
+        <PeakExportHourlyChartModal
+          open={exportHourlyChartOpen}
+          onClose={() => setExportHourlyChartOpen(false)}
+          fetchUrl={peakHourlyChartFetchUrl}
+          chartKind={peakHourlyChartKind}
+          hourlyScope={exportHourlyScope}
+          exportRevenueUah={
+            landingExportMetricOffers.arbitrage && landingExportMetric === LANDING_EXPORT_METRIC.ARBITRAGE
+          }
+          t={t}
+        />
+        <MonthlyRetailTariffChartModal
+          open={monthlyRatesChartOpen}
+          onClose={() => setMonthlyRatesChartOpen(false)}
+          fetchUrl={monthlyRatesChartFetchUrl}
+          bcp47={bcp47}
+          t={t}
+          isDark={isDark}
+        />
+        <GridBalancingChartModal
+          open={gridBalancingChartOpen}
+          onClose={() => setGridBalancingChartOpen(false)}
+          fetchUrl={gridBalancingChartFetchUrl}
+          bcp47={bcp47}
+          t={t}
+          isDark={isDark}
+        />
       </div>
-      <DeyeInverterMessengerModal open={deyeMessengerOpen} onClose={closeDeyeMessenger} t={t} />
-      <PeakExportHourlyChartModal
-        open={exportHourlyChartOpen}
-        onClose={() => setExportHourlyChartOpen(false)}
-        fetchUrl={peakHourlyChartFetchUrl}
-        chartKind={peakHourlyChartKind}
-        hourlyScope={exportHourlyScope}
-        exportRevenueUah={
-          landingExportMetricOffers.arbitrage && landingExportMetric === LANDING_EXPORT_METRIC.ARBITRAGE
-        }
-        t={t}
-      />
-      <MonthlyRetailTariffChartModal
-        open={monthlyRatesChartOpen}
-        onClose={() => setMonthlyRatesChartOpen(false)}
-        fetchUrl={monthlyRatesChartFetchUrl}
-        bcp47={bcp47}
-        t={t}
-        isDark={isDark}
-      />
-      <GridBalancingChartModal
-        open={gridBalancingChartOpen}
-        onClose={() => setGridBalancingChartOpen(false)}
-        fetchUrl={gridBalancingChartFetchUrl}
-        bcp47={bcp47}
-        t={t}
-        isDark={isDark}
-      />
-    </div>
     </KwhCalibrationProvider>
   );
 }

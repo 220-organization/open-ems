@@ -1,21 +1,28 @@
 """Proxy 220-km.com public B2B REST endpoints (avoids browser CORS when using the power-flow page)."""
 
 import logging
-import math
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db import get_db
+from app.ev_port_power_service import (
+    fetch_ev_ports_power_w,
+    get_ev_port_hourly_chart_from_db,
+    run_ev_port_power_snapshot,
+)
 from app.settings import B2B_API_BASE_URL, EV_PORT_DEVICE_CLIENT_UI_ID
 
 logger = logging.getLogger(__name__)
 
 # Public device API (same host as B2B in production): nearest stations + job payload.
 _DEVICE_NEAREST_PATH = "/api/device/v2/station/nearest"
+_DEVICE_STATION_ALL_PATH = "/api/device/v2/station/all"
 _DEVICE_STATION_STATUS_PATH = "/api/device/v2/station/status"
 
 router = APIRouter(prefix="/api/b2b", tags=["b2b-proxy"])
@@ -284,6 +291,80 @@ async def charging_ports(
     items_out.sort(key=_dist_key)
 
     return JSONResponse(content={"ok": True, "items": items_out}, headers=_NO_STORE_CACHE)
+
+
+async def _fetch_ev_ports_power(acdc: str) -> JSONResponse:
+    """Sum live EV charger power (W) from GET /api/device/v2/station/all?acdc=…"""
+    kind = (acdc or "").strip().lower()
+    if kind not in ("dc", "ac"):
+        return JSONResponse(
+            content={"ok": False, "powerW": None, "activeSessions": 0, "detail": "invalid acdc"},
+            headers=_NO_STORE_CACHE,
+            status_code=400,
+        )
+    power_w, sessions = await fetch_ev_ports_power_w(kind)
+    if power_w is None:
+        return JSONResponse(
+            content={
+                "ok": False,
+                "powerW": None,
+                "activeSessions": 0,
+                "detail": "Upstream error",
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    return JSONResponse(
+        content={"ok": True, "powerW": power_w, "activeSessions": sessions, "acdc": kind},
+        headers=_NO_STORE_CACHE,
+    )
+
+
+@router.get("/ev-ports-power")
+async def ev_ports_power(
+    acdc: str = Query(..., min_length=2, max_length=2, description="ac or dc"),
+) -> JSONResponse:
+    """Sum live EV charger power (W) from GET /api/device/v2/station/all?acdc=ac|dc."""
+    return await _fetch_ev_ports_power(acdc)
+
+
+@router.get("/dc-ev-power")
+async def dc_ev_power() -> JSONResponse:
+    """Backward-compatible alias for GET /ev-ports-power?acdc=dc."""
+    return await _fetch_ev_ports_power("dc")
+
+
+@router.get("/ac-ev-power")
+async def ac_ev_power() -> JSONResponse:
+    """Sum live AC EV charger power (W) from GET /api/device/v2/station/all?acdc=ac."""
+    return await _fetch_ev_ports_power("ac")
+
+
+@router.get("/ev-ports-hourly")
+async def ev_ports_hourly(
+    acdc: str = Query(..., min_length=2, max_length=2, description="ac or dc"),
+    date: str = Query(..., min_length=10, max_length=10, description="Kyiv calendar day YYYY-MM-DD"),
+    session: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Hourly grid import kWh for DC or AC EV fleet from ev_port_power_sample (5-min buckets)."""
+    payload = await get_ev_port_hourly_chart_from_db(session, acdc, date)
+    status = 400 if payload.get("reason") in ("invalid_acdc", "bad_date") else 200
+    return JSONResponse(content=payload, headers=_NO_STORE_CACHE, status_code=status)
+
+
+@router.post("/ev-ports-power-snapshot")
+async def ev_ports_power_snapshot(session: AsyncSession = Depends(get_db)) -> JSONResponse:
+    """Run one EV port power DB snapshot (same as the background task)."""
+    try:
+        n = await run_ev_port_power_snapshot(session)
+        await session.commit()
+        return JSONResponse(content={"ok": True, "fleetsUpdated": int(n)}, headers=_NO_STORE_CACHE)
+    except Exception as exc:
+        logger.exception("POST /ev-ports-power-snapshot failed")
+        return JSONResponse(
+            content={"ok": False, "detail": str(exc)[:400]},
+            headers=_NO_STORE_CACHE,
+            status_code=500,
+        )
 
 
 @router.get("/station-status")

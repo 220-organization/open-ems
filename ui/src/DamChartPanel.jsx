@@ -695,6 +695,8 @@ function kyivHourIndexNowForDate(tradeDayIso) {
  * @param {'embedded' | 'fullpage'} variant — fullpage: URL ?date= sync + top nav; embedded: bottom of Power flow only.
  * @param {string} [inverterSn] — Deye serial; when set, overlays mean SoC % per hour (from DB) on the chart.
  * @param {string} [huaweiStationCode] — FusionSolar plant code; grid/PV/load bars from DB (`/api/huawei/station-hourly`). Mutually exclusive with Deye bar data in practice.
+ * @param {'dc' | 'ac'} [evPortsAcdc] — EV fleet (fast/slow chargers); grid import bars from DB (`/api/b2b/ev-ports-hourly`).
+ * @param {number} [liveEvPortsPowerW] — live aggregate EV power (W) for current-hour overlay when DB samples are sparse.
  */
 export default function DamChartPanel({
   t,
@@ -707,6 +709,8 @@ export default function DamChartPanel({
   onLangSelectChange,
   inverterSn: inverterSnProp,
   huaweiStationCode: huaweiStationCodeProp,
+  evPortsAcdc: evPortsAcdcProp,
+  liveEvPortsPowerW,
 }) {
   const { theme, cycleTheme, isDark } = useTheme();
   const { kwhHidden, formatEnergyKwh } = useKwhCalibration();
@@ -799,6 +803,8 @@ export default function DamChartPanel({
   const [eurUahRateLabel, setEurUahRateLabel] = useState(null);
   const [huaweiHourly, setHuaweiHourly] = useState(null);
   const [huaweiSnapshotBusy, setHuaweiSnapshotBusy] = useState(false);
+  const [evPortsHourly, setEvPortsHourly] = useState(null);
+  const [evPortsSnapshotBusy, setEvPortsSnapshotBusy] = useState(false);
   /** 24 clear-sky weights from server (plant GPS); improves lost-solar kWh after SoC ~100%. */
   const [clearSkyWeights, setClearSkyWeights] = useState(null);
   const tradeDayLineInputRef = useRef(null);
@@ -822,8 +828,11 @@ export default function DamChartPanel({
     (variant === 'fullpage' ? urlInverterOnce : '')
   ).trim();
   const effectiveHuaweiStation = (huaweiStationCodeProp && String(huaweiStationCodeProp).trim()) || '';
+  const effectiveEvPortsAcdc =
+    evPortsAcdcProp === 'dc' || evPortsAcdcProp === 'ac' ? evPortsAcdcProp : '';
   const deyeNoExportMode = Boolean(effectiveInverterSn) && DEYE_NO_EXPORT_DEVICE_SNS.has(effectiveInverterSn);
-  const showEnergyBars = Boolean(effectiveInverterSn || effectiveHuaweiStation);
+  const showEnergyBars = Boolean(effectiveInverterSn || effectiveHuaweiStation || effectiveEvPortsAcdc);
+  const showPvLoadBars = Boolean(effectiveInverterSn || effectiveHuaweiStation);
   const showDeyeExtras = Boolean(effectiveInverterSn && !effectiveHuaweiStation);
 
   const damChartMobile = useDamChartMobileLayout();
@@ -1260,6 +1269,30 @@ export default function DamChartPanel({
     };
   }, [effectiveHuaweiStation, tradeDay]);
 
+  useEffect(() => {
+    if (!effectiveEvPortsAcdc) {
+      setEvPortsHourly(null);
+      return undefined;
+    }
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const q = new URLSearchParams({ acdc: effectiveEvPortsAcdc, date: tradeDay });
+        const r = await fetch(apiUrl(`/api/b2b/ev-ports-hourly?${q}`), { cache: 'no-store' });
+        const j = await r.json().catch(() => ({}));
+        if (!cancelled) setEvPortsHourly(j);
+      } catch {
+        if (!cancelled) setEvPortsHourly(null);
+      }
+    };
+    void load();
+    const id = setInterval(load, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [effectiveEvPortsAcdc, tradeDay]);
+
   const runHuaweiPowerSnapshot = useCallback(async () => {
     if (!effectiveHuaweiStation) return;
     setHuaweiSnapshotBusy(true);
@@ -1282,6 +1315,29 @@ export default function DamChartPanel({
       setHuaweiSnapshotBusy(false);
     }
   }, [effectiveHuaweiStation, tradeDay]);
+
+  const runEvPortsPowerSnapshot = useCallback(async () => {
+    if (!effectiveEvPortsAcdc) return;
+    setEvPortsSnapshotBusy(true);
+    try {
+      const r = await fetch(apiUrl('/api/b2b/ev-ports-power-snapshot'), {
+        method: 'POST',
+        cache: 'no-store',
+        headers: { Accept: 'application/json' },
+      });
+      const j = await r.json().catch(() => ({}));
+      if (j?.ok) {
+        const q = new URLSearchParams({ acdc: effectiveEvPortsAcdc, date: tradeDay });
+        const r2 = await fetch(apiUrl(`/api/b2b/ev-ports-hourly?${q}`), { cache: 'no-store' });
+        const j2 = await r2.json().catch(() => ({}));
+        setEvPortsHourly(j2);
+      }
+    } catch {
+      /* keep previous hourly state */
+    } finally {
+      setEvPortsSnapshotBusy(false);
+    }
+  }, [effectiveEvPortsAcdc, tradeDay]);
 
   const rows = useMemo(() => {
     const damArr = getHourlyDamPerKwhFromPayload(payload);
@@ -1426,7 +1482,24 @@ export default function DamChartPanel({
       }
     }
 
-    if (!effectiveHuaweiStation) {
+    if (effectiveEvPortsAcdc && evPortsHourly?.ok && Array.isArray(evPortsHourly.hours)) {
+      const byHour = new Map(evPortsHourly.hours.map(h => [Number(h.hour), h]));
+      for (let i = 0; i < 24; i++) {
+        const hr = byHour.get(i + 1);
+        if (!hr) continue;
+        const gImp = hr.gridImportKwh;
+        if (gImp == null || !Number.isFinite(Number(gImp)) || Number(gImp) === 0) continue;
+        out[i] = {
+          ...out[i],
+          gridKw: Number(gImp),
+          gridKwLive: false,
+          gridKwFromLoad: false,
+          pvLoadLive: false,
+        };
+      }
+    }
+
+    if (!effectiveHuaweiStation && !effectiveEvPortsAcdc) {
       const liveGridKw =
         liveGridPowerW != null && Number.isFinite(Number(liveGridPowerW)) ? Number(liveGridPowerW) / 1000 : null;
       const liveLoadKw =
@@ -1490,6 +1563,22 @@ export default function DamChartPanel({
         }
       }
     }
+
+    if (effectiveEvPortsAcdc && !effectiveHuaweiStation && !effectiveInverterSn) {
+      const hi = kyivHourIndexNowForDate(tradeDay);
+      const liveKw =
+        liveEvPortsPowerW != null && Number.isFinite(Number(liveEvPortsPowerW))
+          ? Number(liveEvPortsPowerW) / 1000
+          : null;
+      if (hi != null && liveKw != null && liveKw > 0) {
+        const hasAnyGrid = out.some(r => r.gridKw != null && Number.isFinite(r.gridKw));
+        const slot = out[hi];
+        const slotEmpty = slot.gridKw == null || !Number.isFinite(slot.gridKw);
+        if (slotEmpty || !hasAnyGrid) {
+          out[hi] = { ...slot, gridKw: liveKw, gridKwLive: true, gridKwFromLoad: false };
+        }
+      }
+    }
     if (deyeNoExportMode) {
       return out.map(slot =>
         slot.gridKw != null && Number.isFinite(slot.gridKw) && slot.gridKw < 0 ? { ...slot, gridKw: 0 } : slot
@@ -1508,8 +1597,11 @@ export default function DamChartPanel({
     liveBatteryPowerW,
     effectiveInverterSn,
     effectiveHuaweiStation,
+    effectiveEvPortsAcdc,
     deyeNoExportMode,
     huaweiHourly,
+    evPortsHourly,
+    liveEvPortsPowerW,
     eurUahRate,
   ]);
 
@@ -1592,9 +1684,9 @@ export default function DamChartPanel({
   }, [rows, lostSolarForecast]);
 
   const damGridWeightedMoneyUah = useMemo(() => {
-    if (!(effectiveInverterSn || effectiveHuaweiStation) || !rows.length) return null;
+    if (!(effectiveInverterSn || effectiveHuaweiStation || effectiveEvPortsAcdc) || !rows.length) return null;
     return computeDamWeightedGridMoneyUah(rows, damMarket, eurUahRate);
-  }, [rows, damMarket, eurUahRate, effectiveInverterSn, effectiveHuaweiStation]);
+  }, [rows, damMarket, eurUahRate, effectiveInverterSn, effectiveHuaweiStation, effectiveEvPortsAcdc]);
 
   const damGridMoneyPartialNote = useMemo(() => {
     if (!damGridWeightedMoneyUah) return false;
@@ -1948,6 +2040,20 @@ export default function DamChartPanel({
             disabled={huaweiSnapshotBusy}
           >
             {huaweiSnapshotBusy ? t('damHuaweiUpdateNowBusy') : t('damHuaweiUpdateNow')}
+          </button>
+        </div>
+      ) : null}
+
+      {effectiveEvPortsAcdc && evPortsHourly?.ok && evPortsHourly.empty ? (
+        <div className="dam-banner dam-banner-info dam-banner--with-action" role="status">
+          <span className="dam-banner__message">{t('damEvPortsDbSamplesHint')}</span>
+          <button
+            type="button"
+            className="dam-banner__btn"
+            onClick={() => void runEvPortsPowerSnapshot()}
+            disabled={evPortsSnapshotBusy}
+          >
+            {evPortsSnapshotBusy ? t('damHuaweiUpdateNowBusy') : t('damHuaweiUpdateNow')}
           </button>
         </div>
       ) : null}
@@ -2520,7 +2626,7 @@ export default function DamChartPanel({
           </details>
         ) : null}
 
-        {hasChart && showEnergyBars ? (
+        {hasChart && showPvLoadBars ? (
           <details
             className={`dam-energy-bars-details dam-pv-load-bars-wrap${loading ? ' dam-chart-content--loading' : ''}`}
             open={pvLoadBarsOpen}

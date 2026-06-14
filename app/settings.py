@@ -265,6 +265,12 @@ HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC: int = _env_int(
     "HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC", 300, 60, 3600
 )
 
+# Persist EV port aggregate power (B2B station/all?acdc=dc|ac) to Postgres — UTC 5-minute buckets.
+EV_PORT_POWER_SNAPSHOT_ENABLED: bool = _env_bool("EV_PORT_POWER_SNAPSHOT_ENABLED", True)
+EV_PORT_POWER_SNAPSHOT_INTERVAL_SEC: int = _env_int(
+    "EV_PORT_POWER_SNAPSHOT_INTERVAL_SEC", 300, 60, 3600
+)
+
 # Persist Huawei station energy KPIs (getKpiStationDay/Month/Year) to Postgres — UI reads from DB.
 HUAWEI_STATION_ENERGY_SNAPSHOT_ENABLED: bool = _env_bool(
     "HUAWEI_STATION_ENERGY_SNAPSHOT_ENABLED", True
