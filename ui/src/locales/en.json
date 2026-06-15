@@ -147,6 +147,7 @@
   "powerFlowLandingMonthlyRatesCounterAria": "{{month}} {{rate}} ₴/kWh",
   "powerFlowLandingMonthlyRatesHint": "Retail tariff for the current Kyiv month: DAM average + distribution + VAT. Click to open monthly history.",
   "powerFlowLandingMonthlyRatesHintDevice": "Retail tariff for this inverter: grid import weighted by hourly DAM (+ distribution + VAT). Click for monthly history.",
+  "powerFlowLandingMonthlyRatesHintEvPorts": "Retail tariff for selected EV chargers: charging power from DB weighted by hourly DAM (+ distribution + VAT). Click for monthly history.",
   "powerFlowLandingMonthlyRatesClickHint": "Click the value above for a monthly bar chart",
   "powerFlowLandingMonthlyRatesMom": "{{delta}} vs {{prevMonth}}",
   "powerFlowLandingMonthlyRatesVsAvgDam": "{{delta}} % vs avg DAM",

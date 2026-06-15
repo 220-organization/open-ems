@@ -147,6 +147,7 @@
   "powerFlowLandingMonthlyRatesCounterAria": "{{month}} {{rate}} ₴/кВт*г",
   "powerFlowLandingMonthlyRatesHint": "Роздрібний тариф за поточний київський місяць: середнє РДН + розподіл + ПДВ. Натисніть, щоб відкрити історію по місяцях.",
   "powerFlowLandingMonthlyRatesHintDevice": "Тариф для цього інвертора: імпорт з мережі зважено по погодинному РДН (+ розподіл + ПДВ). Натисніть для історії по місяцях.",
+  "powerFlowLandingMonthlyRatesHintEvPorts": "Тариф для обраних EV-зарядок: потужність зарядки з БД зважено по погодинному РДН (+ розподіл + ПДВ). Натисніть для історії по місяцях.",
   "powerFlowLandingMonthlyRatesClickHint": "Натисніть значення вище — відкриється місячний графік",
   "powerFlowLandingMonthlyRatesMom": "{{delta}} vs {{prevMonth}}",
   "powerFlowLandingMonthlyRatesVsAvgDam": "{{delta}} % vs ser. РДН",

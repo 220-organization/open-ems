@@ -392,8 +392,15 @@ function landingExportMetricFromStoredRaw(raw) {
 function defaultLandingExportMetric() {
   return LANDING_EXPORT_METRIC.GRID_BALANCING;
 }
-function normalizeLandingExportMetricForContext(metric, inverterSn, huaweiStationCode) {
+function normalizeLandingExportMetricForContext(metric, inverterSn, huaweiStationCode, evPortsAcdc) {
   if (!LANDING_EXPORT_METRIC_VALUES.has(metric)) return LANDING_EXPORT_METRIC.GRID_BALANCING;
+  const ev = evPortsAcdc === 'dc' || evPortsAcdc === 'ac' ? evPortsAcdc : '';
+  if (ev) {
+    if (metric !== LANDING_EXPORT_METRIC.MONTHLY_RATES) {
+      return LANDING_EXPORT_METRIC.MONTHLY_RATES;
+    }
+    return metric;
+  }
   const h = String(huaweiStationCode || '').trim();
   if (
     h &&
@@ -411,7 +418,7 @@ function normalizeLandingExportMetricForContext(metric, inverterSn, huaweiStatio
   return metric;
 }
 
-function readLandingExportMetricFromUrl(inverterSn, huaweiStationCode) {
+function readLandingExportMetricFromUrl(inverterSn, huaweiStationCode, evPortsAcdc) {
   try {
     const u = new URLSearchParams(window.location.search);
     let raw = '';
@@ -423,7 +430,7 @@ function readLandingExportMetricFromUrl(inverterSn, huaweiStationCode) {
       }
     }
     if (!raw || !LANDING_EXPORT_METRIC_VALUES.has(raw)) return null;
-    return normalizeLandingExportMetricForContext(raw, inverterSn, huaweiStationCode);
+    return normalizeLandingExportMetricForContext(raw, inverterSn, huaweiStationCode, evPortsAcdc);
   } catch {
     return null;
   }
@@ -469,7 +476,8 @@ function readStoredLandingExportMetric(inverterSn, huaweiStationCode) {
       const metric = normalizeLandingExportMetricForContext(
         landingExportMetricFromStoredRaw(raw),
         inverterSn,
-        huaweiStationCode
+        huaweiStationCode,
+        null
       );
       if (PERSISTED_LANDING_EXPORT_METRICS.has(metric)) {
         return metric;
@@ -599,7 +607,10 @@ function landingMonthlyRatesRetailFromTotals(landingTotals) {
   if (!landingTotals?.ok) return null;
   const dam = landingTotals.dam;
   if (!dam?.configured || !dam.currentMonthStart) return null;
-  const isDeviceScope = landingTotals.exportScope === 'device' || landingTotals.exportScope === 'huawei';
+  const isDeviceScope =
+    landingTotals.exportScope === 'device' ||
+    landingTotals.exportScope === 'huawei' ||
+    landingTotals.exportScope === 'ev_ports';
   let damAvg = dam.currentAvgUahPerKwh;
   const personal = dam.currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd;
   if (isDeviceScope && personal != null && Number.isFinite(Number(personal))) {
@@ -678,16 +689,31 @@ function formatLandingMonthlyRatesMetric(landingTotals, bcp47, t) {
   }
   const [cy, cm] = dam.currentMonthStart.split('-').map(Number);
   const curMonth = formatKyivMonthYearMmYy(cy, cm);
-  const isDeviceScope = landingTotals.exportScope === 'device' || landingTotals.exportScope === 'huawei';
+  const isDeviceScope =
+    landingTotals.exportScope === 'device' ||
+    landingTotals.exportScope === 'huawei' ||
+    landingTotals.exportScope === 'ev_ports';
   let damAvg = dam.currentAvgUahPerKwh;
   const personal = dam.currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd;
   if (isDeviceScope && personal != null && Number.isFinite(Number(personal))) {
     damAvg = Number(personal);
+  } else if (landingTotals.exportScope === 'ev_ports') {
+    return {
+      ...base,
+      monthLabel: curMonth,
+      rateInBox: '—',
+      title: t('powerFlowLandingMonthlyRatesHintEvPorts'),
+      counterAria: t('powerFlowLandingMonthlyRatesHintEvPorts'),
+      monthlyRatesMom: null,
+    };
   }
   const retail = landingRetailUahPerKwh(damAvg);
   const rate = retail != null ? fmtRate.format(retail) : '—';
   const monthlyRatesMom = retail != null ? landingMonthlyRatesMom(dam, retail, bcp47, isDeviceScope) : null;
-  const hintKey = isDeviceScope ? 'powerFlowLandingMonthlyRatesHintDevice' : 'powerFlowLandingMonthlyRatesHint';
+  let hintKey = isDeviceScope ? 'powerFlowLandingMonthlyRatesHintDevice' : 'powerFlowLandingMonthlyRatesHint';
+  if (landingTotals.exportScope === 'ev_ports') {
+    hintKey = 'powerFlowLandingMonthlyRatesHintEvPorts';
+  }
   return {
     ...base,
     monthLabel: curMonth,
@@ -1031,7 +1057,10 @@ function formatLandingTotalsDisplay(landingTotals, bcp47, t) {
     const retailCurrent = landingRetailUahPerKwh(dam.currentAvgUahPerKwh);
     const retailPrev = landingRetailUahPerKwh(dam.prevAvgUahPerKwh);
     const rate = retailCurrent != null ? fmtRate.format(retailCurrent) : '—';
-    const isDeviceScope = landingTotals.exportScope === 'device' || landingTotals.exportScope === 'huawei';
+    const isDeviceScope =
+    landingTotals.exportScope === 'device' ||
+    landingTotals.exportScope === 'huawei' ||
+    landingTotals.exportScope === 'ev_ports';
     const personalDamWavg = dam.currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd;
     let damTariffLine = null;
     if (isDeviceScope && personalDamWavg != null && Number.isFinite(Number(personalDamWavg))) {
@@ -2110,7 +2139,7 @@ export default function PowerFlowPage({
   }, [t, dischargeSocDeltaPct]);
 
   useEffect(() => {
-    const fromUrl = readLandingExportMetricFromUrl(selInverterSn, selHuaweiStationCode);
+    const fromUrl = readLandingExportMetricFromUrl(selInverterSn, selHuaweiStationCode, selEvPortsAcdc);
     if (fromUrl !== null) {
       setLandingExportMetric(fromUrl);
       writeStoredLandingExportMetric(selInverterSn, selHuaweiStationCode, fromUrl);
@@ -2122,8 +2151,10 @@ export default function PowerFlowPage({
       landingExportMetricHydratedRef.current = true;
       return;
     }
-    setLandingExportMetric(prev => normalizeLandingExportMetricForContext(prev, selInverterSn, selHuaweiStationCode));
-  }, [selInverterSn, selHuaweiStationCode]);
+    setLandingExportMetric(prev =>
+      normalizeLandingExportMetricForContext(prev, selInverterSn, selHuaweiStationCode, selEvPortsAcdc)
+    );
+  }, [selInverterSn, selHuaweiStationCode, selEvPortsAcdc]);
 
   /** When user selects another Deye inverter, default the landing counter to total export (unless URL sets ``exportMetric``). */
   useEffect(() => {
@@ -2140,7 +2171,7 @@ export default function PowerFlowPage({
     }
     if (prev === cur) return;
     prevSelInverterSnForMetricRef.current = cur;
-    if (readLandingExportMetricFromUrl(selInverterSn, selHuaweiStationCode) != null) return;
+    if (readLandingExportMetricFromUrl(selInverterSn, selHuaweiStationCode, selEvPortsAcdc) != null) return;
     const gridBalancingConfigured = Boolean(landingTotals?.ok && landingTotals?.gridBalancing?.configured !== false);
     const offers = {
       gridBalancing: gridBalancingConfigured,
@@ -2162,6 +2193,16 @@ export default function PowerFlowPage({
   }, [landingExportMetric]);
 
   const landingExportMetricOffers = useMemo(() => {
+    if (selEvPortsAcdc) {
+      return {
+        gridBalancing: false,
+        peak: false,
+        manual: false,
+        total: false,
+        arbitrage: false,
+        lostSolar: false,
+      };
+    }
     const gridBalancingConfigured = Boolean(landingTotals?.ok && landingTotals?.gridBalancing?.configured !== false);
     return {
       gridBalancing: landingTotalsLoading || !landingTotals?.ok ? true : gridBalancingConfigured,
@@ -2174,7 +2215,7 @@ export default function PowerFlowPage({
         Boolean(selInverterSn?.trim()) &&
         landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.LOST_SOLAR_7D),
     };
-  }, [selHuaweiStationCode, selInverterSn, landingTotals, landingTotalsLoading]);
+  }, [selEvPortsAcdc, selHuaweiStationCode, selInverterSn, landingTotals, landingTotalsLoading]);
 
   useEffect(() => {
     if (landingTotalsLoading || !landingTotals?.ok) return;
@@ -2203,7 +2244,7 @@ export default function PowerFlowPage({
     if (landingExportMetricDefaultedRef.current) return;
     if (landingTotalsLoading || !landingTotals?.ok) return;
     landingExportMetricDefaultedRef.current = true;
-    if (readLandingExportMetricFromUrl(selInverterSn, selHuaweiStationCode) != null) return;
+    if (readLandingExportMetricFromUrl(selInverterSn, selHuaweiStationCode, selEvPortsAcdc) != null) return;
     if (!landingExportMetricOffers.gridBalancing) return;
     if (landingExportMetric !== LANDING_EXPORT_METRIC.MONTHLY_RATES) return;
     setLandingExportMetric(LANDING_EXPORT_METRIC.GRID_BALANCING);
@@ -2246,10 +2287,11 @@ export default function PowerFlowPage({
     const q = new URLSearchParams({ months: '12' });
     const sn = selInverterSn?.trim();
     const hw = selHuaweiStationCode?.trim();
-    if (sn) q.set('deviceSn', sn);
+    if (selEvPortsAcdc) q.set('evPortsAcdc', selEvPortsAcdc);
+    else if (sn) q.set('deviceSn', sn);
     else if (hw) q.set('huaweiStationCode', hw);
     return apiUrl(`/api/power-flow/monthly-retail-tariff-bars?${q}`);
-  }, [selInverterSn, selHuaweiStationCode]);
+  }, [selInverterSn, selHuaweiStationCode, selEvPortsAcdc]);
   const gridBalancingChartFetchUrl = useMemo(() => {
     const q = new URLSearchParams({ months: '12' });
     const sn = selInverterSn?.trim();
@@ -3806,7 +3848,7 @@ export default function PowerFlowPage({
 
   useEffect(() => {
     setLandingTotals(null);
-  }, [selInverterSn, selHuaweiStationCode]);
+  }, [selInverterSn, selHuaweiStationCode, selEvPortsAcdc]);
 
   useEffect(() => {
     if (!inverterListReady) {
@@ -3815,6 +3857,10 @@ export default function PowerFlowPage({
     }
     let cancelled = false;
     const landingTotalsUrl = () => {
+      if (selEvPortsAcdc) {
+        const q = new URLSearchParams({ evPortsAcdc: selEvPortsAcdc });
+        return apiUrl(`/api/power-flow/landing-totals?${q}`);
+      }
       const hw = selHuaweiStationCode.trim();
       if (hw) {
         const q = new URLSearchParams({ huaweiStationCode: hw });
@@ -3854,7 +3900,7 @@ export default function PowerFlowPage({
       cancelled = true;
       clearInterval(id);
     };
-  }, [selInverterSn, selHuaweiStationCode, inverterListReady]);
+  }, [selInverterSn, selHuaweiStationCode, selEvPortsAcdc, inverterListReady]);
 
   const showPowerFlowSections =
     (!inverterRows.error && (inverterRows.loading || inverterRows.configured)) ||
@@ -3991,17 +4037,21 @@ export default function PowerFlowPage({
                   const landingTotalsScopeFleet = landingTotals?.exportScope === 'fleet';
                   const listPending = !inverterListReady;
                   const landingHuaweiEss = Boolean(selHuaweiStationCode);
+                  const landingEvPortsEss = Boolean(selEvPortsAcdc);
                   const landingExportMetricUi = (() => {
                     const m = landingExportMetric;
                     const offers = landingExportMetricOffers;
                     if (
-                      landingHuaweiEss &&
+                      (landingHuaweiEss || landingEvPortsEss) &&
                       (m === LANDING_EXPORT_METRIC.PEAK ||
                         m === LANDING_EXPORT_METRIC.MANUAL ||
                         m === LANDING_EXPORT_METRIC.ARBITRAGE ||
                         m === LANDING_EXPORT_METRIC.LOST_SOLAR_7D)
                     ) {
                       return preferredLandingExportMetric(offers);
+                    }
+                    if (landingEvPortsEss && m === LANDING_EXPORT_METRIC.GRID_BALANCING) {
+                      return LANDING_EXPORT_METRIC.MONTHLY_RATES;
                     }
                     if (landingTotals?.ok && m === LANDING_EXPORT_METRIC.GRID_BALANCING && !offers.gridBalancing) {
                       return LANDING_EXPORT_METRIC.MONTHLY_RATES;
@@ -4036,13 +4086,14 @@ export default function PowerFlowPage({
                       landingExportMetricUi === LANDING_EXPORT_METRIC.ARBITRAGE ||
                       landingExportMetricUi === LANDING_EXPORT_METRIC.LOST_SOLAR_7D);
 
-                  const inverterSelected = Boolean(selInverterSn || selHuaweiStationCode);
+                  const sourceSelected = Boolean(selInverterSn || selHuaweiStationCode || selEvPortsAcdc);
                   const showMonthlyRatesInverterSupplements =
-                    inverterSelected &&
+                    sourceSelected &&
                     inverterListReady &&
                     landingExportMetricUi === LANDING_EXPORT_METRIC.MONTHLY_RATES;
                   const showGridBalancingSupplement =
-                    inverterSelected &&
+                    sourceSelected &&
+                    !landingEvPortsEss &&
                     inverterListReady &&
                     (showMonthlyRatesInverterSupplements ||
                       landingExportMetricUi !== LANDING_EXPORT_METRIC.GRID_BALANCING);
@@ -4187,12 +4238,12 @@ export default function PowerFlowPage({
                               <option value={LANDING_EXPORT_METRIC.MONTHLY_RATES}>
                                 {t('powerFlowLandingExportMetricMonthlyRates')}
                               </option>
-                              {landingHuaweiEss || !landingExportMetricOffers.peak ? null : (
+                              {landingHuaweiEss || landingEvPortsEss || !landingExportMetricOffers.peak ? null : (
                                 <option value={LANDING_EXPORT_METRIC.PEAK}>
                                   {t('powerFlowLandingExportMetricPeak')}
                                 </option>
                               )}
-                              {landingHuaweiEss || !landingExportMetricOffers.manual ? null : (
+                              {landingHuaweiEss || landingEvPortsEss || !landingExportMetricOffers.manual ? null : (
                                 <option value={LANDING_EXPORT_METRIC.MANUAL}>
                                   {t('powerFlowLandingExportMetricManual')}
                                 </option>
@@ -4202,12 +4253,12 @@ export default function PowerFlowPage({
                                   {t('powerFlowLandingExportMetricTotal')}
                                 </option>
                               ) : null}
-                              {landingHuaweiEss || !landingExportMetricOffers.lostSolar ? null : (
+                              {landingHuaweiEss || landingEvPortsEss || !landingExportMetricOffers.lostSolar ? null : (
                                 <option value={LANDING_EXPORT_METRIC.LOST_SOLAR_7D}>
                                   {t('powerFlowLandingExportMetricLostSolar7d')}
                                 </option>
                               )}
-                              {landingHuaweiEss || !landingExportMetricOffers.arbitrage ? null : (
+                              {landingHuaweiEss || landingEvPortsEss || !landingExportMetricOffers.arbitrage ? null : (
                                 <option value={LANDING_EXPORT_METRIC.ARBITRAGE}>
                                   {t('powerFlowLandingExportMetricArbitrage')}
                                 </option>
@@ -4229,7 +4280,11 @@ export default function PowerFlowPage({
                                   <LandingGridBalancingDisplay
                                     display={inverterMetricDisplay}
                                     t={t}
-                                    asButton={!landingHuaweiEss || showGridBalancingChart || showExportHourlyChart}
+                                    asButton={
+                                      !(landingHuaweiEss || landingEvPortsEss) ||
+                                      showGridBalancingChart ||
+                                      showExportHourlyChart
+                                    }
                                     chartAria={t('powerFlowGridBalancingChartOpenAria')}
                                     onChartOpen={() => setGridBalancingChartOpen(true)}
                                   />
@@ -4237,7 +4292,11 @@ export default function PowerFlowPage({
                                   <LandingMonthlyRatesDisplay
                                     display={inverterMetricDisplay}
                                     t={t}
-                                    asButton={!landingHuaweiEss || showMonthlyRatesChart || showExportHourlyChart}
+                                    asButton={
+                                      !(landingHuaweiEss || landingEvPortsEss) ||
+                                      showMonthlyRatesChart ||
+                                      showExportHourlyChart
+                                    }
                                     chartAria={t('powerFlowMonthlyRatesChartOpenAria')}
                                     onChartOpen={() => setMonthlyRatesChartOpen(true)}
                                   />
@@ -4277,7 +4336,7 @@ export default function PowerFlowPage({
                             )}
                           </div>
                         </div>
-                        {inverterSelected ? (
+                        {sourceSelected ? (
                           <>
                             {landingExportMetricUi === LANDING_EXPORT_METRIC.GRID_BALANCING ? (
                               <p className="pf-landing-totals__tariff pf-landing-totals__tariff--monthly-rates-hint">
@@ -4928,7 +4987,7 @@ export default function PowerFlowPage({
                 />
               </div>
               {showPowerFlowSections ? (
-                !inverterListReady ? (
+                !inverterListReady && !selEvPortsAggregate ? (
                   <div className="pf-header-discharge-row pf-header-discharge-row--skeleton" aria-busy="true">
                     <div className="pf-discharge-toolbar pf-discharge-toolbar--combined pf-discharge-toolbar--skeleton">
                       <div className="pf-discharge-skeleton-rows" aria-hidden>
@@ -4939,7 +4998,7 @@ export default function PowerFlowPage({
                   </div>
                 ) : (
                   <>
-                    {selHuaweiStationCode ? null : (
+                    {selHuaweiStationCode || selEvPortsAggregate ? null : (
                       <div className="pf-header-discharge-row">
                         <div className="pf-discharge-toolbar pf-discharge-toolbar--combined">
                           <div className="pf-deye-command-stack">

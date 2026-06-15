@@ -8,10 +8,11 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Optional
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import settings
 from app.huawei_power_service import floor_to_5min_utc
 from app.models import EvPortPowerSample
 from app.oree_dam_service import KYIV
@@ -22,6 +23,11 @@ logger = logging.getLogger(__name__)
 _DEVICE_STATION_ALL_PATH = "/api/device/v2/station/all"
 _KWH_PER_BUCKET_DIVISOR = 12000.0
 _EV_ACDC_VALUES = ("dc", "ac")
+
+
+def normalize_ev_ports_acdc(acdc: str) -> Optional[str]:
+    kind = (acdc or "").strip().lower()
+    return kind if kind in _EV_ACDC_VALUES else None
 
 
 def sum_ev_power_w_from_station_rows(raw: Any) -> tuple[float, int]:
@@ -72,8 +78,46 @@ def _kyiv_day_bounds(trade_day: date) -> tuple[datetime, datetime]:
 
 
 def _normalize_acdc(acdc: str) -> Optional[str]:
-    kind = (acdc or "").strip().lower()
-    return kind if kind in _EV_ACDC_VALUES else None
+    return normalize_ev_ports_acdc(acdc)
+
+
+async def ev_port_import_weighted_dam_kyiv(
+    session: AsyncSession,
+    acdc: str,
+    d0: date,
+    d1: date,
+    *,
+    zone_eic: str,
+) -> tuple[float, Optional[float]]:
+    """Grid import kWh and import-weighted DAM UAH/kWh for one EV fleet (dc|ac) over a Kyiv date range."""
+    from sqlalchemy import text
+
+    kind = normalize_ev_ports_acdc(acdc)
+    if not kind:
+        return 0.0, None
+    sql = """
+        SELECT
+            COALESCE(SUM(s.power_w::double precision / 12000.0), 0)::double precision AS import_kwh,
+            COALESCE(SUM(
+                (s.power_w::double precision / 12000.0) * (p.price_uah_mwh / 1000.0)
+            ), 0)::double precision AS cost_uah
+        FROM ev_port_power_sample s
+        INNER JOIN oree_dam_price p ON p.trade_day = ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date)
+            AND p.zone_eic = :zone
+            AND p.period = (EXTRACT(HOUR FROM (s.bucket_start AT TIME ZONE 'Europe/Kiev'))::int + 1)
+        WHERE s.acdc = :acdc
+          AND s.power_w IS NOT NULL
+          AND s.power_w > 0
+          AND ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date) >= :d0
+          AND ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date) <= :d1
+    """
+    r = await session.execute(text(sql), {"acdc": kind, "zone": zone_eic, "d0": d0, "d1": d1})
+    row = r.one()
+    import_kwh = float(row[0] or 0.0)
+    cost_uah = float(row[1] or 0.0)
+    if import_kwh <= 1e-12:
+        return import_kwh, None
+    return import_kwh, cost_uah / import_kwh
 
 
 async def fetch_ev_ports_power_w(acdc: str) -> tuple[Optional[float], int]:
@@ -214,3 +258,49 @@ async def get_ev_port_hourly_chart_from_db(
     if not rows:
         out["empty"] = True
     return out
+
+
+async def ev_port_import_weighted_dam_kyiv(
+    session: AsyncSession,
+    acdc: str,
+    d0: date,
+    d1: date,
+) -> tuple[float, Optional[float]]:
+    """Grid import kWh and import-weighted DAM UAH/kWh for one EV fleet (dc|ac) over a Kyiv date range."""
+    kind = _normalize_acdc(acdc)
+    if kind is None:
+        return 0.0, None
+    zone = settings.OREE_COMPARE_ZONE_EIC
+    sql = """
+        SELECT
+            COALESCE(SUM(s.power_w::double precision / 12000.0), 0)::double precision AS import_kwh,
+            COALESCE(SUM(
+                (s.power_w::double precision / 12000.0) * (p.price_uah_mwh / 1000.0)
+            ), 0)::double precision AS cost_uah
+        FROM ev_port_power_sample s
+        INNER JOIN oree_dam_price p ON p.trade_day = ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date)
+            AND p.zone_eic = :zone
+            AND p.period = (EXTRACT(HOUR FROM (s.bucket_start AT TIME ZONE 'Europe/Kiev'))::int + 1)
+        WHERE s.acdc = :acdc
+          AND s.power_w IS NOT NULL
+          AND s.power_w > 0
+          AND ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date) >= :d0
+          AND ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date) <= :d1
+    """
+    r = await session.execute(text(sql), {"acdc": kind, "zone": zone, "d0": d0, "d1": d1})
+    row = r.one()
+    import_kwh = float(row[0] or 0.0)
+    cost_uah = float(row[1] or 0.0)
+    if import_kwh <= 1e-12:
+        return import_kwh, None
+    return import_kwh, cost_uah / import_kwh
+
+
+async def ev_port_import_weighted_dam_mtd_kyiv(
+    session: AsyncSession,
+    acdc: str,
+) -> tuple[float, Optional[float]]:
+    """Kyiv MTD import-weighted DAM for one EV fleet."""
+    today = datetime.now(KYIV).date()
+    first = date(today.year, today.month, 1)
+    return await ev_port_import_weighted_dam_kyiv(session, acdc, first, today)

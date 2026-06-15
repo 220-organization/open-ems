@@ -16,6 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.deye_battery_capacity_service import estimate_device_capacity_kwh, fleet_battery_capacity_summary
 from app.deye_api import get_inverter_station_coordinates
+from app.ev_port_power_service import (
+    ev_port_import_weighted_dam_kyiv,
+    ev_port_import_weighted_dam_mtd_kyiv,
+)
 from app.lost_solar_deye import (
     lost_solar_hourly_breakdown_one_kyiv_day,
     sum_lost_solar_all_sample_kyiv_days,
@@ -693,6 +697,7 @@ async def _monthly_retail_tariff_bars(
     *,
     device_sn: Optional[str] = None,
     huawei_station_code: Optional[str] = None,
+    ev_ports_acdc: Optional[str] = None,
 ) -> list[dict[str, Any]]:
     """
     One bar per Kyiv calendar month: retail incl. distribution + VAT.
@@ -707,7 +712,10 @@ async def _monthly_retail_tariff_bars(
     zone = settings.OREE_COMPARE_ZONE_EIC
     sn = (device_sn or "").strip()
     hw = (huawei_station_code or "").strip()
-    device_scope = bool(sn or hw)
+    ev = (ev_ports_acdc or "").strip().lower()
+    if ev not in ("dc", "ac"):
+        ev = ""
+    device_scope = bool(sn or hw or ev)
     n = max(1, min(int(months), 36))
     raw_bars: list[dict[str, Any]] = []
     y, m = today.year, today.month
@@ -727,8 +735,10 @@ async def _monthly_retail_tariff_bars(
         if device_scope:
             if sn:
                 import_kwh, dam_avg = await _deye_import_weighted_dam_kyiv(session, sn, first, end)
-            else:
+            elif hw:
                 import_kwh, dam_avg = await _huawei_import_weighted_dam_kyiv(session, hw, first, end)
+            else:
+                import_kwh, dam_avg = await ev_port_import_weighted_dam_kyiv(session, ev, first, end)
         else:
             dam_avg = await _avg_dam_uah_per_kwh(session, zone, first, end)
         retail = _landing_retail_uah_per_kwh(dam_avg)
@@ -794,6 +804,7 @@ async def _finalize_landing_response(
     *,
     deye_device_sn_for_import_mtd: Optional[str] = None,
     huawei_station_code_for_import_mtd: Optional[str] = None,
+    ev_ports_acdc_for_import_mtd: Optional[str] = None,
 ) -> JSONResponse:
     """Attach Kyiv DAM month comparison and optional per-device import-weighted DAM MTD (Deye or Huawei)."""
     today = _kyiv_today()
@@ -834,6 +845,9 @@ async def _finalize_landing_response(
 
     sn_imp = (deye_device_sn_for_import_mtd or "").strip()
     hw_imp = (huawei_station_code_for_import_mtd or "").strip()
+    ev_imp = (ev_ports_acdc_for_import_mtd or "").strip().lower()
+    if ev_imp not in ("dc", "ac"):
+        ev_imp = ""
     if oree_dam_configured():
         if sn_imp:
             try:
@@ -865,6 +879,21 @@ async def _finalize_landing_response(
                 dam["currentMonthDeviceGridImportKwhMtd"] = None
                 dam["currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd"] = None
                 dam["deviceImportDamDetail"] = "huawei_station_import_dam_failed"
+        elif ev_imp:
+            try:
+                imp_kwh, wavg = await ev_port_import_weighted_dam_mtd_kyiv(session, ev_imp)
+                dam["currentMonthDeviceGridImportKwhMtd"] = imp_kwh
+                dam["currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd"] = wavg
+                prev_imp, prev_wavg = await ev_port_import_weighted_dam_kyiv(
+                    session, ev_imp, prev_start, prev_end
+                )
+                dam["prevMonthDeviceGridImportKwh"] = prev_imp
+                dam["prevMonthDeviceImportWeightedAvgDamUahPerKwh"] = prev_wavg
+            except Exception as exc:
+                logger.exception("landing-totals EV port import weighted DAM: %s", exc)
+                dam["currentMonthDeviceGridImportKwhMtd"] = None
+                dam["currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd"] = None
+                dam["deviceImportDamDetail"] = "ev_port_import_dam_failed"
 
     gb: dict[str, Any] = {"configured": oree_dam_configured()}
     if oree_dam_configured():
@@ -958,6 +987,14 @@ async def landing_totals(
         pattern=r"^[\w\-.=]+$",
         description="Optional Huawei FusionSolar plant code — when set, totals use huawei_power_sample only.",
     ),
+    ev_ports_acdc: Optional[str] = Query(
+        default=None,
+        alias="evPortsAcdc",
+        min_length=2,
+        max_length=2,
+        pattern=r"^(dc|ac)$",
+        description="Optional EV fleet (dc|ac) — monthly rates from ev_port_power_sample import.",
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """
@@ -992,11 +1029,23 @@ async def landing_totals(
     """
     hw = (huawei_station_code or "").strip()
     sn_req = (device_sn or "").strip()
-    if hw and sn_req:
+    ev = (ev_ports_acdc or "").strip().lower()
+    if ev not in ("dc", "ac"):
+        ev = ""
+    scope_count = sum(1 for x in (hw, sn_req, ev) if x)
+    if scope_count > 1:
         return JSONResponse(
             status_code=400,
-            content={"ok": False, "error": "landing_totals_device_sn_and_huawei_mutually_exclusive"},
+            content={"ok": False, "error": "landing_totals_scope_mutually_exclusive"},
             headers=_NO_STORE,
+        )
+
+    if ev:
+        payload_ev: dict[str, Any] = {"ok": True, "exportScope": "ev_ports", "evPortsAcdc": ev}
+        return await _finalize_landing_response(
+            db,
+            payload_ev,
+            ev_ports_acdc_for_import_mtd=ev,
         )
 
     if hw:
@@ -1476,6 +1525,14 @@ async def monthly_retail_tariff_bars(
         pattern=r"^[\w\-.=]+$",
         description="Huawei plant — import-weighted DAM per month from huawei_power_sample.",
     ),
+    ev_ports_acdc: Optional[str] = Query(
+        default=None,
+        alias="evPortsAcdc",
+        min_length=2,
+        max_length=2,
+        pattern=r"^(dc|ac)$",
+        description="EV fleet (dc|ac) — import-weighted DAM per month from ev_port_power_sample.",
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """
@@ -1486,10 +1543,14 @@ async def monthly_retail_tariff_bars(
     """
     sn = (device_sn or "").strip()
     hw = (huawei_station_code or "").strip()
-    if sn and hw:
+    ev = (ev_ports_acdc or "").strip().lower()
+    if ev not in ("dc", "ac"):
+        ev = ""
+    scope_count = sum(1 for x in (sn, hw, ev) if x)
+    if scope_count > 1:
         return JSONResponse(
             status_code=400,
-            content={"ok": False, "error": "device_sn_and_huawei_mutually_exclusive"},
+            content={"ok": False, "error": "scope_mutually_exclusive"},
             headers=_NO_STORE,
         )
     if not oree_dam_configured():
@@ -1505,7 +1566,11 @@ async def monthly_retail_tariff_bars(
         )
     try:
         bars = await _monthly_retail_tariff_bars(
-            db, months=months, device_sn=sn or None, huawei_station_code=hw or None
+            db,
+            months=months,
+            device_sn=sn or None,
+            huawei_station_code=hw or None,
+            ev_ports_acdc=ev or None,
         )
         return JSONResponse(
             content={
@@ -1513,9 +1578,10 @@ async def monthly_retail_tariff_bars(
                 "configured": True,
                 "zoneEic": settings.OREE_COMPARE_ZONE_EIC,
                 "months": len(bars),
-                "scope": "import_weighted_dam" if (sn or hw) else "fleet_dam_avg",
+                "scope": "import_weighted_dam" if (sn or hw or ev) else "fleet_dam_avg",
                 "deviceSn": sn or None,
                 "huaweiStationCode": hw or None,
+                "evPortsAcdc": ev or None,
                 "bars": bars,
             },
             headers=_NO_STORE,
