@@ -116,3 +116,30 @@ def test_pv_prefers_ppv_over_split_channels():
         _row("PPV2", 2100.0),
     ]
     assert _pv_power_watts_from_data_list(dl) == 4200.0
+
+
+def test_load_prefers_total_load_active_over_parallel_plant_total():
+    """Parallel cluster: per-unit TotalLoadActivePower, not ParallelConnectedTotalLoadOutputPower."""
+    dl = [
+        _row("ParallelConnectedTotalLoadOutputPower", 116430.0),
+        _row("TotalLoadActivePower", 30010.0),
+        _row("LoadPhaseAActivePower", 9950.0),
+        _row("LoadPhaseBActivePower", 9700.0),
+        _row("LoadPhaseCActivePower", 10360.0),
+    ]
+    assert _load_power_watts_from_data_list(dl) == 30010.0
+
+
+def test_finalize_keeps_grid_when_load_matches_supply():
+    bat, load_w, pv_w, grid_w, _ = _finalize_live_metrics_for_sn(
+        "2509280353",
+        25937.0,
+        30010.0,
+        4570.0,
+        -110.0,
+        50.0,
+    )
+    assert load_w == 30010.0
+    assert grid_w == -110.0
+    assert bat == 25937.0
+    assert pv_w == 4570.0

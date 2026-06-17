@@ -917,6 +917,43 @@ def _battery_signed_watts_from_data_list(dl: Any) -> Optional[float]:
     return None
 
 
+_LOAD_PLANT_AGGREGATE_OR_META_KEY_FRAGMENTS = (
+    "PARALLEL_",
+    "PCS_",
+    "EXCHANGE",
+    "REACTIVE",
+    "APPARENT",
+    "VOLTAGE",
+    "CURRENT",
+    "FREQUENCY",
+    "CUMULATIVE",
+    "DAILY",
+    "SEQUENCE",
+)
+
+
+def _is_load_plant_aggregate_or_meta_key(k: str) -> bool:
+    """Exclude parallel plant totals and non-power load registers."""
+    if "GRID" in k:
+        return True
+    return any(frag in k for frag in _LOAD_PLANT_AGGREGATE_OR_META_KEY_FRAGMENTS)
+
+
+def _sum_load_phase_active_power_w(by_key: dict[str, float]) -> Optional[float]:
+    phases = [
+        by_key[k]
+        for k in (
+            "LOAD_PHASE_A_ACTIVE_POWER",
+            "LOAD_PHASE_B_ACTIVE_POWER",
+            "LOAD_PHASE_C_ACTIVE_POWER",
+        )
+        if k in by_key
+    ]
+    if len(phases) >= 2:
+        return sum(abs(x) for x in phases)
+    return None
+
+
 def _load_power_watts_from_data_list(dl: Any) -> Optional[float]:
     """
     Home / AC load power in watts (non-negative magnitude), from Deye dataList.
@@ -933,8 +970,6 @@ def _load_power_watts_from_data_list(dl: Any) -> Optional[float]:
             continue
         by_key[k] = w
 
-    candidates: list[float] = []
-
     # Prefer UPS / output load (matches Deye flow graph) before plant-wide consumption totals.
     for ek in (
         "UPS_LOAD_POWER",
@@ -945,6 +980,7 @@ def _load_power_watts_from_data_list(dl: Any) -> Optional[float]:
         "AC_LOAD_POWER",
         "LOAD_ACTIVE_POWER",
         "LOAD_POWER",
+        "TOTAL_LOAD_ACTIVE_POWER",
         "TOTAL_LOAD_POWER",
         "TOTAL_CONSUMPTION_POWER",
         "CONSUMPTION_POWER",
@@ -955,19 +991,26 @@ def _load_power_watts_from_data_list(dl: Any) -> Optional[float]:
         "SMART_LOAD_POWER",
         "PLOAD",
     ):
-        if ek in by_key:
+        if ek in by_key and not _is_load_plant_aggregate_or_meta_key(ek):
             return abs(by_key[ek])
 
+    phase_sum = _sum_load_phase_active_power_w(by_key)
+    if phase_sum is not None:
+        return phase_sum
+
+    candidates: list[float] = []
     for k, w in by_key.items():
-        if "REACTIVE" in k or "APPARENT" in k:
+        if _is_load_plant_aggregate_or_meta_key(k):
             continue
         if "BATTERY" in k or "PV" in k or "SOLAR" in k:
             continue
         if ("LOAD" in k or "CONSUMPTION" in k or "HOUSE" in k or "HOME" in k) and "POWER" in k:
             candidates.append(abs(w))
-    if candidates:
-        return max(candidates)
-    return None
+    if not candidates:
+        return None
+    if len(candidates) >= 2 and max(candidates) > 3.0 * min(candidates):
+        return min(candidates)
+    return max(candidates)
 
 
 def _pv_power_watts_from_data_list(dl: Any) -> Optional[float]:
