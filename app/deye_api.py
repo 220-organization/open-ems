@@ -803,6 +803,63 @@ def _metric_key(raw: Any) -> str:
     return s.strip("_")
 
 
+_PV_RATED_OR_META_KEY_FRAGMENTS = (
+    "RATED",
+    "CAPACITY",
+    "NOMINAL",
+    "INSTALLED",
+    "NAMEPLATE",
+    "DESIGN",
+    "LIMIT",
+    "SN",
+    "VERSION",
+    "CHANNELS",
+    "ONLINE",
+    "OPERATING",
+    "SAFETY",
+    "REGULATION",
+    "SEQUENCE",
+    "FREQUENCY",
+    "FACTOR",
+    "REACTIVE",
+    "APPARENT",
+    "DAILY",
+    "CUMULATIVE",
+    "PCS_",
+    "PARALLEL_",
+    "EXCHANGE",
+    "COUPLED",
+    "STS_",
+    "GENERATION_PHASE",
+    "GENERATOR_",
+)
+
+
+def _is_pv_rated_or_meta_metric_key(k: str) -> bool:
+    """Exclude nameplate / plant-aggregate / non-solar keys from PV power parsing."""
+    if k in ("MPPTSN", "NUMBER_OF_MPPT_CHANNELS", "POWER_FACTOR"):
+        return True
+    return any(frag in k for frag in _PV_RATED_OR_META_KEY_FRAGMENTS)
+
+
+def _is_pv_instantaneous_power_key(k: str) -> bool:
+    if _is_pv_rated_or_meta_metric_key(k):
+        return False
+    if k.startswith("DC_INPUT_POWER"):
+        return True
+    if "POWER" not in k:
+        return False
+    return "PV" in k or "SOLAR" in k or "MPPT" in k or k.startswith("PPV")
+
+
+def _sum_dc_input_power_w(by_key: dict[str, float]) -> Optional[float]:
+    """Sum per-string DC MPPT inputs (commercial 8-channel MPPT loggers)."""
+    parts = [max(0.0, w) for k, w in by_key.items() if k.startswith("DC_INPUT_POWER")]
+    if not parts:
+        return None
+    return sum(parts)
+
+
 def _battery_signed_watts_from_data_list(dl: Any) -> Optional[float]:
     """
     Signed battery power in watts: positive = discharging (from battery), negative = charging.
@@ -927,27 +984,26 @@ def _pv_power_watts_from_data_list(dl: Any) -> Optional[float]:
             continue
         by_key[k] = w
 
-    # Common split channels on Deye firmwares.
-    pv_parts = [by_key[k] for k in ("PPV1", "PPV2", "PV1_POWER", "PV2_POWER") if k in by_key]
+    # Commercial MPPT loggers (e.g. 8-string C&I): TotalSolarPower is instantaneous DC PV.
+    if "TOTAL_SOLAR_POWER" in by_key:
+        return max(0.0, by_key["TOTAL_SOLAR_POWER"])
+
+    # Classic hybrid inverters: PPV is the authoritative total; split channels are MPPT inputs.
     ppv_total = max(0.0, by_key["PPV"]) if "PPV" in by_key else None
+    pv_parts = [by_key[k] for k in ("PPV1", "PPV2", "PV1_POWER", "PV2_POWER") if k in by_key]
 
-    if len(pv_parts) >= 2:
-        # Two channels likely represent the full PV input (MPPT1+MPPT2).
-        parts_sum = max(0.0, sum(max(0.0, x) for x in pv_parts))
-        if ppv_total is not None:
-            return max(parts_sum, ppv_total)
-        return parts_sum
-
-    if len(pv_parts) == 1:
-        # Single-channel payload: prefer PPV total when present to avoid underreporting.
-        single = max(0.0, pv_parts[0])
-        if ppv_total is not None:
-            return max(single, ppv_total)
-        return single
-
-    # Often the plant-level PV power in Deye payload.
     if ppv_total is not None:
         return ppv_total
+
+    if len(pv_parts) >= 2:
+        return max(0.0, sum(max(0.0, x) for x in pv_parts))
+
+    if len(pv_parts) == 1:
+        return max(0.0, pv_parts[0])
+
+    dc_sum = _sum_dc_input_power_w(by_key)
+    if dc_sum is not None and dc_sum > 0:
+        return dc_sum
 
     candidates: list[float] = []
     for ek in (
@@ -959,19 +1015,21 @@ def _pv_power_watts_from_data_list(dl: Any) -> Optional[float]:
         "PV_PRODUCTION_POWER",
         "MPPT_TOTAL_POWER",
     ):
-        if ek in by_key:
+        if ek in by_key and not _is_pv_rated_or_meta_metric_key(ek):
             candidates.append(max(0.0, by_key[ek]))
     if candidates:
-        # Prefer the largest non-negative PV power metric to avoid using one MPPT
-        # channel when a total value is present under another key.
         return max(candidates)
 
     for k, w in by_key.items():
-        if ("PV" in k or "SOLAR" in k or "MPPT" in k) and "POWER" in k:
-            candidates.append(max(0.0, w))
-    if candidates:
-        return max(candidates)
-    return None
+        if not _is_pv_instantaneous_power_key(k):
+            continue
+        candidates.append(max(0.0, w))
+    if not candidates:
+        return None
+    if len(candidates) >= 2 and max(candidates) > 3.0 * min(candidates):
+        # Rated/nameplate registers should already be excluded; when still ambiguous, trust the lower value.
+        return min(candidates)
+    return max(candidates)
 
 
 def _grid_power_signed_watts_from_data_list(dl: Any) -> Optional[float]:

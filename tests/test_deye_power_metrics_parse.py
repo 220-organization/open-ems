@@ -5,6 +5,7 @@ from app.deye_api import (
     _grid_power_signed_watts_from_data_list,
     _load_power_watts_from_data_list,
     _metric_key,
+    _pv_power_watts_from_data_list,
 )
 
 
@@ -75,3 +76,43 @@ def test_finalize_derives_grid_from_load_when_imbalanced():
     assert grid_w == 21530.0 - (-130.0)
     assert bat == -130.0
     assert pv_w == 0.0
+
+
+def test_pv_prefers_total_solar_power_over_mppt_rated():
+    """Commercial MPPT: MPPTRatedPower is nameplate; TotalSolarPower is live PV."""
+    dl = [
+        _row("MPPTRatedPower", 150000.0),
+        _row("RatedPower", 125000.0),
+        _row("TotalSolarPower", 6140.0),
+        _row("DCInputPower1", 810.0),
+        _row("DCInputPower2", 1153.0),
+    ]
+    assert _pv_power_watts_from_data_list(dl) == 6140.0
+
+
+def test_pv_cluster_rated_sum_not_used():
+    """Four cluster inverters × 150 kW rated must not read as 600 kW plant PV."""
+    dl = [
+        _row("MPPTRatedPower", 150000.0),
+        _row("TotalSolarPower", 5800.0),
+    ]
+    assert _pv_power_watts_from_data_list(dl) == 5800.0
+
+
+def test_pv_sums_dc_inputs_when_no_total():
+    dl = [
+        _row("MPPTRatedPower", 150000.0),
+        _row("DCInputPower1", 100.0),
+        _row("DCInputPower2", 200.0),
+        _row("DCInputPower3", 300.0),
+    ]
+    assert _pv_power_watts_from_data_list(dl) == 600.0
+
+
+def test_pv_prefers_ppv_over_split_channels():
+    dl = [
+        _row("PPV", 4200.0),
+        _row("PPV1", 2100.0),
+        _row("PPV2", 2100.0),
+    ]
+    assert _pv_power_watts_from_data_list(dl) == 4200.0
