@@ -143,3 +143,42 @@ def test_finalize_keeps_grid_when_load_matches_supply():
     assert grid_w == -110.0
     assert bat == 25937.0
     assert pv_w == 4570.0
+
+
+def test_pv_parses_total_dc_input_for_smart_load_hybrid():
+    """Smart-load hybrid: TotalDCInputPower / DCPowerPV* when PPV is absent."""
+    dl = [
+        _row("TotalDCInputPower", 2964.0),
+        _row("DCPowerPV1", 996.0),
+        _row("DCPowerPV2", 1968.0),
+        _row("TotalGridPower", 0.0),
+    ]
+    assert _pv_power_watts_from_data_list(dl) == 2964.0
+
+
+def test_smart_load_grid_stays_zero_when_pv_present():
+    """2512291445-class: do not invent grid import when PV covers battery charging."""
+    bat, load_w, pv_w, grid_w, _ = _finalize_live_metrics_for_sn(
+        "2512291445",
+        -1102.0,
+        1803.0,
+        2964.0,
+        0.0,
+        50.0,
+    )
+    assert pv_w == 2964.0
+    assert grid_w == 0.0
+    assert bat == -1102.0
+    assert load_w == 1803.0
+
+
+def test_flow_balance_skips_derived_grid_when_pv_missing():
+    bat, load_w, pv_w, grid_w, _ = _finalize_live_metrics_for_sn(
+        "2407316052",
+        -1102.0,
+        1803.0,
+        0.0,
+        0.0,
+        50.0,
+    )
+    assert grid_w == 0.0

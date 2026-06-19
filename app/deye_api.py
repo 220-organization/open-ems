@@ -105,7 +105,11 @@ def _finalize_live_metrics_for_sn(
     if device_uses_flow_balance(sn):
         derived = flow_balance_grid_w(load_w, pv_w, bat)
         if derived is not None:
-            grid_w = derived
+            # Avoid false grid import when PV is missing/zero but TotalGridPower is valid (smart-load / DC PV path).
+            if pv_w is not None and float(pv_w) > 0:
+                grid_w = derived
+            elif grid_w is None:
+                grid_w = derived
     else:
         load_w, grid_w = _flow_balanced_load_and_grid_w(load_w, pv_w, grid_w, bat)
     return bat, load_w, pv_w, grid_w, freq_hz
@@ -860,6 +864,14 @@ def _sum_dc_input_power_w(by_key: dict[str, float]) -> Optional[float]:
     return sum(parts)
 
 
+def _sum_dc_power_pv_w(by_key: dict[str, float]) -> Optional[float]:
+    """Sum DCPowerPV1…N on hybrid / smart-load inverters (Deye Open API camelCase)."""
+    parts = [max(0.0, w) for k, w in by_key.items() if k.startswith("DC_POWER_PV")]
+    if not parts:
+        return None
+    return sum(parts)
+
+
 def _battery_signed_watts_from_data_list(dl: Any) -> Optional[float]:
     """
     Signed battery power in watts: positive = discharging (from battery), negative = charging.
@@ -1030,6 +1042,14 @@ def _pv_power_watts_from_data_list(dl: Any) -> Optional[float]:
     # Commercial MPPT loggers (e.g. 8-string C&I): TotalSolarPower is instantaneous DC PV.
     if "TOTAL_SOLAR_POWER" in by_key:
         return max(0.0, by_key["TOTAL_SOLAR_POWER"])
+
+    # Hybrid / smart-load inverters: TotalDCInputPower or DCPowerPV1…N (no PPV register).
+    if "TOTAL_DC_INPUT_POWER" in by_key:
+        return max(0.0, by_key["TOTAL_DC_INPUT_POWER"])
+
+    dc_pv_sum = _sum_dc_power_pv_w(by_key)
+    if dc_pv_sum is not None and dc_pv_sum > 0:
+        return dc_pv_sum
 
     # Classic hybrid inverters: PPV is the authoritative total; split channels are MPPT inputs.
     ppv_total = max(0.0, by_key["PPV"]) if "PPV" in by_key else None
