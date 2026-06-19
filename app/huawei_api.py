@@ -443,41 +443,29 @@ def _float_from_map(m: dict[str, Any], *keys: str) -> Optional[float]:
     return None
 
 
-def _normalize_maybe_kw_to_w(value: float) -> float:
-    """Northbound often returns instant power in kW (e.g. ~28); some devices return watts (e.g. |v| > 500)."""
+def _normalize_maybe_kw_to_w(value: float, *, reference_w: Optional[float] = None) -> float:
+    """
+    Northbound often returns instant power in kW (e.g. ~13); some devices return watts (e.g. |v| > 500).
+
+    When ``reference_w`` is set (typically inverter output for a grid meter), avoid treating small
+    watt readings as kW — e.g. meter ``active_power=-240`` W must not become -240 kW.
+    """
     if value != value:  # NaN
         return value
-    if abs(value) < 500:
-        return value * 1000.0
-    return value
+    if abs(value) >= 500:
+        return value
+    scaled = value * 1000.0
+    if reference_w is not None:
+        ref = abs(float(reference_w))
+        if ref > 0 and abs(scaled) > max(25_000.0, ref * 15.0):
+            return value
+    return scaled
 
 
-def _active_power_w_from_data_item_map(m: dict[str, Any]) -> Optional[float]:
-    if not m:
-        return None
-    lower_map = {str(k).lower(): v for k, v in m.items()}
-    candidates_kw = (
-        "active_power",
-        "activepower",
-        "p_power",
-        "ppower",
-        "generation_power",
-        "pv_power",
-        "inverter_power",
-        "total_active_power",
-        "realtime_power",
-    )
-    for ck in candidates_kw:
-        for mk, mv in lower_map.items():
-            if ck.replace("_", "") == mk.replace("_", "") or ck == mk:
-                try:
-                    v = float(mv)
-                except (TypeError, ValueError):
-                    continue
-                if v != v:  # NaN
-                    continue
-                return _normalize_maybe_kw_to_w(v)
-    return None
+def _active_power_w_from_data_item_map(
+    m: dict[str, Any], *, reference_w: Optional[float] = None
+) -> Optional[float]:
+    return _active_power_w_from_dev_dim(m, reference_w=reference_w)
 
 
 def _parse_kpi_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -622,7 +610,7 @@ async def _read_power_flow_db(station_code: str) -> Optional[tuple[dict[str, Any
         if not isinstance(raw, dict):
             return None
         saved_ts = row.saved_at.replace(tzinfo=timezone.utc).timestamp()
-        return (dict(raw), saved_ts)
+        return (_apply_huawei_power_flow_repairs(dict(raw)), saved_ts)
     except Exception as exc:
         logger.warning("Huawei: power flow DB cache read failed — %s", exc)
         return None
@@ -790,7 +778,9 @@ async def _resolve_meter_inverter_pairs(
     return mp, ip, rows
 
 
-def _active_power_w_from_dev_dim(dim: dict[str, Any]) -> Optional[float]:
+def _active_power_w_from_dev_dim(
+    dim: dict[str, Any], *, reference_w: Optional[float] = None
+) -> Optional[float]:
     """Parse getDevRealKpi dataItemMap active / generation power into watts (same kW heuristic as plant KPI)."""
     if not dim:
         return None
@@ -814,7 +804,7 @@ def _active_power_w_from_dev_dim(dim: dict[str, Any]) -> Optional[float]:
                     continue
                 if v != v:
                     continue
-                return _normalize_maybe_kw_to_w(v)
+                return _normalize_maybe_kw_to_w(v, reference_w=reference_w)
     return None
 
 
@@ -900,7 +890,17 @@ def _normalize_meter_scale_if_implausible(
         return meter_raw_w
 
     # Trigger only for clearly implausible meter spikes.
-    if meter_abs < 300_000.0:
+    if inv_abs <= 0:
+        if meter_abs < 300_000.0:
+            return meter_raw_w
+    elif meter_abs > max(50_000.0, inv_abs * 8.0 + 10_000.0):
+        for divisor in (1000.0, 100.0):
+            down = meter_abs / divisor
+            plausibility_limit = max(inv_abs * 3.0 + 5_000.0, 200_000.0)
+            if down <= plausibility_limit:
+                sign = -1.0 if float(meter_raw_w) < 0.0 else 1.0
+                return sign * down
+    elif meter_abs < 300_000.0:
         return meter_raw_w
 
     meter_div_1k = meter_abs / 1000.0
@@ -911,6 +911,99 @@ def _normalize_meter_scale_if_implausible(
         sign = -1.0 if float(meter_raw_w) < 0.0 else 1.0
         return sign * meter_div_1k
     return meter_raw_w
+
+
+def _repair_huawei_power_flow_triplet(
+    pv_w: Optional[float],
+    grid_w: Optional[float],
+    load_w: Optional[float],
+) -> tuple[Optional[float], Optional[float], Optional[float]]:
+    """
+    Fix legacy x1000 meter/load artifacts in RAM/DB cache and edge cases on live reads.
+
+    Applies to every Huawei plant — no per-station allowlist.
+    """
+    try:
+        pv = max(0.0, float(pv_w)) if pv_w is not None else None
+        grid = float(grid_w) if grid_w is not None else None
+        load = max(0.0, float(load_w)) if load_w is not None else None
+    except (TypeError, ValueError):
+        return pv_w, grid_w, load_w
+
+    if pv is None or pv <= 0:
+        return pv_w, grid_w, load_w
+
+    if grid is not None and abs(grid) > max(100_000.0, pv * 12.0 + 10_000.0):
+        scaled = grid / 1000.0
+        if abs(scaled) <= max(50_000.0, pv * 3.0 + 5_000.0):
+            grid = scaled
+
+    if load is not None and load > max(100_000.0, pv * 4.0 + 15_000.0):
+        if grid is not None:
+            load = max(0.0, pv + max(0.0, grid))
+        else:
+            scaled_load = load / 1000.0
+            if scaled_load <= max(50_000.0, pv * 3.0 + 5_000.0):
+                load = scaled_load
+
+    if load is not None and grid is not None and load > pv + max(0.0, grid) + max(15_000.0, pv * 0.5):
+        load = max(0.0, pv + max(0.0, grid))
+
+    return pv, grid, load
+
+
+def _parse_huawei_power_flow_from_dims(
+    meter_dim: dict[str, Any],
+    inv_dim: dict[str, Any],
+    *,
+    for_storage: bool = False,
+) -> dict[str, Optional[float]]:
+    """
+    Instantaneous PV / grid / load (W) from getDevRealKpi meter + inverter dataItemMaps.
+
+    Shared by live API, 5-minute snapshots, and cache repair — same rules for every plant.
+    """
+    inv_raw = _active_power_w_from_dev_dim(inv_dim)
+    meter_raw = _active_power_w_from_dev_dim(meter_dim, reference_w=inv_raw)
+    meter_raw = _normalize_meter_scale_if_implausible(meter_raw, inv_raw)
+
+    pv_raw = _pv_power_w_from_dev_dim(inv_dim)
+    if pv_raw is not None:
+        pv_w: Optional[float] = max(0.0, float(pv_raw))
+    elif inv_raw is not None:
+        pv_w = max(0.0, float(inv_raw))
+    else:
+        pv_w = None
+
+    grid_ui: Optional[float] = -float(meter_raw) if meter_raw is not None else None
+    load_w: Optional[float] = None
+    if inv_raw is not None and meter_raw is not None:
+        load_w = max(0.0, float(inv_raw) - float(meter_raw))
+
+    if not for_storage:
+        grid_ui = _huawei_zero_grid_import_when_pv_meets_load(pv_w, load_w, grid_ui)
+
+    pv_w, grid_ui, load_w = _repair_huawei_power_flow_triplet(pv_w, grid_ui, load_w)
+    return {
+        "pvPowerW": pv_w,
+        "gridPowerW": grid_ui,
+        "loadPowerW": load_w,
+    }
+
+
+def _apply_huawei_power_flow_repairs(body: dict[str, Any]) -> dict[str, Any]:
+    """Repair cached power-flow snapshots in place (legacy bad meter scaling)."""
+    if body.get("ok") is not True:
+        return body
+    pv, grid, load = _repair_huawei_power_flow_triplet(
+        body.get("pvPowerW"),
+        body.get("gridPowerW"),
+        body.get("loadPowerW"),
+    )
+    body["pvPowerW"] = pv
+    body["gridPowerW"] = grid
+    body["loadPowerW"] = load
+    return body
 
 
 async def _fetch_dev_real_kpi_dim(
@@ -1004,24 +1097,12 @@ async def get_power_flow(station_code: str, *, for_storage: bool = False) -> dic
             meter_dim = await _fetch_dev_real_kpi_dim(client, mp[0], mp[1])
             inv_dim = await _fetch_dev_real_kpi_dim(client, ip[0], ip[1])
 
-            meter_raw = _active_power_w_from_dev_dim(meter_dim)
-            inv_raw = _active_power_w_from_dev_dim(inv_dim)
-            meter_raw = _normalize_meter_scale_if_implausible(meter_raw, inv_raw)
-
-            pv_raw = _pv_power_w_from_dev_dim(inv_dim)
-            if pv_raw is not None:
-                pv_w = max(0.0, float(pv_raw))
-            elif inv_raw is not None:
-                pv_w = max(0.0, float(inv_raw))
-            else:
-                pv_w = None
-            grid_ui: Optional[float] = -float(meter_raw) if meter_raw is not None else None
-            load_w: Optional[float] = None
-            if inv_raw is not None and meter_raw is not None:
-                load_w = max(0.0, float(inv_raw) - float(meter_raw))
-
-            if not for_storage:
-                grid_ui = _huawei_zero_grid_import_when_pv_meets_load(pv_w, load_w, grid_ui)
+            metrics = _parse_huawei_power_flow_from_dims(
+                meter_dim, inv_dim, for_storage=for_storage
+            )
+            pv_w = metrics["pvPowerW"]
+            grid_ui = metrics["gridPowerW"]
+            load_w = metrics["loadPowerW"]
 
             has_battery_kpi = _has_battery_device_in_dev_list(dev_rows) if dev_rows else False
             ess_soc = _ess_soc_percent_from_inverter_dim(inv_dim)
@@ -1044,7 +1125,7 @@ async def get_power_flow(station_code: str, *, for_storage: bool = False) -> dic
         if exc.fail_code == _FAIL_CODE_RATE_LIMIT:
             cached = _power_flow_cache.get(st)
             if cached:
-                body = dict(cached[0])
+                body = _apply_huawei_power_flow_repairs(dict(cached[0]))
                 body["northboundRateLimited"] = True
                 body["cacheAgeSec"] = round(now - cached[1], 1)
                 _ensure_power_flow_export_flags(body)
@@ -1053,7 +1134,7 @@ async def get_power_flow(station_code: str, *, for_storage: bool = False) -> dic
             if db_hit:
                 snap, saved_at = db_hit
                 _power_flow_cache[st] = (dict(snap), saved_at)
-                body = dict(snap)
+                body = _apply_huawei_power_flow_repairs(dict(snap))
                 body["northboundRateLimited"] = True
                 body["cacheAgeSec"] = round(now - saved_at, 1)
                 _ensure_power_flow_export_flags(body)
