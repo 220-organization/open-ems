@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 import time
@@ -15,11 +16,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.deye_battery_capacity_service import estimate_device_capacity_kwh, fleet_battery_capacity_summary
-from app.deye_api import get_inverter_station_coordinates
+from app.deye_api import (
+    deye_configured,
+    get_inverter_station_coordinates,
+    get_live_metrics_with_source_cached,
+    list_inverter_devices,
+)
+from app.deye_inverter_pin import strip_inverter_pin_tokens_anywhere
 from app.ev_port_power_service import (
     ev_port_import_weighted_dam_kyiv,
     ev_port_import_weighted_dam_mtd_kyiv,
 )
+from app.huawei_api import get_power_flow, huawei_configured, list_stations
 from app.lost_solar_deye import (
     lost_solar_hourly_breakdown_one_kyiv_day,
     sum_lost_solar_all_sample_kyiv_days,
@@ -1677,6 +1685,158 @@ async def lost_solar_hourly_bars(
             content={"ok": False, "error": "lost_solar_hourly_bars_failed"},
             headers=_NO_STORE,
         )
+
+
+def _deye_representative_device_sns(items: list[dict[str, Any]]) -> list[str]:
+    """One representative serial per Deye cluster (same grouping as PowerFlowPage UI)."""
+    by_key: dict[str, str] = {}
+    for row in items:
+        sn = str(row.get("deviceSn") or "").strip()
+        if not sn:
+            continue
+        label = str(row.get("label") or "")
+        short = strip_inverter_pin_tokens_anywhere(label) or sn
+        key = short.strip() or sn
+        prev = by_key.get(key)
+        if not prev or sn < prev:
+            by_key[key] = sn
+    return list(by_key.values())
+
+
+def _dedupe_deye_power_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop duplicate /station/latest plant totals (see PowerFlowPage cluster dedupe)."""
+    uniq_rows: list[dict[str, Any]] = []
+    seen_station_fallback: set[str] = set()
+    seen_tuple: set[str] = set()
+    for row in rows:
+        st_id = "" if row.get("stationId") is None else str(row.get("stationId")).strip()
+        if row.get("stationFallback") is True and st_id:
+            if st_id in seen_station_fallback:
+                continue
+            seen_station_fallback.add(st_id)
+            uniq_rows.append(row)
+            continue
+        tuple_key = "|".join(
+            [
+                str(row.get("batteryPowerW") if row.get("batteryPowerW") is not None else "n"),
+                str(row.get("loadPowerW") if row.get("loadPowerW") is not None else "n"),
+                str(row.get("pvPowerW") if row.get("pvPowerW") is not None else "n"),
+                str(row.get("gridPowerW") if row.get("gridPowerW") is not None else "n"),
+                str(row.get("gridFrequencyHz") if row.get("gridFrequencyHz") is not None else "n"),
+            ]
+        )
+        if tuple_key in seen_tuple:
+            continue
+        seen_tuple.add(tuple_key)
+        uniq_rows.append(row)
+    return uniq_rows
+
+
+def _sum_power_field(rows: list[dict[str, Any]], key: str, *, floor_zero: bool = False) -> Optional[float]:
+    has_any = False
+    total = 0.0
+    for row in rows:
+        raw = row.get(key)
+        if raw is None or not math.isfinite(float(raw)):
+            continue
+        has_any = True
+        value = float(raw)
+        total += max(0.0, value) if floor_zero else value
+    return total if has_any else None
+
+
+async def _fetch_deye_fleet_power_rows() -> list[dict[str, Any]]:
+    if not deye_configured():
+        return []
+    items = await list_inverter_devices()
+    sns = _deye_representative_device_sns(items)
+    if not sns:
+        return []
+
+    async def fetch_one(sn: str) -> Optional[dict[str, Any]]:
+        try:
+            bat, load_w, pv_w, grid_w, grid_hz, station_id, station_fallback = (
+                await get_live_metrics_with_source_cached(sn)
+            )
+            return {
+                "deviceSn": sn,
+                "batteryPowerW": bat,
+                "loadPowerW": load_w,
+                "pvPowerW": pv_w,
+                "gridPowerW": grid_w,
+                "gridFrequencyHz": grid_hz,
+                "stationId": station_id,
+                "stationFallback": bool(station_fallback),
+            }
+        except Exception as exc:
+            logger.warning("fleet-live Deye ess-power sn=%s failed: %s", sn, exc)
+            return None
+
+    results = await asyncio.gather(*(fetch_one(sn) for sn in sns))
+    return [row for row in results if row is not None]
+
+
+async def _fetch_huawei_fleet_power_rows() -> list[dict[str, Any]]:
+    if not huawei_configured():
+        return []
+    try:
+        stations = await list_stations()
+    except Exception as exc:
+        logger.warning("fleet-live Huawei stations failed: %s", exc)
+        return []
+
+    codes = [str(st.get("stationCode") or "").strip() for st in stations]
+    codes = [code for code in codes if code]
+    if not codes:
+        return []
+
+    async def fetch_one(station_code: str) -> Optional[dict[str, Any]]:
+        try:
+            body = await get_power_flow(station_code)
+            if not body.get("ok"):
+                return None
+            return {
+                "stationCode": station_code,
+                "batteryPowerW": body.get("batteryPowerW"),
+                "loadPowerW": body.get("loadPowerW"),
+                "pvPowerW": body.get("pvPowerW"),
+                "gridPowerW": body.get("gridPowerW"),
+            }
+        except Exception as exc:
+            logger.warning("fleet-live Huawei power-flow code=%s failed: %s", station_code, exc)
+            return None
+
+    results = await asyncio.gather(*(fetch_one(code) for code in codes))
+    return [row for row in results if row is not None]
+
+
+@router.get("/fleet-live")
+async def fleet_live() -> JSONResponse:
+    """
+    Aggregate live fleet power (W) from Deye + Huawei for external embeds (e.g. 220-km.com/b2b flow graph).
+    """
+    deye_rows = _dedupe_deye_power_rows(await _fetch_deye_fleet_power_rows())
+    huawei_rows = await _fetch_huawei_fleet_power_rows()
+    all_rows = deye_rows + huawei_rows
+
+    load_w = _sum_power_field(all_rows, "loadPowerW", floor_zero=True)
+    pv_w = _sum_power_field(all_rows, "pvPowerW", floor_zero=True)
+    grid_w = _sum_power_field(all_rows, "gridPowerW", floor_zero=False)
+    battery_w = _sum_power_field(all_rows, "batteryPowerW", floor_zero=False)
+
+    return JSONResponse(
+        content={
+            "ok": True,
+            "configured": deye_configured() or huawei_configured(),
+            "deyeSources": len(deye_rows),
+            "huaweiSources": len(huawei_rows),
+            "loadPowerW": load_w,
+            "pvPowerW": pv_w,
+            "gridPowerW": grid_w,
+            "batteryPowerW": battery_w,
+        },
+        headers=_NO_STORE,
+    )
 
 
 @router.get("/reference-lcoe")

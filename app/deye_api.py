@@ -1739,10 +1739,16 @@ def _body_zero_export_target_soc(
     *,
     solar_sell_action: str = "on",
 ) -> dict[str, Any]:
-    """ZERO_EXPORT_TO_CT with a uniform TOU SoC target (used to bias battery toward a higher SoC)."""
+    """ZERO_EXPORT_TO_CT with a uniform TOU SoC target (used to bias battery toward a higher SoC).
+
+    ``maxSellPower`` / ``maxSolarPower`` are set to ``rated_power`` so a prior SELLING_FIRST session
+    (e.g. EV-port export capped at job powerWt) does not leave PV capped at 500 W after restore.
+    """
     power = int(rated_power)
     return {
         "deviceSn": device_sn,
+        "maxSellPower": power,
+        "maxSolarPower": power,
         "solarSellAction": solar_sell_action,
         "touAction": "on",
         "touDays": list(_TOU_DAYS),
@@ -1812,7 +1818,8 @@ async def restore_zero_export_ct_current_soc(device_sn: str) -> None:
     """
     ZERO_EXPORT_TO_CT with TOU SoC = max(5%, current SoC) — template power from DEYE_DYNAMIC_CONTROL_RATED_POWER_W.
 
-    Used after EV-port SELLING_FIRST; keeps solar sell off to match pre-session zero-export / Solar Sell disabled.
+    Used after EV-port SELLING_FIRST; resets maxSolarPower/maxSellPower to rated so PV is not left capped at
+    the last EV job powerWt (minimum 500 W). Keeps solar sell off to match pre-session zero-export / Solar Sell disabled.
     """
     await assert_inverter_owned(device_sn)
     sn = device_sn.strip()
