@@ -966,9 +966,8 @@ body {
   display: block;
   width: min(256px, 72vw);
   height: auto;
-  border-radius: 12px;
-  background: #fff;
-  padding: 8px;
+  background: transparent;
+  padding: 0;
   box-sizing: border-box;
 }
 
@@ -2047,9 +2046,8 @@ a.pf-node { cursor: pointer; }
   display: block;
   width: min(132px, 38vw);
   height: auto;
-  border-radius: 8px;
-  border: 1px solid var(--pf-border);
-  background: #fff;
+  border: none;
+  background: transparent;
   box-shadow: none;
 }
 

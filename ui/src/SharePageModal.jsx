@@ -1,6 +1,6 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { qrImageUrl } from './sharePageQr';
+import RoundedQrImage from './RoundedQrImage';
 
 export default function SharePageModal({ open, url, copied, copyFailed, onClose, t }) {
   useEffect(() => {
@@ -11,8 +11,6 @@ export default function SharePageModal({ open, url, copied, copyFailed, onClose,
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
-
-  const qrSrc = useMemo(() => (open && url ? qrImageUrl(url) : ''), [open, url]);
 
   if (!open || !url) return null;
 
@@ -31,9 +29,13 @@ export default function SharePageModal({ open, url, copied, copyFailed, onClose,
           </h2>
           {copied ? <p className="pf-share-modal-status">{t('sharePageCopied')}</p> : null}
           {copyFailed ? <p className="pf-share-modal-status pf-share-modal-status--error">{t('sharePageFailed')}</p> : null}
-          {qrSrc ? (
-            <img className="pf-share-modal-qr" src={qrSrc} width={256} height={256} alt={t('sharePageQrAlt')} />
-          ) : null}
+          <RoundedQrImage
+            className="pf-share-modal-qr"
+            url={url}
+            size={256}
+            color="#dad1e6"
+            alt={t('sharePageQrAlt')}
+          />
           <p className="pf-share-modal-url">{url}</p>
           <div className="pf-roi-modal-actions pf-share-modal-actions">
             <button type="button" className="pf-roi-modal-btn pf-roi-modal-btn--primary" onClick={onClose}>
