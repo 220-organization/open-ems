@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 
-export default function MarketplaceModal({ open, onClose, children, ariaLabel }) {
+export default function MarketplaceModal({ open, onClose, children, ariaLabel, closeAriaLabel = 'Close' }) {
   useEffect(() => {
     if (!open) return undefined;
     const onKey = e => {
@@ -26,6 +26,16 @@ export default function MarketplaceModal({ open, onClose, children, ariaLabel })
         aria-label={ariaLabel}
         onClick={e => e.stopPropagation()}
       >
+        {onClose ? (
+          <button
+            type="button"
+            className="marketplace-modal-close"
+            onClick={onClose}
+            aria-label={closeAriaLabel}
+          >
+            ×
+          </button>
+        ) : null}
         {children}
       </div>
     </div>

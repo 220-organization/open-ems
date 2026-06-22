@@ -29,6 +29,12 @@
   cursor: crosshair;
 }
 
+.map :global(.maplibregl-ctrl-attrib),
+.map :global(.maplibregl-ctrl-logo),
+.map :global(.maplibregl-ctrl-bottom-left) {
+  display: none !important;
+}
+
 .mapRegionMode {
   cursor: pointer;
 }

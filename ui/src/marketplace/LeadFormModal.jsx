@@ -14,8 +14,7 @@ import {
   submitMarketplaceLocation,
   uploadMarketplaceFile,
 } from './marketplaceApi';
-
-const KW_OPTIONS = ['7+', '22+', '40+', '60+', '120+', '240+', '480+'];
+import { KW_OPTIONS, formatKwLabel } from './marketplaceKw';
 const PRICE_KWH_EXTRA_MIN = 0.5;
 const PRICE_KWH_EXTRA_MAX = 5;
 const PRICE_KWH_EXTRA_STEP = 0.1;
@@ -89,7 +88,7 @@ export default function LeadFormModal({
     if (n) lines.push(`${t('marketplaceLeadFormNameLabel')}: ${n}`);
     if (p) lines.push(`${t('marketplaceLeadFormPhoneLabel')}: ${p}`);
     if (isLocationLeadForm) {
-      if (leadKwAvailable) lines.push(`${t('marketplaceLeadFormKwLabel')}: ${leadKwAvailable}`);
+      if (leadKwAvailable) lines.push(`${t('marketplaceLeadFormKwLabel')}: ${formatKwLabel(leadKwAvailable)}`);
       if (formType === 'proposeLocation' && leadDistributionContract) {
         const distributionValue =
           leadDistributionContract === 'yes' ? t('marketplaceLeadFormYes') : t('marketplaceLeadFormNo');
@@ -257,7 +256,7 @@ export default function LeadFormModal({
   };
 
   return (
-    <MarketplaceModal open={open} onClose={handleClose} ariaLabel={t(titleKey)}>
+    <MarketplaceModal open={open} onClose={handleClose} ariaLabel={t(titleKey)} closeAriaLabel={t('marketplaceClose')}>
       <div
         className={`marketplace-lead-modal${isLocationLeadForm ? ' marketplace-lead-modal--wide' : ''}`}
         aria-labelledby="marketplace-lead-title"
@@ -347,7 +346,7 @@ export default function LeadFormModal({
                         }
                       }}
                     >
-                      {option}
+                      {formatKwLabel(option)}
                     </button>
                   ))}
                 </div>

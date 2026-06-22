@@ -12,6 +12,13 @@ export const HUB_PARTNER_PROMOTIONS = [
     hubLabelKey: 'hubLabel',
   },
   {
+    id: 'gridlab',
+    name: 'GridLab EMS',
+    url: 'https://gridlab.com.ua/uk',
+    logoSrc: `${staticBase}/gridlab.png`,
+    logoWide: true,
+  },
+  {
     id: 'eva',
     name: 'EVA Chargers',
     url: 'https://www.evachargers.com/uk',

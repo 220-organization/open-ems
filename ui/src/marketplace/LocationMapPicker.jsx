@@ -299,7 +299,7 @@ export default function LocationMapPicker({ t, locale = 'uk', locations, onChang
       geolocateControl: false,
       navigationControl: false,
       maptilerLogo: false,
-      attributionControl: true,
+      attributionControl: false,
       maxZoom: 21,
     });
 

@@ -14,17 +14,28 @@ function readPaymentReturnFromUrl() {
     return {
       paymentReturnId: u.get('marketplacePayment') || '',
       paymentReturnLocationId: u.get('marketplaceLocation') || '',
+      heatmapPaymentReturnId: u.get('marketplaceHeatmapPayment') || '',
     };
   } catch {
-    return { paymentReturnId: '', paymentReturnLocationId: '' };
+    return { paymentReturnId: '', paymentReturnLocationId: '', heatmapPaymentReturnId: '' };
   }
 }
 
-function clearPaymentReturnInUrl() {
+function clearLocationPaymentReturnInUrl() {
   try {
     const u = new URL(window.location.href);
     u.searchParams.delete('marketplacePayment');
     u.searchParams.delete('marketplaceLocation');
+    window.history.replaceState({}, '', u);
+  } catch {
+    /* ignore */
+  }
+}
+
+function clearHeatmapPaymentReturnInUrl() {
+  try {
+    const u = new URL(window.location.href);
+    u.searchParams.delete('marketplaceHeatmapPayment');
     window.history.replaceState({}, '', u);
   } catch {
     /* ignore */
@@ -56,8 +67,13 @@ export default function LocationMarketplacePage({ t, locale }) {
   };
 
   const handlePaymentReturnHandled = useCallback(() => {
-    clearPaymentReturnInUrl();
-    setPaymentReturn({ paymentReturnId: '', paymentReturnLocationId: '' });
+    clearLocationPaymentReturnInUrl();
+    setPaymentReturn(prev => ({ ...prev, paymentReturnId: '', paymentReturnLocationId: '' }));
+  }, []);
+
+  const handleHeatmapPaymentReturnHandled = useCallback(() => {
+    clearHeatmapPaymentReturnInUrl();
+    setPaymentReturn(prev => ({ ...prev, heatmapPaymentReturnId: '' }));
   }, []);
 
   useEffect(() => {
@@ -138,6 +154,8 @@ export default function LocationMarketplacePage({ t, locale }) {
             paymentReturnId={paymentReturn.paymentReturnId}
             paymentReturnLocationId={paymentReturn.paymentReturnLocationId}
             onPaymentReturnHandled={handlePaymentReturnHandled}
+            heatmapPaymentReturnId={paymentReturn.heatmapPaymentReturnId}
+            onHeatmapPaymentReturnHandled={handleHeatmapPaymentReturnHandled}
           />
         </section>
       </main>

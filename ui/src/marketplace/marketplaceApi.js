@@ -123,13 +123,59 @@ export async function createMarketplaceTestPayment(locationId, { clientUiId } = 
   return response.json();
 }
 
+export async function createHeatmapZoomPayment({ redirectBaseUrl, clientUiId } = {}) {
+  const base = apiBase();
+  if (!base) return null;
+
+  const response = await fetch(`${base}/marketplace/heatmap/pay`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      redirect_base_url: redirectBaseUrl,
+      client_ui_id: clientUiId || null,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Heatmap payment init failed (${response.status})`);
+  }
+
+  return response.json();
+}
+
+export async function createHeatmapZoomTestPayment({ clientUiId } = {}) {
+  const base = apiBase();
+  if (!base) return null;
+
+  const response = await fetch(`${base}/marketplace/heatmap/pay-test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_ui_id: clientUiId || null,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Heatmap test payment failed (${response.status})`);
+  }
+
+  return response.json();
+}
+
+function isLocalHostname(hostname) {
+  return hostname === 'localhost' || hostname === '127.0.0.1';
+}
+
 export function isMarketplaceLocalTestPaymentEnabled() {
   if (process.env.NODE_ENV === 'production' && process.env.REACT_APP_ENV !== 'local') return false;
+  if (typeof window !== 'undefined' && isLocalHostname(window.location.hostname)) {
+    return true;
+  }
   const base = apiBase();
   if (!base) return false;
   try {
     const { hostname } = new URL(base);
-    return hostname === 'localhost' || hostname === '127.0.0.1';
+    return isLocalHostname(hostname);
   } catch {
     return false;
   }

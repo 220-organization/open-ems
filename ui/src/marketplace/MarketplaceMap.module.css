@@ -56,8 +56,14 @@
   height: 420px;
 }
 
+.map :global(.maplibregl-ctrl-attrib),
+.map :global(.maplibregl-ctrl-logo),
+.map :global(.maplibregl-ctrl-bottom-left) {
+  display: none !important;
+}
+
 .map :global(.maplibregl-ctrl-bottom-right .maplibregl-ctrl-scale) {
-  margin: 0 10px 34px 0;
+  margin: 0 10px 10px 0;
   padding: 2px 8px;
   border-radius: 8px;
   background: var(--b2b-card-surface, #31233e);
@@ -346,9 +352,9 @@
 
 .payTestBtn {
   width: 100%;
-  margin-top: 10px;
+  margin-top: 4px;
   min-height: 40px;
-  padding: 8px 14px;
+  padding: 10px 14px;
   border-radius: var(--b2b-button-outline-radius, 14px);
   border: 1px dashed var(--b2b-button-outline-border, rgba(249, 76, 175, 0.35));
   background: var(--b2b-card-surface-muted, #241631);
@@ -378,6 +384,29 @@
   margin: 0 0 10px;
   font-size: 13px;
   color: #ff8a9a;
+}
+
+.heatmapPayModal {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 1.25rem 2.75rem 1.5rem 1.25rem;
+  text-align: left;
+  font-family: var(--b2b-font-body, 'Fira Sans', system-ui, sans-serif);
+}
+
+.heatmapPayTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--b2b-body, #dad1e6);
+}
+
+.heatmapPayText {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--b2b-body-muted, rgba(218, 209, 230, 0.72));
 }
 
 .ownerInfoBody {
