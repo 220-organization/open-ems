@@ -22,6 +22,7 @@ import KwhDisplay from './KwhDisplay';
 import { useKwhCalibration } from './KwhCalibrationContext';
 import { OREE_DAM_CHART_URL } from './OreeDamChartModal';
 import { useTheme } from './useTheme';
+import { VYRIY_EMS_LOGO_SRC } from './vyriyEmsLogo';
 
 function apiUrl(path) {
   const base = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
@@ -1940,7 +1941,7 @@ export default function DamChartPanel({
     </div>
   );
 
-  const logoSrc = `${process.env.PUBLIC_URL || ''}/static/open-ems-220-logo.svg`;
+  const logoSrc = VYRIY_EMS_LOGO_SRC;
 
   return (
     <>

@@ -18,6 +18,10 @@ import MonthlyRetailTariffChartModal from './MonthlyRetailTariffChartModal';
 import GridBalancingChartModal from './GridBalancingChartModal';
 import RoiStackStatistics from './RoiStackStatistics';
 import { KwhCalibrationProvider, useKwhCalibration } from './KwhCalibrationContext';
+import { VYRIY_EMS_LOGO_SRC } from './vyriyEmsLogo';
+import PartnerHubLogo from './PartnerHubLogo';
+import PageShareQrAside from './PageShareQrAside';
+import { pageShareUrlFromWindow } from './sharePageQr';
 import { DEYE_FLOW_BALANCE_PV_FACTOR, usesDeyeFlowBalance } from './deyeFlowBalanceSites';
 import { inverterSelectShortLabel, parseEvPortStationNumber } from './deyeInverterDisplay';
 import { clearInverterPinCache, readCachedInverterPin, rememberInverterPin } from './deyeInverterPinCache';
@@ -3319,6 +3323,10 @@ export default function PowerFlowPage({
     fleetDeyeAggregate.okResponses === 0;
   const evBusy = fleetDeyePollBusy;
   const qrBase = process.env.PUBLIC_URL || '';
+  const pageShareUrl = useMemo(
+    () => pageShareUrlFromWindow(),
+    [stationFilter, selInverterSn, locale, selHuaweiStationCode, essSel.provider, evOnlyFocusMode],
+  );
 
   const essSocPercent = useMemo(() => {
     const sn = selInverterSn.trim();
@@ -4679,24 +4687,7 @@ export default function PowerFlowPage({
                     </span>
                   </div>
                   <div className="pf-hub" id="pf-hub">
-                    <a
-                      className={hubLogoInboundFlow ? 'pf-hub-brand pf-hub-brand--flow-ends-here' : 'pf-hub-brand'}
-                      href={SITE_220KM_HOME}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-label={t('hubBrandLinkAria')}
-                    >
-                      <img
-                        className="pf-hub-logo"
-                        src={`${qrBase}/static/open-ems-220-logo.svg`}
-                        alt=""
-                        width="40"
-                        height="40"
-                        loading="lazy"
-                        decoding="async"
-                      />
-                    </a>
-                    <span className="pf-hub-label">{t('hubLabel')}</span>
+                    <PartnerHubLogo t={t} flowEndsHere={hubLogoInboundFlow} />
                     <a
                       className="pf-hub-opensource"
                       href={OPEN_EMS_GITHUB_URL}
@@ -4911,6 +4902,7 @@ export default function PowerFlowPage({
                       </div>
                     </div>
                   )}
+                <PageShareQrAside url={pageShareUrl} t={t} compact showCaption={false} />
                 </div>
               </div>
               <div id="pf-error" className="pf-error" hidden={!loadError}>
@@ -5510,7 +5502,7 @@ export default function PowerFlowPage({
                 <div className="pf-page-rest-pending-loader">
                   <img
                     className="pf-page-rest-pending-loader__logo"
-                    src={`${qrBase}/static/open-ems-220-logo.svg`}
+                    src={VYRIY_EMS_LOGO_SRC}
                     alt=""
                     width={120}
                     height={120}
@@ -5758,7 +5750,14 @@ export default function PowerFlowPage({
                 {deyeCommandModal.phase === 'loading' ? (
                   <>
                     <div className="pf-modal-loading" aria-live="polite">
-                      <div className="pf-modal-spinner" aria-hidden="true" />
+                      <img
+                        className="pf-modal-loader-logo"
+                        src={VYRIY_EMS_LOGO_SRC}
+                        alt=""
+                        width={38}
+                        height={38}
+                        decoding="async"
+                      />
                       <p id="pf-deye-command-loading-title" className="pf-modal-message">
                         {t('deyeCommandWaiting')}
                       </p>

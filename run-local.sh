@@ -293,6 +293,8 @@ fi
 (
   cd ui
   export REACT_APP_API_BASE_URL="${REACT_APP_API_BASE_URL:-http://127.0.0.1:${API_PORT}}"
+  export REACT_APP_ADMIN_PORTAL_API_URL="${REACT_APP_ADMIN_PORTAL_API_URL:-http://127.0.0.1:8090}"
+  export REACT_APP_B2B_API_URL="${REACT_APP_B2B_API_URL:-http://127.0.0.1:8080}"
   export PORT="${UI_PORT}"
   export FAST_REFRESH=true
   if grep -qi microsoft /proc/version 2>/dev/null; then

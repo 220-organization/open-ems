@@ -1,11 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-
-function qrImageUrl(url) {
-  const data = encodeURIComponent(String(url || '').trim());
-  if (!data) return '';
-  return `https://api.qrserver.com/v1/create-qr-code/?size=256x256&margin=10&data=${data}`;
-}
+import { qrImageUrl } from './sharePageQr';
 
 export default function SharePageModal({ open, url, copied, copyFailed, onClose, t }) {
   useEffect(() => {

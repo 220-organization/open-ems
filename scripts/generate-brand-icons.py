@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerate favicon / Android / iOS icons from ui/public/static/220-km-logo.svg (220-km pink brand)."""
+"""Regenerate favicon / Android / iOS icons from ui/public/static/vyriy-ems-logo.svg."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from pathlib import Path
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
-SVG = ROOT / 'ui/public/static/220-km-logo.svg'
+SVG = ROOT / 'ui/public/static/vyriy-ems-logo.svg'
 STATIC = ROOT / 'ui/public/static'
 ANDROID_RES = ROOT / 'app-mobile/android/app/src/main/res'
 IOS_ICON = ROOT / 'app-mobile/ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png'
@@ -81,11 +81,7 @@ def main() -> None:
 
     icon.resize((1024, 1024), Image.Resampling.LANCZOS).save(IOS_ICON)
 
-    # Keep in-app SVG alias in sync
-    alias = STATIC / 'open-ems-220-logo.svg'
-    alias.write_bytes(SVG.read_bytes())
-
-    print('220-km pink brand icons regenerated from', SVG)
+    print('Vyriy EMS brand icons regenerated from', SVG)
 
 
 if __name__ == '__main__':

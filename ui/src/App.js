@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import LandingPage from './LandingPage';
 import EvTvPage from './EvTvPage';
+import LocationMarketplacePage from './LocationMarketplacePage';
 import OpenEmsHeader from './OpenEmsHeader';
 import PowerFlowPage from './PowerFlowPage';
 import ServerMetricsBar from './ServerMetricsBar';
@@ -50,6 +51,8 @@ export default function App() {
           <LandingPage {...i18n} />
         ) : page === 'evTv' ? (
           <EvTvPage {...i18n} />
+        ) : page === 'marketplace' ? (
+          <LocationMarketplacePage {...i18n} />
         ) : (
           <PowerFlowPage {...i18n} isDark={isDark} />
         )}

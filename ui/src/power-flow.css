@@ -1607,6 +1607,53 @@ a.pf-node { cursor: pointer; }
 
 .pf-hub-brand:focus-visible { outline: 2px solid var(--pf-accent-focus); }
 
+.pf-hub-brand--partner-carousel {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.pf-hub-brand--partner-paused {
+  box-shadow: 0 0 0 1px rgba(252, 1, 155, 0.28);
+}
+
+.pf-hub-logo-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  perspective: 220px;
+}
+
+.pf-hub-logo-stage--wide {
+  width: 108px;
+  height: 52px;
+  perspective: 320px;
+}
+
+@keyframes pf-hub-partner-logo-in {
+  0% {
+    opacity: 0;
+    transform: rotateY(-72deg) scale(0.86);
+  }
+  100% {
+    opacity: 1;
+    transform: rotateY(0deg) scale(1);
+  }
+}
+
+.pf-hub-logo--flip-in {
+  animation: pf-hub-partner-logo-in 0.5s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pf-hub-logo--flip-in { animation: none; }
+  .pf-hub-brand--partner-paused { box-shadow: none; }
+}
+
 @keyframes pf-hub-logo-soft-pulse {
   0%, 100% {
     transform: scale(1);
@@ -1627,6 +1674,11 @@ a.pf-node { cursor: pointer; }
   object-fit: contain;
   transform-origin: center center;
   filter: drop-shadow(0 0 6px rgba(252, 1, 155, 0.18));
+}
+
+.pf-hub-logo--wide {
+  width: 100px;
+  height: 50px;
 }
 
 .pf-hub-brand--flow-ends-here .pf-hub-logo {
@@ -1925,6 +1977,7 @@ a.pf-node { cursor: pointer; }
 /* ─────────────────────────────────────────────────────────────
  * QR — flat card.
  * ───────────────────────────────────────────────────────────── */
+.pf-qr-aside,
 .pf-ukraine-qr {
   position: relative;
   align-self: center;
@@ -1943,6 +1996,35 @@ a.pf-node { cursor: pointer; }
   flex-shrink: 0;
 }
 
+.pf-graph .pf-node[data-pos='bottom-center'] {
+  bottom: 0;
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+}
+
+.pf-node--page-qr {
+  min-width: 0;
+  max-width: none;
+  padding: 8px 10px;
+  cursor: pointer;
+  background: transparent;
+}
+
+.pf-node--page-qr img {
+  display: block;
+  width: 48px;
+  height: 48px;
+  border-radius: 0;
+  background: transparent;
+}
+
+.pf-node--page-qr:focus-visible {
+  outline: 2px solid var(--pf-accent-focus);
+  outline-offset: 4px;
+}
+
+.pf-qr-aside-link,
 .pf-ukraine-qr-link {
   display: flex;
   flex-direction: column;
@@ -1953,12 +2035,14 @@ a.pf-node { cursor: pointer; }
   pointer-events: auto;
 }
 
+.pf-qr-aside-link:focus-visible,
 .pf-ukraine-qr-link:focus-visible {
   outline: 2px solid var(--pf-accent-focus);
   outline-offset: 4px;
   border-radius: 12px;
 }
 
+.pf-qr-aside-img,
 .pf-ukraine-qr-img {
   display: block;
   width: min(132px, 38vw);
@@ -1969,6 +2053,7 @@ a.pf-node { cursor: pointer; }
   box-shadow: none;
 }
 
+.pf-qr-aside-caption,
 .pf-ukraine-qr-caption {
   font-size: 10px;
   font-weight: 700;
@@ -2161,6 +2246,8 @@ a.pf-node { cursor: pointer; }
 
   .pf-hub { max-width: min(132px, 40vw); }
   .pf-hub-logo { width: 38px; height: 38px; }
+  .pf-hub-logo-stage--wide { width: 92px; height: 46px; }
+  .pf-hub-logo--wide { width: 84px; height: 42px; }
   .pf-hub-label { font-size: 9px; margin-top: 6px; letter-spacing: 0.12em; }
   .pf-hub-opensource {
     font-size: 8px;
@@ -2169,6 +2256,7 @@ a.pf-node { cursor: pointer; }
     gap: 4px;
   }
   .pf-hub-opensource-icon { width: 11px; height: 11px; }
+  .pf-qr-aside,
   .pf-ukraine-qr {
     max-width: min(200px, 72vw);
     margin-top: 8px;
@@ -2206,6 +2294,8 @@ a.pf-node { cursor: pointer; }
 
   .pf-hub { max-width: min(96px, 34vw); }
   .pf-hub-logo { width: 32px; height: 32px; }
+  .pf-hub-logo-stage--wide { width: 80px; height: 40px; }
+  .pf-hub-logo--wide { width: 72px; height: 36px; }
 
   .pf-roi-stack-bar { grid-template-columns: 1fr; }
   .pf-roi-stack-seg--load { grid-column: 1; }
@@ -2414,18 +2504,21 @@ a.pf-node { cursor: pointer; }
   padding: 6px 0 2px;
 }
 
-.pf-modal-spinner {
-  box-sizing: border-box;
+.pf-modal-loader-logo {
+  display: block;
   width: 38px;
   height: 38px;
   margin: 0 0 14px;
-  border: 2px solid var(--pf-border);
-  border-top-color: var(--pf-pink);
-  border-radius: 50%;
-  animation: pf-modal-spin 0.8s linear infinite;
+  object-fit: contain;
+  animation: pf-page-rest-logo-fade 3.6s ease-in-out infinite;
 }
 
-@keyframes pf-modal-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .pf-modal-loader-logo {
+    animation: none;
+    opacity: 0.85;
+  }
+}
 
 .pf-modal-message--multiline { white-space: pre-line; }
 .pf-modal-message--error { color: var(--pf-up); }
@@ -3502,12 +3595,14 @@ a.pf-node { cursor: pointer; }
   box-shadow: 0 8px 28px rgba(20, 22, 28, 0.12);
 }
 
+[data-theme="light"] .pf-qr-aside,
 [data-theme="light"] .pf-ukraine-qr {
   border-color: var(--pf-border);
   background: #ffffff;
   box-shadow: none;
 }
 
+[data-theme="light"] .pf-qr-aside-img,
 [data-theme="light"] .pf-ukraine-qr-img {
   border-color: var(--pf-border);
 }
@@ -3654,7 +3749,8 @@ a.pf-node { cursor: pointer; }
   :root:not([data-theme]) .pf-roi-bar,
   :root:not([data-theme]) .pf-discharge-toolbar,
   :root:not([data-theme]) .pf-discharge-feedback,
-  :root:not([data-theme]) .pf-ukraine-qr {
+  :root:not([data-theme]) .pf-ukraine-qr,
+  :root:not([data-theme]) .pf-qr-aside {
     background: #ffffff;
     border: 1px solid var(--pf-border);
     box-shadow: none;

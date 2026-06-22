@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import SharePageModal from './SharePageModal';
+import { VYRIY_EMS_LOGO_SRC } from './vyriyEmsLogo';
 import './power-flow.css';
 import './landing.css';
 
@@ -88,7 +89,7 @@ function ThemeToggleIcon({ theme }) {
 
 /**
  * Site-wide sticky header (brand, nav, language).
- * @param {'power' | 'landing' | 'evTv'} activePage
+ * @param {'power' | 'landing' | 'evTv' | 'marketplace'} activePage
  */
 export default function OpenEmsHeader({
   t,
@@ -101,7 +102,7 @@ export default function OpenEmsHeader({
   cycleTheme,
   chromeHidden = false,
 }) {
-  const logoSrc = `${process.env.PUBLIC_URL || ''}/static/open-ems-220-logo.svg`;
+  const logoSrc = VYRIY_EMS_LOGO_SRC;
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [shareModalUrl, setShareModalUrl] = useState('');
   const [shareModalCopied, setShareModalCopied] = useState(false);
@@ -170,68 +171,71 @@ export default function OpenEmsHeader({
     <>
       <div ref={shellRef} className="open-ems-header-shell">
         <header className="landing-header open-ems-header">
-        <a className="landing-header__brand" href="/">
-          <img className="landing-header__logo" src={logoSrc} alt="" width={36} height={36} decoding="async" />
-          <span className="landing-header__name">{t('appBrandName')}</span>
-        </a>
-        <nav className="landing-nav" aria-label={t('landingNavAria')}>
-          <a className={navLinkClass('power')} href="/">
-            {t('landingNavDemo')}
+          <a className="landing-header__brand" href="/">
+            <img className="landing-header__logo" src={logoSrc} alt="" width={36} height={36} decoding="async" />
+            <span className="landing-header__name">{t('appBrandName')}</span>
           </a>
-          <a className={navLinkClass('landing')} href="/about">
-            {t('landingNavHome')}
-          </a>
-          <a className={navLinkClass('evTv')} href="/ev-tv">
-            {t('evTvNavLabel')}
-          </a>
-          <a className="landing-nav__link" href={OPEN_EMS_GITHUB_URL} target="_blank" rel="noopener noreferrer">
-            {t('landingNavGithub')}
-          </a>
-        </nav>
-        <div className="landing-header__actions">
-          <button
-            type="button"
-            className="pf-share-btn"
-            onClick={() => void handleSharePage()}
-            aria-label={t('sharePageAria')}
-            title={t('sharePageAria')}
-          >
-            <svg
-              className="pf-share-btn__icon"
-              viewBox="0 0 24 24"
-              width="18"
-              height="18"
-              aria-hidden="true"
-              focusable="false"
+          <nav className="landing-nav" aria-label={t('landingNavAria')}>
+            <a className={navLinkClass('power')} href="/">
+              {t('landingNavDemo')}
+            </a>
+            <a className={navLinkClass('landing')} href="/about">
+              {t('landingNavHome')}
+            </a>
+            <a className={navLinkClass('marketplace')} href="/marketplace">
+              {t('marketplaceNavLabel')}
+            </a>
+            <a className={navLinkClass('evTv')} href="/ev-tv">
+              {t('evTvNavLabel')}
+            </a>
+            <a className="landing-nav__link" href={OPEN_EMS_GITHUB_URL} target="_blank" rel="noopener noreferrer">
+              {t('landingNavGithub')}
+            </a>
+          </nav>
+          <div className="landing-header__actions">
+            <button
+              type="button"
+              className="pf-share-btn"
+              onClick={() => void handleSharePage()}
+              aria-label={t('sharePageAria')}
+              title={t('sharePageAria')}
             >
-              <path
-                fill="currentColor"
-                d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"
-              />
-            </svg>
-          </button>
-          <button
-            type="button"
-            className="pf-theme-btn"
-            onClick={cycleTheme}
-            aria-label={themeLabels.aria}
-            title={themeLabels.title}
-          >
-            <ThemeToggleIcon theme={theme} />
-          </button>
-          <select
-            className="pf-lang-select"
-            aria-label={t('langSelectAria')}
-            value={locale}
-            onChange={onLangSelectChange}
-          >
-            {SUPPORTED.map(code => (
-              <option key={code} value={code}>
-                {LOCALE_NAMES[code] || code}
-              </option>
-            ))}
-          </select>
-        </div>
+              <svg
+                className="pf-share-btn__icon"
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <path
+                  fill="currentColor"
+                  d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"
+                />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="pf-theme-btn"
+              onClick={cycleTheme}
+              aria-label={themeLabels.aria}
+              title={themeLabels.title}
+            >
+              <ThemeToggleIcon theme={theme} />
+            </button>
+            <select
+              className="pf-lang-select"
+              aria-label={t('langSelectAria')}
+              value={locale}
+              onChange={onLangSelectChange}
+            >
+              {SUPPORTED.map(code => (
+                <option key={code} value={code}>
+                  {LOCALE_NAMES[code] || code}
+                </option>
+              ))}
+            </select>
+          </div>
         </header>
       </div>
       <SharePageModal

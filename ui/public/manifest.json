@@ -1,17 +1,12 @@
 {
-  "short_name": "Народна ЕМС",
-  "name": "Народна ЕМС — Потоки потужності",
+  "short_name": "Вирій ЕМС",
+  "name": "Вирій ЕМС — Потоки потужності",
   "icons": [
     {
-      "src": "static/apple-touch-icon.png",
-      "sizes": "180x180",
-      "type": "image/png",
+      "src": "static/vyriy-ems-logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
       "purpose": "any"
-    },
-    {
-      "src": "static/favicon-32.png",
-      "sizes": "32x32",
-      "type": "image/png"
     }
   ],
   "start_url": "/",

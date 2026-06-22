@@ -15,13 +15,15 @@ from typing import Any, Optional
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.deye_flow_balance import FLOW_BALANCE_DEVICE_SNS
+from app.deye_flow_balance import FLOW_BALANCE_PV_FACTOR, device_uses_flow_balance
 
 logger = logging.getLogger(__name__)
 
 MIN_DEEP_SOC_DELTA_PCT = 10.0
 MIN_BATTERY_ENERGY_KWH = 0.5
 MAX_SESSION_LOOKBACK = 8
+# Fallback window when legacy rows only have success_at (no exportSession bounds).
+_INFERRED_SESSION_LOOKBACK_HOURS = 3
 
 
 @dataclass(frozen=True)
@@ -56,6 +58,10 @@ def estimate_capacity_kwh_from_balance(
     return battery_kwh / (soc_delta / 100.0)
 
 
+def _pv_factor_for_device(device_sn: str) -> float:
+    return float(FLOW_BALANCE_PV_FACTOR) if device_uses_flow_balance(device_sn) else 1.0
+
+
 async def _list_recent_discharge_sessions(session: AsyncSession) -> list[DischargeSessionWindow]:
     r = await session.execute(
         text(
@@ -63,25 +69,35 @@ async def _list_recent_discharge_sessions(session: AsyncSession) -> list[Dischar
             WITH sessions AS (
                 SELECT
                     device_sn,
-                    export_session_start_at AS start_at,
-                    export_session_end_at AS end_at,
+                    COALESCE(
+                        export_session_start_at,
+                        success_at - make_interval(hours => :lookback_hours)
+                    ) AS start_at,
+                    COALESCE(export_session_end_at, success_at) AS end_at,
                     discharge_hit_target AS hit_target,
                     success_at,
                     'manual' AS source
                 FROM deye_manual_discharge_session
-                WHERE export_session_start_at IS NOT NULL
-                  AND export_session_end_at IS NOT NULL
+                WHERE (
+                    export_session_start_at IS NOT NULL
+                    AND export_session_end_at IS NOT NULL
+                ) OR success_at IS NOT NULL
                 UNION ALL
                 SELECT
                     device_sn,
-                    export_session_start_at,
-                    export_session_end_at,
+                    COALESCE(
+                        export_session_start_at,
+                        success_at - make_interval(hours => :lookback_hours)
+                    ),
+                    COALESCE(export_session_end_at, success_at),
                     peak_discharge_hit_target,
                     success_at,
                     'peak'
                 FROM deye_peak_auto_discharge_fired
-                WHERE export_session_start_at IS NOT NULL
-                  AND export_session_end_at IS NOT NULL
+                WHERE (
+                    export_session_start_at IS NOT NULL
+                    AND export_session_end_at IS NOT NULL
+                ) OR success_at IS NOT NULL
             ),
             ranked AS (
                 SELECT
@@ -95,6 +111,9 @@ async def _list_recent_discharge_sessions(session: AsyncSession) -> list[Dischar
                         ORDER BY end_at DESC NULLS LAST, success_at DESC NULLS LAST
                     ) AS rn
                 FROM sessions
+                WHERE start_at IS NOT NULL
+                  AND end_at IS NOT NULL
+                  AND end_at > start_at
             )
             SELECT device_sn, start_at, end_at, hit_target, source
             FROM ranked
@@ -102,7 +121,10 @@ async def _list_recent_discharge_sessions(session: AsyncSession) -> list[Dischar
             ORDER BY device_sn, end_at DESC
             """
         ),
-        {"max_lookback": MAX_SESSION_LOOKBACK},
+        {
+            "max_lookback": MAX_SESSION_LOOKBACK,
+            "lookback_hours": _INFERRED_SESSION_LOOKBACK_HOURS,
+        },
     )
     out: list[DischargeSessionWindow] = []
     for row in r.all():
@@ -127,14 +149,26 @@ async def _session_energy_and_soc(
     start_at: datetime,
     end_at: datetime,
 ) -> Optional[tuple[float, float, float, Optional[float], Optional[float], int]]:
-    """(load_kwh, grid_import_kwh, solar_kwh, soc_start, soc_end, load_sample_count)."""
+    """(load_kwh, grid_import_kwh, solar_kwh, soc_start, soc_end, energy_sample_count)."""
+    pv_factor = _pv_factor_for_device(device_sn)
     r = await session.execute(
         text(
             """
             SELECT
                 COALESCE(SUM(
-                    CASE WHEN load_power_w > 0 THEN load_power_w::double precision / 12000.0
-                    ELSE 0 END
+                    CASE
+                        WHEN load_power_w > 0 THEN load_power_w::double precision / 12000.0
+                        WHEN grid_power_w IS NOT NULL AND battery_power_w IS NOT NULL THEN
+                            GREATEST(
+                                0.0,
+                                COALESCE(grid_power_w, 0)::double precision
+                                + :pv_factor * COALESCE(
+                                    pv_generation_w, pv_power_w, 0
+                                )::double precision
+                                + COALESCE(battery_power_w, 0)::double precision
+                            ) / 12000.0
+                        ELSE 0.0
+                    END
                 ), 0)::double precision,
                 COALESCE(SUM(
                     CASE WHEN grid_power_w > 0 THEN grid_power_w::double precision / 12000.0
@@ -146,39 +180,38 @@ async def _session_energy_and_soc(
                     ELSE 0 END
                 ), 0)::double precision,
                 (
-                    SELECT s2.soc_percent
+                    SELECT MAX(s2.soc_percent)
                     FROM deye_soc_sample s2
                     WHERE s2.device_sn = :sn
                       AND s2.bucket_start >= :t0
                       AND s2.bucket_start <= :t1
                       AND s2.soc_percent IS NOT NULL
-                    ORDER BY s2.bucket_start ASC
-                    LIMIT 1
                 ),
                 (
-                    SELECT s3.soc_percent
+                    SELECT MIN(s3.soc_percent)
                     FROM deye_soc_sample s3
                     WHERE s3.device_sn = :sn
                       AND s3.bucket_start >= :t0
                       AND s3.bucket_start <= :t1
                       AND s3.soc_percent IS NOT NULL
-                    ORDER BY s3.bucket_start DESC
-                    LIMIT 1
                 ),
-                COUNT(*) FILTER (WHERE load_power_w IS NOT NULL)::int
+                COUNT(*) FILTER (
+                    WHERE load_power_w IS NOT NULL
+                       OR (grid_power_w IS NOT NULL AND battery_power_w IS NOT NULL)
+                )::int
             FROM deye_soc_sample
             WHERE device_sn = :sn
               AND bucket_start >= :t0
               AND bucket_start <= :t1
             """
         ),
-        {"sn": device_sn, "t0": start_at, "t1": end_at},
+        {"sn": device_sn, "t0": start_at, "t1": end_at, "pv_factor": pv_factor},
     )
     row = r.one_or_none()
     if row is None:
         return None
-    load_samples = int(row[5] or 0)
-    if load_samples < 1:
+    energy_samples = int(row[5] or 0)
+    if energy_samples < 1:
         return None
     return (
         float(row[0] or 0.0),
@@ -186,14 +219,14 @@ async def _session_energy_and_soc(
         float(row[2] or 0.0),
         float(row[3]) if row[3] is not None else None,
         float(row[4]) if row[4] is not None else None,
-        load_samples,
+        energy_samples,
     )
 
 
 async def estimate_device_capacity_kwh(session: AsyncSession, device_sn: str) -> Optional[float]:
     """Nominal kWh from the latest qualifying deep discharge for one inverter."""
     sn = (device_sn or "").strip()
-    if not sn or sn not in FLOW_BALANCE_DEVICE_SNS:
+    if not sn:
         return None
     sessions = [s for s in await _list_recent_discharge_sessions(session) if s.device_sn == sn]
     for win in sessions:
@@ -222,8 +255,6 @@ async def fleet_battery_capacity_summary(session: AsyncSession) -> dict[str, Any
     sessions = await _list_recent_discharge_sessions(session)
     by_device: dict[str, list[DischargeSessionWindow]] = {}
     for win in sessions:
-        if win.device_sn not in FLOW_BALANCE_DEVICE_SNS:
-            continue
         by_device.setdefault(win.device_sn, []).append(win)
 
     per_device_kwh: dict[str, float] = {}
