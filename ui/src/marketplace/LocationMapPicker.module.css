@@ -22,87 +22,6 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
-.mapToolbar {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 10px;
-  background: rgba(17, 12, 23, 0.92);
-  border-bottom: 1px solid var(--b2b-border-subtle, rgba(249, 76, 175, 0.22));
-}
-
-.searchWrap {
-  position: relative;
-  flex: 1;
-  min-width: 0;
-}
-
-.searchInput {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 8px 12px;
-  border-radius: 8px;
-  border: 1px solid rgba(249, 76, 175, 0.45);
-  background: rgba(0, 0, 0, 0.28);
-  color: var(--b2b-body, #dad1e6);
-  font-size: 13px;
-}
-
-.searchInput:focus {
-  outline: none;
-  border-color: var(--b2b-accent, #f94caf);
-  box-shadow: 0 0 0 2px rgba(249, 76, 175, 0.18);
-}
-
-.searchInput::placeholder {
-  color: var(--b2b-body-muted, rgba(218, 209, 230, 0.55));
-}
-
-.searchResults {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  z-index: 4;
-  margin: 0;
-  padding: 4px;
-  list-style: none;
-  max-height: 220px;
-  overflow-y: auto;
-  border-radius: 8px;
-  border: 1px solid var(--b2b-border, rgba(249, 76, 175, 0.45));
-  background: rgba(17, 12, 23, 0.96);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-}
-
-.searchResultBtn,
-.searchResultItemMuted {
-  display: block;
-  width: 100%;
-  box-sizing: border-box;
-  padding: 8px 10px;
-  border-radius: 6px;
-  font-size: 12px;
-  line-height: 1.35;
-  text-align: left;
-}
-
-.searchResultBtn {
-  border: none;
-  background: transparent;
-  color: var(--b2b-body, #dad1e6);
-  cursor: pointer;
-}
-
-.searchResultBtn:hover {
-  background: rgba(249, 76, 175, 0.16);
-  color: #fff;
-}
-
-.searchResultItemMuted {
-  color: var(--b2b-body-muted, rgba(218, 209, 230, 0.72));
-}
-
 .map {
   width: 100%;
   height: min(52vh, 320px);
@@ -121,16 +40,19 @@
 }
 
 .geolocateBtn {
-  flex-shrink: 0;
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
   padding: 8px 12px;
   border-radius: 8px;
   border: 1px solid rgba(249, 76, 175, 0.55);
-  background: rgba(0, 0, 0, 0.28);
+  background: rgba(17, 12, 23, 0.88);
   color: var(--b2b-body, #dad1e6);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  white-space: nowrap;
+  backdrop-filter: blur(4px);
 }
 
 .geolocateBtn:hover {

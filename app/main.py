@@ -62,8 +62,6 @@ async def lifespan(app: FastAPI):
         logger.warning("ENTSO-E DAM: not configured — set ENTSOE_SECURITY_TOKEN for ES/PL charts (see docs/ENTSOE_TRANSPARENCY_DAM.md)")
     if huawei_configured():
         logger.info("Huawei FusionSolar: configured (base: %s)", settings.HUAWEI_BASE_URL)
-    elif not settings.HUAWEI_ENABLED:
-        logger.info("Huawei FusionSolar: disabled (HUAWEI_ENABLED=0; local dev uses ./run-local.sh -hua to enable)")
     else:
         hm = huawei_missing_env_names()
         logger.warning(
@@ -111,7 +109,7 @@ async def lifespan(app: FastAPI):
 
     stop_huawei_power: Optional[asyncio.Event] = None
     huawei_power_task: Optional[asyncio.Task[None]] = None
-    if settings.HUAWEI_POWER_SNAPSHOT_ENABLED and huawei_configured():
+    if settings.HUAWEI_POWER_SNAPSHOT_ENABLED:
         stop_huawei_power = asyncio.Event()
         huawei_power_task = asyncio.create_task(huawei_power_snapshot_loop(stop_huawei_power))
         logger.info(
@@ -131,7 +129,7 @@ async def lifespan(app: FastAPI):
 
     stop_huawei_station_energy: Optional[asyncio.Event] = None
     huawei_station_energy_task: Optional[asyncio.Task[None]] = None
-    if settings.HUAWEI_STATION_ENERGY_SNAPSHOT_ENABLED and huawei_configured():
+    if settings.HUAWEI_STATION_ENERGY_SNAPSHOT_ENABLED:
         stop_huawei_station_energy = asyncio.Event()
         huawei_station_energy_task = asyncio.create_task(
             huawei_station_energy_loop(stop_huawei_station_energy)
