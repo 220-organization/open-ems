@@ -12,10 +12,15 @@ cd "$(dirname "$0")"
 # Recreate DB container (volume kept, Flyway re-runs on existing data): ./run-local.sh -clean
 
 CLEAN_DB=0
+HUAWEI_LOCAL=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -clean|--clean)
       CLEAN_DB=1
+      shift
+      ;;
+    -hua|--hua)
+      HUAWEI_LOCAL=1
       shift
       ;;
     -h|--help)
@@ -24,6 +29,9 @@ Usage: ./run-local.sh [options]
 
   -clean, --clean   Stop compose services and recreate containers (PostgreSQL volume is kept).
                     Use after migration checksum conflicts or to reset local data.
+
+  -hua, --hua       Enable Huawei FusionSolar Northbound (API + background snapshots).
+                    Default local dev keeps HUAWEI_ENABLED=0 so prod Northbound is not contacted.
 
   -h, --help        Show this help.
 
@@ -60,6 +68,14 @@ EOF
       ;;
   esac
 done
+
+if [[ "${HUAWEI_LOCAL}" -eq 1 ]]; then
+  export HUAWEI_ENABLED=1
+  echo "Huawei FusionSolar: enabled (-hua)" >&2
+else
+  export HUAWEI_ENABLED=0
+  echo "Huawei FusionSolar: disabled (use ./run-local.sh -hua to enable)" >&2
+fi
 
 export DATABASE_URL="${DATABASE_URL:-postgresql+asyncpg://openems:openems@127.0.0.1:5433/openems}"
 

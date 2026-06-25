@@ -93,7 +93,7 @@ def huawei_missing_env_names() -> list[str]:
 
 
 def huawei_configured() -> bool:
-    return bool(settings.HUAWEI_USER_NAME and settings.HUAWEI_SYSTEM_CODE)
+    return settings.HUAWEI_ENABLED and bool(settings.HUAWEI_USER_NAME and settings.HUAWEI_SYSTEM_CODE)
 
 
 def _base_url() -> str:
