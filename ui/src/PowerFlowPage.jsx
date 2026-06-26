@@ -16,12 +16,11 @@ import DeyeInverterMessengerModal from './DeyeInverterMessengerModal';
 import PeakExportHourlyChartModal from './PeakExportHourlyChartModal';
 import MonthlyRetailTariffChartModal from './MonthlyRetailTariffChartModal';
 import GridBalancingChartModal from './GridBalancingChartModal';
+import SolarNodePopupContent from './SolarNodePopupContent';
 import RoiStackStatistics from './RoiStackStatistics';
 import { KwhCalibrationProvider, useKwhCalibration } from './KwhCalibrationContext';
 import { VYRIY_EMS_LOGO_SRC } from './vyriyEmsLogo';
 import PartnerHubLogo from './PartnerHubLogo';
-import PageShareQrAside from './PageShareQrAside';
-import { pageShareUrlFromWindow } from './sharePageQr';
 import { DEYE_FLOW_BALANCE_PV_FACTOR, usesDeyeFlowBalance } from './deyeFlowBalanceSites';
 import { inverterSelectShortLabel, parseEvPortStationNumber } from './deyeInverterDisplay';
 import { clearInverterPinCache, readCachedInverterPin, rememberInverterPin } from './deyeInverterPinCache';
@@ -35,11 +34,22 @@ import {
   parseEssSelection,
 } from './essSelection';
 import PfScrollNumber from './PfScrollNumber';
+import PortStickerQrImage from './PortStickerQrImage';
+import SharePageModal from './SharePageModal';
+import KioskFleetGenConsChart from './KioskFleetGenConsChart';
+import { openEmsUrlWithoutKiosk, openEmsUrlWithKiosk } from './openEmsKiosk';
+import { pageShareUrlFromWindow } from './sharePageQr';
+import { useMinWidth } from './useMinWidth';
+import { useScreenWakeLock } from './useScreenWakeLock';
 import './power-flow.css';
 import './dam-chart.css';
+import './openEmsKiosk.css';
 import { useOpenEmsSeo } from './useOpenEmsSeo';
 
 const INVERTER_STORAGE = 'pf-deye-inverter';
+
+/** Wide viewport — kiosk entry button (aligned with B2B graphView=1 at 992px). */
+const KIOSK_WIDE_MIN_PX = 992;
 
 /** Huawei Northbound thirdData — strict rate limits (failCode 407 if polled too often). */
 const HUAWEI_NORTHBOUND_POLL_MS = 210_000;
@@ -1303,8 +1313,10 @@ export default function PowerFlowPage({
   LOCALE_NAMES,
   onLangSelectChange,
   isDark,
+  kioskMode = false,
 }) {
   const graphRef = useRef(null);
+  const isWideViewport = useMinWidth(KIOSK_WIDE_MIN_PX);
   const [graphWidth, setGraphWidth] = useState(400);
   const [stationFilter, setStationFilter] = useState(() => {
     try {
@@ -2343,12 +2355,23 @@ export default function PowerFlowPage({
     const html = String(event.currentTarget.innerHTML || '').replace(/\sid="[^"]*"/g, '');
     if (!html) return;
     setNodePopup({
+      variant: 'html',
       html,
       title: options.title ? String(options.title) : '',
       actionHref: options.actionHref ? String(options.actionHref) : '',
       actionLabel: options.actionLabel ? String(options.actionLabel) : '',
     });
   }, []);
+
+  const openSolarNodePopup = useCallback(
+    event => {
+      if (!event?.currentTarget) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setNodePopup({ variant: 'solar', title: t('nodeSolar') });
+    },
+    [t]
+  );
 
   useEffect(() => {
     peakDamEnabledRef.current = peakDamDischargeEnabled;
@@ -3021,6 +3044,52 @@ export default function PowerFlowPage({
     window.history.replaceState({}, '', u);
   }, []);
 
+  const openKiosk = useCallback(() => {
+    try {
+      const next = openEmsUrlWithKiosk(window.location.href);
+      window.history.pushState({}, '', next);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const exitKiosk = useCallback(() => {
+    try {
+      const next = openEmsUrlWithoutKiosk(window.location.href);
+      window.history.replaceState({}, '', next);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useScreenWakeLock(kioskMode);
+
+  useEffect(() => {
+    if (!kioskMode) return undefined;
+    document.documentElement.classList.add('open-ems-kiosk');
+    document.documentElement.setAttribute('data-theme', 'light');
+    return () => {
+      document.documentElement.classList.remove('open-ems-kiosk');
+    };
+  }, [kioskMode]);
+
+  const pageShareUrl = useMemo(
+    () => pageShareUrlFromWindow({ stripParams: ['kiosk'] }),
+    [stationFilter, locale, selInverterSn, selHuaweiStationCode, essSel.provider],
+  );
+
+  const [graphShareQrOpen, setGraphShareQrOpen] = useState(false);
+  const openGraphShareQrModal = useCallback(e => {
+    e.preventDefault();
+    e.stopPropagation();
+    setGraphShareQrOpen(true);
+  }, []);
+  const closeGraphShareQrModal = useCallback(() => {
+    setGraphShareQrOpen(false);
+  }, []);
+
   /** When the selected inverter label contains ``evport<N>``, select that EV port in the header dropdown. */
   useEffect(() => {
     if (inverterRows.loading || inverterRows.error || !inverterRows.configured) return;
@@ -3257,8 +3326,11 @@ export default function PowerFlowPage({
     loadFlowActive ||
     (graphDisplayEssW != null && Math.abs(graphDisplayEssW) > 0) ||
     graphMinerFlowW > 0;
-  const geom = useMemo(() => computeWideGeometry(graphWidth), [graphWidth]);
-  const graphAnchorPct = useMemo(() => (edgeInsetPx(graphWidth) / Math.max(graphWidth, 1)) * 100, [graphWidth]);
+  const geom = useMemo(() => computeWideGeometry(graphWidth, { kiosk: kioskMode }), [graphWidth, kioskMode]);
+  const graphAnchorPct = useMemo(
+    () => (edgeInsetPx(graphWidth, { kiosk: kioskMode }) / Math.max(graphWidth, 1)) * 100,
+    [graphWidth, kioskMode],
+  );
   const gridDamMonthAvgUahPerKwh = useMemo(() => {
     const dam = landingTotals?.dam;
     if (!dam?.configured) return null;
@@ -3323,10 +3395,6 @@ export default function PowerFlowPage({
     fleetDeyeAggregate.okResponses === 0;
   const evBusy = fleetDeyePollBusy;
   const qrBase = process.env.PUBLIC_URL || '';
-  const pageShareUrl = useMemo(
-    () => pageShareUrlFromWindow(),
-    [stationFilter, selInverterSn, locale, selHuaweiStationCode, essSel.provider, evOnlyFocusMode],
-  );
 
   const essSocPercent = useMemo(() => {
     const sn = selInverterSn.trim();
@@ -3943,8 +4011,13 @@ export default function PowerFlowPage({
 
   return (
     <KwhCalibrationProvider inverterSn={selInverterSn} t={t}>
-      <div className="pf-body">
-        <div className="pf-root">
+      <div className={`pf-body${kioskMode ? ' pf-body--kiosk' : ''}`}>
+        {kioskMode ? (
+          <button type="button" className="open-ems-kiosk-close" onClick={exitKiosk}>
+            ← {t('openEmsKioskClose')}
+          </button>
+        ) : null}
+        <div className={`pf-root${kioskMode ? ' pf-root--kiosk' : ''}`}>
           <div className="pf-top-bar">
             <header className="pf-header">
               <div className="pf-header-primary">
@@ -4431,11 +4504,21 @@ export default function PowerFlowPage({
                 })()
               : null}
 
-            <div className="pf-graph-wrap">
+            {isWideViewport && !kioskMode ? (
+              <div className="pf-kiosk-wide-actions">
+                <button type="button" className="pf-kiosk-expand-btn" onClick={openKiosk}>
+                  {t('openEmsKioskOpen')}
+                </button>
+              </div>
+            ) : null}
+
+            <div className={kioskMode ? 'pf-kiosk-layout' : 'pf-kiosk-layout-passthrough'}>
+              <div className={kioskMode ? 'pf-kiosk-layout__graph' : 'pf-kiosk-layout-passthrough'}>
+            <div className={`pf-graph-wrap${kioskMode ? ' pf-graph-wrap--kiosk' : ''}`}>
               <div
                 id="pf-graph"
                 ref={graphRef}
-                className="pf-graph"
+                className={`pf-graph${kioskMode ? ' pf-graph--kiosk' : ''}`}
                 style={{ '--pf-graph-anchor-pct': `${graphAnchorPct}%` }}
                 aria-label={t('graphAriaLabel')}
               >
@@ -4562,9 +4645,9 @@ export default function PowerFlowPage({
                     data-active={solarFlowActive ? 'true' : 'false'}
                     role="button"
                     tabIndex={0}
-                    onClick={e => openNodePopup(e, { title: t('nodeSolar') })}
+                    onClick={openSolarNodePopup}
                     onKeyDown={e => {
-                      if (e.key === 'Enter' || e.key === ' ') openNodePopup(e, { title: t('nodeSolar') });
+                      if (e.key === 'Enter' || e.key === ' ') openSolarNodePopup(e);
                     }}
                   >
                     <div className="pf-solar-header">
@@ -4902,12 +4985,36 @@ export default function PowerFlowPage({
                       </div>
                     </div>
                   )}
-                <PageShareQrAside url={pageShareUrl} t={t} compact showCaption={false} />
+                  {pageShareUrl ? (
+                    <button
+                      type="button"
+                      className={`pf-node pf-node--graph-share-qr${kioskMode ? ' pf-node--kiosk-qr' : ''}`}
+                      data-pos="bottom-center"
+                      onClick={openGraphShareQrModal}
+                      aria-label={t('pageShareQrAsideAria')}
+                    >
+                      <PortStickerQrImage
+                        url={pageShareUrl}
+                        size={kioskMode ? 200 : 112}
+                        alt={t('sharePageQrAlt')}
+                      />
+                    </button>
+                  ) : null}
                 </div>
               </div>
               <div id="pf-error" className="pf-error" hidden={!loadError}>
                 {loadError}
               </div>
+            </div>
+              </div>
+              {kioskMode ? (
+                <KioskFleetGenConsChart
+                  deyeItems={deyeCombinedItems}
+                  huaweiItems={huaweiListReady ? huaweiRows.items : []}
+                  t={t}
+                  getBcp47Locale={getBcp47Locale}
+                />
+              ) : null}
             </div>
 
             <div className="pf-lang-port-bar" style={{ '--pf-graph-anchor-pct': `${graphAnchorPct}%` }}>
@@ -5520,6 +5627,20 @@ export default function PowerFlowPage({
             </section>
           </div>
 
+          {graphShareQrOpen && pageShareUrl ? (
+            <SharePageModal
+              open={graphShareQrOpen}
+              url={pageShareUrl}
+              copied={false}
+              copyFailed={false}
+              onClose={closeGraphShareQrModal}
+              t={t}
+              qrSize={kioskMode ? 360 : 320}
+              qrVariant="portSticker"
+              showCopyStatus={false}
+            />
+          ) : null}
+
           {nodePopup ? (
             <div className="pf-modal-backdrop pf-node-popup-backdrop" role="presentation" onClick={closeNodePopup}>
               <div
@@ -5529,7 +5650,25 @@ export default function PowerFlowPage({
                 aria-label={nodePopup.title || 'Node details'}
                 onClick={e => e.stopPropagation()}
               >
-                <div className="pf-node pf-node-popup-tile" dangerouslySetInnerHTML={{ __html: nodePopup.html }} />
+                {nodePopup.variant === 'solar' ? (
+                  <SolarNodePopupContent
+                    deviceSn={selInverterSn}
+                    solarForecast={solarForecast}
+                    solarPowerW={graphDisplaySolarW}
+                    solarForecastIconChar={solarForecastIconChar}
+                    solarForecastIconAria={solarForecastIconAria}
+                    lcoeLine={
+                      !referenceLcoe.loading && referenceLcoe.ok
+                        ? formatUahPerKwhTariffLine(referenceLcoe.solarUahPerKwh)
+                        : ''
+                    }
+                    bcp47={bcp47}
+                    evOnlyGraphLoading={evOnlyGraphLoading}
+                    t={t}
+                  />
+                ) : (
+                  <div className="pf-node pf-node-popup-tile" dangerouslySetInnerHTML={{ __html: nodePopup.html }} />
+                )}
                 {nodePopup.actionHref ? (
                   <a
                     className="pf-modal-btn pf-modal-btn--primary pf-node-popup-link"

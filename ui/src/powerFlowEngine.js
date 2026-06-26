@@ -98,18 +98,27 @@ export function flowMotionPath(x1, y1, x2, y2) {
  * tiles stay inside the square; must match CSS --pf-graph-anchor-pct on .pf-graph.
  * On wide desktop tiles (~140px) need a larger inset so half-width does not spill past the graph.
  */
-export function edgeInsetPx(containerW) {
+export function edgeInsetPx(containerW, options = {}) {
+  const { kiosk = false } = options;
   const w = Math.max(containerW, 1);
   if (w >= 560) {
-    return Math.min(90, Math.max(48, Math.round(0.074 * w + 19)));
+    const base = Math.min(90, Math.max(48, Math.round(0.074 * w + 19)));
+    if (kiosk) {
+      return Math.min(172, Math.max(base, Math.round(0.128 * w + 28)));
+    }
+    return base;
   }
   const t = Math.max(0, Math.min(1, (560 - w) / 220));
-  return 34 + t * 44;
+  const base = 34 + t * 44;
+  if (kiosk) {
+    return Math.min(120, base + 18);
+  }
+  return base;
 }
 
-export function computeWideGeometry(containerW) {
+export function computeWideGeometry(containerW, options = {}) {
   const w = Math.max(containerW, 1);
-  const insetPx = edgeInsetPx(w);
+  const insetPx = edgeInsetPx(w, options);
   const toVB = (px) => (400 * px) / w;
   const cx = 200;
   const cy = 200;
