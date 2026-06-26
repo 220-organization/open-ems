@@ -63,31 +63,6 @@ async function fetchDeyeTotals(deviceSn, dateIso) {
   };
 }
 
-async function fetchDeyeClusterTotals(clusterSns, dateIso) {
-  const sns = (Array.isArray(clusterSns) ? clusterSns : []).map(s => String(s || '').trim()).filter(Boolean);
-  if (!sns.length) return null;
-  const parts = await Promise.all(sns.map(sn => fetchDeyeTotals(sn, dateIso)));
-  let gen = 0;
-  let cons = 0;
-  let hasGen = false;
-  let hasCons = false;
-  for (const part of parts) {
-    if (part?.generationKwh != null && Number.isFinite(part.generationKwh)) {
-      gen += part.generationKwh;
-      hasGen = true;
-    }
-    if (part?.consumptionKwh != null && Number.isFinite(part.consumptionKwh)) {
-      cons += part.consumptionKwh;
-      hasCons = true;
-    }
-  }
-  if (!hasGen && !hasCons) return null;
-  return {
-    generationKwh: hasGen ? gen : null,
-    consumptionKwh: hasCons ? cons : null,
-  };
-}
-
 async function fetchHuaweiTotals(stationCode, dateIso) {
   const q = new URLSearchParams({ stationCodes: stationCode, period: 'day', date: dateIso });
   const r = await fetch(apiUrl(`/api/huawei/station-energy?${q}`), { cache: 'no-store' });
@@ -108,6 +83,11 @@ export default function KioskFleetGenConsChart({ deyeItems = [], huaweiItems = [
   const [tradeDay, setTradeDay] = useState(() => kyivCalendarIso());
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
+  const deyeItemsRef = useRef(deyeItems);
+  const huaweiItemsRef = useRef(huaweiItems);
+  deyeItemsRef.current = deyeItems;
+  huaweiItemsRef.current = huaweiItems;
+  const inFlightRef = useRef(false);
   const fmt = useMemo(() => kwhFmt(getBcp47Locale()), [getBcp47Locale]);
 
   const sourcesKey = useMemo(() => {
@@ -117,14 +97,17 @@ export default function KioskFleetGenConsChart({ deyeItems = [], huaweiItems = [
   }, [deyeItems, huaweiItems]);
 
   const loadFleetTotals = useCallback(async () => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+
     const dateIso = kyivCalendarIso();
-    setTradeDay(dateIso);
-    const deyeList = Array.isArray(deyeItems) ? deyeItems : [];
-    const hwList = Array.isArray(huaweiItems) ? huaweiItems : [];
+    const deyeList = Array.isArray(deyeItemsRef.current) ? deyeItemsRef.current : [];
+    const hwList = Array.isArray(huaweiItemsRef.current) ? huaweiItemsRef.current : [];
     if (!deyeList.length && !hwList.length) {
       setRows([]);
       setLoading(false);
       setError(false);
+      inFlightRef.current = false;
       return;
     }
 
@@ -137,8 +120,8 @@ export default function KioskFleetGenConsChart({ deyeItems = [], huaweiItems = [
     try {
       const tasks = [
         ...deyeList.map(async row => {
-          const sns = row.clusterSns?.length ? row.clusterSns : [row.representativeSn];
-          const totals = await fetchDeyeClusterTotals(sns, dateIso);
+          // Backend resolves station cluster from representativeSn — one request per chart row.
+          const totals = await fetchDeyeTotals(row.representativeSn, dateIso);
           return {
             id: `deye-${row.representativeSn}`,
             label: truncateLabel(row.shortLabel || row.representativeSn),
@@ -165,6 +148,7 @@ export default function KioskFleetGenConsChart({ deyeItems = [], huaweiItems = [
       const sorted = next
         .filter(r => r.hasGen || r.hasCons)
         .sort((a, b) => Math.max(b.genKwh, b.consKwh) - Math.max(a.genKwh, a.consKwh));
+      setTradeDay(dateIso);
       setRows(sorted);
       setError(sorted.length === 0);
     } catch {
@@ -174,14 +158,17 @@ export default function KioskFleetGenConsChart({ deyeItems = [], huaweiItems = [
       setError(true);
     } finally {
       setLoading(false);
+      inFlightRef.current = false;
     }
-  }, [deyeItems, huaweiItems]);
+  }, []);
 
   useEffect(() => {
     void loadFleetTotals();
     const id = setInterval(() => void loadFleetTotals(), KIOSK_FLEET_GEN_CONS_POLL_MS);
     return () => clearInterval(id);
-  }, [loadFleetTotals, sourcesKey]);
+    // loadFleetTotals is stable (reads item refs); reload when fleet composition changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourcesKey]);
 
   const totals = useMemo(() => {
     let gen = 0;
