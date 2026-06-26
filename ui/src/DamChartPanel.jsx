@@ -17,6 +17,7 @@ import {
 import './dam-chart.css';
 import { DEYE_FLOW_BALANCE_PV_FACTOR, usesDeyeFlowBalance } from './deyeFlowBalanceSites';
 import HuaweiTotalsPanel from './HuaweiTotalsPanel';
+import UbetterTotalsPanel from './UbetterTotalsPanel';
 import DeyeTotalsPanel from './DeyeTotalsPanel';
 import KwhDisplay from './KwhDisplay';
 import { useKwhCalibration } from './KwhCalibrationContext';
@@ -696,6 +697,7 @@ function kyivHourIndexNowForDate(tradeDayIso) {
  * @param {'embedded' | 'fullpage'} variant — fullpage: URL ?date= sync + top nav; embedded: bottom of Power flow only.
  * @param {string} [inverterSn] — Deye serial; when set, overlays mean SoC % per hour (from DB) on the chart.
  * @param {string} [huaweiStationCode] — FusionSolar plant code; grid/PV/load bars from DB (`/api/huawei/station-hourly`). Mutually exclusive with Deye bar data in practice.
+ * @param {string} [ubetterDeviceSn] — Ubetter EMS device SN; energy totals from `/api/ubetter/energy`.
  * @param {'dc' | 'ac'} [evPortsAcdc] — EV fleet (fast/slow chargers); grid import bars from DB (`/api/b2b/ev-ports-hourly`).
  * @param {number} [liveEvPortsPowerW] — live aggregate EV power (W) for current-hour overlay when DB samples are sparse.
  */
@@ -710,6 +712,7 @@ export default function DamChartPanel({
   onLangSelectChange,
   inverterSn: inverterSnProp,
   huaweiStationCode: huaweiStationCodeProp,
+  ubetterDeviceSn: ubetterDeviceSnProp,
   evPortsAcdc: evPortsAcdcProp,
   liveEvPortsPowerW,
 }) {
@@ -829,6 +832,7 @@ export default function DamChartPanel({
     (variant === 'fullpage' ? urlInverterOnce : '')
   ).trim();
   const effectiveHuaweiStation = (huaweiStationCodeProp && String(huaweiStationCodeProp).trim()) || '';
+  const effectiveUbetterDevice = (ubetterDeviceSnProp && String(ubetterDeviceSnProp).trim()) || '';
   const effectiveEvPortsAcdc =
     evPortsAcdcProp === 'dc' || evPortsAcdcProp === 'ac' ? evPortsAcdcProp : '';
   const deyeNoExportMode = Boolean(effectiveInverterSn) && DEYE_NO_EXPORT_DEVICE_SNS.has(effectiveInverterSn);
@@ -3003,7 +3007,16 @@ export default function DamChartPanel({
             getBcp47Locale={getBcp47Locale}
           />
         ) : null}
-        {effectiveInverterSn && !effectiveHuaweiStation ? (
+        {effectiveUbetterDevice ? (
+          <UbetterTotalsPanel
+            deviceSn={effectiveUbetterDevice}
+            tradeDay={tradeDay}
+            apiUrl={apiUrl}
+            t={t}
+            getBcp47Locale={getBcp47Locale}
+          />
+        ) : null}
+        {effectiveInverterSn && !effectiveHuaweiStation && !effectiveUbetterDevice ? (
           <DeyeTotalsPanel
             tradeDay={tradeDay}
             inverterSn={effectiveInverterSn}

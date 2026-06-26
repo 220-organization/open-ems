@@ -67,6 +67,16 @@ HUAWEI_SYSTEM_CODE: str = os.environ.get("HUAWEI_SYSTEM_CODE") or ""
 # ./run-local.sh sets HUAWEI_ENABLED=0 by default; pass -huawai to use .env credentials.
 HUAWEI_ENABLED: bool = _env_bool("HUAWEI_ENABLED", True)
 
+# Ubetter EMS Open API (third-party REST — device list + realtime summary; read-only in Open EMS).
+UBETTER_BASE_URL: str = os.environ.get(
+    "UBETTER_BASE_URL",
+    "http://47.120.67.73/ems-open-api",
+).rstrip("/")
+UBETTER_USERNAME: str = (os.environ.get("UBETTER_USERNAME") or "").strip()
+UBETTER_PASSWORD: str = os.environ.get("UBETTER_PASSWORD") or ""
+UBETTER_TENANT_USERNAME: str = (os.environ.get("UBETTER_TENANT_USERNAME") or "").strip()
+UBETTER_ENABLED: bool = _env_bool("UBETTER_ENABLED", True)
+
 # OREE / DAM API (same as Java OreeDamPriceSyncService — api.oree.com.ua).
 OREE_API_BASE_URL: str = os.environ.get(
     "OREE_API_BASE_URL",
@@ -128,6 +138,19 @@ HUAWEI_INVERTER_DEV_ID: str = (os.environ.get("HUAWEI_INVERTER_DEV_ID") or "").s
 HUAWEI_INVERTER_DEV_TYPE_ID: int = _env_int("HUAWEI_INVERTER_DEV_TYPE_ID", 1, 1, 999)
 # Comma-separated FusionSolar ``devTypeId`` values treated as battery / ESS (getDevList).
 HUAWEI_BATTERY_DEV_TYPE_IDS: str = (os.environ.get("HUAWEI_BATTERY_DEV_TYPE_IDS") or "39,52").strip()
+# Ubetter EMS Open API — in-memory cache TTLs (device list / power-flow).
+UBETTER_DEVICE_LIST_CACHE_TTL_SEC: int = _env_int(
+    "UBETTER_DEVICE_LIST_CACHE_TTL_SEC",
+    300,
+    30,
+    86400,
+)
+UBETTER_POWER_FLOW_CACHE_TTL_SEC: int = _env_int(
+    "UBETTER_POWER_FLOW_CACHE_TTL_SEC",
+    30,
+    10,
+    600,
+)
 def _parse_oree_sync_hours_kyiv() -> tuple[int, ...]:
     """
     Europe/Kiev wall-clock hours for scheduled OREE DAM pulls (comma-separated), default 12–15.
