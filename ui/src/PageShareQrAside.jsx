@@ -5,7 +5,7 @@ export default function PageShareQrAside({ url, t, className = '', compact = fal
   if (!url) return null;
 
   const inlineOnly = compact && !showCaption;
-  const qrSize = compact ? 52 : 120;
+  const qrSize = compact ? 56 : 120;
 
   if (inlineOnly) {
     return (
@@ -15,7 +15,7 @@ export default function PageShareQrAside({ url, t, className = '', compact = fal
         href={url}
         aria-label={t('pageShareQrAsideAria')}
       >
-        <RoundedQrImage url={url} size={qrSize} color="#dad1e6" alt={t('pageShareQrAlt')} />
+        <RoundedQrImage url={url} size={qrSize} alt={t('pageShareQrAlt')} />
       </a>
     );
   }
@@ -29,7 +29,6 @@ export default function PageShareQrAside({ url, t, className = '', compact = fal
           className="pf-qr-aside-img"
           url={url}
           size={qrSize}
-          color="#dad1e6"
           alt={t('pageShareQrAlt')}
         />
         {showCaption ? <span className="pf-qr-aside-caption">{t('pageShareQrCaption')}</span> : null}

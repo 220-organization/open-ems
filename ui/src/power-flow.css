@@ -966,9 +966,12 @@ body {
   display: block;
   width: min(256px, 72vw);
   height: auto;
-  background: transparent;
-  padding: 0;
+  background: #ffffff;
+  padding: 8px;
+  border-radius: 8px;
   box-sizing: border-box;
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
 }
 
 .pf-share-modal-url {
@@ -2012,10 +2015,12 @@ a.pf-node { cursor: pointer; }
 
 .pf-node--page-qr img {
   display: block;
-  width: 48px;
-  height: 48px;
-  border-radius: 0;
-  background: transparent;
+  width: 56px;
+  height: 56px;
+  border-radius: 4px;
+  background: #ffffff;
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
 }
 
 .pf-node--page-qr:focus-visible {
@@ -2047,8 +2052,11 @@ a.pf-node { cursor: pointer; }
   width: min(132px, 38vw);
   height: auto;
   border: none;
-  background: transparent;
+  background: #ffffff;
+  border-radius: 6px;
   box-shadow: none;
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
 }
 
 .pf-qr-aside-caption,

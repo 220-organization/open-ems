@@ -33,7 +33,6 @@ export default function SharePageModal({ open, url, copied, copyFailed, onClose,
             className="pf-share-modal-qr"
             url={url}
             size={256}
-            color="#dad1e6"
             alt={t('sharePageQrAlt')}
           />
           <p className="pf-share-modal-url">{url}</p>

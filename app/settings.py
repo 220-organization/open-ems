@@ -63,6 +63,9 @@ HUAWEI_BASE_URL: str = os.environ.get(
 ).rstrip("/")
 HUAWEI_USER_NAME: str = (os.environ.get("HUAWEI_USER_NAME") or "").strip()
 HUAWEI_SYSTEM_CODE: str = os.environ.get("HUAWEI_SYSTEM_CODE") or ""
+# Master switch for Northbound calls (credentials alone are not enough when False).
+# ./run-local.sh sets HUAWEI_ENABLED=0 by default; pass -huawai to use .env credentials.
+HUAWEI_ENABLED: bool = _env_bool("HUAWEI_ENABLED", True)
 
 # OREE / DAM API (same as Java OreeDamPriceSyncService — api.oree.com.ua).
 OREE_API_BASE_URL: str = os.environ.get(

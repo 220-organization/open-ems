@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { createRoundedQrDataUrl } from './roundedQr';
+import { createRoundedQrDataUrl, qrRenderPixelSize } from './roundedQr';
 
 export default function RoundedQrImage({
   url,
   size = 256,
-  color = '#ffffff',
+  color = '#000000',
+  background = '#ffffff',
   className = '',
   alt = '',
 }) {
@@ -17,7 +18,8 @@ export default function RoundedQrImage({
     }
 
     let active = true;
-    createRoundedQrDataUrl(url, { size, color })
+    const renderSize = qrRenderPixelSize(size);
+    createRoundedQrDataUrl(url, { size: renderSize, color, background })
       .then(dataUrl => {
         if (active) setSrc(dataUrl);
       })
@@ -28,7 +30,7 @@ export default function RoundedQrImage({
     return () => {
       active = false;
     };
-  }, [url, size, color]);
+  }, [url, size, color, background]);
 
   if (!src) return null;
 
@@ -39,8 +41,8 @@ export default function RoundedQrImage({
       height={size}
       alt={alt}
       className={className}
-      decoding="async"
-      loading="lazy"
+      decoding="sync"
+      loading={size <= 72 ? 'eager' : 'lazy'}
     />
   );
 }

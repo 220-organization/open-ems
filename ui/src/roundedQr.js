@@ -1,42 +1,33 @@
 import QRCode from 'qrcode';
 
-/** Rounded-dot QR PNG data URL with transparent background (browser only). */
+/** Pixel width for canvas render — higher than CSS display size for sharp downscale. */
+export function qrRenderPixelSize(displaySize) {
+  const px = Math.max(32, Math.round(Number(displaySize) || 256));
+  if (typeof window === 'undefined') {
+    return px * 4;
+  }
+  const dpr = window.devicePixelRatio || 1;
+  const scale = px <= 72 ? Math.max(4, Math.ceil(dpr * 2)) : Math.max(2, Math.ceil(dpr));
+  return px * scale;
+}
+
+/** Standard square-module QR PNG data URL (browser only). */
 export async function createRoundedQrDataUrl(text, options = {}) {
   const {
     size = 256,
-    margin = 4,
-    color = '#ffffff',
+    margin = 2,
+    color = '#000000',
+    background = '#ffffff',
     errorCorrectionLevel = 'M',
   } = options;
 
   const payload = String(text || '').trim();
   if (!payload || typeof document === 'undefined') return '';
 
-  const qr = QRCode.create(payload, { errorCorrectionLevel });
-  const modules = qr.modules;
-  const count = modules.size;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return '';
-
-  ctx.clearRect(0, 0, size, size);
-  const inner = size - margin * 2;
-  const cell = inner / count;
-  const radius = cell * 0.45;
-
-  ctx.fillStyle = color;
-  for (let row = 0; row < count; row += 1) {
-    for (let col = 0; col < count; col += 1) {
-      if (!modules.get(row, col)) continue;
-      const x = margin + col * cell + cell / 2;
-      const y = margin + row * cell + cell / 2;
-      ctx.beginPath();
-      ctx.arc(x, y, radius, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  return canvas.toDataURL('image/png');
+  return QRCode.toDataURL(payload, {
+    width: size,
+    margin,
+    color: { dark: color, light: background },
+    errorCorrectionLevel,
+  });
 }

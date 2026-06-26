@@ -60,7 +60,9 @@ async def lifespan(app: FastAPI):
         logger.info("ENTSO-E DAM: ENTSOE_SECURITY_TOKEN set (base: %s)", settings.ENTSOE_API_BASE_URL)
     else:
         logger.warning("ENTSO-E DAM: not configured — set ENTSOE_SECURITY_TOKEN for ES/PL charts (see docs/ENTSOE_TRANSPARENCY_DAM.md)")
-    if huawei_configured():
+    if not settings.HUAWEI_ENABLED:
+        logger.info("Huawei FusionSolar: API disabled (HUAWEI_ENABLED=0)")
+    elif huawei_configured():
         logger.info("Huawei FusionSolar: configured (base: %s)", settings.HUAWEI_BASE_URL)
     else:
         hm = huawei_missing_env_names()

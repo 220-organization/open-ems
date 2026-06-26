@@ -85,6 +85,8 @@ class HuaweiUpstreamHttpError(RuntimeError):
 
 def huawei_missing_env_names() -> list[str]:
     missing: list[str] = []
+    if not settings.HUAWEI_ENABLED:
+        missing.append("HUAWEI_ENABLED")
     if not settings.HUAWEI_USER_NAME:
         missing.append("HUAWEI_USER_NAME")
     if not settings.HUAWEI_SYSTEM_CODE:
@@ -93,7 +95,11 @@ def huawei_missing_env_names() -> list[str]:
 
 
 def huawei_configured() -> bool:
-    return bool(settings.HUAWEI_USER_NAME and settings.HUAWEI_SYSTEM_CODE)
+    return bool(
+        settings.HUAWEI_ENABLED
+        and settings.HUAWEI_USER_NAME
+        and settings.HUAWEI_SYSTEM_CODE
+    )
 
 
 def _base_url() -> str:

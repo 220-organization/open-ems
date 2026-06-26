@@ -12,10 +12,15 @@ cd "$(dirname "$0")"
 # Recreate DB container (volume kept, Flyway re-runs on existing data): ./run-local.sh -clean
 
 CLEAN_DB=0
+USE_HUAWEI_API=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -clean|--clean)
       CLEAN_DB=1
+      shift
+      ;;
+    -huawai|--huawai|-huawei|--huawei)
+      USE_HUAWEI_API=1
       shift
       ;;
     -h|--help)
@@ -24,6 +29,9 @@ Usage: ./run-local.sh [options]
 
   -clean, --clean   Stop compose services and recreate containers (PostgreSQL volume is kept).
                     Use after migration checksum conflicts or to reset local data.
+
+  -huawai, --huawai   Enable Huawei FusionSolar Northbound API (reads HUAWEI_* from .env).
+                      Default local run does not call Huawei (HUAWEI_ENABLED=0).
 
   -h, --help        Show this help.
 
@@ -77,6 +85,15 @@ OPENEMS_OPEN_SWAGGER="${OPENEMS_OPEN_SWAGGER:-0}"
 
 # API process does not serve legacy / built HTML; UI is only from the CRA dev server.
 export OPEN_EMS_SERVE_SPA=0
+
+if [[ "${USE_HUAWEI_API}" -eq 0 ]]; then
+  export HUAWEI_ENABLED=0
+  export HUAWEI_POWER_SNAPSHOT_ENABLED=0
+  export HUAWEI_STATION_ENERGY_SNAPSHOT_ENABLED=0
+  echo "Huawei FusionSolar API: off (use ./run-local.sh -huawai to enable from .env)" >&2
+else
+  echo "Huawei FusionSolar API: on (HUAWEI_* from .env)" >&2
+fi
 
 _kill_listeners_on_tcp_port() {
   local p="$1"
