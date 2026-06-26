@@ -69,6 +69,7 @@ from app.deye_soc_service import (
 from app.solar_clear_sky import kyiv_day_hourly_clear_sky_weights
 from app.solar_forecast_open_meteo import (
     fetch_today_tomorrow_insolation_forecast,
+    fetch_hourly_insolation_by_day,
     fetch_tomorrow_insolation_percent,
 )
 from app import settings
@@ -680,6 +681,61 @@ async def get_solar_insolation(
             headers=_NO_STORE_CACHE,
         )
     payload = await fetch_today_tomorrow_insolation_forecast(lat, lon)
+    if payload is None:
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": True,
+                "today": None,
+                "tomorrow": None,
+                "detail": "forecast_unavailable",
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    return JSONResponse(
+        content={"ok": True, "configured": True, **payload},
+        headers=_NO_STORE_CACHE,
+    )
+
+
+@router.get("/solar-insolation-hourly")
+async def get_solar_insolation_hourly(
+    deviceSn: str = Query(
+        ...,
+        min_length=6,
+        max_length=32,
+        pattern=r"^[0-9]+$",
+        description="Deye inverter serial; coordinates resolved server-side (not returned).",
+    ),
+) -> JSONResponse:
+    """
+    Hourly insolation bar chart for local today and tomorrow (Open-Meteo shortwave radiation).
+
+    GPS is never sent to the browser; only normalized hourly bar levels are returned.
+    """
+    if not deye_configured():
+        return JSONResponse(
+            content={"ok": False, "configured": False, "today": None, "tomorrow": None},
+            headers=_NO_STORE_CACHE,
+        )
+    sn = deviceSn.strip()
+    try:
+        await assert_inverter_owned(sn)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    lat, lon = await get_inverter_station_coordinates(sn)
+    if lat is None or lon is None:
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": True,
+                "today": None,
+                "tomorrow": None,
+                "detail": "no_station_coordinates",
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    payload = await fetch_hourly_insolation_by_day(lat, lon)
     if payload is None:
         return JSONResponse(
             content={

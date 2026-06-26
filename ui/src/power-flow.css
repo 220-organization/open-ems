@@ -974,6 +974,20 @@ body {
   image-rendering: crisp-edges;
 }
 
+.pf-share-modal-qr--port-sticker {
+  width: min(360px, 84vw);
+  padding: 12px;
+  border-radius: 16px;
+  background: #ffffff;
+}
+
+.pf-share-modal-qr--port-sticker img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 10px;
+}
+
 .pf-share-modal-url {
   margin: 0;
   width: 100%;
@@ -2011,6 +2025,34 @@ a.pf-node { cursor: pointer; }
   padding: 8px 10px;
   cursor: pointer;
   background: transparent;
+}
+
+/* Page-link QR on power-flow graph (regular + kiosk) — StartPage-style dot QR */
+.pf-graph .pf-node--graph-share-qr {
+  min-width: 0;
+  max-width: none;
+  padding: 10px 12px;
+  background: var(--pf-surface);
+  border: 1px solid var(--pf-border);
+  border-radius: 14px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  z-index: 4;
+  font: inherit;
+  color: inherit;
+  appearance: none;
+}
+
+.pf-graph .pf-node--graph-share-qr img {
+  display: block;
+  width: min(100px, 14vw);
+  height: auto;
+  border-radius: 8px;
+}
+
+.pf-graph .pf-node--graph-share-qr:focus-visible {
+  outline: 2px solid var(--pf-accent-focus);
+  outline-offset: 4px;
 }
 
 .pf-node--page-qr img {

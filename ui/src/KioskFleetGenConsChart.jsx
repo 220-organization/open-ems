@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bar,
   BarChart,
@@ -13,6 +13,8 @@ import { inverterSelectShortLabel } from './deyeInverterDisplay';
 
 const GEN_COLOR = '#22c55e';
 const CONS_COLOR = '#fb923c';
+/** Align with Deye/Huawei 5-minute energy buckets — refresh kiosk fleet totals every 5 min. */
+const KIOSK_FLEET_GEN_CONS_POLL_MS = 300_000;
 
 function apiUrl(path) {
   const base = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
@@ -103,78 +105,83 @@ export default function KioskFleetGenConsChart({ deyeItems = [], huaweiItems = [
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
-  const tradeDay = useMemo(() => kyivCalendarIso(), []);
+  const [tradeDay, setTradeDay] = useState(() => kyivCalendarIso());
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
   const fmt = useMemo(() => kwhFmt(getBcp47Locale()), [getBcp47Locale]);
 
   const sourcesKey = useMemo(() => {
     const deye = deyeItems.map(r => r.representativeSn).join(',');
     const hw = huaweiItems.map(r => r.stationCode).join(',');
-    return `${tradeDay}|${deye}|${hw}`;
-  }, [deyeItems, huaweiItems, tradeDay]);
+    return `${deye}|${hw}`;
+  }, [deyeItems, huaweiItems]);
 
-  useEffect(() => {
-    let active = true;
+  const loadFleetTotals = useCallback(async () => {
+    const dateIso = kyivCalendarIso();
+    setTradeDay(dateIso);
     const deyeList = Array.isArray(deyeItems) ? deyeItems : [];
     const hwList = Array.isArray(huaweiItems) ? huaweiItems : [];
     if (!deyeList.length && !hwList.length) {
       setRows([]);
       setLoading(false);
       setError(false);
-      return undefined;
+      return;
     }
 
-    setLoading(true);
-    setError(false);
+    const showSpinner = rowsRef.current.length === 0;
+    if (showSpinner) {
+      setLoading(true);
+      setError(false);
+    }
 
-    (async () => {
-      try {
-        const tasks = [
-          ...deyeList.map(async row => {
-            const sns = row.clusterSns?.length ? row.clusterSns : [row.representativeSn];
-            const totals = await fetchDeyeClusterTotals(sns, tradeDay);
-            return {
-              id: `deye-${row.representativeSn}`,
-              label: truncateLabel(row.shortLabel || row.representativeSn),
-              genKwh: totals?.generationKwh ?? 0,
-              consKwh: totals?.consumptionKwh ?? 0,
-              hasGen: totals?.generationKwh != null,
-              hasCons: totals?.consumptionKwh != null,
-            };
-          }),
-          ...hwList.map(async row => {
-            const totals = await fetchHuaweiTotals(row.stationCode, tradeDay);
-            const label = inverterSelectShortLabel(row.stationName, row.stationCode);
-            return {
-              id: `huawei-${row.stationCode}`,
-              label: truncateLabel(label || row.stationCode),
-              genKwh: totals?.generationKwh ?? 0,
-              consKwh: totals?.consumptionKwh ?? 0,
-              hasGen: totals?.generationKwh != null,
-              hasCons: totals?.consumptionKwh != null,
-            };
-          }),
-        ];
-        const next = await Promise.all(tasks);
-        if (!active) return;
-        const sorted = next
-          .filter(r => r.hasGen || r.hasCons)
-          .sort((a, b) => Math.max(b.genKwh, b.consKwh) - Math.max(a.genKwh, a.consKwh));
-        setRows(sorted);
-        setError(sorted.length === 0);
-      } catch {
-        if (active) {
-          setRows([]);
-          setError(true);
-        }
-      } finally {
-        if (active) setLoading(false);
+    try {
+      const tasks = [
+        ...deyeList.map(async row => {
+          const sns = row.clusterSns?.length ? row.clusterSns : [row.representativeSn];
+          const totals = await fetchDeyeClusterTotals(sns, dateIso);
+          return {
+            id: `deye-${row.representativeSn}`,
+            label: truncateLabel(row.shortLabel || row.representativeSn),
+            genKwh: totals?.generationKwh ?? 0,
+            consKwh: totals?.consumptionKwh ?? 0,
+            hasGen: totals?.generationKwh != null,
+            hasCons: totals?.consumptionKwh != null,
+          };
+        }),
+        ...hwList.map(async row => {
+          const totals = await fetchHuaweiTotals(row.stationCode, dateIso);
+          const label = inverterSelectShortLabel(row.stationName, row.stationCode);
+          return {
+            id: `huawei-${row.stationCode}`,
+            label: truncateLabel(label || row.stationCode),
+            genKwh: totals?.generationKwh ?? 0,
+            consKwh: totals?.consumptionKwh ?? 0,
+            hasGen: totals?.generationKwh != null,
+            hasCons: totals?.consumptionKwh != null,
+          };
+        }),
+      ];
+      const next = await Promise.all(tasks);
+      const sorted = next
+        .filter(r => r.hasGen || r.hasCons)
+        .sort((a, b) => Math.max(b.genKwh, b.consKwh) - Math.max(a.genKwh, a.consKwh));
+      setRows(sorted);
+      setError(sorted.length === 0);
+    } catch {
+      if (rowsRef.current.length === 0) {
+        setRows([]);
       }
-    })();
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  }, [deyeItems, huaweiItems]);
 
-    return () => {
-      active = false;
-    };
-  }, [sourcesKey, deyeItems, huaweiItems, tradeDay]);
+  useEffect(() => {
+    void loadFleetTotals();
+    const id = setInterval(() => void loadFleetTotals(), KIOSK_FLEET_GEN_CONS_POLL_MS);
+    return () => clearInterval(id);
+  }, [loadFleetTotals, sourcesKey]);
 
   const totals = useMemo(() => {
     let gen = 0;
