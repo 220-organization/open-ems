@@ -173,7 +173,7 @@ def main() -> None:
 
     save_png(composite_icon(logo, 1024, pwa_any_scale), IOS_ICON)
 
-    print('Vyriy EMS brand icons regenerated from', SVG)
+    print('Open EMS brand icons regenerated from', SVG)
     print('PWA icons:', PWA_DIR)
 
 

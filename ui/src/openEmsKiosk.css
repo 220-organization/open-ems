@@ -1,0 +1,394 @@
+/* Full-viewport white-screen kiosk — power flow graph + StartPage-style QR (B2B graphView=1). */
+
+html.open-ems-kiosk,
+html.open-ems-kiosk body,
+html.open-ems-kiosk #root {
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: #f5f5f3;
+}
+
+html.open-ems-kiosk .app-root-layout {
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: #f5f5f3;
+}
+
+.pf-body--kiosk {
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: #f5f5f3;
+  position: relative;
+  overflow: hidden;
+}
+
+.pf-body--kiosk .pf-root--kiosk {
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 0;
+}
+
+.pf-body--kiosk .pf-page-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: stretch;
+  align-items: stretch;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 0;
+  width: 100%;
+}
+
+.pf-body--kiosk .pf-top-bar,
+.pf-body--kiosk .pf-landing-totals-slot,
+.pf-body--kiosk .pf-kiosk-wide-actions,
+.pf-body--kiosk .pf-lang-port-bar,
+.pf-body--kiosk .pf-dam-section,
+.pf-body--kiosk .pf-post-charts-bar,
+.pf-body--kiosk .pf-ukraine-qr,
+.pf-body--kiosk .pf-discharge-feedback,
+.pf-body--kiosk .pf-rdn-callback-section {
+  display: none !important;
+}
+
+.pf-kiosk-layout-passthrough {
+  display: contents;
+}
+
+.pf-kiosk-layout {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  width: 100%;
+  min-height: 0;
+  gap: clamp(8px, 1.2vw, 18px);
+  padding: 0 max(8px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px))
+    max(8px, env(safe-area-inset-left, 0px));
+  box-sizing: border-box;
+}
+
+.pf-kiosk-layout__graph {
+  flex: 1 1 58%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.pf-body--kiosk .pf-kiosk-layout .pf-graph-wrap--kiosk {
+  flex: 1;
+  padding: max(52px, calc(env(safe-area-inset-top, 0px) + 44px)) 8px 8px;
+}
+
+.pf-body--kiosk .pf-kiosk-layout .pf-graph--kiosk {
+  --pf-side: min(100%, calc(100dvh - 100px), calc(58vw - 48px), 960px);
+  width: var(--pf-side);
+  max-width: none;
+  margin: 0 auto;
+}
+
+/* Fleet gen/cons bar chart — right column in kiosk */
+.pf-kiosk-gen-cons {
+  flex: 0 0 clamp(260px, 30vw, 400px);
+  max-width: 40vw;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin-top: max(52px, calc(env(safe-area-inset-top, 0px) + 44px));
+  margin-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  padding: clamp(12px, 1.4vmin, 18px);
+  background: #ffffff;
+  border: 1px solid rgba(32, 28, 40, 0.1);
+  border-radius: clamp(14px, 1.5vmin, 20px);
+  box-shadow: 0 3px 20px rgba(20, 22, 28, 0.06);
+  overflow: hidden;
+}
+
+.pf-kiosk-gen-cons__header {
+  margin-bottom: clamp(8px, 1vmin, 12px);
+}
+
+.pf-kiosk-gen-cons__title {
+  margin: 0;
+  font-size: clamp(13px, 1.5vmin, 17px);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(32, 28, 40, 0.78);
+}
+
+.pf-kiosk-gen-cons__date {
+  margin: 4px 0 0;
+  font-size: clamp(11px, 1.2vmin, 13px);
+  color: rgba(32, 28, 40, 0.5);
+}
+
+.pf-kiosk-gen-cons__totals {
+  list-style: none;
+  margin: 0 0 clamp(8px, 1vmin, 12px);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: clamp(11px, 1.25vmin, 14px);
+  color: rgba(32, 28, 40, 0.72);
+}
+
+.pf-kiosk-gen-cons__totals li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pf-kiosk-gen-cons__swatch {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.pf-kiosk-gen-cons__chart {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.pf-kiosk-gen-cons__chart--loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+}
+
+.pf-kiosk-gen-cons__status {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(32, 28, 40, 0.55);
+  text-align: center;
+}
+
+.pf-kiosk-gen-cons__status--muted {
+  padding: 24px 8px;
+}
+
+@media (max-width: 900px) {
+  .pf-kiosk-layout {
+    flex-direction: column;
+  }
+
+  .pf-kiosk-gen-cons {
+    flex: 0 0 auto;
+    max-width: none;
+    width: 100%;
+    margin-top: 0;
+    max-height: 38vh;
+  }
+
+  .pf-body--kiosk .pf-kiosk-layout .pf-graph--kiosk {
+    --pf-side: min(calc(100vw - 32px), calc(62dvh - 32px), 960px);
+  }
+}
+
+/* Graph fills viewport (square inscribed in screen). */
+.pf-body--kiosk .pf-graph-wrap--kiosk {
+  flex: 1;
+  width: 100%;
+  max-width: none;
+  min-height: 0;
+  justify-content: center;
+  align-items: center;
+  padding: max(52px, calc(env(safe-area-inset-top, 0px) + 44px)) max(8px, env(safe-area-inset-right, 0px))
+    max(8px, env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px));
+  box-sizing: border-box;
+}
+
+.pf-body--kiosk .pf-graph--kiosk {
+  --pf-side: min(calc(100vw - 16px), calc(100dvh - 16px), 1280px);
+  width: var(--pf-side);
+  max-width: none;
+  margin: 0 auto;
+}
+
+@supports (height: 100dvh) {
+  .pf-body--kiosk .pf-graph--kiosk {
+    --pf-side: min(calc(100vw - 16px), calc(100dvh - 16px), 1280px);
+  }
+}
+
+/* ── Kiosk nodes — large TV cards on white ─────────────────── */
+.pf-body--kiosk .pf-node {
+  min-width: clamp(148px, 17.5vmin, 280px);
+  max-width: clamp(168px, 20vmin, 320px);
+  padding: clamp(16px, 2vmin, 28px) clamp(14px, 1.8vmin, 22px);
+  background: #ffffff;
+  border: 1.5px solid rgba(32, 28, 40, 0.1);
+  border-radius: clamp(16px, 1.8vmin, 24px);
+  box-shadow: 0 3px 20px rgba(20, 22, 28, 0.06);
+}
+
+.pf-body--kiosk .pf-node[data-active='true'] {
+  border-color: rgba(252, 1, 155, 0.52);
+  border-width: 2px;
+  background: #ffffff;
+  box-shadow:
+    0 0 0 1px rgba(252, 1, 155, 0.1) inset,
+    0 8px 32px rgba(252, 1, 155, 0.12);
+}
+
+.pf-body--kiosk .pf-node-ev-disabled,
+.pf-body--kiosk .pf-node-grid-disabled {
+  opacity: 0.38;
+  background: #fafaf8;
+}
+
+.pf-body--kiosk .pf-node-label {
+  font-size: clamp(10px, 1.25vmin, 15px);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: rgba(32, 28, 40, 0.55);
+  margin-bottom: clamp(2px, 0.3vmin, 4px);
+}
+
+.pf-body--kiosk .pf-node-value {
+  font-size: clamp(20px, 2.8vmin, 36px);
+  font-weight: 700;
+  color: #1a1a1e;
+  text-shadow: none;
+  line-height: 1.15;
+}
+
+.pf-body--kiosk .pf-node-meta,
+.pf-body--kiosk .pf-node-sub {
+  font-size: clamp(11px, 1.3vmin, 15px);
+  color: rgba(32, 28, 40, 0.62);
+  margin-top: clamp(2px, 0.35vmin, 6px);
+}
+
+.pf-body--kiosk .pf-node-icon {
+  font-size: clamp(32px, 4.2vmin, 52px);
+  margin-bottom: clamp(6px, 0.8vmin, 12px);
+  opacity: 1;
+}
+
+.pf-body--kiosk .pf-node-icon__tesla {
+  height: clamp(2.4em, 4vmin, 3.2em);
+}
+
+.pf-body--kiosk .pf-solar-header {
+  margin-bottom: clamp(6px, 0.8vmin, 10px);
+  min-height: clamp(36px, 4.5vmin, 52px);
+}
+
+.pf-body--kiosk .pf-solar-today-near-icon {
+  font-size: clamp(11px, 1.25vmin, 14px);
+  color: rgba(32, 28, 40, 0.55);
+  max-width: clamp(72px, 9vmin, 110px);
+}
+
+.pf-body--kiosk .pf-line {
+  stroke: rgba(32, 28, 40, 0.1);
+  stroke-width: 2;
+}
+
+.pf-body--kiosk .pf-line[data-active='true'] {
+  stroke: rgba(252, 1, 155, 0.72);
+}
+
+.pf-body--kiosk .pf-flow-dot {
+  filter: drop-shadow(0 0 4px rgba(252, 1, 155, 0.45));
+}
+
+/* Hub — larger on kiosk */
+.pf-body--kiosk .pf-hub {
+  max-width: min(260px, 32vw);
+}
+
+.pf-body--kiosk .pf-hub-logo-stage {
+  width: clamp(80px, 11vmin, 136px);
+  height: clamp(80px, 11vmin, 136px);
+}
+
+.pf-body--kiosk .pf-hub-logo-stage--wide {
+  width: clamp(104px, 14vmin, 168px);
+  height: clamp(52px, 7.2vmin, 84px);
+}
+
+.pf-body--kiosk .pf-hub-opensource {
+  background: #ffffff;
+  border: 1px solid rgba(32, 28, 40, 0.1);
+  color: rgba(32, 28, 40, 0.72);
+  font-size: clamp(10px, 1.15vmin, 13px);
+  padding: clamp(5px, 0.6vmin, 8px) clamp(10px, 1.2vmin, 14px);
+  border-radius: 999px;
+}
+
+.pf-body--kiosk .pf-hub-opensource:hover {
+  border-color: rgba(252, 1, 155, 0.35);
+  color: #1a1a1e;
+}
+
+/* StartPage-style QR at bottom-center of graph */
+.pf-body--kiosk .pf-node--kiosk-qr {
+  min-width: 0;
+  max-width: none;
+  padding: clamp(10px, 1.3vmin, 16px);
+  background: #ffffff;
+  border: 1px solid rgba(32, 28, 40, 0.08);
+  border-radius: clamp(14px, 1.5vmin, 20px);
+  box-shadow: 0 4px 24px rgba(20, 22, 28, 0.07);
+  cursor: pointer;
+  z-index: 4;
+}
+
+.pf-body--kiosk .pf-node--kiosk-qr img {
+  display: block;
+  width: clamp(112px, 15.5vmin, 200px);
+  height: auto;
+  border-radius: 8px;
+}
+
+.pf-body--kiosk .pf-node--kiosk-qr:focus-visible {
+  outline: 2px solid rgba(32, 28, 40, 0.35);
+  outline-offset: 4px;
+}
+
+.pf-body--kiosk .pf-graph .pf-node[data-pos='bottom-center'] {
+  bottom: 0;
+}
+
+.open-ems-kiosk-close {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top, 0px));
+  left: max(12px, env(safe-area-inset-left, 0px));
+  z-index: 10000;
+  padding: 10px 18px;
+  border-radius: 12px;
+  font-size: clamp(13px, 1.6vmin, 18px);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: rgba(40, 36, 48, 0.72);
+  background: #ffffff;
+  border: 1px solid rgba(40, 36, 48, 0.12);
+  box-shadow: 0 2px 12px rgba(20, 22, 28, 0.06);
+  cursor: pointer;
+  transition:
+    border-color 0.2s,
+    background 0.2s,
+    color 0.2s;
+}
+
+.open-ems-kiosk-close:hover {
+  color: rgba(40, 36, 48, 0.92);
+  border-color: rgba(40, 36, 48, 0.22);
+  background: #ffffff;
+}
+
+@media (min-width: 1400px) and (min-height: 800px) {
+  .pf-body--kiosk .pf-graph--kiosk {
+    --pf-side: min(calc(100vw - 32px), calc(100dvh - 32px), 1400px);
+  }
+}
