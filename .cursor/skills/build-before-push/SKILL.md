@@ -1,38 +1,43 @@
 ---
 name: build-before-push
 description: >-
-  Run the Open EMS UI production build (react-scripts build) before git commit or
-  push. Use when the user asks to push, commit, create a PR, deploy, or merge;
-  when UI files under open-ems/ui/ changed; or when prod Docker web build failed
-  with react-scripts / OOM errors.
+  Run the Open EMS UI production build before git commit or push (build first,
+  then commit, then push). Use when the user asks to commit, push, create a PR,
+  deploy, or merge; when UI files under open-ems/ui/ changed; or when prod Docker
+  web build failed with react-scripts / OOM errors.
 ---
 
-# Build Before Push (Open EMS)
+# Build Before Commit and Push (Open EMS)
 
-Always run the **production UI build** before `git commit` or `git push` in this repo. Deploy runs `npm run build` inside `Dockerfile.ui` on the server; a failed build takes the site down after `docker compose down`.
+**Order:** `build` → `commit` → `push`. Never commit or push UI changes until the production build passes.
+
+Deploy runs `npm run build` inside `Dockerfile.ui` on the server; a failed build takes the site down after `docker compose down`.
 
 ## When to apply
 
-- User says: push, commit, PR, deploy, merge
+- User says: commit, push, commit and push, PR, deploy, merge
 - Any change under `ui/src/`, `ui/public/`, or `ui/package*.json`
 - CI/deploy log shows `[web ui-build] RUN npm run build` failed
 - After kiosk / PowerFlow / marketplace UI work
 
-Skip only if the change is **strictly** backend-only (`app/`, `db/`, no UI files) and the user confirms push without UI.
+Skip only if the change is **strictly** backend-only (`app/`, `db/`, no UI files) and the user confirms commit/push without UI.
 
 ## Workflow
 
-1. From repo root `open-ems/`:
+1. Finish code edits (working tree may be dirty — **do not commit yet**).
+2. From repo root `open-ems/`:
 
 ```bash
 ./scripts/check-ui-production-build.sh
 ```
 
-2. If the script fails:
+3. If the script fails:
    - Fix compile/ESLint errors reported by `react-scripts build`
    - Re-run until it exits 0
-3. **Do not push** until the build passes.
-4. Include any build-fix changes in the same commit as the feature when possible.
+4. **Only after build passes:** `git add` → `git commit` (when user asked).
+5. **Only after commit:** `git push`.
+
+Include any build-fix changes in the same commit as the feature.
 
 ## What the script does
 
@@ -65,10 +70,11 @@ pytest tests/ -q --tb=short
 
 UI production build is not required when `ui/` did not change.
 
-## Checklist before push
+## Checklist
 
 ```
 - [ ] ./scripts/check-ui-production-build.sh passes (when ui/ touched)
 - [ ] No new ESLint/compile errors in build output
-- [ ] Then commit / push
+- [ ] Then git commit (if user asked)
+- [ ] Then git push
 ```

@@ -1,11 +1,11 @@
 ---
 name: branch-pr-before-push
 description: >-
-  Open EMS git workflow: create a feature branch, open a GitHub PR, push the
-  branch (never main), then checkout main. Use only in the open-ems repository
-  when the user asks to push, commit and push, ship changes, open a PR, or
-  publish open-ems work. Do not apply in the parent activecharge monorepo or
-  other projects.
+  Open EMS git workflow: feature branch, production build before commit, commit,
+  push, GitHub PR, checkout main. Use only in the open-ems repository when the
+  user asks to push, commit and push, ship changes, open a PR, or publish
+  open-ems work. Do not apply in the parent activecharge monorepo or other
+  projects.
 ---
 
 # Branch and PR Before Push (Open EMS)
@@ -14,7 +14,7 @@ description: >-
 
 Remote: `origin` → `220-organization/open-ems`. Default base branch: **`main`**.
 
-Never push directly to `main`. Always: branch → commit → checks → push branch → PR → return to `main`.
+Never push directly to `main`. Correct order: **branch → build → commit → push → PR → `main`**.
 
 ## When to apply
 
@@ -48,8 +48,8 @@ Copy and track:
 
 ```
 - [ ] On feature branch (not main)
-- [ ] Changes committed (if user asked to commit)
-- [ ] build-before-push passed (if ui/ touched)
+- [ ] build-before-push passed (if ui/ touched) — BEFORE commit
+- [ ] Changes committed (if user asked)
 - [ ] Branch pushed with -u
 - [ ] PR created (gh pr create)
 - [ ] Checked out main
@@ -69,19 +69,26 @@ git checkout -b <branch-name>
 
 If already on a suitable feature branch with unpushed work, keep it.
 
-### 2. Commit (only when user requests)
+### 2. Build before commit
 
-Follow repo commit style (imperative, one line summary + optional body). Do not commit unless the user asked.
-
-### 3. Pre-push checks
-
-If any file under `ui/` changed, run **build-before-push**:
+If any file under `ui/` changed, run **build-before-push** while changes are still uncommitted:
 
 ```bash
 ./scripts/check-ui-production-build.sh
 ```
 
-Do not push until it passes.
+Do not `git commit` or `git push` until it passes. Fix errors, re-run build, then proceed.
+
+### 3. Commit (only when user requests)
+
+After build passes (or when `ui/` was not touched):
+
+```bash
+git add <files>
+git commit -m "..."
+```
+
+Follow repo commit style (imperative summary). Do not commit unless the user asked.
 
 ### 4. Push branch and open PR
 
@@ -130,6 +137,7 @@ Leave the feature branch on the remote; local branch may stay or be deleted only
 
 | Rule | Detail |
 |------|--------|
+| Build before commit | When `ui/` changed, run build on dirty tree before `git commit` |
 | Never push `main` | `git push origin main` is forbidden unless user explicitly overrides |
 | Never force-push `main` | Warn if requested |
 | Never `git config` changes | Do not modify git config |
@@ -140,13 +148,14 @@ Leave the feature branch on the remote; local branch may stay or be deleted only
 ## Quick reference
 
 ```bash
-# Full flow (after changes are ready)
 cd open-ems
 git fetch origin main
 git checkout main && git pull --ff-only origin main
 git checkout -b my-feature
-# ... commit when user asks ...
-./scripts/check-ui-production-build.sh   # if ui/ changed
+# ... edit files ...
+./scripts/check-ui-production-build.sh   # BEFORE commit (if ui/ changed)
+git add ...
+git commit -m "..."
 git push -u origin HEAD
 gh pr create --base main --title "..." --body "..."
 git checkout main && git pull --ff-only origin main
@@ -154,4 +163,4 @@ git checkout main && git pull --ff-only origin main
 
 ## Related skill
 
-- [build-before-push](../build-before-push/SKILL.md) — required when `ui/` changed
+- [build-before-push](../build-before-push/SKILL.md) — required when `ui/` changed; must run before commit
