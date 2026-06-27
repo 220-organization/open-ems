@@ -151,6 +151,7 @@ export default function LocationMarketplacePage({ t, locale }) {
             requestType="PROPOSE"
             hideHeader
             loadEvuaHeatmap
+            showLookingMarkers
             paymentReturnId={paymentReturn.paymentReturnId}
             paymentReturnLocationId={paymentReturn.paymentReturnLocationId}
             onPaymentReturnHandled={handlePaymentReturnHandled}

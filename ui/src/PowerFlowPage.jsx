@@ -1963,7 +1963,7 @@ export default function PowerFlowPage({
       cancelled = true;
       clearInterval(id);
     };
-  }, [essAnySelected, inverterRows.configured, inverterRows.error, fleetDeyeRepresentativeSnsKey]);
+  }, [essAnySelected, inverterRows.configured, inverterRows.error, fleetDeyeRepresentativeSnsKey, deyeCombinedItems]);
 
   const huaweiStationCodesKey = useMemo(
     () =>
@@ -2028,7 +2028,7 @@ export default function PowerFlowPage({
       cancelled = true;
       clearInterval(id);
     };
-  }, [essAnySelected, huaweiRows.configured, huaweiRows.error, huaweiRows.authFailed, huaweiStationCodesKey]);
+  }, [essAnySelected, huaweiRows.configured, huaweiRows.error, huaweiRows.authFailed, huaweiStationCodesKey, huaweiRows.items]);
 
   const selInverterPinRequired = useMemo(() => {
     const sn = selInverterSn.trim();
@@ -2202,7 +2202,7 @@ export default function PowerFlowPage({
     };
     setLandingExportMetric(preferredLandingExportMetric(offers));
     writeStoredLandingExportMetric(selInverterSn, selHuaweiStationCode, preferredLandingExportMetric(offers));
-  }, [selInverterSn, selHuaweiStationCode, landingTotals]);
+  }, [selInverterSn, selHuaweiStationCode, landingTotals, selEvPortsAcdc]);
 
   useEffect(() => {
     replaceLandingExportMetricInUrl(landingExportMetric);
@@ -2272,6 +2272,7 @@ export default function PowerFlowPage({
     landingExportMetric,
     selInverterSn,
     selHuaweiStationCode,
+    selEvPortsAcdc,
   ]);
 
   const [exportHourlyChartOpen, setExportHourlyChartOpen] = useState(false);
@@ -3075,10 +3076,7 @@ export default function PowerFlowPage({
     };
   }, [kioskMode]);
 
-  const pageShareUrl = useMemo(
-    () => pageShareUrlFromWindow({ stripParams: ['kiosk'] }),
-    [stationFilter, locale, selInverterSn, selHuaweiStationCode, essSel.provider],
-  );
+  const pageShareUrl = useMemo(() => pageShareUrlFromWindow({ stripParams: ['kiosk'] }), []);
 
   const [graphShareQrOpen, setGraphShareQrOpen] = useState(false);
   const openGraphShareQrModal = useCallback(e => {
@@ -3162,7 +3160,7 @@ export default function PowerFlowPage({
     ? { solarW: 0, gridW: 0, essW: 0, minerW: 0, consumptionW: 0 }
     : computeSimulatedSources(consumptionMw, liveMinerW);
 
-  const { solarW, gridW, essW, minerW, consumptionW } = sim;
+  const { solarW, gridW, essW } = sim;
 
   const fleetDeyeAggregateActive =
     !essAnySelected && inverterRows.configured && !inverterRows.error && fleetDeyeAggregate.okResponses > 0;
@@ -3443,7 +3441,6 @@ export default function PowerFlowPage({
     selInverterSn,
     essSocHasKey,
     dischargeGoDisabledInsufficientSoc,
-    essSocPercent,
     dischargeSocDeltaPct,
     inverterSocFmt,
     t,

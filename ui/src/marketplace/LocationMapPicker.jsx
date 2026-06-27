@@ -416,7 +416,7 @@ export default function LocationMapPicker({ t, locale = 'uk', locations, onChang
     if (existingRadius != null && existingRadius !== regionRadiusKm) {
       setRegionRadiusKm(existingRadius);
     }
-  }, [isRegionMode, locations]);
+  }, [isRegionMode, locations, regionRadiusKm]);
 
   const removeLocation = id => {
     const next = locations.filter(loc => loc.id !== id);
@@ -565,6 +565,7 @@ export default function LocationMapPicker({ t, locale = 'uk', locations, onChang
                           type="button"
                           className={styles.searchResultBtn}
                           role="option"
+                          aria-selected={false}
                           onMouseDown={e => e.preventDefault()}
                           onClick={() => applySearchFeature(feature)}
                         >
