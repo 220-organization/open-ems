@@ -118,7 +118,16 @@ export default function LandingPage({ t, locale }) {
           <h1 id="landing-hero-title" className="landing-hero__title">
             {t('landingHeroTitle')}
           </h1>
-          <p className="landing-hero__subtitle">{t('landingHeroSubtitle')}</p>
+          <div className="landing-hero__highlights">
+            <article className="landing-hero__highlight">
+              <h2 className="landing-hero__highlight-title">{t('landingHeroOpenTitle')}</h2>
+              <p className="landing-hero__highlight-text">{t('landingHeroOpenText')}</p>
+            </article>
+            <article className="landing-hero__highlight">
+              <h2 className="landing-hero__highlight-title">{t('landingHeroSecureTitle')}</h2>
+              <p className="landing-hero__highlight-text">{t('landingHeroSecureText')}</p>
+            </article>
+          </div>
           {batteryCapacityLoading ? (
             <p className="landing-hero__capacity landing-hero__capacity--loading">{t('landingBatteryCapacityLoading')}</p>
           ) : batteryCapacityMwh != null ? (
@@ -140,13 +149,37 @@ export default function LandingPage({ t, locale }) {
           <h2 id="landing-how-title" className="landing-section__title">
             {t('landingHowTitle')}
           </h2>
-          <p className="landing-section__lead">
-            {t('landingHowLeadPrefix')}
-            <a className="landing-section__lead-link" href="/ev-tv">
-              {t('landingHowLeadEvHubsLink')}
-            </a>
-            {t('landingHowLeadSuffix')}
-          </p>
+          <p className="landing-section__lead">{t('landingHowLead')}</p>
+          <figure className="landing-integration">
+            <div className="landing-integration__visual">
+              <img
+                className="landing-integration__image"
+                src={`${process.env.PUBLIC_URL || ''}/static/bess-integration-car-analogy.png`}
+                alt={t('landingIntegrationImageAlt')}
+                width={800}
+                height={450}
+                loading="lazy"
+              />
+              <div className="landing-integration__badge landing-integration__badge--modbus" aria-hidden="true">
+                <span className="landing-integration__badge-title">{t('landingIntegrationModbusTitle')}</span>
+                <span className="landing-integration__badge-caption">{t('landingIntegrationImageModbusCaption')}</span>
+              </div>
+              <div className="landing-integration__badge landing-integration__badge--rest" aria-hidden="true">
+                <span className="landing-integration__badge-title">{t('landingIntegrationRestTitle')}</span>
+                <span className="landing-integration__badge-caption">{t('landingIntegrationImageRestCaption')}</span>
+              </div>
+            </div>
+            <div className="landing-integration__compare">
+              <article className="landing-integration__option landing-integration__option--rest">
+                <h3 className="landing-integration__option-title">{t('landingIntegrationRestTitle')}</h3>
+                <p className="landing-integration__option-text">{t('landingIntegrationRestText')}</p>
+              </article>
+              <article className="landing-integration__option landing-integration__option--modbus">
+                <h3 className="landing-integration__option-title">{t('landingIntegrationModbusTitle')}</h3>
+                <p className="landing-integration__option-text">{t('landingIntegrationModbusText')}</p>
+              </article>
+            </div>
+          </figure>
           <div className="landing-diagram" aria-hidden="true">
             <span className="landing-diagram__node">{t('landingDiagramSolar')}</span>
             <span className="landing-diagram__arrow">→</span>
