@@ -112,12 +112,17 @@
 }
 
 .mapMarkerContractYes {
-  background: rgba(110, 231, 160, 0.58);
+  background: color-mix(in srgb, var(--b2b-success, #6ee7a0) 58%, transparent);
   color: #ffffff;
 }
 
 .mapMarkerContractNo {
   background: rgba(95, 105, 118, 0.62);
+  color: #ffffff;
+}
+
+.mapMarkerLooking {
+  background: color-mix(in srgb, var(--b2b-accent, #f94caf) 58%, transparent);
   color: #ffffff;
 }
 

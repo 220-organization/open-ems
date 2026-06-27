@@ -27,8 +27,8 @@
   align-items: flex-start;
   gap: 8px;
   padding: 10px;
-  background: rgba(17, 12, 23, 0.92);
-  border-bottom: 1px solid var(--b2b-border-subtle, rgba(249, 76, 175, 0.22));
+  background: var(--mp-map-toolbar-bg, rgba(17, 12, 23, 0.92));
+  border-bottom: 1px solid var(--mp-map-toolbar-border, var(--b2b-border-subtle, rgba(249, 76, 175, 0.22)));
 }
 
 .searchWrap {
@@ -42,8 +42,8 @@
   box-sizing: border-box;
   padding: 8px 12px;
   border-radius: 8px;
-  border: 1px solid rgba(249, 76, 175, 0.45);
-  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--mp-map-control-border, rgba(249, 76, 175, 0.45));
+  background: var(--mp-map-control-bg, rgba(0, 0, 0, 0.28));
   color: var(--b2b-body, #dad1e6);
   font-size: 13px;
 }
@@ -70,9 +70,9 @@
   max-height: 220px;
   overflow-y: auto;
   border-radius: 8px;
-  border: 1px solid var(--b2b-border, rgba(249, 76, 175, 0.45));
-  background: rgba(17, 12, 23, 0.96);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--mp-map-control-border, var(--b2b-border, rgba(249, 76, 175, 0.45)));
+  background: var(--mp-map-dropdown-bg, rgba(17, 12, 23, 0.96));
+  box-shadow: var(--mp-map-dropdown-shadow, 0 8px 24px rgba(0, 0, 0, 0.35));
 }
 
 .searchResultBtn,
@@ -95,8 +95,8 @@
 }
 
 .searchResultBtn:hover {
-  background: rgba(249, 76, 175, 0.16);
-  color: #fff;
+  background: var(--mp-map-control-hover-bg, rgba(249, 76, 175, 0.16));
+  color: var(--b2b-body, #dad1e6);
 }
 
 .searchResultItemMuted {
@@ -124,8 +124,8 @@
   flex-shrink: 0;
   padding: 8px 12px;
   border-radius: 8px;
-  border: 1px solid rgba(249, 76, 175, 0.55);
-  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--mp-map-control-border, rgba(249, 76, 175, 0.55));
+  background: var(--mp-map-control-bg, rgba(0, 0, 0, 0.28));
   color: var(--b2b-body, #dad1e6);
   font-size: 12px;
   font-weight: 600;
@@ -135,7 +135,7 @@
 
 .geolocateBtn:hover {
   border-color: var(--b2b-accent, #f94caf);
-  color: #fff;
+  color: var(--b2b-accent, #f94caf);
 }
 
 .resolving {
@@ -145,7 +145,7 @@
   z-index: 2;
   padding: 6px 10px;
   border-radius: 8px;
-  background: rgba(17, 12, 23, 0.88);
+  background: var(--mp-map-overlay-bg, rgba(17, 12, 23, 0.88));
   color: var(--b2b-body-muted, rgba(218, 209, 230, 0.88));
   font-size: 12px;
 }
@@ -227,8 +227,8 @@
   min-width: 56px;
   padding: 8px 12px;
   border-radius: 999px;
-  border: 1px solid var(--b2b-border, rgba(249, 76, 175, 0.45));
-  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--mp-map-control-border, var(--b2b-border, rgba(249, 76, 175, 0.45)));
+  background: var(--mp-map-control-bg, rgba(0, 0, 0, 0.18));
   color: var(--b2b-body, #dad1e6);
   font-size: 13px;
   font-weight: 500;
@@ -245,8 +245,8 @@
 
 .radiusOptionBtnActive {
   border-color: var(--b2b-accent, #f94caf);
-  background: rgba(249, 76, 175, 0.18);
-  color: #fff;
+  background: var(--mp-map-control-hover-bg, rgba(249, 76, 175, 0.18));
+  color: var(--b2b-accent, #f94caf);
 }
 
 .locationRadius {
