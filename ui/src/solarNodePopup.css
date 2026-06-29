@@ -177,3 +177,72 @@
   width: min(92vw, 380px);
   max-width: min(92vw, 380px);
 }
+
+/* Light theme — warm solar card, dark readable text (no white-on-lavender). */
+[data-theme="light"] .pf-solar-popup {
+  background: linear-gradient(165deg, #fffbeb 0%, #ffffff 48%, #fff8f0 100%);
+  border-color: rgba(217, 119, 6, 0.28);
+  box-shadow: 0 8px 28px rgba(20, 22, 28, 0.08);
+}
+
+[data-theme="light"] .pf-solar-popup--active {
+  background: linear-gradient(165deg, #fef3c7 0%, #ffffff 52%, #fff7ed 100%);
+  border-color: rgba(217, 119, 6, 0.42);
+  box-shadow:
+    0 10px 32px rgba(217, 119, 6, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+[data-theme="light"] .pf-solar-popup__title {
+  color: rgba(16, 18, 22, 0.58);
+}
+
+[data-theme="light"] .pf-solar-popup__power {
+  color: var(--pf-label, #15171c);
+  text-shadow: none;
+}
+
+[data-theme="light"] .pf-solar-popup__power--active {
+  color: #1e6b3f;
+  text-shadow: none;
+}
+
+[data-theme="light"] .pf-solar-popup__days {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(20, 22, 28, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+[data-theme="light"] .pf-solar-popup__day-label {
+  color: rgba(16, 18, 22, 0.52);
+}
+
+[data-theme="light"] .pf-solar-popup__day-value,
+[data-theme="light"] .pf-solar-popup__day-value--tomorrow {
+  color: #6d28d9;
+  text-shadow: none;
+}
+
+[data-theme="light"] .pf-solar-popup__day--selected .pf-solar-popup__day-label {
+  color: rgba(16, 18, 22, 0.72);
+}
+
+[data-theme="light"] .pf-solar-popup__day--selected .pf-solar-popup__day-value,
+[data-theme="light"] .pf-solar-popup__day--selected .pf-solar-popup__day-value--tomorrow {
+  color: #5b21b6;
+  text-shadow: none;
+}
+
+[data-theme="light"] .pf-solar-popup__day-divider {
+  background: linear-gradient(180deg, transparent, rgba(20, 22, 28, 0.12), transparent);
+}
+
+[data-theme="light"] .pf-solar-popup__hint,
+[data-theme="light"] .pf-solar-popup__lcoe {
+  color: rgba(16, 18, 22, 0.52);
+}
+
+[data-theme="light"] .pf-solar-popup__day-indicator {
+  background: #d97706;
+  box-shadow: 0 0 6px rgba(217, 119, 6, 0.45);
+}
