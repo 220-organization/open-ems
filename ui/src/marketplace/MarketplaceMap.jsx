@@ -1055,9 +1055,7 @@ export default function MarketplaceMap({
 
             <MarketplaceDetailsBody item={selectedItem} t={t} language={locale} variant="map" />
 
-            <p className={styles.viewCount}>
-              {t('marketplaceViewedTimes', { count: selectedItem.view_count || 0 })}
-            </p>
+            <p className={styles.viewCount}>{t('marketplaceViewedTimes', { count: selectedItem.view_count || 0 })}</p>
 
             {paymentError ? <p className={styles.paymentError}>{paymentError}</p> : null}
 

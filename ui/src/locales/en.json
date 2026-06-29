@@ -439,7 +439,7 @@
   "landingStat3Value": "Modbus • MQTT • OPC UA",
   "landingStat3Label": "Protocols",
   "landingHowTitle": "How does it work?",
-  "landingHowLead": "Vyriy EMS connects to your inverter via REST API or Modbus and runs any scenario: home automation, industrial energy management, tariff and demand capping at EV charging hubs, self-consumption, and DAM/IDM arbitrage.",
+  "landingHowLead": "Vyriy EMS connects to your inverter via REST API or Modbus and runs any scenario: home automation, industrial energy management, tariff and demand management at EV charging hubs, self-consumption, and DAM/IDM arbitrage.",
   "landingIntegrationImageAlt": "BESS integration analogy: REST API is simple and secure at the steering wheel; Modbus is expensive and complex under the hood",
   "landingIntegrationImageModbusCaption": "expensive • less cloud vendor dependency",
   "landingIntegrationImageRestCaption": "simple • secure",

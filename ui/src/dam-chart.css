@@ -937,8 +937,11 @@ a.dam-oree-embed-external:hover {
 
 .dam-page-loader {
   position: fixed;
-  inset: 0;
-  z-index: 50;
+  top: var(--open-ems-site-header-h, max(0px, env(safe-area-inset-top, 0px)));
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 40;
   display: flex;
   align-items: center;
   justify-content: center;

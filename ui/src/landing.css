@@ -11,7 +11,7 @@
 .open-ems-header-shell {
   position: sticky;
   top: 0;
-  z-index: 25;
+  z-index: 45;
 }
 
 @media (max-width: 720px) {
@@ -32,10 +32,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 14px;
   flex-wrap: wrap;
-  padding: 12px 20px;
-  padding-top: max(12px, env(safe-area-inset-top));
+  padding: 14px 20px;
+  padding-top: max(14px, env(safe-area-inset-top));
   background: rgba(11, 13, 16, 0.92);
   border-bottom: 1px solid var(--pf-border);
   backdrop-filter: blur(10px);
@@ -64,7 +64,7 @@
 .landing-nav {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
@@ -758,9 +758,9 @@
       'brand actions'
       'nav nav';
     align-items: center;
-    gap: 8px 10px;
-    padding: 10px 14px;
-    padding-top: max(10px, env(safe-area-inset-top));
+    gap: 12px 14px;
+    padding: 12px 14px;
+    padding-top: max(12px, env(safe-area-inset-top));
   }
 
   .landing-header__brand {
@@ -804,7 +804,7 @@
   }
 
   .landing-nav__link {
-    padding: 6px 10px;
+    padding: 7px 12px;
     font-size: 13px;
     white-space: nowrap;
     flex-shrink: 0;
