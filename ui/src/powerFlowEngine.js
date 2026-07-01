@@ -8,6 +8,19 @@ export const BINANCE_MINER_URL =
 export const SITE_220KM_HOME = 'https://220-km.com/';
 /** Deep link to start flow for a selected charging station (query `station` = port number). */
 export const EV_START_URL = 'https://220-km.com/start';
+/** Deep link to start flow for all ports on one device (query `ports` = comma-separated numbers). */
+export const EV_START_MANY_URL = 'https://220-km.com/startMany';
+
+/** 220-km charging page URL for a selected port or a multi-port site binding. */
+export function evStationOpenUrl({ station, boundPorts }) {
+  const ports = (boundPorts ?? []).map(String).filter(Boolean);
+  if (ports.length > 1) {
+    return `${EV_START_MANY_URL}?ports=${ports.join(',')}`;
+  }
+  const sn = String(station ?? ports[0] ?? '').trim();
+  if (!sn) return SITE_220KM_HOME;
+  return `${EV_START_URL}?station=${encodeURIComponent(sn)}`;
+}
 
 const KYIV_PV_START_HOUR = [8, 7.5, 7, 6, 5.5, 5, 5, 5.5, 6, 6.5, 7.5, 8];
 const KYIV_PV_END_HOUR = [16, 17, 18.5, 19.5, 20.5, 21.5, 21, 20, 18.5, 17, 16, 15.5];

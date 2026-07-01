@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   BINANCE_MINER_URL,
-  EV_START_URL,
+  evStationOpenUrl,
   SITE_220KM_HOME,
   FLOW_DOT_MOTION_DUR,
   computeSimulatedSources,
@@ -3585,6 +3585,14 @@ export default function PowerFlowPage({
   }, [chargingPorts.items, stationFilter, boundEvPortNumbers]);
   const evPortsUsedCount =
     boundEvPortNumbers.length > 0 ? boundEvPortNumbers.length : chargingPorts.items.length;
+  const evStationOpenHref = useMemo(
+    () =>
+      evStationOpenUrl({
+        station: stationFilter.trim(),
+        boundPorts: boundEvPortNumbers,
+      }),
+    [stationFilter, boundEvPortNumbers]
+  );
 
   /** Prefer selected port list price; else monthly retail when no port selected; else fleet average. */
   const evDisplayTariffUahPerKwh = useMemo(() => {
@@ -5060,7 +5068,7 @@ export default function PowerFlowPage({
                             <a
                               className="pf-node"
                               id="pf-node-ev"
-                              href={`${EV_START_URL}?station=${encodeURIComponent(stationFilter.trim())}`}
+                              href={evStationOpenHref}
                               target="_blank"
                               rel="noopener noreferrer"
                               data-active={evFlowActive ? 'true' : 'false'}
@@ -5068,7 +5076,7 @@ export default function PowerFlowPage({
                               onClick={e =>
                                 openNodePopup(e, {
                                   title: t('nodeEv'),
-                                  actionHref: `${EV_START_URL}?station=${encodeURIComponent(stationFilter.trim())}`,
+                                  actionHref: evStationOpenHref,
                                   actionLabel: 'Open EV station',
                                 })
                               }
