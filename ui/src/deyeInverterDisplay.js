@@ -27,14 +27,49 @@ export function extractInverterPinFromLabel(text) {
 }
 
 /** Match ``evport<station>`` in plant/device names (same as backend EV port binding). */
-const EVPORT_RE = /evport\s*(\d+)/i;
+const EVPORT_RE = /evport\s*(\d+)/gi;
+/** Optional CSV list: ``evports634,635`` */
+const EVPORTS_CSV_RE = /evports\s*([\d,\s]+)/i;
+
+/** Deye device SN → EV port numbers when the cloud label has no ``evport`` token yet. */
+const DEVICE_EV_PORTS = Object.freeze({
+  '2503291038': ['634', '635'],
+});
 
 /** Station number from label, e.g. ``"738"``, or null if no ``evport`` token. */
 export function parseEvPortStationNumber(text) {
+  const nums = parseEvPortStationNumbers(text);
+  return nums.length > 0 ? nums[0] : null;
+}
+
+/** All EV port station numbers from label tokens and optional device SN map. */
+export function parseEvPortStationNumbers(text) {
   const s = String(text ?? '').trim();
-  if (!s) return null;
-  const m = EVPORT_RE.exec(s);
-  return m ? m[1].trim() : null;
+  if (!s) return [];
+  const numbers = new Set();
+  const csv = EVPORTS_CSV_RE.exec(s);
+  if (csv) {
+    for (const part of csv[1].split(/[,\s]+/)) {
+      const n = part.trim();
+      if (n) numbers.add(n);
+    }
+  }
+  let m;
+  const re = new RegExp(EVPORT_RE.source, EVPORT_RE.flags);
+  while ((m = re.exec(s)) !== null) {
+    const n = String(m[1] || '').trim();
+    if (n) numbers.add(n);
+  }
+  return [...numbers].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+}
+
+/** Label ``evport`` / ``evports`` tokens, else per-device map (e.g. Ярмаркова 11-З). */
+export function evPortStationNumbersForInverter(deviceSn, label) {
+  const fromLabel = parseEvPortStationNumbers(label);
+  if (fromLabel.length > 0) return fromLabel;
+  const sn = String(deviceSn ?? '').trim();
+  const mapped = DEVICE_EV_PORTS[sn];
+  return mapped ? [...mapped] : [];
 }
 
 /** Short label for inverter <select>: first segment of "Plant — Device", PIN-free. */

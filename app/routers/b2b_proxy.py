@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 _DEVICE_NEAREST_PATH = "/api/device/v2/station/nearest"
 _DEVICE_STATION_ALL_PATH = "/api/device/v2/station/all"
 _DEVICE_STATION_STATUS_PATH = "/api/device/v2/station/status"
+_DEVICE_STATION_INFO_PATH = "/api/device/v2/station"
 
 router = APIRouter(prefix="/api/b2b", tags=["b2b-proxy"])
 
@@ -60,6 +61,35 @@ async def _proxy_get(path: str, params: Optional[dict[str, str]] = None) -> Any:
         )
     logger.debug("B2B proxy GET %s%s — OK %s", path, q, response.status_code)
     return response.json()
+
+
+async def _proxy_get_optional(path: str, params: Optional[dict[str, str]] = None) -> Optional[Any]:
+    """Like ``_proxy_get`` but returns None on transport/HTTP errors (for best-effort enrich)."""
+    url = f"{B2B_API_BASE_URL}{path}"
+    try:
+        async with httpx.AsyncClient(timeout=25.0) as client:
+            response = await client.get(url, params=params or {})
+    except httpx.RequestError as exc:
+        logger.debug("B2B proxy optional GET %s — transport error: %s", path, exc)
+        return None
+    if response.status_code >= 400:
+        return None
+    try:
+        return response.json()
+    except ValueError:
+        return None
+
+
+async def _fetch_station_info_payload(station_number: str, client_ui_id: str) -> Optional[dict[str, Any]]:
+    sn = (station_number or "").strip()
+    if not sn:
+        return None
+    cid = (client_ui_id or "").strip() or EV_PORT_DEVICE_CLIENT_UI_ID
+    payload = await _proxy_get_optional(
+        _DEVICE_STATION_INFO_PATH,
+        {"station_number": sn, "clientUiId": cid},
+    )
+    return payload if isinstance(payload, dict) else None
 
 
 async def _fetch_day_kwh_json(iso_date: str) -> Optional[dict[str, Any]]:
@@ -382,8 +412,27 @@ async def station_status(
         description="Public device client id (defaults from EV_PORT_DEVICE_CLIENT_UI_ID)",
     ),
 ) -> JSONResponse:
-    """Proxies GET /api/device/v2/station/status — job powerWt for the EV port dropdown / power-flow node."""
+    """Proxies GET /api/device/v2/station/status — job powerWt and station list price for power-flow EV node."""
     cid = (client_ui_id or "").strip() or EV_PORT_DEVICE_CLIENT_UI_ID
-    params = {"station_number": station_number.strip(), "clientUiId": cid}
+    sn = station_number.strip()
+    params = {"station_number": sn, "clientUiId": cid}
     data = await _proxy_get(_DEVICE_STATION_STATUS_PATH, params)
+    if not isinstance(data, dict):
+        data = {}
+    info = await _fetch_station_info_payload(sn, cid)
+    if info:
+        cost_pk = info.get("costPerKwt")
+        try:
+            cost_per_kwt = int(cost_pk) if cost_pk is not None else None
+        except (TypeError, ValueError):
+            cost_per_kwt = None
+        if cost_per_kwt is not None and cost_per_kwt > 0:
+            data["costPerKwt"] = cost_per_kwt
+        max_pw = info.get("maxPowerWt")
+        try:
+            max_power_wt = int(max_pw) if max_pw is not None else None
+        except (TypeError, ValueError):
+            max_power_wt = None
+        if max_power_wt is not None and max_power_wt > 0:
+            data["maxPowerWt"] = max_power_wt
     return JSONResponse(content=data, headers=_NO_STORE_CACHE)

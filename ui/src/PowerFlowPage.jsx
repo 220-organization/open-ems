@@ -23,7 +23,7 @@ import { KwhCalibrationProvider, useKwhCalibration } from './KwhCalibrationConte
 import { VYRIY_EMS_LOGO_SRC } from './vyriyEmsLogo';
 import PartnerHubLogo from './PartnerHubLogo';
 import { DEYE_FLOW_BALANCE_PV_FACTOR, usesDeyeFlowBalance } from './deyeFlowBalanceSites';
-import { inverterSelectShortLabel, parseEvPortStationNumber } from './deyeInverterDisplay';
+import { inverterSelectShortLabel, evPortStationNumbersForInverter } from './deyeInverterDisplay';
 import { clearInverterPinCache, readCachedInverterPin, rememberInverterPin } from './deyeInverterPinCache';
 import {
   ESS_PREFIX_AC_EV,
@@ -431,6 +431,39 @@ function preferredLandingExportMetric(offers) {
 
 /** Query keys for landing export metric (values: peak | manual | total | arbitrage | lost_solar_7d). */
 const LANDING_EXPORT_METRIC_URL_KEYS = ['exportMetric', 'landingExport'];
+
+/** Miner node on power-flow: only monthly_rates + OREE/ES, fleet or Deye SN 2602114844. */
+const MINER_VISIBLE_DEYE_SN = '2602114844';
+
+function isMonthlyRatesMinerUrlContext() {
+  try {
+    const u = new URLSearchParams(window.location.search);
+    const market = (u.get('market') || '').trim().toLowerCase();
+    const zone = (u.get('zone') || '').trim().toUpperCase();
+    let exportMetric = '';
+    for (const k of LANDING_EXPORT_METRIC_URL_KEYS) {
+      const v = u.get(k);
+      if (v != null && String(v).trim()) {
+        exportMetric = String(v).trim().toLowerCase();
+        break;
+      }
+    }
+    return market === 'oree' && zone === 'ES' && exportMetric === LANDING_EXPORT_METRIC.MONTHLY_RATES;
+  } catch {
+    return false;
+  }
+}
+
+function minerVisibleForInverterSelection(inverterValue) {
+  const inv = normalizeEssSelectionValue(inverterValue);
+  if (!inv) return true;
+  const { provider, id } = parseEssSelection(inv);
+  return provider === 'deye' && String(id || '').trim() === MINER_VISIBLE_DEYE_SN;
+}
+
+function showMinerOnPowerFlow(inverterValue) {
+  return isMonthlyRatesMinerUrlContext() && minerVisibleForInverterSelection(inverterValue);
+}
 
 /** One preference for the whole UI session — survives inverter / station changes (still normalized for Huawei / fleet). */
 const LANDING_EXPORT_METRIC_STORAGE_GLOBAL = 'pf-landing-export-metric-v5-global';
@@ -1128,6 +1161,16 @@ function volumeWeightedActiveEvSessionTariffUahPerKwh(items) {
   return null;
 }
 
+/** UAH/kWh from charging-port row or station-status enrich (``costPerKwt`` = kopecks/kWh). */
+function tariffUahPerKwhFromPortRow(row) {
+  if (!row || typeof row !== 'object') return null;
+  const ck = Number(row.costPerKwt);
+  if (Number.isFinite(ck) && ck > 0) return ck / 100.0;
+  const direct = Number(row.tariffUahPerKwh);
+  if (Number.isFinite(direct) && direct > 0) return direct;
+  return null;
+}
+
 /** Fleet totals block: kWh exported + DAM tariff line (Kyiv current month vs previous month). */
 function formatLandingTotalsDisplay(landingTotals, bcp47, t) {
   if (!landingTotals?.ok) return null;
@@ -1522,6 +1565,7 @@ export default function PowerFlowPage({
   });
   /** Charging power (W) from GET /api/b2b/station-status for the selected EV port; null = unknown / error. */
   const [evStationPowerW, setEvStationPowerW] = useState(null);
+  const [evStationTariffUahPerKwh, setEvStationTariffUahPerKwh] = useState(null);
   const [evStationPowerLoading, setEvStationPowerLoading] = useState(false);
   /** Sum of EV charger power (W) from GET /api/b2b/ev-ports-power when EV DC/AC aggregate source is selected. */
   const [evPortsLive, setEvPortsLive] = useState({ loading: false, powerW: null, activeSessions: 0, acdc: null });
@@ -1797,6 +1841,7 @@ export default function PowerFlowPage({
     const sn = stationFilter.trim();
     if (!sn) {
       setEvStationPowerW(null);
+      setEvStationTariffUahPerKwh(null);
       setEvStationPowerLoading(false);
       return undefined;
     }
@@ -1823,11 +1868,19 @@ export default function PowerFlowPage({
         const r = await fetch(apiUrl(`/api/b2b/station-status?${q}`), { cache: 'no-store' });
         const data = await r.json().catch(() => null);
         if (!cancelled) {
-          if (r.ok && data && typeof data === 'object') setEvStationPowerW(parsePowerFromStationStatus(data));
-          else setEvStationPowerW(null);
+          if (r.ok && data && typeof data === 'object') {
+            setEvStationPowerW(parsePowerFromStationStatus(data));
+            setEvStationTariffUahPerKwh(tariffUahPerKwhFromPortRow(data));
+          } else {
+            setEvStationPowerW(null);
+            setEvStationTariffUahPerKwh(null);
+          }
         }
       } catch {
-        if (!cancelled) setEvStationPowerW(null);
+        if (!cancelled) {
+          setEvStationPowerW(null);
+          setEvStationTariffUahPerKwh(null);
+        }
       } finally {
         if (!cancelled) {
           setEvStationPowerLoading(false);
@@ -1842,30 +1895,6 @@ export default function PowerFlowPage({
       clearInterval(id);
     };
   }, [stationFilter]);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const data = await fetchMiner();
-        if (!cancelled) setMinerSnap(data);
-      } catch {
-        /* keep previous */
-      }
-    })();
-    const id = setInterval(async () => {
-      try {
-        const data = await fetchMiner();
-        if (!cancelled) setMinerSnap(data);
-      } catch {
-        /* keep */
-      }
-    }, 30_000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [fetchMiner]);
 
   const loadInverters = useCallback(async () => {
     try {
@@ -2064,6 +2093,36 @@ export default function PowerFlowPage({
   const readOnlyEssSelected = Boolean(selHuaweiStationCode || selUbetterSn);
   const essAnySelected = Boolean(selInverterSn || selHuaweiStationCode || selUbetterSn || selEvPortsAggregate);
 
+  const showMinerNode = useMemo(() => showMinerOnPowerFlow(inverterValue), [inverterValue]);
+
+  useEffect(() => {
+    if (!showMinerNode) {
+      setMinerSnap(null);
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await fetchMiner();
+        if (!cancelled) setMinerSnap(data);
+      } catch {
+        /* keep previous */
+      }
+    })();
+    const id = setInterval(async () => {
+      try {
+        const data = await fetchMiner();
+        if (!cancelled) setMinerSnap(data);
+      } catch {
+        /* keep */
+      }
+    }, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [fetchMiner, showMinerNode]);
+
   const inverterSnsKey = useMemo(
     () =>
       inverterRows.items
@@ -2256,7 +2315,14 @@ export default function PowerFlowPage({
   }, [selInverterSn, deyeCombinedItems]);
 
   /** EV port binding in Deye name — remote writes allowed without a trailing `` pin`` suffix (server-side). */
-  const selInverterEvportBound = useMemo(() => Boolean(parseEvPortStationNumber(selInverterLabel)), [selInverterLabel]);
+  const boundEvPortNumbers = useMemo(() => {
+    const sn = selInverterSn.trim();
+    if (!sn) return [];
+    const row = inverterRows.items.find(r => String(r.deviceSn || '').trim() === sn);
+    return evPortStationNumbersForInverter(sn, row?.label || '');
+  }, [selInverterSn, inverterRows.items]);
+
+  const selInverterEvportBound = useMemo(() => boundEvPortNumbers.length > 0, [boundEvPortNumbers]);
 
   /** Deye Cloud encodes a PIN **or** label has evport<N> (same as backend assert). */
   const remoteWriteConfigured = useMemo(
@@ -3468,52 +3534,77 @@ export default function PowerFlowPage({
     setGraphShareQrOpen(false);
   }, []);
 
-  /** When the selected inverter label contains ``evport<N>``, select that EV port in the header dropdown. */
+  /** When the selected inverter has bound EV port(s), select the first in the header dropdown. */
   useEffect(() => {
     if (inverterRows.loading || inverterRows.error || !inverterRows.configured) return;
-    const sn = selInverterSn.trim();
-    if (!sn) return;
-    const row = inverterRows.items.find(r => r.deviceSn === sn);
-    if (!row?.label) return;
-    const evStation = parseEvPortStationNumber(row.label);
-    if (!evStation) return;
+    if (boundEvPortNumbers.length === 0) return;
+    const current = stationFilter.trim();
+    const want = current && boundEvPortNumbers.includes(current) ? current : boundEvPortNumbers[0];
+    if (!want) return;
     setStationFilter(prev => {
-      if (prev.trim() === evStation) return prev;
+      if (prev.trim() === want) return prev;
       try {
         const u = new URL(window.location.href);
-        u.searchParams.set('station', evStation);
+        u.searchParams.set('station', want);
         window.history.replaceState({}, '', u);
       } catch {
         /* ignore */
       }
-      return evStation;
+      return want;
     });
-  }, [selInverterSn, inverterRows.loading, inverterRows.error, inverterRows.configured, inverterRows.items]);
+  }, [
+    boundEvPortNumbers,
+    stationFilter,
+    inverterRows.loading,
+    inverterRows.error,
+    inverterRows.configured,
+  ]);
 
   const portSelectOptions = useMemo(() => {
-    const base = chargingPorts.items;
+    let base = chargingPorts.items;
+    if (boundEvPortNumbers.length > 0) {
+      const allowed = new Set(boundEvPortNumbers);
+      base = base.filter(row => allowed.has(String(row.number)));
+      for (const num of boundEvPortNumbers) {
+        if (!base.some(row => String(row.number) === num)) {
+          base = [
+            ...base,
+            { number: num, label: num, distanceMeters: null, powerWt: null, maxPowerWt: null },
+          ];
+        }
+      }
+      base = [...base].sort((a, b) =>
+        String(a.number).localeCompare(String(b.number), undefined, { numeric: true })
+      );
+    }
     const s = stationFilter.trim();
     if (!s || base.some(x => String(x.number) === s)) {
       return base;
     }
     return [...base, { number: s, label: s, distanceMeters: null, powerWt: null, maxPowerWt: null }];
-  }, [chargingPorts.items, stationFilter]);
-  const evPortsUsedCount = chargingPorts.items.length;
+  }, [chargingPorts.items, stationFilter, boundEvPortNumbers]);
+  const evPortsUsedCount =
+    boundEvPortNumbers.length > 0 ? boundEvPortNumbers.length : chargingPorts.items.length;
 
-  /** Prefer selected EV port tariff; else active-session weighted tariff; else 7-day network average. */
+  /** Prefer selected port list price; else monthly retail when no port selected; else fleet average. */
   const evDisplayTariffUahPerKwh = useMemo(() => {
     const selectedPort = stationFilter.trim();
     if (selectedPort) {
       const selected = chargingPorts.items.find(x => String(x?.number) === selectedPort);
-      if (selected) {
-        const selectedCostPerKwt = Number(selected?.costPerKwt);
-        if (Number.isFinite(selectedCostPerKwt) && selectedCostPerKwt > 0) {
-          return selectedCostPerKwt / 100.0;
-        }
-        const selectedTariffUahPerKwh = Number(selected?.tariffUahPerKwh);
-        if (Number.isFinite(selectedTariffUahPerKwh) && selectedTariffUahPerKwh > 0) {
-          return selectedTariffUahPerKwh;
-        }
+      const fromList = tariffUahPerKwhFromPortRow(selected);
+      if (fromList != null) return fromList;
+      if (evStationTariffUahPerKwh != null && Number.isFinite(evStationTariffUahPerKwh)) {
+        return evStationTariffUahPerKwh;
+      }
+    }
+    if (
+      !selectedPort &&
+      landingExportMetric === LANDING_EXPORT_METRIC.MONTHLY_RATES &&
+      boundEvPortNumbers.length > 0
+    ) {
+      const ctx = landingMonthlyRatesRetailFromTotals(landingTotals);
+      if (ctx?.retail != null && Number.isFinite(Number(ctx.retail))) {
+        return Number(ctx.retail);
       }
     }
     const fromSessions = volumeWeightedActiveEvSessionTariffUahPerKwh(chargingPorts.items);
@@ -3526,7 +3617,16 @@ export default function PowerFlowPage({
       return evChargingNetworkTariff.value;
     }
     return null;
-  }, [chargingPorts.items, stationFilter, evChargingNetworkTariff.loading, evChargingNetworkTariff.value]);
+  }, [
+    chargingPorts.items,
+    stationFilter,
+    evStationTariffUahPerKwh,
+    evChargingNetworkTariff.loading,
+    evChargingNetworkTariff.value,
+    landingExportMetric,
+    boundEvPortNumbers.length,
+    landingTotals,
+  ]);
 
   const consumptionMw = realtimePower?.powerMw ?? 0;
   const liveMinerW =
@@ -3630,8 +3730,8 @@ export default function PowerFlowPage({
       ? fleetBatteryW
       : essW;
   /** Miner: B2B /api/b2b/miner-power (220-km) only — no simulated miner in fleet view. */
-  const displayMinerW = liveMinerW;
-  const minerFlowW = liveMinerW ?? 0;
+  const displayMinerW = showMinerNode ? liveMinerW : null;
+  const minerFlowW = showMinerNode ? liveMinerW ?? 0 : 0;
   const displayLoadW = fleetLoadTelemetryActive
     ? fleetLoadW
     : Boolean(selUbetterSn) && ubetterLive?.loadPowerW != null && Number.isFinite(ubetterLive.loadPowerW)
@@ -3717,7 +3817,7 @@ export default function PowerFlowPage({
     solarFlowActive ||
     loadFlowActive ||
     (graphDisplayEssW != null && Math.abs(graphDisplayEssW) > 0) ||
-    graphMinerFlowW > 0;
+    (showMinerNode && graphMinerFlowW > 0);
   const geom = useMemo(() => computeWideGeometry(graphWidth, { kiosk: kioskMode }), [graphWidth, kioskMode]);
   const graphAnchorPct = useMemo(
     () => (edgeInsetPx(graphWidth, { kiosk: kioskMode }) / Math.max(graphWidth, 1)) * 100,
@@ -4640,11 +4740,12 @@ export default function PowerFlowPage({
                         <line
                           id="pf-line-miner"
                           className="pf-line"
-                          data-active={hasFlow && graphMinerFlowW > 0 ? 'true' : 'false'}
+                          data-active={showMinerNode && hasFlow && graphMinerFlowW > 0 ? 'true' : 'false'}
                           x1={geom.minerLine.start.x}
                           y1={geom.minerLine.start.y}
                           x2={geom.minerLine.end.x}
                           y2={geom.minerLine.end.y}
+                          style={showMinerNode ? undefined : { display: 'none' }}
                         />
                         <line
                           id="pf-line-cons"
@@ -4683,7 +4784,12 @@ export default function PowerFlowPage({
                         <g id="pf-dot-ess" style={{ display: essActive ? undefined : 'none' }}>
                           <MotionDot pathD={essPath} />
                         </g>
-                        <g id="pf-dot-miner" style={{ display: hasFlow && graphMinerFlowW > 0 ? undefined : 'none' }}>
+                        <g
+                          id="pf-dot-miner"
+                          style={{
+                            display: showMinerNode && hasFlow && graphMinerFlowW > 0 ? undefined : 'none',
+                          }}
+                        >
                           <MotionDot
                             pathD={flowMotionPath(
                               geom.minerLine.start.x,
@@ -4915,6 +5021,7 @@ export default function PowerFlowPage({
                             : ''}
                         </div>
                       </button>
+                      {showMinerNode ? (
                       <a
                         className="pf-node"
                         data-pos="right-center"
@@ -4944,6 +5051,7 @@ export default function PowerFlowPage({
                           {formatUahPerKwhTariffLine(tf)}
                         </div>
                       </a>
+                      ) : null}
                       <EvNodeWithPortPicker
                         kioskMode={kioskMode}
                         picker={evPortPicker}
