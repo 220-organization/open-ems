@@ -716,11 +716,7 @@ function landingMonthlyRatesTariffVsUkraineSupplement(landingTotals, bcp47) {
 function TariffVsUkraineMessage({ supplement, t, className, pctClassName }) {
   if (!supplement) return null;
   const pctModifier =
-    supplement.kind === 'more'
-      ? `${pctClassName}--up`
-      : supplement.kind === 'less'
-        ? `${pctClassName}--down`
-        : '';
+    supplement.kind === 'more' ? `${pctClassName}--up` : supplement.kind === 'less' ? `${pctClassName}--down` : '';
   return (
     <p className={className}>
       {supplement.kind === 'equal' ? (
@@ -728,21 +724,90 @@ function TariffVsUkraineMessage({ supplement, t, className, pctClassName }) {
       ) : supplement.kind === 'more' ? (
         <>
           {t('powerFlowLandingTariffVsUkraineMoreBefore')}
-          <span className={[pctClassName, pctModifier].filter(Boolean).join(' ')}>
-            {supplement.deltaStr}%
-          </span>
+          <span className={[pctClassName, pctModifier].filter(Boolean).join(' ')}>{supplement.deltaStr}%</span>
           {t('powerFlowLandingTariffVsUkraineMoreAfter')}
         </>
       ) : (
         <>
           {t('powerFlowLandingTariffVsUkraineLessBefore')}
-          <span className={[pctClassName, pctModifier].filter(Boolean).join(' ')}>
-            {supplement.deltaStr}%
-          </span>
+          <span className={[pctClassName, pctModifier].filter(Boolean).join(' ')}>{supplement.deltaStr}%</span>
           {t('powerFlowLandingTariffVsUkraineLessAfter')}
         </>
       )}
     </p>
+  );
+}
+
+function readGeoForEvPorts() {
+  return new Promise(resolve => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      p => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }),
+      () => resolve(null),
+      { maximumAge: 300_000, timeout: 8_000 }
+    );
+  });
+}
+
+/** EV port count + dropdown — sits under the EV node on the power-flow graph. */
+function EvPortPicker({
+  t,
+  evPortsUsedCount,
+  stationFilter,
+  chargingPortsLoading,
+  portSelectOptions,
+  onStationChange,
+}) {
+  return (
+    <div
+      className="pf-ev-port-picker"
+      onClick={e => e.stopPropagation()}
+      onKeyDown={e => e.stopPropagation()}
+    >
+      <span
+        className="pf-ev-ports-used-count"
+        aria-label={`${t('stationPlaceholder')}: ${evPortsUsedCount} x`}
+      >
+        {evPortsUsedCount} x
+      </span>
+      <select
+        id="pf-station"
+        className="pf-inverter-select pf-header-select--port pf-ev-port-picker__select"
+        aria-label={t('stationLabel')}
+        title={t('stationPlaceholder')}
+        value={stationFilter}
+        onChange={onStationChange}
+      >
+        <option value="">{chargingPortsLoading ? '…' : t('stationPlaceholder')}</option>
+        {portSelectOptions.map(row => {
+          const num = String(row.number);
+          const currentKw = formatPowerKwInteger(Number(row.powerWt)) ?? 0;
+          const maxKw = formatPowerKwInteger(Number(row.maxPowerWt));
+          return (
+            <option key={num} value={num}>
+              {t('evPortSelectOption', {
+                number: num,
+                current: currentKw,
+                max: maxKw != null && maxKw > 0 ? maxKw : '—',
+              })}
+            </option>
+          );
+        })}
+      </select>
+    </div>
+  );
+}
+
+function EvNodeWithPortPicker({ kioskMode, evNode, picker }) {
+  if (kioskMode) return evNode;
+  return (
+    <div className="pf-node-ev-stack" data-pos="right-bottom">
+      {evNode}
+      {picker}
+    </div>
   );
 }
 
@@ -1522,46 +1587,38 @@ export default function PowerFlowPage({
   /** First solar-insolation fetch per inverter sets `loading` (page overlay); hourly refresh does not. */
   const solarInsolationInitialFetchRef = useRef(true);
 
+  const loadChargingPorts = useCallback(async () => {
+    if (!geoRequestedRef.current) {
+      geoRequestedRef.current = true;
+      geoForPortsRef.current = await readGeoForEvPorts();
+    }
+    const geo = geoForPortsRef.current;
+    const params = new URLSearchParams();
+    if (geo) {
+      params.set('lat', String(geo.lat));
+      params.set('lon', String(geo.lon));
+    }
+    const qs = params.toString();
+    const r = await fetch(apiUrl(`/api/b2b/charging-ports${qs ? `?${qs}` : ''}`), {
+      cache: 'no-store',
+    });
+    const data = await r.json();
+    const items = Array.isArray(data?.items) ? data.items : [];
+    return { ok: data?.ok !== false, items };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
-    const readGeoOnce = () =>
-      new Promise(resolve => {
-        if (typeof navigator === 'undefined' || !navigator.geolocation) {
-          resolve(null);
-          return;
-        }
-        navigator.geolocation.getCurrentPosition(
-          p => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }),
-          () => resolve(null),
-          { maximumAge: 300_000, timeout: 8_000 }
-        );
-      });
-
     const load = async () => {
       if (chargingPortsInitialFetchRef.current) {
         setChargingPorts(s => ({ ...s, loading: true }));
       }
       try {
-        if (!geoRequestedRef.current) {
-          geoRequestedRef.current = true;
-          geoForPortsRef.current = await readGeoOnce();
-        }
-        const geo = geoForPortsRef.current;
-        const params = new URLSearchParams();
-        if (geo) {
-          params.set('lat', String(geo.lat));
-          params.set('lon', String(geo.lon));
-        }
-        const qs = params.toString();
-        const r = await fetch(apiUrl(`/api/b2b/charging-ports${qs ? `?${qs}` : ''}`), {
-          cache: 'no-store',
-        });
-        const data = await r.json();
+        const { ok, items } = await loadChargingPorts();
         if (cancelled) return;
-        const items = Array.isArray(data?.items) ? data.items : [];
         setChargingPorts({
           loading: false,
-          ok: data?.ok !== false,
+          ok,
           items,
         });
       } catch {
@@ -1579,7 +1636,7 @@ export default function PowerFlowPage({
       cancelled = true;
       clearInterval(id);
     };
-  }, []);
+  }, [loadChargingPorts]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2603,12 +2660,7 @@ export default function PowerFlowPage({
         } else {
           setNightChargeEnabled(false);
         }
-        if (
-          rSmart.ok &&
-          dataSmart.ok &&
-          dataSmart.configured &&
-          typeof dataSmart.smartLoadEnabled === 'boolean'
-        ) {
+        if (rSmart.ok && dataSmart.ok && dataSmart.configured && typeof dataSmart.smartLoadEnabled === 'boolean') {
           setSmartLoadEnabled(dataSmart.smartLoadEnabled);
         } else if (rSmart.ok && dataSmart.ok && dataSmart.configured && typeof dataSmart.enabled === 'boolean') {
           setSmartLoadEnabled(dataSmart.enabled);
@@ -4230,6 +4282,17 @@ export default function PowerFlowPage({
 
   const noEssListYet = (inverterRows.loading || huaweiRows.loading) && !deyeListReady && !huaweiListReady;
 
+  const evPortPicker = (
+    <EvPortPicker
+      t={t}
+      evPortsUsedCount={evPortsUsedCount}
+      stationFilter={stationFilter}
+      chargingPortsLoading={chargingPorts.loading}
+      portSelectOptions={portSelectOptions}
+      onStationChange={onStationChange}
+    />
+  );
+
   return (
     <KwhCalibrationProvider inverterSn={selInverterSn} t={t}>
       <div className={`pf-body${kioskMode ? ' pf-body--kiosk' : ''}`}>
@@ -4704,130 +4767,132 @@ export default function PowerFlowPage({
                           {formatUahPerKwhTariffLine(tf)}
                         </div>
                       </a>
-                      {stationFilter.trim() ? (
-                        <a
-                          className="pf-node"
-                          data-pos="right-bottom"
-                          id="pf-node-ev"
-                          href={`${EV_START_URL}?station=${encodeURIComponent(stationFilter.trim())}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          data-active={evFlowActive ? 'true' : 'false'}
-                          title={t('stationLabel')}
-                          onClick={e =>
-                            openNodePopup(e, {
-                              title: t('nodeEv'),
-                              actionHref: `${EV_START_URL}?station=${encodeURIComponent(stationFilter.trim())}`,
-                              actionLabel: 'Open EV station',
-                            })
-                          }
-                        >
-                          <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
-                            <EvCarMark className="pf-node-icon__tesla" />
-                          </span>
-                          <span className="pf-node-label">{t('nodeEv')}</span>
-                          <span className="pf-node-value" id="pf-val-ev">
-                            {evStationPowerLoading && evStationPowerW == null
-                              ? '…'
-                              : formatPower(evStationPowerW, t, bcp47)}
-                          </span>
-                          <div className="pf-node-meta" id="pf-ev-tariff">
-                            {evDisplayTariffUahPerKwh != null
-                              ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh)
-                              : ''}
-                          </div>
-                        </a>
-                      ) : selEvPortsAggregate ? (
-                        <a
-                          className="pf-node"
-                          data-pos="right-bottom"
-                          id="pf-node-ev"
-                          href={SITE_220KM_HOME}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          data-active={evFlowActive ? 'true' : 'false'}
-                          title={selEvPortsAcdc === 'ac' ? t('essEvPortsAc') : t('essEvPortsDc')}
-                          onClick={e =>
-                            openNodePopup(e, {
-                              title: t('nodeEv'),
-                              actionHref: SITE_220KM_HOME,
-                              actionLabel: 'Open EV station',
-                            })
-                          }
-                        >
-                          <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
-                            <EvCarMark className="pf-node-icon__tesla" />
-                          </span>
-                          <span className="pf-node-label">{t('nodeEv')}</span>
-                          <span className="pf-node-value" id="pf-val-ev">
-                            {evPortsLive.loading && evPortsDisplayPowerW == null
-                              ? '…'
-                              : formatPower(evPortsDisplayPowerW, t, bcp47)}
-                          </span>
-                          <div className="pf-node-meta" id="pf-ev-tariff">
-                            {evPortsLive.activeSessions > 0
-                              ? t('essEvPortsActiveCount', { count: evPortsLive.activeSessions })
-                              : ''}
-                          </div>
-                        </a>
-                      ) : showEvAggregate ? (
-                        <a
-                          className="pf-node"
-                          data-pos="right-bottom"
-                          id="pf-node-ev"
-                          href={SITE_220KM_HOME}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          data-active={evFlowActive ? 'true' : 'false'}
-                          onClick={e =>
-                            openNodePopup(e, {
-                              title: t('nodeEv'),
-                              actionHref: SITE_220KM_HOME,
-                              actionLabel: 'Open EV station',
-                            })
-                          }
-                        >
-                          <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
-                            <EvCarMark className="pf-node-icon__tesla" />
-                          </span>
-                          <span className="pf-node-label">{t('nodeEv')}</span>
-                          <span className="pf-node-value" id="pf-val-ev">
-                            {evBusy ? '…' : formatPower(aggregateEvFlowW, t, bcp47)}
-                          </span>
-                          <div className="pf-node-meta" id="pf-ev-tariff">
-                            {evDisplayTariffUahPerKwh != null
-                              ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh)
-                              : ''}
-                          </div>
-                        </a>
-                      ) : (
-                        <div
-                          className="pf-node pf-node-ev-disabled"
-                          data-pos="right-bottom"
-                          id="pf-node-ev"
-                          data-active="false"
-                          title={t('evHiddenByInverter')}
-                          role="button"
-                          tabIndex={0}
-                          onClick={e => openNodePopup(e, { title: t('nodeEv') })}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter' || e.key === ' ') openNodePopup(e, { title: t('nodeEv') });
-                          }}
-                        >
-                          <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
-                            <EvCarMark className="pf-node-icon__tesla" />
-                          </span>
-                          <span className="pf-node-label">{t('nodeEv')}</span>
-                          <span className="pf-node-value" id="pf-val-ev">
-                            {formatPower(null, t, bcp47)}
-                          </span>
-                          <div className="pf-node-meta" id="pf-ev-tariff">
-                            {evDisplayTariffUahPerKwh != null
-                              ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh)
-                              : ''}
-                          </div>
-                        </div>
-                      )}
+                      <EvNodeWithPortPicker
+                        kioskMode={kioskMode}
+                        picker={evPortPicker}
+                        evNode={
+                          stationFilter.trim() ? (
+                            <a
+                              className="pf-node"
+                              id="pf-node-ev"
+                              href={`${EV_START_URL}?station=${encodeURIComponent(stationFilter.trim())}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              data-active={evFlowActive ? 'true' : 'false'}
+                              title={t('stationLabel')}
+                              onClick={e =>
+                                openNodePopup(e, {
+                                  title: t('nodeEv'),
+                                  actionHref: `${EV_START_URL}?station=${encodeURIComponent(stationFilter.trim())}`,
+                                  actionLabel: 'Open EV station',
+                                })
+                              }
+                            >
+                              <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
+                                <EvCarMark className="pf-node-icon__tesla" />
+                              </span>
+                              <span className="pf-node-label">{t('nodeEv')}</span>
+                              <span className="pf-node-value" id="pf-val-ev">
+                                {evStationPowerLoading && evStationPowerW == null
+                                  ? '…'
+                                  : formatPower(evStationPowerW, t, bcp47)}
+                              </span>
+                              <div className="pf-node-meta" id="pf-ev-tariff">
+                                {evDisplayTariffUahPerKwh != null
+                                  ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh)
+                                  : ''}
+                              </div>
+                            </a>
+                          ) : selEvPortsAggregate ? (
+                            <a
+                              className="pf-node"
+                              id="pf-node-ev"
+                              href={SITE_220KM_HOME}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              data-active={evFlowActive ? 'true' : 'false'}
+                              title={selEvPortsAcdc === 'ac' ? t('essEvPortsAc') : t('essEvPortsDc')}
+                              onClick={e =>
+                                openNodePopup(e, {
+                                  title: t('nodeEv'),
+                                  actionHref: SITE_220KM_HOME,
+                                  actionLabel: 'Open EV station',
+                                })
+                              }
+                            >
+                              <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
+                                <EvCarMark className="pf-node-icon__tesla" />
+                              </span>
+                              <span className="pf-node-label">{t('nodeEv')}</span>
+                              <span className="pf-node-value" id="pf-val-ev">
+                                {evPortsLive.loading && evPortsDisplayPowerW == null
+                                  ? '…'
+                                  : formatPower(evPortsDisplayPowerW, t, bcp47)}
+                              </span>
+                              <div className="pf-node-meta" id="pf-ev-tariff">
+                                {evPortsLive.activeSessions > 0
+                                  ? t('essEvPortsActiveCount', { count: evPortsLive.activeSessions })
+                                  : ''}
+                              </div>
+                            </a>
+                          ) : showEvAggregate ? (
+                            <a
+                              className="pf-node"
+                              id="pf-node-ev"
+                              href={SITE_220KM_HOME}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              data-active={evFlowActive ? 'true' : 'false'}
+                              onClick={e =>
+                                openNodePopup(e, {
+                                  title: t('nodeEv'),
+                                  actionHref: SITE_220KM_HOME,
+                                  actionLabel: 'Open EV station',
+                                })
+                              }
+                            >
+                              <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
+                                <EvCarMark className="pf-node-icon__tesla" />
+                              </span>
+                              <span className="pf-node-label">{t('nodeEv')}</span>
+                              <span className="pf-node-value" id="pf-val-ev">
+                                {evBusy ? '…' : formatPower(aggregateEvFlowW, t, bcp47)}
+                              </span>
+                              <div className="pf-node-meta" id="pf-ev-tariff">
+                                {evDisplayTariffUahPerKwh != null
+                                  ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh)
+                                  : ''}
+                              </div>
+                            </a>
+                          ) : (
+                            <div
+                              className="pf-node pf-node-ev-disabled"
+                              id="pf-node-ev"
+                              data-active="false"
+                              title={t('evHiddenByInverter')}
+                              role="button"
+                              tabIndex={0}
+                              onClick={e => openNodePopup(e, { title: t('nodeEv') })}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter' || e.key === ' ') openNodePopup(e, { title: t('nodeEv') });
+                              }}
+                            >
+                              <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
+                                <EvCarMark className="pf-node-icon__tesla" />
+                              </span>
+                              <span className="pf-node-label">{t('nodeEv')}</span>
+                              <span className="pf-node-value" id="pf-val-ev">
+                                {formatPower(null, t, bcp47)}
+                              </span>
+                              <div className="pf-node-meta" id="pf-ev-tariff">
+                                {evDisplayTariffUahPerKwh != null
+                                  ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh)
+                                  : ''}
+                              </div>
+                            </div>
+                          )
+                        }
+                      />
                       {pageShareUrl ? (
                         <button
                           type="button"
@@ -4866,43 +4931,6 @@ export default function PowerFlowPage({
                   getBcp47Locale={getBcp47Locale}
                 />
               ) : null}
-            </div>
-
-            <div className="pf-lang-port-bar" style={{ '--pf-graph-anchor-pct': `${graphAnchorPct}%` }}>
-              <div className="pf-lang-port-port-track">
-                <div className="pf-lang-port-port-align">
-                  <span
-                    className="pf-ev-ports-used-count"
-                    aria-label={`${t('stationPlaceholder')}: ${evPortsUsedCount} x`}
-                  >
-                    {evPortsUsedCount} x
-                  </span>
-                  <select
-                    id="pf-station"
-                    className="pf-inverter-select pf-header-select--port"
-                    aria-label={t('stationLabel')}
-                    title={t('stationPlaceholder')}
-                    value={stationFilter}
-                    onChange={onStationChange}
-                  >
-                    <option value="">{chargingPorts.loading ? '…' : t('stationPlaceholder')}</option>
-                    {portSelectOptions.map(row => {
-                      const num = String(row.number);
-                      const currentKw = formatPowerKwInteger(Number(row.powerWt)) ?? 0;
-                      const maxKw = formatPowerKwInteger(Number(row.maxPowerWt));
-                      return (
-                        <option key={num} value={num}>
-                          {t('evPortSelectOption', {
-                            number: num,
-                            current: currentKw,
-                            max: maxKw != null && maxKw > 0 ? maxKw : '—',
-                          })}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </div>
-              </div>
             </div>
 
             {showPowerFlowSections

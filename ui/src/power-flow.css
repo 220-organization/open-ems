@@ -1851,6 +1851,59 @@ a.pf-node { cursor: pointer; }
   transform: none;
 }
 
+.pf-graph .pf-node-ev-stack[data-pos='right-bottom'] {
+  position: absolute;
+  bottom: 0;
+  left: calc(100% - var(--pf-graph-anchor-pct));
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: min(300px, 78vw);
+  z-index: 3;
+}
+
+.pf-graph .pf-node-ev-stack > .pf-node {
+  position: relative;
+  top: auto;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  transform: none;
+}
+
+.pf-ev-port-picker {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  max-width: min(280px, 72vw);
+  pointer-events: auto;
+}
+
+.pf-ev-port-picker__select {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+  min-height: 32px;
+  padding: 4px 8px;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.pf-ev-port-picker .pf-ev-ports-used-count {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .pf-grid-discharge-actions {
   display: flex;
   flex-direction: column;
@@ -2478,6 +2531,15 @@ a.pf-node { cursor: pointer; }
   #pf-node-ev .pf-node-label { font-size: 8px; }
   #pf-node-ev .pf-node-value { font-size: 11px; }
   #pf-node-ev .pf-node-meta { font-size: 7px; }
+
+  .pf-ev-port-picker {
+    max-width: min(260px, 76vw);
+    gap: 4px;
+  }
+
+  .pf-ev-port-picker__select {
+    font-size: 10px;
+  }
 
   .pf-hub { max-width: min(132px, 40vw); }
   .pf-hub-logo { width: 38px; height: 38px; }
