@@ -9,6 +9,7 @@ import {
   edgeInsetPx,
   flowMotionPath,
   formatPower,
+  formatPowerKwInteger,
 } from './powerFlowEngine';
 import DamChartPanel from './DamChartPanel';
 import RdnConsultationCallback from './RdnConsultationCallback';
@@ -47,6 +48,53 @@ import './openEmsKiosk.css';
 import { useOpenEmsSeo } from './useOpenEmsSeo';
 
 const INVERTER_STORAGE = 'pf-deye-inverter';
+const PF_GEN_PORT_SETTINGS_OPEN_KEY = 'pf-gen-port-settings-open';
+/** Gen port Smart Load / On Grid toggles — visible in UI but disabled until rollout is complete. */
+const GEN_PORT_SETTINGS_CONTROLS_ENABLED = false;
+
+function readGenPortSettingsOpen() {
+  try {
+    const v = localStorage.getItem(PF_GEN_PORT_SETTINGS_OPEN_KEY);
+    if (v === '1') return true;
+    if (v === '0') return false;
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
+function writeGenPortSettingsOpen(open) {
+  try {
+    localStorage.setItem(PF_GEN_PORT_SETTINGS_OPEN_KEY, open ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
+
+function formatGenPortDeyeFeedback(data) {
+  if (!data?.deye) return '';
+  try {
+    return `Deye: ${JSON.stringify(data.deye)}`;
+  } catch {
+    return '';
+  }
+}
+
+function genOnGridAlwaysOnFromApiData(data) {
+  if (data && typeof data.genOnGridAlwaysOn === 'boolean') return data.genOnGridAlwaysOn;
+  const orderResult = data?.deye?.orderResult;
+  if (typeof orderResult === 'string' && orderResult.trim()) {
+    try {
+      const parsed = JSON.parse(orderResult);
+      if (parsed?.verified === true && typeof parsed.onGridAlwaysOn === 'boolean') {
+        return parsed.onGridAlwaysOn;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return undefined;
+}
 
 /** Wide viewport — kiosk entry button (aligned with B2B graphView=1 at 992px). */
 const KIOSK_WIDE_MIN_PX = 992;
@@ -663,6 +711,104 @@ function landingMonthlyRatesTariffVsUkraineSupplement(landingTotals, bcp47) {
     return { kind: 'more', deltaPct: vs.deltaPct, deltaStr };
   }
   return { kind: 'less', deltaPct: vs.deltaPct, deltaStr };
+}
+
+function TariffVsUkraineMessage({ supplement, t, className, pctClassName }) {
+  if (!supplement) return null;
+  const pctModifier =
+    supplement.kind === 'more' ? `${pctClassName}--up` : supplement.kind === 'less' ? `${pctClassName}--down` : '';
+  return (
+    <p className={className}>
+      {supplement.kind === 'equal' ? (
+        t('powerFlowLandingTariffVsUkraineEqual')
+      ) : supplement.kind === 'more' ? (
+        <>
+          {t('powerFlowLandingTariffVsUkraineMoreBefore')}
+          <span className={[pctClassName, pctModifier].filter(Boolean).join(' ')}>{supplement.deltaStr}%</span>
+          {t('powerFlowLandingTariffVsUkraineMoreAfter')}
+        </>
+      ) : (
+        <>
+          {t('powerFlowLandingTariffVsUkraineLessBefore')}
+          <span className={[pctClassName, pctModifier].filter(Boolean).join(' ')}>{supplement.deltaStr}%</span>
+          {t('powerFlowLandingTariffVsUkraineLessAfter')}
+        </>
+      )}
+    </p>
+  );
+}
+
+function readGeoForEvPorts() {
+  return new Promise(resolve => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      p => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }),
+      () => resolve(null),
+      { maximumAge: 300_000, timeout: 8_000 }
+    );
+  });
+}
+
+/** EV port count + dropdown — sits under the EV node on the power-flow graph. */
+function EvPortPicker({
+  t,
+  evPortsUsedCount,
+  stationFilter,
+  chargingPortsLoading,
+  portSelectOptions,
+  onStationChange,
+}) {
+  return (
+    <div
+      className="pf-ev-port-picker"
+      onClick={e => e.stopPropagation()}
+      onKeyDown={e => e.stopPropagation()}
+    >
+      <span
+        className="pf-ev-ports-used-count"
+        aria-label={`${t('stationPlaceholder')}: ${evPortsUsedCount} x`}
+      >
+        {evPortsUsedCount} x
+      </span>
+      <select
+        id="pf-station"
+        className="pf-inverter-select pf-header-select--port pf-ev-port-picker__select"
+        aria-label={t('stationLabel')}
+        title={t('stationPlaceholder')}
+        value={stationFilter}
+        onChange={onStationChange}
+      >
+        <option value="">{chargingPortsLoading ? '…' : t('stationPlaceholder')}</option>
+        {portSelectOptions.map(row => {
+          const num = String(row.number);
+          const currentKw = formatPowerKwInteger(Number(row.powerWt)) ?? 0;
+          const maxKw = formatPowerKwInteger(Number(row.maxPowerWt));
+          return (
+            <option key={num} value={num}>
+              {t('evPortSelectOption', {
+                number: num,
+                current: currentKw,
+                max: maxKw != null && maxKw > 0 ? maxKw : '—',
+              })}
+            </option>
+          );
+        })}
+      </select>
+    </div>
+  );
+}
+
+function EvNodeWithPortPicker({ kioskMode, evNode, picker }) {
+  if (kioskMode) return evNode;
+  return (
+    <div className="pf-node-ev-stack" data-pos="right-bottom">
+      {evNode}
+      {picker}
+    </div>
+  );
 }
 
 const LANDING_MONTHLY_RATES_WRAP_CLASS =
@@ -1441,46 +1587,38 @@ export default function PowerFlowPage({
   /** First solar-insolation fetch per inverter sets `loading` (page overlay); hourly refresh does not. */
   const solarInsolationInitialFetchRef = useRef(true);
 
+  const loadChargingPorts = useCallback(async () => {
+    if (!geoRequestedRef.current) {
+      geoRequestedRef.current = true;
+      geoForPortsRef.current = await readGeoForEvPorts();
+    }
+    const geo = geoForPortsRef.current;
+    const params = new URLSearchParams();
+    if (geo) {
+      params.set('lat', String(geo.lat));
+      params.set('lon', String(geo.lon));
+    }
+    const qs = params.toString();
+    const r = await fetch(apiUrl(`/api/b2b/charging-ports${qs ? `?${qs}` : ''}`), {
+      cache: 'no-store',
+    });
+    const data = await r.json();
+    const items = Array.isArray(data?.items) ? data.items : [];
+    return { ok: data?.ok !== false, items };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
-    const readGeoOnce = () =>
-      new Promise(resolve => {
-        if (typeof navigator === 'undefined' || !navigator.geolocation) {
-          resolve(null);
-          return;
-        }
-        navigator.geolocation.getCurrentPosition(
-          p => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }),
-          () => resolve(null),
-          { maximumAge: 300_000, timeout: 8_000 }
-        );
-      });
-
     const load = async () => {
       if (chargingPortsInitialFetchRef.current) {
         setChargingPorts(s => ({ ...s, loading: true }));
       }
       try {
-        if (!geoRequestedRef.current) {
-          geoRequestedRef.current = true;
-          geoForPortsRef.current = await readGeoOnce();
-        }
-        const geo = geoForPortsRef.current;
-        const params = new URLSearchParams();
-        if (geo) {
-          params.set('lat', String(geo.lat));
-          params.set('lon', String(geo.lon));
-        }
-        const qs = params.toString();
-        const r = await fetch(apiUrl(`/api/b2b/charging-ports${qs ? `?${qs}` : ''}`), {
-          cache: 'no-store',
-        });
-        const data = await r.json();
+        const { ok, items } = await loadChargingPorts();
         if (cancelled) return;
-        const items = Array.isArray(data?.items) ? data.items : [];
         setChargingPorts({
           loading: false,
-          ok: data?.ok !== false,
+          ok,
           items,
         });
       } catch {
@@ -1498,7 +1636,7 @@ export default function PowerFlowPage({
       cancelled = true;
       clearInterval(id);
     };
-  }, []);
+  }, [loadChargingPorts]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2028,7 +2166,14 @@ export default function PowerFlowPage({
       cancelled = true;
       clearInterval(id);
     };
-  }, [essAnySelected, huaweiRows.configured, huaweiRows.error, huaweiRows.authFailed, huaweiStationCodesKey, huaweiRows.items]);
+  }, [
+    essAnySelected,
+    huaweiRows.configured,
+    huaweiRows.error,
+    huaweiRows.authFailed,
+    huaweiStationCodesKey,
+    huaweiRows.items,
+  ]);
 
   const selInverterPinRequired = useMemo(() => {
     const sn = selInverterSn.trim();
@@ -2112,6 +2257,10 @@ export default function PowerFlowPage({
   const [chargeSocDeltaPct, setChargeSocDeltaPct] = useState(10);
   const [selfConsumptionEnabled, setSelfConsumptionEnabled] = useState(false);
   const [nightChargeEnabled, setNightChargeEnabled] = useState(false);
+  const [smartLoadEnabled, setSmartLoadEnabled] = useState(false);
+  const [genOnGridAlwaysOn, setGenOnGridAlwaysOn] = useState(false);
+  const [genOnGridAlwaysOnLoading, setGenOnGridAlwaysOnLoading] = useState(false);
+  const [genPortSettingsOpen, setGenPortSettingsOpen] = useState(() => readGenPortSettingsOpen());
   const [toolbarPrefsLoading, setToolbarPrefsLoading] = useState(false);
   /** Fleet or per-inverter totals from GET /api/power-flow/landing-totals. */
   const [landingTotals, setLandingTotals] = useState(null);
@@ -2426,6 +2575,7 @@ export default function PowerFlowPage({
       setChargeSocDeltaPct(10);
       setSelfConsumptionEnabled(false);
       setNightChargeEnabled(false);
+      setSmartLoadEnabled(false);
       setToolbarPrefsLoading(false);
       return undefined;
     }
@@ -2439,6 +2589,7 @@ export default function PowerFlowPage({
       setChargeSocDeltaPct(10);
       setSelfConsumptionEnabled(false);
       setNightChargeEnabled(false);
+      setSmartLoadEnabled(false);
       setToolbarPrefsLoading(false);
       return undefined;
     }
@@ -2447,16 +2598,18 @@ export default function PowerFlowPage({
       setToolbarPrefsLoading(true);
       try {
         const q = new URLSearchParams({ deviceSn: selInverterSn });
-        const [rPeak, rLow, rSc, rNight] = await Promise.all([
+        const [rPeak, rLow, rSc, rNight, rSmart] = await Promise.all([
           fetch(`${apiUrl('/api/deye/peak-auto-discharge')}?${q}`, { cache: 'no-store' }),
           fetch(`${apiUrl('/api/deye/low-dam-charge')}?${q}`, { cache: 'no-store' }),
           fetch(`${apiUrl('/api/deye/self-consumption')}?${q}`, { cache: 'no-store' }),
           fetch(`${apiUrl('/api/deye/night-charge')}?${q}`, { cache: 'no-store' }),
+          fetch(`${apiUrl('/api/deye/smart-load')}?${q}`, { cache: 'no-store' }),
         ]);
         const dataPeak = await rPeak.json().catch(() => ({}));
         const dataLow = await rLow.json().catch(() => ({}));
         const dataSc = await rSc.json().catch(() => ({}));
         const dataNight = await rNight.json().catch(() => ({}));
+        const dataSmart = await rSmart.json().catch(() => ({}));
         if (cancelled) return;
         if (rPeak.ok && dataPeak.ok && dataPeak.configured && typeof dataPeak.enabled === 'boolean') {
           setPeakDamDischargeEnabled(dataPeak.enabled);
@@ -2507,6 +2660,18 @@ export default function PowerFlowPage({
         } else {
           setNightChargeEnabled(false);
         }
+        if (rSmart.ok && dataSmart.ok && dataSmart.configured && typeof dataSmart.smartLoadEnabled === 'boolean') {
+          setSmartLoadEnabled(dataSmart.smartLoadEnabled);
+        } else if (rSmart.ok && dataSmart.ok && dataSmart.configured && typeof dataSmart.enabled === 'boolean') {
+          setSmartLoadEnabled(dataSmart.enabled);
+        } else {
+          setSmartLoadEnabled(false);
+        }
+        if (rSmart.ok && dataSmart.ok && dataSmart.configured && typeof dataSmart.genOnGridAlwaysOn === 'boolean') {
+          setGenOnGridAlwaysOn(dataSmart.genOnGridAlwaysOn);
+        } else {
+          setGenOnGridAlwaysOn(false);
+        }
       } catch {
         if (!cancelled) {
           setPeakDamDischargeEnabled(false);
@@ -2515,6 +2680,8 @@ export default function PowerFlowPage({
           setChargeSocDeltaPct(10);
           setSelfConsumptionEnabled(false);
           setNightChargeEnabled(false);
+          setSmartLoadEnabled(false);
+          setGenOnGridAlwaysOn(false);
         }
       } finally {
         if (!cancelled) setToolbarPrefsLoading(false);
@@ -2673,6 +2840,100 @@ export default function PowerFlowPage({
     },
     [selInverterSn]
   );
+
+  const saveSmartLoadPref = useCallback(
+    async (nextEnabled, pin) => {
+      const sn = selInverterSn?.trim();
+      if (!sn) return null;
+      const body = { deviceSn: sn, enabled: nextEnabled };
+      const p = pin != null ? String(pin).trim() : '';
+      if (p) body.pin = p;
+      const r = await fetch(apiUrl('/api/deye/smart-load'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        cache: 'no-store',
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        if (r.status === 403) {
+          clearInverterPinCache(sn);
+          setPinCacheBust(x => x + 1);
+        }
+        let msg = data.detail ?? r.statusText;
+        if (Array.isArray(msg)) {
+          msg = msg.map(x => (x && typeof x === 'object' ? x.msg || JSON.stringify(x) : x)).join('; ');
+        }
+        throw new Error(String(msg || 'Save failed'));
+      }
+      if (p) {
+        rememberInverterPin(sn, p);
+        setPinCacheBust(x => x + 1);
+      }
+      return data;
+    },
+    [selInverterSn]
+  );
+
+  const saveGenOnGridAlwaysOn = useCallback(
+    async (nextEnabled, pin) => {
+      const sn = selInverterSn?.trim();
+      if (!sn) return null;
+      const body = { deviceSn: sn, enabled: nextEnabled };
+      const p = pin != null ? String(pin).trim() : '';
+      if (p) body.pin = p;
+      const r = await fetch(apiUrl('/api/deye/smart-load/gen-port'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        cache: 'no-store',
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        if (r.status === 403) {
+          clearInverterPinCache(sn);
+          setPinCacheBust(x => x + 1);
+        }
+        let msg = data.detail ?? r.statusText;
+        if (Array.isArray(msg)) {
+          msg = msg.map(x => (x && typeof x === 'object' ? x.msg || JSON.stringify(x) : x)).join('; ');
+        }
+        let errMsg = String(msg || 'Save failed');
+        const deyeDbg = formatGenPortDeyeFeedback(data);
+        if (deyeDbg) errMsg = `${errMsg} | ${deyeDbg}`;
+        throw new Error(errMsg);
+      }
+      if (p) {
+        rememberInverterPin(sn, p);
+        setPinCacheBust(x => x + 1);
+      }
+      return data;
+    },
+    [selInverterSn]
+  );
+
+  const runGenOnGridAlwaysOnSave = useCallback(
+    async (nextEnabled, pin) => {
+      setGenOnGridAlwaysOnLoading(true);
+      try {
+        const data = await saveGenOnGridAlwaysOn(nextEnabled, pin);
+        const confirmed = genOnGridAlwaysOnFromApiData(data);
+        if (typeof confirmed === 'boolean') {
+          setGenOnGridAlwaysOn(confirmed);
+        }
+        const deyeFb = formatGenPortDeyeFeedback(data);
+        setDischarge2Feedback(deyeFb || '');
+        return data;
+      } finally {
+        setGenOnGridAlwaysOnLoading(false);
+      }
+    },
+    [saveGenOnGridAlwaysOn]
+  );
+
+  useEffect(() => {
+    setGenOnGridAlwaysOnLoading(false);
+  }, [selInverterSn]);
 
   useEffect(() => {
     if (!inverterRows.configured || inverterRows.items.length === 0) {
@@ -3437,14 +3698,7 @@ export default function PowerFlowPage({
       });
     }
     return t('dischargeSoc2Hint');
-  }, [
-    selInverterSn,
-    essSocHasKey,
-    dischargeGoDisabledInsufficientSoc,
-    dischargeSocDeltaPct,
-    inverterSocFmt,
-    t,
-  ]);
+  }, [selInverterSn, essSocHasKey, dischargeGoDisabledInsufficientSoc, dischargeSocDeltaPct, inverterSocFmt, t]);
 
   const clearDischargeHoverTipTimer = useCallback(() => {
     if (dischargeHoverTipTimerRef.current != null) {
@@ -3823,6 +4077,21 @@ export default function PowerFlowPage({
       } else if (g.kind === 'nightCharge') {
         const data = await saveNightChargePref(g.nextEnabled, g.nextPct, pin);
         applyNightChargeToolbarSnap(data);
+      } else if (g.kind === 'smartLoad') {
+        const data = await saveSmartLoadPref(g.nextEnabled, pin);
+        if (data && typeof data.smartLoadEnabled === 'boolean') {
+          setSmartLoadEnabled(data.smartLoadEnabled);
+        } else if (data && typeof data.enabled === 'boolean') {
+          setSmartLoadEnabled(data.enabled);
+        }
+      } else if (g.kind === 'genOnGrid') {
+        try {
+          await runGenOnGridAlwaysOnSave(g.nextEnabled, pin);
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err);
+          setWritePinError(m);
+          return;
+        }
       }
       setWritePinGate(null);
       setWritePinValue('');
@@ -3838,6 +4107,8 @@ export default function PowerFlowPage({
     saveLowDamChargePref,
     saveSelfConsumptionPref,
     saveNightChargePref,
+    saveSmartLoadPref,
+    runGenOnGridAlwaysOnSave,
     applyNightChargeToolbarSnap,
     selInverterEvportBound,
   ]);
@@ -3975,6 +4246,11 @@ export default function PowerFlowPage({
     };
   }, [selInverterSn, selHuaweiStationCode, selEvPortsAcdc, inverterListReady]);
 
+  const flowTariffVsUkraineSupplement = useMemo(
+    () => landingMonthlyRatesTariffVsUkraineSupplement(landingTotals, bcp47),
+    [landingTotals, bcp47]
+  );
+
   const showPowerFlowSections =
     (!inverterRows.error && (inverterRows.loading || inverterRows.configured)) ||
     (!huaweiRows.error && (huaweiRows.loading || huaweiRows.configured));
@@ -4005,6 +4281,17 @@ export default function PowerFlowPage({
       (huaweiHydratedCode !== selHuaweiStationCode || huaweiLiveLoading));
 
   const noEssListYet = (inverterRows.loading || huaweiRows.loading) && !deyeListReady && !huaweiListReady;
+
+  const evPortPicker = (
+    <EvPortPicker
+      t={t}
+      evPortsUsedCount={evPortsUsedCount}
+      stationFilter={stationFilter}
+      chargingPortsLoading={chargingPorts.loading}
+      portSelectOptions={portSelectOptions}
+      onStationChange={onStationChange}
+    />
+  );
 
   return (
     <KwhCalibrationProvider inverterSn={selInverterSn} t={t}>
@@ -4480,130 +4767,132 @@ export default function PowerFlowPage({
                           {formatUahPerKwhTariffLine(tf)}
                         </div>
                       </a>
-                      {stationFilter.trim() ? (
-                        <a
-                          className="pf-node"
-                          data-pos="right-bottom"
-                          id="pf-node-ev"
-                          href={`${EV_START_URL}?station=${encodeURIComponent(stationFilter.trim())}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          data-active={evFlowActive ? 'true' : 'false'}
-                          title={t('stationLabel')}
-                          onClick={e =>
-                            openNodePopup(e, {
-                              title: t('nodeEv'),
-                              actionHref: `${EV_START_URL}?station=${encodeURIComponent(stationFilter.trim())}`,
-                              actionLabel: 'Open EV station',
-                            })
-                          }
-                        >
-                          <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
-                            <EvCarMark className="pf-node-icon__tesla" />
-                          </span>
-                          <span className="pf-node-label">{t('nodeEv')}</span>
-                          <span className="pf-node-value" id="pf-val-ev">
-                            {evStationPowerLoading && evStationPowerW == null
-                              ? '…'
-                              : formatPower(evStationPowerW, t, bcp47)}
-                          </span>
-                          <div className="pf-node-meta" id="pf-ev-tariff">
-                            {evDisplayTariffUahPerKwh != null
-                              ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh)
-                              : ''}
-                          </div>
-                        </a>
-                      ) : selEvPortsAggregate ? (
-                        <a
-                          className="pf-node"
-                          data-pos="right-bottom"
-                          id="pf-node-ev"
-                          href={SITE_220KM_HOME}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          data-active={evFlowActive ? 'true' : 'false'}
-                          title={selEvPortsAcdc === 'ac' ? t('essEvPortsAc') : t('essEvPortsDc')}
-                          onClick={e =>
-                            openNodePopup(e, {
-                              title: t('nodeEv'),
-                              actionHref: SITE_220KM_HOME,
-                              actionLabel: 'Open EV station',
-                            })
-                          }
-                        >
-                          <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
-                            <EvCarMark className="pf-node-icon__tesla" />
-                          </span>
-                          <span className="pf-node-label">{t('nodeEv')}</span>
-                          <span className="pf-node-value" id="pf-val-ev">
-                            {evPortsLive.loading && evPortsDisplayPowerW == null
-                              ? '…'
-                              : formatPower(evPortsDisplayPowerW, t, bcp47)}
-                          </span>
-                          <div className="pf-node-meta" id="pf-ev-tariff">
-                            {evPortsLive.activeSessions > 0
-                              ? t('essEvPortsActiveCount', { count: evPortsLive.activeSessions })
-                              : ''}
-                          </div>
-                        </a>
-                      ) : showEvAggregate ? (
-                        <a
-                          className="pf-node"
-                          data-pos="right-bottom"
-                          id="pf-node-ev"
-                          href={SITE_220KM_HOME}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          data-active={evFlowActive ? 'true' : 'false'}
-                          onClick={e =>
-                            openNodePopup(e, {
-                              title: t('nodeEv'),
-                              actionHref: SITE_220KM_HOME,
-                              actionLabel: 'Open EV station',
-                            })
-                          }
-                        >
-                          <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
-                            <EvCarMark className="pf-node-icon__tesla" />
-                          </span>
-                          <span className="pf-node-label">{t('nodeEv')}</span>
-                          <span className="pf-node-value" id="pf-val-ev">
-                            {evBusy ? '…' : formatPower(aggregateEvFlowW, t, bcp47)}
-                          </span>
-                          <div className="pf-node-meta" id="pf-ev-tariff">
-                            {evDisplayTariffUahPerKwh != null
-                              ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh)
-                              : ''}
-                          </div>
-                        </a>
-                      ) : (
-                        <div
-                          className="pf-node pf-node-ev-disabled"
-                          data-pos="right-bottom"
-                          id="pf-node-ev"
-                          data-active="false"
-                          title={t('evHiddenByInverter')}
-                          role="button"
-                          tabIndex={0}
-                          onClick={e => openNodePopup(e, { title: t('nodeEv') })}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter' || e.key === ' ') openNodePopup(e, { title: t('nodeEv') });
-                          }}
-                        >
-                          <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
-                            <EvCarMark className="pf-node-icon__tesla" />
-                          </span>
-                          <span className="pf-node-label">{t('nodeEv')}</span>
-                          <span className="pf-node-value" id="pf-val-ev">
-                            {formatPower(null, t, bcp47)}
-                          </span>
-                          <div className="pf-node-meta" id="pf-ev-tariff">
-                            {evDisplayTariffUahPerKwh != null
-                              ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh)
-                              : ''}
-                          </div>
-                        </div>
-                      )}
+                      <EvNodeWithPortPicker
+                        kioskMode={kioskMode}
+                        picker={evPortPicker}
+                        evNode={
+                          stationFilter.trim() ? (
+                            <a
+                              className="pf-node"
+                              id="pf-node-ev"
+                              href={`${EV_START_URL}?station=${encodeURIComponent(stationFilter.trim())}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              data-active={evFlowActive ? 'true' : 'false'}
+                              title={t('stationLabel')}
+                              onClick={e =>
+                                openNodePopup(e, {
+                                  title: t('nodeEv'),
+                                  actionHref: `${EV_START_URL}?station=${encodeURIComponent(stationFilter.trim())}`,
+                                  actionLabel: 'Open EV station',
+                                })
+                              }
+                            >
+                              <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
+                                <EvCarMark className="pf-node-icon__tesla" />
+                              </span>
+                              <span className="pf-node-label">{t('nodeEv')}</span>
+                              <span className="pf-node-value" id="pf-val-ev">
+                                {evStationPowerLoading && evStationPowerW == null
+                                  ? '…'
+                                  : formatPower(evStationPowerW, t, bcp47)}
+                              </span>
+                              <div className="pf-node-meta" id="pf-ev-tariff">
+                                {evDisplayTariffUahPerKwh != null
+                                  ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh)
+                                  : ''}
+                              </div>
+                            </a>
+                          ) : selEvPortsAggregate ? (
+                            <a
+                              className="pf-node"
+                              id="pf-node-ev"
+                              href={SITE_220KM_HOME}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              data-active={evFlowActive ? 'true' : 'false'}
+                              title={selEvPortsAcdc === 'ac' ? t('essEvPortsAc') : t('essEvPortsDc')}
+                              onClick={e =>
+                                openNodePopup(e, {
+                                  title: t('nodeEv'),
+                                  actionHref: SITE_220KM_HOME,
+                                  actionLabel: 'Open EV station',
+                                })
+                              }
+                            >
+                              <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
+                                <EvCarMark className="pf-node-icon__tesla" />
+                              </span>
+                              <span className="pf-node-label">{t('nodeEv')}</span>
+                              <span className="pf-node-value" id="pf-val-ev">
+                                {evPortsLive.loading && evPortsDisplayPowerW == null
+                                  ? '…'
+                                  : formatPower(evPortsDisplayPowerW, t, bcp47)}
+                              </span>
+                              <div className="pf-node-meta" id="pf-ev-tariff">
+                                {evPortsLive.activeSessions > 0
+                                  ? t('essEvPortsActiveCount', { count: evPortsLive.activeSessions })
+                                  : ''}
+                              </div>
+                            </a>
+                          ) : showEvAggregate ? (
+                            <a
+                              className="pf-node"
+                              id="pf-node-ev"
+                              href={SITE_220KM_HOME}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              data-active={evFlowActive ? 'true' : 'false'}
+                              onClick={e =>
+                                openNodePopup(e, {
+                                  title: t('nodeEv'),
+                                  actionHref: SITE_220KM_HOME,
+                                  actionLabel: 'Open EV station',
+                                })
+                              }
+                            >
+                              <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
+                                <EvCarMark className="pf-node-icon__tesla" />
+                              </span>
+                              <span className="pf-node-label">{t('nodeEv')}</span>
+                              <span className="pf-node-value" id="pf-val-ev">
+                                {evBusy ? '…' : formatPower(aggregateEvFlowW, t, bcp47)}
+                              </span>
+                              <div className="pf-node-meta" id="pf-ev-tariff">
+                                {evDisplayTariffUahPerKwh != null
+                                  ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh)
+                                  : ''}
+                              </div>
+                            </a>
+                          ) : (
+                            <div
+                              className="pf-node pf-node-ev-disabled"
+                              id="pf-node-ev"
+                              data-active="false"
+                              title={t('evHiddenByInverter')}
+                              role="button"
+                              tabIndex={0}
+                              onClick={e => openNodePopup(e, { title: t('nodeEv') })}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter' || e.key === ' ') openNodePopup(e, { title: t('nodeEv') });
+                              }}
+                            >
+                              <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
+                                <EvCarMark className="pf-node-icon__tesla" />
+                              </span>
+                              <span className="pf-node-label">{t('nodeEv')}</span>
+                              <span className="pf-node-value" id="pf-val-ev">
+                                {formatPower(null, t, bcp47)}
+                              </span>
+                              <div className="pf-node-meta" id="pf-ev-tariff">
+                                {evDisplayTariffUahPerKwh != null
+                                  ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh)
+                                  : ''}
+                              </div>
+                            </div>
+                          )
+                        }
+                      />
                       {pageShareUrl ? (
                         <button
                           type="button"
@@ -4625,6 +4914,14 @@ export default function PowerFlowPage({
                     {loadError}
                   </div>
                 </div>
+                {flowTariffVsUkraineSupplement && showPowerFlowSections && !landingTotalsLoading ? (
+                  <TariffVsUkraineMessage
+                    supplement={flowTariffVsUkraineSupplement}
+                    t={t}
+                    className="pf-flow-tariff-vs-ukraine"
+                    pctClassName="pf-flow-tariff-vs-ukraine-pct"
+                  />
+                ) : null}
               </div>
               {kioskMode ? (
                 <KioskFleetGenConsChart
@@ -4634,40 +4931,6 @@ export default function PowerFlowPage({
                   getBcp47Locale={getBcp47Locale}
                 />
               ) : null}
-            </div>
-
-            <div className="pf-lang-port-bar" style={{ '--pf-graph-anchor-pct': `${graphAnchorPct}%` }}>
-              <div className="pf-lang-port-port-track">
-                <div className="pf-lang-port-port-align">
-                  <span
-                    className="pf-ev-ports-used-count"
-                    aria-label={`${t('stationPlaceholder')}: ${evPortsUsedCount} x`}
-                  >
-                    {evPortsUsedCount} x
-                  </span>
-                  <select
-                    id="pf-station"
-                    className="pf-inverter-select pf-header-select--port"
-                    aria-label={t('stationLabel')}
-                    title={t('stationPlaceholder')}
-                    value={stationFilter}
-                    onChange={onStationChange}
-                  >
-                    <option value="">{chargingPorts.loading ? '…' : t('stationPlaceholder')}</option>
-                    {portSelectOptions.map(row => {
-                      const num = String(row.number);
-                      const maxW = Number(row.maxPowerWt);
-                      const maxLabel = Number.isFinite(maxW) && maxW > 0 ? ` · ${formatPower(maxW, t, bcp47)}` : '';
-                      return (
-                        <option key={num} value={num}>
-                          {num}
-                          {maxLabel}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </div>
-              </div>
             </div>
 
             {showPowerFlowSections
@@ -4738,9 +5001,6 @@ export default function PowerFlowPage({
                       landingExportMetricUi !== LANDING_EXPORT_METRIC.GRID_BALANCING);
                   const gridBalancingSupplement = showGridBalancingSupplement
                     ? landingGridBalancingSupplement(landingTotals, bcp47)
-                    : null;
-                  const monthlyRatesTariffVsUkraineSupplement = showMonthlyRatesInverterSupplements
-                    ? landingMonthlyRatesTariffVsUkraineSupplement(landingTotals, bcp47)
                     : null;
                   const inverterMetricDisplay =
                     landingExportMetricUi === LANDING_EXPORT_METRIC.GRID_BALANCING
@@ -4994,29 +5254,6 @@ export default function PowerFlowPage({
                                 >
                                   {gridBalancingSupplement.pctStr}
                                 </span>
-                              </p>
-                            ) : null}
-                            {monthlyRatesTariffVsUkraineSupplement ? (
-                              <p className="pf-landing-totals__tariff pf-landing-totals__tariff--monthly-rates-vs-ukraine">
-                                {monthlyRatesTariffVsUkraineSupplement.kind === 'equal' ? (
-                                  t('powerFlowLandingTariffVsUkraineEqual')
-                                ) : monthlyRatesTariffVsUkraineSupplement.kind === 'more' ? (
-                                  <>
-                                    {t('powerFlowLandingTariffVsUkraineMoreBefore')}
-                                    <span className="pf-landing-totals__monthly-rates-vs-ukraine-pct pf-landing-totals__monthly-rates-vs-ukraine-pct--up">
-                                      {monthlyRatesTariffVsUkraineSupplement.deltaStr}%
-                                    </span>
-                                    {t('powerFlowLandingTariffVsUkraineMoreAfter')}
-                                  </>
-                                ) : (
-                                  <>
-                                    {t('powerFlowLandingTariffVsUkraineLessBefore')}
-                                    <span className="pf-landing-totals__monthly-rates-vs-ukraine-pct pf-landing-totals__monthly-rates-vs-ukraine-pct--down">
-                                      {monthlyRatesTariffVsUkraineSupplement.deltaStr}%
-                                    </span>
-                                    {t('powerFlowLandingTariffVsUkraineLessAfter')}
-                                  </>
-                                )}
                               </p>
                             ) : null}
                           </>
@@ -5591,6 +5828,168 @@ export default function PowerFlowPage({
                                   </span>
                                 </label>
                               </div>
+                              <details
+                                className={`pf-gen-port-settings-details${GEN_PORT_SETTINGS_CONTROLS_ENABLED ? '' : ' pf-gen-port-settings-details--to-be-supported'}`}
+                                open={genPortSettingsOpen}
+                                onToggle={e => {
+                                  const open = e.currentTarget.open;
+                                  setGenPortSettingsOpen(open);
+                                  writeGenPortSettingsOpen(open);
+                                }}
+                              >
+                                <summary className="pf-gen-port-settings-summary">
+                                  <span
+                                    className={
+                                      GEN_PORT_SETTINGS_CONTROLS_ENABLED
+                                        ? 'pf-gen-port-settings-summary-label'
+                                        : 'pf-roi-stack-seg-title pf-gen-port-settings-summary-title'
+                                    }
+                                  >
+                                    {t('genPortSettingsSection')}
+                                  </span>
+                                  {!GEN_PORT_SETTINGS_CONTROLS_ENABLED ? (
+                                    <span className="pf-roi-stack-seg-sub pf-gen-port-settings-status">
+                                      {t('roiUnderDevelopment')}
+                                    </span>
+                                  ) : null}
+                                </summary>
+                                <div className="pf-gen-port-settings-body">
+                                  <DelayedHintTooltip
+                                    hintText={
+                                      GEN_PORT_SETTINGS_CONTROLS_ENABLED
+                                        ? t('smartLoadToggleHint')
+                                        : t('genPortSettingsUnderDevelopmentHint')
+                                    }
+                                  >
+                                    <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
+                                      <input
+                                        type="checkbox"
+                                        checked={smartLoadEnabled}
+                                        disabled={!GEN_PORT_SETTINGS_CONTROLS_ENABLED || deyeWritesHardBlocked}
+                                        onChange={async e => {
+                                          if (!GEN_PORT_SETTINGS_CONTROLS_ENABLED) return;
+                                          if (!remoteWriteConfigured) {
+                                            setRemoteWriteNeedsPinOpen(true);
+                                            return;
+                                          }
+                                          const v = e.target.checked;
+                                          const sn = selInverterSn?.trim();
+                                          if (!sn) return;
+                                          const prev = smartLoadEnabled;
+                                          const cached = readCachedInverterPin(sn);
+                                          if (cached) {
+                                            setSmartLoadEnabled(v);
+                                            setDischarge2Feedback('');
+                                            try {
+                                              const data = await saveSmartLoadPref(v, cached);
+                                              if (data && typeof data.smartLoadEnabled === 'boolean') {
+                                                setSmartLoadEnabled(data.smartLoadEnabled);
+                                              } else if (data && typeof data.enabled === 'boolean') {
+                                                setSmartLoadEnabled(data.enabled);
+                                              }
+                                            } catch (err) {
+                                              setSmartLoadEnabled(prev);
+                                              const m = err instanceof Error ? err.message : String(err);
+                                              setDischarge2Feedback(`${t('smartLoadSaveError')}: ${m}`);
+                                            }
+                                            return;
+                                          }
+                                          if (selInverterEvportBound) {
+                                            setSmartLoadEnabled(v);
+                                            setDischarge2Feedback('');
+                                            try {
+                                              const data = await saveSmartLoadPref(v, '');
+                                              if (data && typeof data.smartLoadEnabled === 'boolean') {
+                                                setSmartLoadEnabled(data.smartLoadEnabled);
+                                              } else if (data && typeof data.enabled === 'boolean') {
+                                                setSmartLoadEnabled(data.enabled);
+                                              }
+                                            } catch (err) {
+                                              setSmartLoadEnabled(prev);
+                                              const m = err instanceof Error ? err.message : String(err);
+                                              setDischarge2Feedback(`${t('smartLoadSaveError')}: ${m}`);
+                                            }
+                                            return;
+                                          }
+                                          setWritePinGate({ kind: 'smartLoad', nextEnabled: v });
+                                        }}
+                                        aria-label={
+                                          GEN_PORT_SETTINGS_CONTROLS_ENABLED
+                                            ? t('smartLoadToggleAria')
+                                            : t('genPortSettingsUnderDevelopmentHint')
+                                        }
+                                      />
+                                      <span className="pf-peak-dam-toggle-label">{t('smartLoadToggle')}</span>
+                                    </label>
+                                  </DelayedHintTooltip>
+                                  <DelayedHintTooltip
+                                    hintText={
+                                      GEN_PORT_SETTINGS_CONTROLS_ENABLED
+                                        ? t('genOnGridAlwaysOnToggleHint')
+                                        : t('genPortSettingsUnderDevelopmentHint')
+                                    }
+                                  >
+                                    <label
+                                      className={`pf-peak-dam-toggle pf-peak-dam-toggle--header pf-peak-dam-toggle--debug${genOnGridAlwaysOnLoading ? ' pf-peak-dam-toggle--loading' : ''}`}
+                                      aria-busy={genOnGridAlwaysOnLoading ? 'true' : undefined}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={genOnGridAlwaysOn}
+                                        disabled={
+                                          !GEN_PORT_SETTINGS_CONTROLS_ENABLED ||
+                                          deyeWritesHardBlocked ||
+                                          genOnGridAlwaysOnLoading
+                                        }
+                                        onChange={async e => {
+                                          if (!GEN_PORT_SETTINGS_CONTROLS_ENABLED) return;
+                                          if (genOnGridAlwaysOnLoading) return;
+                                          if (!remoteWriteConfigured) {
+                                            setRemoteWriteNeedsPinOpen(true);
+                                            return;
+                                          }
+                                          const v = e.target.checked;
+                                          const sn = selInverterSn?.trim();
+                                          if (!sn) return;
+                                          const cached = readCachedInverterPin(sn);
+                                          if (cached) {
+                                            setDischarge2Feedback('');
+                                            try {
+                                              await runGenOnGridAlwaysOnSave(v, cached);
+                                            } catch (err) {
+                                              const m = err instanceof Error ? err.message : String(err);
+                                              setDischarge2Feedback(`${t('genOnGridAlwaysOnSaveError')}: ${m}`);
+                                            }
+                                            return;
+                                          }
+                                          if (selInverterEvportBound) {
+                                            setDischarge2Feedback('');
+                                            try {
+                                              await runGenOnGridAlwaysOnSave(v, '');
+                                            } catch (err) {
+                                              const m = err instanceof Error ? err.message : String(err);
+                                              setDischarge2Feedback(`${t('genOnGridAlwaysOnSaveError')}: ${m}`);
+                                            }
+                                            return;
+                                          }
+                                          setWritePinGate({ kind: 'genOnGrid', nextEnabled: v });
+                                        }}
+                                        aria-label={
+                                          !GEN_PORT_SETTINGS_CONTROLS_ENABLED
+                                            ? t('genPortSettingsUnderDevelopmentHint')
+                                            : genOnGridAlwaysOnLoading
+                                              ? t('genOnGridAlwaysOnToggleLoading')
+                                              : t('genOnGridAlwaysOnToggleAria')
+                                        }
+                                      />
+                                      <span className="pf-peak-dam-toggle-label">{t('genOnGridAlwaysOnToggle')}</span>
+                                      {genOnGridAlwaysOnLoading ? (
+                                        <span className="pf-gen-port-toggle-spinner" aria-hidden="true" />
+                                      ) : null}
+                                    </label>
+                                  </DelayedHintTooltip>
+                                </div>
+                              </details>
                             </div>
                           </div>
                         </div>
@@ -5847,7 +6246,11 @@ export default function PowerFlowPage({
                             ? t('deyeWritePinTitleSelfConsumption')
                             : writePinGate.kind === 'nightCharge'
                               ? t('deyeWritePinTitleNightCharge')
-                              : t('deyeWritePinTitleLowPct')}
+                              : writePinGate.kind === 'smartLoad'
+                                ? t('deyeWritePinTitleSmartLoad')
+                                : writePinGate.kind === 'genOnGrid'
+                                  ? t('deyeWritePinTitleGenOnGrid')
+                                  : t('deyeWritePinTitleLowPct')}
                 </p>
                 <div className="pf-modal-pin-row">
                   <label htmlFor="pf-write-pin-input" className="pf-modal-pin-label">

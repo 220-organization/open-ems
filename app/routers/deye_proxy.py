@@ -21,12 +21,16 @@ from app.deye_api import (
     deye_configured,
     deye_missing_env_names,
     discharge_soc_delta_then_zero_export_ct,
+    DeyeInverterOrderError,
     fetch_device_soc_percent,
     get_inverter_station_coordinates,
     get_live_metrics_cached,
     get_live_metrics_with_source_cached,
     get_soc_map_cached,
     list_inverter_devices,
+    read_smart_load_config,
+    set_gen_port_on_grid_always_on,
+    on_grid_always_on_from_deye_order,
     station_cluster_device_sns,
 )
 from app.deye_low_dam_charge_service import (
@@ -43,6 +47,14 @@ from app.deye_self_consumption_auto_dam_service import (
 from app.deye_self_consumption_service import (
     get_self_consumption_pref,
     set_self_consumption_from_ui,
+)
+from app.deye_smart_load_service import (
+    get_smart_load_pref,
+    set_smart_load_from_ui,
+)
+from app.deye_smart_load_state import (
+    get_gen_on_grid_always_on,
+    set_gen_on_grid_always_on as set_gen_on_grid_state,
 )
 from app.deye_peak_auto_service import (
     get_discharge_soc_delta_stored,
@@ -88,8 +100,50 @@ router = APIRouter(prefix="/api/deye", tags=["deye"])
 
 _NO_STORE_CACHE = {"Cache-Control": "no-store, max-age=0, must-revalidate"}
 
-_MAX_INVERTER_SOCS = 200
 _KYIV_TZ = ZoneInfo("Europe/Kiev")
+
+
+def _deye_debug_responses() -> bool:
+    """Local ./run-local.sh (OPEN_EMS_SERVE_SPA=0): expose raw Deye order payloads in JSON."""
+    return not settings.OPEN_EMS_SERVE_SPA
+
+
+def _deye_order_payload_for_client(data: Any) -> dict[str, Any]:
+    if not isinstance(data, dict):
+        return {"value": data}
+    keys = (
+        "orderId",
+        "status",
+        "code",
+        "msg",
+        "success",
+        "orderResult",
+        "analysisResult",
+        "error",
+        "requestId",
+        "connectionStatus",
+        "collectionTime",
+    )
+    return {k: data[k] for k in keys if k in data}
+
+
+def _deye_client_error_payload(
+    exc: BaseException,
+    deye_order: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    """Structured Deye block for API error JSON (all environments, not debug-only)."""
+    order = deye_order
+    if isinstance(exc, DeyeInverterOrderError) and exc.deye_order:
+        order = exc.deye_order
+    payload: dict[str, Any] = {"error": str(exc)}
+    if isinstance(order, dict):
+        for key, value in _deye_order_payload_for_client(order).items():
+            if key not in payload:
+                payload[key] = value
+    return payload
+
+
+_MAX_INVERTER_SOCS = 200
 
 DischargeSocDeltaPctOption = Literal[0, 1, 5, 10, 20, 50, 80, 95]
 ChargeSocDeltaPctOption = Literal[2, 10, 20, 50, 100]
@@ -156,6 +210,20 @@ class SelfConsumptionBody(BaseModel):
 
 
 class SelfConsumptionAutoDamBody(BaseModel):
+    deviceSn: str = Field(..., min_length=6, max_length=64)
+    enabled: bool
+    pin: Optional[str] = Field(default=None, max_length=12)
+
+
+class SmartLoadBody(BaseModel):
+    deviceSn: str = Field(..., min_length=6, max_length=64)
+    enabled: bool
+    pin: Optional[str] = Field(default=None, max_length=12)
+
+
+class SmartLoadGenPortBody(BaseModel):
+    """Debug: write Gen port On Grid always on directly to Deye (not DB pref only)."""
+
     deviceSn: str = Field(..., min_length=6, max_length=64)
     enabled: bool
     pin: Optional[str] = Field(default=None, max_length=12)
@@ -1456,5 +1524,197 @@ async def post_self_consumption_auto_dam(
             "enabled": body.enabled,
             "selfConsumptionEnabled": bool(sc_after),
         },
+        headers=_NO_STORE_CACHE,
+    )
+
+
+@router.get("/smart-load")
+async def get_smart_load(
+    deviceSn: str = Query(
+        ...,
+        min_length=6,
+        max_length=32,
+        pattern=r"^[0-9]+$",
+        description="Deye inverter serial",
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Per-device smart-load automation pref and live Gen port On Grid always on state."""
+    if not deye_configured():
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": False,
+                "smartLoadEnabled": False,
+                "genOnGridAlwaysOn": None,
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    sn = deviceSn.strip()
+    enabled = await get_smart_load_pref(db, sn)
+    gen_on = get_gen_on_grid_always_on(sn)
+    try:
+        cfg = await read_smart_load_config(sn, remote=True)
+        live = cfg.get("onGridAlwaysOn")
+        if isinstance(live, bool):
+            gen_on = live
+            set_gen_on_grid_state(sn, live)
+    except Exception as exc:
+        logger.debug("GET smart-load live read sn=%s — %s", sn, exc)
+    return JSONResponse(
+        content={
+            "ok": True,
+            "configured": True,
+            "deviceSn": sn,
+            "smartLoadEnabled": enabled,
+            "enabled": enabled,
+            "genOnGridAlwaysOn": gen_on,
+        },
+        headers=_NO_STORE_CACHE,
+    )
+
+
+@router.post("/smart-load")
+async def post_smart_load(
+    body: SmartLoadBody,
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Upsert smart-load automation pref (PV vs Smart Load, Gen port On Grid always on)."""
+    if not deye_configured():
+        missing = deye_missing_env_names()
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": False,
+                "smartLoadEnabled": False,
+                "detail": "DEYE_* not set"
+                + (f" (missing: {', '.join(missing)})" if missing else ""),
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    sn = body.deviceSn.strip()
+    try:
+        await assert_deye_write_pin(sn, body.pin)
+        await set_smart_load_from_ui(db, sn, body.enabled)
+        await db.commit()
+    except HTTPException:
+        await db.rollback()
+        raise
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        await db.rollback()
+        logger.exception("POST /api/deye/smart-load — failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return JSONResponse(
+        content={
+            "ok": True,
+            "configured": True,
+            "deviceSn": sn,
+            "smartLoadEnabled": body.enabled,
+            "enabled": body.enabled,
+        },
+        headers=_NO_STORE_CACHE,
+    )
+
+
+@router.post("/smart-load/gen-port")
+async def post_smart_load_gen_port(body: SmartLoadGenPortBody) -> JSONResponse:
+    """Debug: toggle Gen port On Grid always on on the inverter immediately (Deye Cloud write)."""
+    if not deye_configured():
+        missing = deye_missing_env_names()
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": False,
+                "detail": "DEYE_* not set"
+                + (f" (missing: {', '.join(missing)})" if missing else ""),
+            },
+            status_code=503,
+            headers=_NO_STORE_CACHE,
+        )
+    sn = body.deviceSn.strip()
+    deye_order: Optional[dict[str, Any]] = None
+    gen_on = body.enabled
+    try:
+        await assert_deye_write_pin(sn, body.pin)
+        deye_order = await set_gen_port_on_grid_always_on(sn, body.enabled)
+        status = deye_order.get("status") if isinstance(deye_order, dict) else None
+        if status not in (666, None):
+            msg = str(
+                (deye_order or {}).get("error")
+                or (deye_order or {}).get("msg")
+                or f"Deye order status {status}"
+            )
+            raise RuntimeError(msg)
+        confirmed = on_grid_always_on_from_deye_order(deye_order or {})
+        if confirmed is None:
+            analysis = (deye_order or {}).get("analysisResult")
+            raise DeyeInverterOrderError(
+                "Deye order finished but On Grid always on was not confirmed on the inverter "
+                f"(analysisResult={analysis!r}). "
+                "The cloud may echo your request without applying it — use Deye app "
+                "Remote Control → Batch Command → SmartLoad Setting → Read, then Setup.",
+                deye_order=deye_order if isinstance(deye_order, dict) else None,
+            )
+        gen_on = confirmed
+        set_gen_on_grid_state(sn, gen_on)
+        if _deye_debug_responses() and deye_order:
+            logger.info(
+                "POST /api/deye/smart-load/gen-port — deye sn=%s enabled=%s payload=%s",
+                sn,
+                body.enabled,
+                _deye_order_payload_for_client(deye_order),
+            )
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (RuntimeError, DeyeInverterOrderError) as exc:
+        logger.warning(
+            "POST /api/deye/smart-load/gen-port — failed sn=%s enabled=%s: %s",
+            sn,
+            body.enabled,
+            exc,
+        )
+        return JSONResponse(
+            status_code=502,
+            content={
+                "ok": False,
+                "configured": True,
+                "deviceSn": sn,
+                "detail": str(exc),
+                "deye": _deye_client_error_payload(exc, deye_order),
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    except Exception as exc:
+        logger.exception("POST /api/deye/smart-load/gen-port — failed: %s", exc)
+        return JSONResponse(
+            status_code=502,
+            content={
+                "ok": False,
+                "configured": True,
+                "deviceSn": sn,
+                "detail": str(exc),
+                "deye": _deye_client_error_payload(exc, deye_order),
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    content: dict[str, Any] = {
+        "ok": True,
+        "configured": True,
+        "deviceSn": sn,
+        "genOnGridAlwaysOn": gen_on,
+        "requested": body.enabled,
+    }
+    if _deye_debug_responses() and deye_order:
+        content["deye"] = _deye_order_payload_for_client(deye_order)
+    return JSONResponse(
+        content=content,
         headers=_NO_STORE_CACHE,
     )

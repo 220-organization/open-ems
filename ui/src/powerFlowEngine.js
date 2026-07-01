@@ -57,6 +57,12 @@ export function formatPowerValueOnly(watts, bcp47) {
   return nf.format(watts / 1000);
 }
 
+/** Integer kW from watts (no decimals) — EV port dropdown labels. */
+export function formatPowerKwInteger(watts) {
+  if (watts == null || !Number.isFinite(watts)) return null;
+  return Math.round(watts / 1000);
+}
+
 export function formatUsdt(value, bcp47) {
   if (value == null || !Number.isFinite(value)) return null;
   const nf = new Intl.NumberFormat(bcp47, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -119,7 +125,7 @@ export function edgeInsetPx(containerW, options = {}) {
 export function computeWideGeometry(containerW, options = {}) {
   const w = Math.max(containerW, 1);
   const insetPx = edgeInsetPx(w, options);
-  const toVB = (px) => (400 * px) / w;
+  const toVB = px => (400 * px) / w;
   const cx = 200;
   const cy = 200;
   const nwWide = toVB(insetPx);
@@ -163,10 +169,8 @@ export function computeWideGeometry(containerW, options = {}) {
 export function computeSimulatedSources(consumptionMw, liveMinerW) {
   const now = new Date();
   const { month, hour, hourFloat } = getKyivWallClock(now);
-  const consumptionW =
-    consumptionMw != null && Number.isFinite(consumptionMw) ? consumptionMw * 1e6 : 0;
-  const useLiveMiner =
-    liveMinerW != null && Number.isFinite(liveMinerW) && liveMinerW >= 0 ? liveMinerW : null;
+  const consumptionW = consumptionMw != null && Number.isFinite(consumptionMw) ? consumptionMw * 1e6 : 0;
+  const useLiveMiner = liveMinerW != null && Number.isFinite(liveMinerW) && liveMinerW >= 0 ? liveMinerW : null;
 
   const isPvHours = isKyivPvHours(month, hourFloat);
   const essDischarging = hour >= 18 && hour <= 21;
@@ -194,10 +198,7 @@ export function computeSimulatedSources(consumptionMw, liveMinerW) {
       const h = hourFloat;
       const noon = 13;
       const spread = 5;
-      solarW = Math.min(
-        MAX_SOLAR_POWER_W,
-        Math.max(0, solarPeak * Math.exp(-(((h - noon) / spread) ** 2))),
-      );
+      solarW = Math.min(MAX_SOLAR_POWER_W, Math.max(0, solarPeak * Math.exp(-(((h - noon) / spread) ** 2))));
       minerW = solarW * MIN_SOLAR_TO_MINER_PCT;
     }
     if (useLiveMiner != null) minerW = useLiveMiner;

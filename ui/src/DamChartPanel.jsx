@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bar,
-  BarChart,
   CartesianGrid,
   Cell,
   ComposedChart,
@@ -20,7 +19,6 @@ import HuaweiTotalsPanel from './HuaweiTotalsPanel';
 import DeyeTotalsPanel from './DeyeTotalsPanel';
 import KwhDisplay from './KwhDisplay';
 import { useKwhCalibration } from './KwhCalibrationContext';
-import { OREE_DAM_CHART_URL } from './OreeDamChartModal';
 import { useTheme } from './useTheme';
 import { VYRIY_EMS_LOGO_SRC } from './vyriyEmsLogo';
 
@@ -68,8 +66,6 @@ function useDamChartMobileLayout() {
   }, []);
   return isMobile;
 }
-
-const DAM_INDEX_KEYS = ['DAY', 'NIGHT', 'PEAK', 'HPEAK', 'BASE'];
 
 const ENTSOE_ZONE_OPTIONS = [
   { value: 'ES', label: 'Spain (ES)' },
@@ -283,60 +279,6 @@ function replaceUrlDamChartState(isoDate, market, zone, overlay) {
   } catch {
     /* ignore */
   }
-}
-
-const DAM_INDEX_BAR_COLORS = ['#22c55e', '#38bdf8', '#f59e0b', '#a78bfa', '#f472b6'];
-
-function parseOreeDecimalLoose(s) {
-  if (s == null || s === '') return null;
-  const n = Number(String(s).replace(',', '.').trim());
-  return Number.isFinite(n) ? n : null;
-}
-
-/** Pick first zone block (prefer IND) from OREE /damindexes JSON. */
-function pickDamIndexesZone(raw) {
-  if (!raw || typeof raw !== 'object') return null;
-  if (raw.IND && typeof raw.IND === 'object') return raw.IND;
-  const withDay = Object.keys(raw).find(k => raw[k]?.trade_day != null);
-  return withDay ? raw[withDay] : null;
-}
-
-function buildDamIndexRows(oreeZoneBlock, t) {
-  if (!oreeZoneBlock || typeof oreeZoneBlock !== 'object') return { tradeDay: '', rows: [] };
-  const tradeDay = oreeZoneBlock.trade_day != null ? String(oreeZoneBlock.trade_day) : '';
-  const rows = [];
-  for (let i = 0; i < DAM_INDEX_KEYS.length; i += 1) {
-    const k = DAM_INDEX_KEYS[i];
-    const cell = oreeZoneBlock[k];
-    const priceMwh = cell && typeof cell === 'object' ? parseOreeDecimalLoose(cell.price) : null;
-    const percent = cell && typeof cell === 'object' ? parseOreeDecimalLoose(cell.percent) : null;
-    if (priceMwh == null) continue;
-    const priceUahKwh = priceMwh / 1000;
-    rows.push({
-      key: k,
-      label: t(`damIndex${k}`),
-      priceUahKwh,
-      percent,
-      color: DAM_INDEX_BAR_COLORS[i] ?? '#e879f9',
-    });
-  }
-  return { tradeDay, rows };
-}
-
-/** Arithmetic mean of published OREE DAM index prices (UAH/kWh) for keys that have a value. */
-function avgDamIndexUahKwhFromIndexesPayload(perm) {
-  if (!perm?.ok || !perm.data) return null;
-  const zone = pickDamIndexesZone(perm.data);
-  if (!zone) return null;
-  const nums = [];
-  for (const k of DAM_INDEX_KEYS) {
-    const cell = zone[k];
-    const priceMwh = cell && typeof cell === 'object' ? parseOreeDecimalLoose(cell.price) : null;
-    if (priceMwh == null) continue;
-    nums.push(priceMwh / 1000);
-  }
-  if (!nums.length) return null;
-  return nums.reduce((a, b) => a + b, 0) / nums.length;
 }
 
 function kyivCalendarIso() {
@@ -789,13 +731,6 @@ export default function DamChartPanel({
   const [liveLoadPowerW, setLiveLoadPowerW] = useState(null);
   const [livePvPowerW, setLivePvPowerW] = useState(null);
   const [liveBatteryPowerW, setLiveBatteryPowerW] = useState(null);
-  const [indexesPayload, setIndexesPayload] = useState(null);
-  const [indexesLoading, setIndexesLoading] = useState(true);
-  const [indexesError, setIndexesError] = useState('');
-  const [indexesYesterdayPayload, setIndexesYesterdayPayload] = useState(null);
-  const [indexesYesterdayLoading, setIndexesYesterdayLoading] = useState(false);
-  /** OREE `<details>`: defer iframe ``src`` until expanded (default collapsed). */
-  const [oreeDamMarketDetailsOpen, setOreeDamMarketDetailsOpen] = useState(false);
   const [gridBarsOpen, setGridBarsOpen] = useState(() => readDamEnergySectionOpen(DAM_GRID_BARS_OPEN_KEY));
   const [pvLoadBarsOpen, setPvLoadBarsOpen] = useState(() => readDamEnergySectionOpen(DAM_PV_LOAD_BARS_OPEN_KEY));
   const [urlInverterOnce] = useState(readInverterFromSearchOnce);
@@ -887,16 +822,6 @@ export default function DamChartPanel({
     [bcp47]
   );
 
-  const fmtPct = useMemo(
-    () =>
-      new Intl.NumberFormat(bcp47, {
-        maximumFractionDigits: 1,
-        minimumFractionDigits: 1,
-        signDisplay: 'exceptZero',
-      }),
-    [bcp47]
-  );
-
   const fmtUah = useMemo(
     () =>
       new Intl.NumberFormat(bcp47, {
@@ -968,16 +893,6 @@ export default function DamChartPanel({
       setDamSeriesVisible(v => ({ ...v, es: false, pl: false, uaEntsoe: false }));
     }
   }, [damMarket]);
-
-  /** DAM index chart values are UAH/kWh (API stores UAH/MWh). */
-  const fmtIndexKwh = useMemo(
-    () =>
-      new Intl.NumberFormat(bcp47, {
-        minimumFractionDigits: 3,
-        maximumFractionDigits: 3,
-      }),
-    [bcp47]
-  );
 
   const maxTradeDay = damMarket === 'entsoe' ? maxTradeDayBrusselsIso() : maxTradeDayKyivIso();
   /** Calendar “today” for the active market zone — used only to disable the redundant Today jump. */
@@ -1072,74 +987,6 @@ export default function DamChartPanel({
   useEffect(() => {
     load();
   }, [load]);
-
-  useEffect(() => {
-    if (damMarket !== 'oree') {
-      setIndexesPayload(null);
-      setIndexesLoading(false);
-      setIndexesError('');
-      return undefined;
-    }
-    let cancelled = false;
-    (async () => {
-      setIndexesLoading(true);
-      setIndexesError('');
-      try {
-        const q = new URLSearchParams({ date: tradeDay });
-        const r = await fetch(apiUrl(`/api/dam/damindexes?${q}`), { cache: 'no-store' });
-        const data = await r.json().catch(() => ({}));
-        if (cancelled) return;
-        setIndexesPayload(data);
-        if (!r.ok || !data.ok) {
-          if (data.configured === false) setIndexesError('');
-          else {
-            const detail = data.detail || r.statusText || 'damindexes';
-            const noRows =
-              typeof detail === 'string' && /no dam index data for this date/i.test(detail);
-            setIndexesError(noRows ? '' : detail);
-          }
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setIndexesPayload(null);
-          setIndexesError(e instanceof Error ? e.message : String(e));
-        }
-      } finally {
-        if (!cancelled) setIndexesLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [tradeDay, damMarket]);
-
-  useEffect(() => {
-    if (damMarket !== 'oree') {
-      setIndexesYesterdayPayload(null);
-      setIndexesYesterdayLoading(false);
-      return undefined;
-    }
-    let cancelled = false;
-    (async () => {
-      setIndexesYesterdayLoading(true);
-      const prevDay = addCalendarDays(tradeDay, -1);
-      try {
-        const q = new URLSearchParams({ date: prevDay });
-        const r = await fetch(apiUrl(`/api/dam/damindexes?${q}`), { cache: 'no-store' });
-        const data = await r.json().catch(() => ({}));
-        if (cancelled) return;
-        if (r.ok && data.ok) setIndexesYesterdayPayload(data);
-        else setIndexesYesterdayPayload(null);
-      } catch {
-        /* keep previous value on transient fetch errors */
-      } finally {
-        if (!cancelled) setIndexesYesterdayLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [tradeDay, damMarket]);
 
   useEffect(() => {
     if (!effectiveInverterSn || effectiveHuaweiStation) {
@@ -1802,21 +1649,6 @@ export default function DamChartPanel({
     () => rows.some(r => r.damPriceKwh != null && Number.isFinite(Number(r.damPriceKwh))),
     [rows]
   );
-
-  const damIndexChart = useMemo(() => {
-    if (!indexesPayload?.ok || !indexesPayload?.data) return { tradeDay: '', rows: [] };
-    const zone = pickDamIndexesZone(indexesPayload.data);
-    if (!zone) return { tradeDay: '', rows: [] };
-    return buildDamIndexRows(zone, t);
-  }, [indexesPayload, t]);
-
-  const damIndexesVsYesterdayPct = useMemo(() => {
-    if (indexesLoading || indexesYesterdayLoading) return null;
-    const cur = avgDamIndexUahKwhFromIndexesPayload(indexesPayload);
-    const prev = avgDamIndexUahKwhFromIndexesPayload(indexesYesterdayPayload);
-    if (cur == null || prev == null || prev === 0) return null;
-    return ((cur - prev) / prev) * 100;
-  }, [indexesPayload, indexesYesterdayPayload, indexesLoading, indexesYesterdayLoading]);
 
   const marketControls = (
     <div className="dam-market-toolbar" role="group" aria-label={t('damMarketLabel')}>
@@ -2843,153 +2675,6 @@ export default function DamChartPanel({
                 />
               </ComposedChart>
             </ResponsiveContainer>
-            </div>
-          </details>
-        ) : null}
-
-        {damMarket === 'oree' ? (
-          <details
-            className="dam-oree-market-details"
-            onToggle={e => setOreeDamMarketDetailsOpen(e.currentTarget.open)}
-          >
-            <summary className="dam-oree-market-summary">
-              <span className="dam-oree-market-summary-label">{t('damOreeWebsiteLink')}</span>
-            </summary>
-            <div className="dam-oree-market-details-body">
-              {!indexesPayload || indexesPayload.configured !== false ? (
-                <div className="dam-indexes-wrap dam-indexes-wrap--in-oree-details">
-                  <h3 className="dam-indexes-title">{t('damIndexesTitle')}</h3>
-                  {damIndexChart.tradeDay ? (
-                    <div className="dam-indexes-head-meta">
-                      <p className="dam-indexes-trade-day">
-                        {t('damIndexesTradeDay')}: {damIndexChart.tradeDay}
-                      </p>
-                      {damIndexesVsYesterdayPct != null ? (
-                        <p
-                          className="dam-indexes-vs-yesterday"
-                          aria-label={t('damIndexesVsYesterdayAria', {
-                            pct: fmtPct.format(damIndexesVsYesterdayPct),
-                          })}
-                        >
-                          <span
-                            className={
-                              damIndexesVsYesterdayPct >= 0
-                                ? 'dam-indexes-vs-yesterday-pct dam-indexes-vs-yesterday-pct--up'
-                                : 'dam-indexes-vs-yesterday-pct dam-indexes-vs-yesterday-pct--down'
-                            }
-                          >
-                            {fmtPct.format(damIndexesVsYesterdayPct)}%
-                          </span>
-                          <span className="dam-indexes-vs-yesterday-suffix"> {t('damIndexesVsYesterday')}</span>
-                        </p>
-                      ) : null}
-                    </div>
-                  ) : null}
-                  {indexesLoading ? <p className="dam-loading dam-indexes-loading">{t('damIndexesLoading')}</p> : null}
-                  {indexesError ? (
-                    <p className="dam-error dam-indexes-error" role="alert">
-                      {t('damIndexesError')}: {indexesError}
-                    </p>
-                  ) : null}
-                  {!indexesLoading && !indexesError && damIndexChart.rows.length > 0 ? (
-                    <div className="dam-indexes-chart">
-                      <ResponsiveContainer width="100%" height={240}>
-                        <BarChart
-                          data={damIndexChart.rows}
-                          margin={{ top: 8, right: 10, left: 52, bottom: 8 }}
-                          aria-label={t('damIndexesTitle')}
-                        >
-                          <CartesianGrid stroke={CHART.gridStrokeIndexes} strokeDasharray="3 3" vertical={false} />
-                          <XAxis
-                            dataKey="label"
-                            tick={{ fill: CHART.axisText, fontSize: 11 }}
-                            tickLine={false}
-                            axisLine={{ stroke: 'rgba(252, 1, 155, 0.25)' }}
-                          />
-                          <YAxis
-                            width={72}
-                            tick={{ fill: CHART.axisText, fontSize: 11 }}
-                            tickLine={false}
-                            axisLine={{ stroke: 'rgba(252, 1, 155, 0.25)' }}
-                            tickFormatter={v => fmtIndexKwh.format(v)}
-                            label={{
-                              value: t('damIndexesAxis'),
-                              angle: -90,
-                              position: 'left',
-                              offset: 2,
-                              dx: -44,
-                              style: {
-                                fill: 'rgba(255,248,252,0.88)',
-                                fontSize: 11,
-                                textAnchor: 'middle',
-                              },
-                            }}
-                          />
-                          <Tooltip
-                            cursor={{ fill: CHART.tooltipCursor }}
-                            wrapperClassName="dam-indexes-tooltip-wrap"
-                            contentStyle={{
-                              background: CHART.tooltipBg,
-                              border: CHART.tooltipBorder,
-                              borderRadius: 10,
-                              color: CHART.tooltipColor,
-                            }}
-                            labelStyle={{ color: CHART.tooltipLabelColor, fontWeight: 600 }}
-                            itemStyle={{ color: CHART.tooltipColor }}
-                            formatter={(value, _name, item) => {
-                              const row = item?.payload;
-                              const pct =
-                                row?.percent != null && Number.isFinite(row.percent)
-                                  ? ` (${fmtPct.format(row.percent)}%)`
-                                  : '';
-                              return [
-                                `${fmtIndexKwh.format(value)} ${t('damTooltipDamUnit')}${pct}`,
-                                t('damIndexesTooltipPrice'),
-                              ];
-                            }}
-                            labelFormatter={label => label}
-                          />
-                          <Bar
-                            dataKey="priceUahKwh"
-                            name={t('damIndexesTooltipPrice')}
-                            radius={[8, 8, 0, 0]}
-                            maxBarSize={56}
-                          >
-                            {damIndexChart.rows.map(e => (
-                              <Cell key={`ix-${e.key}`} fill={e.color} fillOpacity={0.92} />
-                            ))}
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-              <section className="dam-oree-embed dam-oree-embed--in-details" aria-labelledby="dam-oree-embed-title">
-                <div className="dam-oree-embed-header">
-                  <h3 id="dam-oree-embed-title" className="dam-oree-embed-title">
-                    {t('damOreeWebsiteLink')}
-                  </h3>
-                  <a
-                    className="dam-oree-embed-external"
-                    href={OREE_DAM_CHART_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label={t('damOreeWebsiteAria')}
-                  >
-                    oree.com.ua
-                  </a>
-                </div>
-                <div className="dam-oree-embed-frame-wrap">
-                  <iframe
-                    title={t('damOreeEmbedIframeTitle')}
-                    src={oreeDamMarketDetailsOpen ? OREE_DAM_CHART_URL : undefined}
-                    className="dam-oree-embed-iframe"
-                    referrerPolicy="no-referrer-when-downgrade"
-                    loading="lazy"
-                  />
-                </div>
-              </section>
             </div>
           </details>
         ) : null}

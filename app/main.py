@@ -31,6 +31,7 @@ from app.deye_night_charge_scheduler import deye_night_charge_loop
 from app.deye_peak_auto_scheduler import deye_peak_auto_discharge_loop
 from app.deye_ev_port_scheduler import deye_ev_port_export_loop
 from app.deye_self_consumption_auto_dam_scheduler import deye_self_consumption_auto_dam_loop
+from app.deye_smart_load_scheduler import deye_smart_load_loop
 from app.rate_limit_middleware import InMemoryIpRateLimiter, PerIpRateLimitMiddleware
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -194,6 +195,16 @@ async def lifespan(app: FastAPI):
             settings.DEYE_SELF_CONSUMPTION_AUTO_DAM_INTERVAL_SEC,
         )
 
+    stop_smart_load: Optional[asyncio.Event] = None
+    smart_load_task: Optional[asyncio.Task[None]] = None
+    if settings.DEYE_SMART_LOAD_SCHEDULER_ENABLED:
+        stop_smart_load = asyncio.Event()
+        smart_load_task = asyncio.create_task(deye_smart_load_loop(stop_smart_load))
+        logger.info(
+            "Deye smart-load: tick every %ss when DEYE_* is set (DEYE_SMART_LOAD_*)",
+            settings.DEYE_SMART_LOAD_INTERVAL_SEC,
+        )
+
     yield
 
     if dam_sched_task is not None and stop_dam_sched is not None:
@@ -271,6 +282,13 @@ async def lifespan(app: FastAPI):
         sc_auto_dam_task.cancel()
         try:
             await sc_auto_dam_task
+        except asyncio.CancelledError:
+            pass
+    if smart_load_task is not None and stop_smart_load is not None:
+        stop_smart_load.set()
+        smart_load_task.cancel()
+        try:
+            await smart_load_task
         except asyncio.CancelledError:
             pass
     logger.info("Open EMS shutting down")

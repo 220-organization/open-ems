@@ -1025,6 +1025,54 @@ def _load_power_watts_from_data_list(dl: Any) -> Optional[float]:
     return max(candidates)
 
 
+def _smart_load_power_watts_from_data_list(dl: Any) -> Optional[float]:
+    """Smart Load port power (W); prefers SMART_LOAD_POWER, else home load registers."""
+    if not isinstance(dl, list):
+        return None
+    by_key: dict[str, float] = {}
+    for row in dl:
+        if not isinstance(row, dict):
+            continue
+        k = _metric_key(row.get("key"))
+        w = _row_value_to_watts(row)
+        if w is None:
+            continue
+        by_key[k] = w
+    for ek in ("SMART_LOAD_POWER", "SMARTLOAD_POWER", "GEN_LOAD_POWER"):
+        if ek in by_key:
+            return abs(by_key[ek])
+    return _load_power_watts_from_data_list(dl)
+
+
+def _gen_port_power_watts_from_data_list(dl: Any) -> Optional[float]:
+    """Generator / Smart Load port instantaneous power (W) when reported separately."""
+    if not isinstance(dl, list):
+        return None
+    by_key: dict[str, float] = {}
+    for row in dl:
+        if not isinstance(row, dict):
+            continue
+        k = _metric_key(row.get("key"))
+        w = _row_value_to_watts(row)
+        if w is None:
+            continue
+        by_key[k] = w
+    for ek in (
+        "SMART_LOAD_POWER",
+        "SMARTLOAD_POWER",
+        "GENERATION_POWER",
+        "GEN_POWER",
+        "GENERATOR_POWER",
+        "GEN_OUTPUT_POWER",
+    ):
+        if ek in by_key:
+            return abs(by_key[ek])
+    for k, w in by_key.items():
+        if ("GEN" in k or "GENERATOR" in k) and "POWER" in k and "GRID" not in k:
+            return abs(w)
+    return None
+
+
 def _pv_power_watts_from_data_list(dl: Any) -> Optional[float]:
     """PV / solar production in watts (non-negative magnitude)."""
     if not isinstance(dl, list):
@@ -2224,3 +2272,613 @@ async def charge_soc_delta_then_zero_export_ct(
         "workModeRestored": "ZERO_EXPORT_TO_CT",
         "respondAfterStart": False,
     }
+
+
+# --- Smart Load (Gen port "On Grid always on") — Deye Cloud customControl Modbus ---
+
+
+class DeyeInverterOrderError(RuntimeError):
+    """Deye order failed or was not applied; carries polled /order/{id} payload for API clients."""
+
+    def __init__(self, message: str, *, deye_order: Optional[dict[str, Any]] = None):
+        super().__init__(message)
+        self.deye_order = deye_order
+
+
+_DEYE_MODBUS_SLAVE_ID = 1
+_DEYE_REG_SMART_LOAD_IO_MODE = 0x0085
+_DEYE_REG_SMART_LOAD_FLAGS = 0x00B2
+_DEYE_BIT_ON_GRID_ALWAYS_ON = 6
+_DEYE_SMART_LOAD_MODBUS_FAIL_ANALYSIS = frozenset({"0500", "500"})
+
+_SMART_LOAD_READ_PATHS = (
+    "/order/sys/smartLoad/read",
+    "/config/smartLoad/read",
+    "/order/smartLoad/read",
+)
+_SMART_LOAD_UPDATE_PATHS = (
+    "/order/sys/smartLoad/update",
+    "/config/smartLoad/setup",
+    "/order/smartLoad/setup",
+    "/order/sys/smartLoad/setup",
+)
+_SMART_LOAD_CONTROL_PATHS = (
+    "/order/sys/smartLoad/control",
+    "/order/smartLoad/control",
+)
+
+_smart_load_api_path_cache: dict[str, str] = {}
+_custom_control_locks: dict[str, asyncio.Lock] = {}
+_custom_control_locks_guard = asyncio.Lock()
+
+
+def _deye_error_is_concurrent(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return "2104004" in msg or "concurrent running" in msg or "concurrent" in msg
+
+
+async def _custom_control_lock_for(sn: str) -> asyncio.Lock:
+    key = (sn or "").strip()
+    async with _custom_control_locks_guard:
+        lock = _custom_control_locks.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _custom_control_locks[key] = lock
+        return lock
+
+
+def _deye_response_ok(data: Any) -> bool:
+    if not isinstance(data, dict):
+        return False
+    if data.get("success") is False:
+        return False
+    code = data.get("code")
+    if code in (0, 1000000, 1106000, "0", "1000000", "1106000"):
+        return True
+    return data.get("success") is True or "data" in data or "orderId" in data
+
+
+def _unwrap_deye_payload(data: Any) -> Any:
+    if not isinstance(data, dict):
+        return data
+    inner = data.get("data")
+    if inner is not None:
+        return inner
+    return data
+
+
+def _bool_from_deye_value(v: Any) -> Optional[bool]:
+    if v is None:
+        return None
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return bool(int(v))
+    s = str(v).strip().lower()
+    if s in ("1", "true", "on", "yes", "enabled"):
+        return True
+    if s in ("0", "false", "off", "no", "disabled"):
+        return False
+    if "always" in s and "on" in s:
+        return True
+    if s in ("on_grid_always_on", "ongridalwayson", "grid_always_on"):
+        return True
+    return None
+
+
+def _find_on_grid_always_on_in_obj(obj: Any) -> Optional[bool]:
+    """Walk Deye read response for On Grid always on flag or mode."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            kn = str(k).lower().replace("_", "").replace(" ", "")
+            if kn in ("ongridalwayson", "gridalwayson", "smartloadgridon"):
+                b = _bool_from_deye_value(v)
+                if b is not None:
+                    return b
+            if kn in ("smartloadmode", "genportmode", "iomode", "smartloadsetting"):
+                b = _bool_from_deye_value(v)
+                if b is not None:
+                    return b
+                if isinstance(v, str) and "always" in v.lower() and "grid" in v.lower():
+                    return True
+                if isinstance(v, (int, float)) and int(v) == 2:
+                    return True
+            nested = _find_on_grid_always_on_in_obj(v)
+            if nested is not None:
+                return nested
+    elif isinstance(obj, list):
+        for item in obj:
+            nested = _find_on_grid_always_on_in_obj(item)
+            if nested is not None:
+                return nested
+    return None
+
+
+async def _post_deye_json(path: str, body: dict[str, Any], *, timeout: float = 90.0) -> dict[str, Any]:
+    if not deye_configured():
+        raise RuntimeError("Deye API credentials not configured")
+    base = settings.DEYE_API_BASE_URL.rstrip("/")
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        token = await _ensure_token(client)
+        r = await client.post(
+            f"{base}{path}",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {token}",
+            },
+            json=body,
+        )
+        snippet = (r.text or "")[:900]
+        if r.status_code >= 400:
+            logger.warning("Deye: POST %s HTTP %s — %s", path, r.status_code, snippet)
+            r.raise_for_status()
+        try:
+            data = r.json()
+        except Exception as exc:
+            raise RuntimeError(f"Invalid JSON from {path}") from exc
+        if isinstance(data, dict) and data.get("success") is False:
+            msg = str(data.get("msg") or data.get("message") or "request failed")
+            code = str(data.get("code") or "")
+            if code == "2104004" or "concurrent" in msg.lower():
+                logger.info("Deye: POST %s concurrent — %s", path, msg[:120])
+            else:
+                logger.warning("Deye: POST %s success=false msg=%s raw=%s", path, msg[:300], snippet)
+            raise RuntimeError(msg)
+        return data if isinstance(data, dict) else {"data": data}
+
+
+async def _poll_deye_order_if_needed(data: dict[str, Any], *, timeout_sec: float = 60.0) -> dict[str, Any]:
+    order_id = data.get("orderId")
+    if order_id is None:
+        return data
+    base = settings.DEYE_API_BASE_URL.rstrip("/")
+    deadline = time.monotonic() + max(5.0, timeout_sec)
+    async with httpx.AsyncClient(timeout=25.0) as client:
+        token = await _ensure_token(client)
+        hdrs = {"Authorization": f"Bearer {token}"}
+        while time.monotonic() < deadline:
+            r = await client.get(f"{base}/order/{order_id}", headers=hdrs)
+            if r.status_code >= 400:
+                await asyncio.sleep(2.0)
+                continue
+            try:
+                payload = r.json()
+            except Exception:
+                await asyncio.sleep(2.0)
+                continue
+            if not isinstance(payload, dict):
+                await asyncio.sleep(2.0)
+                continue
+            status = payload.get("status")
+            if status == 666:
+                return payload
+            if status not in (0, 100, None):
+                msg = str(payload.get("error") or payload.get("msg") or f"order status {status}")
+                raise RuntimeError(msg)
+            await asyncio.sleep(2.0)
+    raise RuntimeError(f"Deye order {order_id} timed out")
+
+
+async def _post_deye_first_working(
+    paths: tuple[str, ...],
+    body: dict[str, Any],
+    *,
+    cache_key: str,
+) -> tuple[str, dict[str, Any]]:
+    cached = _smart_load_api_path_cache.get(cache_key)
+    if cached:
+        try:
+            data = await _post_deye_json(cached, body)
+            if _deye_response_ok(data):
+                return cached, data
+        except Exception:
+            _smart_load_api_path_cache.pop(cache_key, None)
+    last_exc: Optional[Exception] = None
+    for path in paths:
+        try:
+            data = await _post_deye_json(path, body)
+            if _deye_response_ok(data):
+                _smart_load_api_path_cache[cache_key] = path
+                logger.info("Deye smart-load: using endpoint %s", path)
+                return path, data
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in (404, 405):
+                last_exc = exc
+                continue
+            raise
+        except Exception as exc:
+            last_exc = exc
+            continue
+    if last_exc:
+        raise RuntimeError(f"No working SmartLoad endpoint ({cache_key})") from last_exc
+    raise RuntimeError(f"No working SmartLoad endpoint ({cache_key})")
+
+
+async def _post_deye_custom_control_cmd(
+    device_sn: str,
+    cmd: dict[str, Any],
+    *,
+    max_attempts: int = 6,
+) -> dict[str, Any]:
+    """POST /order/customControl — content must be a JSON string (Deye batch remote control)."""
+    sn = (device_sn or "").strip()
+    if not sn:
+        raise ValueError("device_sn required")
+    content = json.dumps(cmd, separators=(",", ":"))
+    lock = await _custom_control_lock_for(sn)
+    last_exc: Optional[Exception] = None
+    async with lock:
+        for attempt in range(max(1, max_attempts)):
+            try:
+                data = await _post_deye_json(
+                    "/order/customControl",
+                    {"deviceSn": sn, "content": content},
+                )
+                return await _poll_deye_order_if_needed(data)
+            except RuntimeError as exc:
+                if _deye_error_is_concurrent(exc) and attempt + 1 < max_attempts:
+                    wait = min(15.0, 2.0 * (attempt + 1))
+                    logger.info(
+                        "Deye customControl concurrent sn=%s cmd=%s — retry in %.0fs (%s/%s)",
+                        sn,
+                        cmd.get("cmd"),
+                        wait,
+                        attempt + 1,
+                        max_attempts,
+                    )
+                    last_exc = exc
+                    await asyncio.sleep(wait)
+                    continue
+                raise
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("customControl failed")
+
+
+def _modbus_crc16(data: bytes) -> int:
+    crc = 0xFFFF
+    for byte in data:
+        crc ^= byte
+        for _ in range(8):
+            if crc & 1:
+                crc = (crc >> 1) ^ 0xA001
+            else:
+                crc >>= 1
+    return crc
+
+
+def _build_modbus_rtu_hex(
+    slave_id: int,
+    function_code: int,
+    register: int,
+    *,
+    count: int = 1,
+    values: Optional[list[int]] = None,
+) -> str:
+    if function_code == 3:
+        message = bytes(
+            [
+                slave_id,
+                function_code,
+                (register >> 8) & 0xFF,
+                register & 0xFF,
+                (count >> 8) & 0xFF,
+                count & 0xFF,
+            ]
+        )
+    elif function_code == 6:
+        if not values:
+            raise ValueError("values required for function_code 6")
+        value = int(values[0]) & 0xFFFF
+        message = bytes(
+            [
+                slave_id,
+                function_code,
+                (register >> 8) & 0xFF,
+                register & 0xFF,
+                (value >> 8) & 0xFF,
+                value & 0xFF,
+            ]
+        )
+    elif function_code == 16:
+        if not values:
+            raise ValueError("values required for function_code 16")
+        byte_count = len(values) * 2
+        message = bytes(
+            [
+                slave_id,
+                function_code,
+                (register >> 8) & 0xFF,
+                register & 0xFF,
+                (len(values) >> 8) & 0xFF,
+                len(values) & 0xFF,
+                byte_count,
+            ]
+        )
+        for value in values:
+            v = int(value) & 0xFFFF
+            message += bytes([(v >> 8) & 0xFF, v & 0xFF])
+    else:
+        raise ValueError(f"unsupported function_code {function_code}")
+    crc = _modbus_crc16(message)
+    message += bytes([crc & 0xFF, (crc >> 8) & 0xFF])
+    return " ".join(f"{byte:02X}" for byte in message)
+
+
+def _deye_modbus_analysis_hex(analysis: Any) -> str:
+    return str(analysis or "").strip().replace(" ", "").upper()
+
+
+def _deye_modbus_analysis_failed(analysis: Any, *, expect_fc: Optional[int] = None) -> bool:
+    """True when analysisResult is not a successful Modbus RTU response (e.g. 0500 = device rejected)."""
+    raw = _deye_modbus_analysis_hex(analysis)
+    if not raw or raw in _DEYE_SMART_LOAD_MODBUS_FAIL_ANALYSIS:
+        return True
+    if len(raw) < 6:
+        return True
+    try:
+        data = bytes.fromhex(raw)
+    except ValueError:
+        return True
+    if len(data) < 3:
+        return True
+    if data[1] & 0x80:
+        return True
+    if expect_fc is not None and data[1] != expect_fc:
+        return True
+    return False
+
+
+def _parse_modbus_read_u16(analysis: Any) -> Optional[int]:
+    raw = _deye_modbus_analysis_hex(analysis)
+    if _deye_modbus_analysis_failed(raw, expect_fc=3):
+        return None
+    try:
+        data = bytes.fromhex(raw)
+    except ValueError:
+        return None
+    if len(data) < 5 or data[1] != 3:
+        return None
+    byte_count = data[2]
+    if len(data) < 3 + byte_count + 2 or byte_count < 2:
+        return None
+    return (data[3] << 8) | data[4]
+
+
+def _on_grid_always_on_from_register_value(value: int) -> bool:
+    return bool(int(value) & (1 << _DEYE_BIT_ON_GRID_ALWAYS_ON))
+
+
+async def _post_deye_custom_control_hex(
+    device_sn: str,
+    content_hex: str,
+    *,
+    max_attempts: int = 6,
+) -> dict[str, Any]:
+    """POST /order/customControl with Modbus RTU hex payload (official Deye remote-control format)."""
+    sn = (device_sn or "").strip()
+    if not sn:
+        raise ValueError("device_sn required")
+    lock = await _custom_control_lock_for(sn)
+    last_exc: Optional[Exception] = None
+    async with lock:
+        for attempt in range(max(1, max_attempts)):
+            try:
+                data = await _post_deye_json(
+                    "/order/customControl",
+                    {
+                        "deviceSn": sn,
+                        "content": content_hex,
+                        "timeoutSeconds": 600,
+                    },
+                )
+                return await _poll_deye_order_if_needed(data)
+            except RuntimeError as exc:
+                if _deye_error_is_concurrent(exc) and attempt + 1 < max_attempts:
+                    wait = min(15.0, 2.0 * (attempt + 1))
+                    logger.info(
+                        "Deye customControl modbus concurrent sn=%s — retry in %.0fs (%s/%s)",
+                        sn,
+                        wait,
+                        attempt + 1,
+                        max_attempts,
+                    )
+                    last_exc = exc
+                    await asyncio.sleep(wait)
+                    continue
+                raise
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("customControl modbus failed")
+
+
+async def _read_holding_register_modbus(device_sn: str, register: int) -> Optional[int]:
+    content = _build_modbus_rtu_hex(
+        _DEYE_MODBUS_SLAVE_ID,
+        3,
+        register,
+        count=1,
+    )
+    polled = await _post_deye_custom_control_hex(device_sn, content)
+    return _parse_modbus_read_u16(polled.get("analysisResult"))
+
+
+async def _write_holding_register_modbus(device_sn: str, register: int, value: int) -> dict[str, Any]:
+    content = _build_modbus_rtu_hex(
+        _DEYE_MODBUS_SLAVE_ID,
+        6,
+        register,
+        values=[int(value) & 0xFFFF],
+    )
+    polled = await _post_deye_custom_control_hex(device_sn, content)
+    analysis = polled.get("analysisResult")
+    if _deye_modbus_analysis_failed(analysis, expect_fc=6):
+        raise DeyeInverterOrderError(
+            "Deye inverter rejected SmartLoad register write "
+            f"(analysisResult={analysis!r}). "
+            "Use Deye app: Device → Remote Control → Batch Command → SmartLoad Setting → Read, then Setup. "
+            "Gen port IO mode must be SmartLoad or Generator.",
+            deye_order=polled,
+        )
+    return polled
+
+
+async def read_smart_load_config(device_sn: str, *, remote: bool = True) -> dict[str, Any]:
+    """Read SmartLoad On Grid always on from Modbus register 0x00B2 bit 6 (customControl read)."""
+    sn = (device_sn or "").strip()
+    if not sn:
+        raise ValueError("device_sn required")
+    from app.deye_smart_load_state import get_gen_on_grid_always_on
+
+    on_grid: Optional[bool] = get_gen_on_grid_always_on(sn)
+    raw: dict[str, Any] = {}
+    if remote:
+        try:
+            reg_val = await _read_holding_register_modbus(sn, _DEYE_REG_SMART_LOAD_FLAGS)
+            io_mode = await _read_holding_register_modbus(sn, _DEYE_REG_SMART_LOAD_IO_MODE)
+            if reg_val is not None:
+                on_grid = _on_grid_always_on_from_register_value(reg_val)
+                raw = {
+                    "register0x00B2": reg_val,
+                    "ioModeRegister0x0085": io_mode,
+                    "onGridAlwaysOn": on_grid,
+                }
+        except Exception as exc:
+            logger.debug("Deye smart-load modbus read failed sn=%s — %s", sn, exc)
+    return {
+        "deviceSn": sn,
+        "raw": raw if isinstance(raw, dict) else {"value": raw},
+        "onGridAlwaysOn": on_grid,
+    }
+
+
+async def set_gen_port_on_grid_always_on(device_sn: str, enabled: bool) -> dict[str, Any]:
+    """Toggle Gen port On Grid always on via Modbus 0x00B2 bit 6; verify read-back (not JSON echo)."""
+    sn = (device_sn or "").strip()
+    if not sn:
+        raise ValueError("device_sn required")
+    want = bool(enabled)
+    current = await _read_holding_register_modbus(sn, _DEYE_REG_SMART_LOAD_FLAGS)
+    if current is None:
+        raise RuntimeError(
+            "Could not read SmartLoad register 0x00B2 from inverter (no Modbus response). "
+            "Check that the device is online in Deye Cloud."
+        )
+    bit_mask = 1 << _DEYE_BIT_ON_GRID_ALWAYS_ON
+    new_val = (current | bit_mask) if want else (current & ~bit_mask)
+    polled: dict[str, Any]
+    if new_val == current:
+        polled = {
+            "status": 666,
+            "analysisResult": "noop",
+            "orderResult": json.dumps(
+                {
+                    "cmd": "smartLoadSetup",
+                    "onGridAlwaysOn": want,
+                    "register0x00B2": current,
+                    "verified": True,
+                    "unchanged": True,
+                },
+                separators=(",", ":"),
+            ),
+        }
+    else:
+        polled = await _write_holding_register_modbus(sn, _DEYE_REG_SMART_LOAD_FLAGS, new_val)
+        verified_val = await _read_holding_register_modbus(sn, _DEYE_REG_SMART_LOAD_FLAGS)
+        if verified_val is None:
+            raise RuntimeError("SmartLoad write sent but read-back of register 0x00B2 failed")
+        actual = _on_grid_always_on_from_register_value(verified_val)
+        if actual != want:
+            raise DeyeInverterOrderError(
+                "Deye cloud accepted the order but the inverter did not change "
+                f"(register 0x00B2={verified_val}, onGridAlwaysOn={actual}, wanted={want}). "
+                "Try SmartLoad Setting → Read then Setup in the Deye app.",
+                deye_order={
+                    **dict(polled),
+                    "verifiedRegister0x00B2": verified_val,
+                },
+            )
+        polled = dict(polled)
+        polled["orderResult"] = json.dumps(
+            {
+                "cmd": "smartLoadSetup",
+                "onGridAlwaysOn": actual,
+                "register0x00B2": verified_val,
+                "verified": True,
+            },
+            separators=(",", ":"),
+        )
+    logger.info(
+        "Deye smart-load: modbus onGridAlwaysOn=%s sn=%s register0x00B2=%s analysis=%s",
+        want,
+        sn,
+        json.loads(str(polled.get("orderResult") or "{}")).get("register0x00B2"),
+        polled.get("analysisResult"),
+    )
+    return polled
+
+
+def on_grid_always_on_from_deye_order(deye_order: dict[str, Any]) -> Optional[bool]:
+    """Parse verified smartLoadSetup result (read-back), not unverified JSON echo."""
+    if not isinstance(deye_order, dict):
+        return None
+    order_result = deye_order.get("orderResult")
+    parsed: Any = order_result
+    if isinstance(order_result, str) and order_result.strip():
+        try:
+            parsed = json.loads(order_result)
+        except json.JSONDecodeError:
+            parsed = None
+    if isinstance(parsed, dict):
+        if parsed.get("verified") is True and "onGridAlwaysOn" in parsed:
+            return bool(parsed["onGridAlwaysOn"])
+        reg = parsed.get("register0x00B2")
+        if reg is not None:
+            try:
+                return _on_grid_always_on_from_register_value(int(reg))
+            except (TypeError, ValueError):
+                pass
+        if "onGridAlwaysOn" in parsed and parsed.get("cmd") == "smartLoadSetup":
+            return None
+    return _find_on_grid_always_on_in_obj(parsed)
+
+
+async def fetch_smart_load_live_metrics(
+    device_sn: str,
+) -> tuple[Optional[float], Optional[float], Optional[float]]:
+    """
+    Latest (pv W, smart_load W, gen_port W) from POST /device/latest.
+
+    Applies flow-balance finalize for the device SN.
+    """
+    sn = (device_sn or "").strip()
+    if not sn or not deye_configured():
+        return None, None, None
+    base = settings.DEYE_API_BASE_URL.rstrip("/")
+    async with httpx.AsyncClient(timeout=45.0) as client:
+        token = await _ensure_token(client)
+        hdrs = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
+        r = await client.post(f"{base}/device/latest", headers=hdrs, json={"deviceList": [sn]})
+        if r.status_code >= 400:
+            logger.warning("Deye smart-load metrics: device/latest HTTP %s sn=%s", r.status_code, sn)
+            return None, None, None
+        try:
+            payload = r.json()
+        except Exception:
+            return None, None, None
+        ddl = payload.get("deviceDataList") if isinstance(payload, dict) else None
+        if not isinstance(ddl, list) or not ddl:
+            return None, None, None
+        entry = ddl[0] if isinstance(ddl[0], dict) else None
+        if entry is None:
+            return None, None, None
+        dl = entry.get("dataList")
+        soc, bat, load_w, pv_w, grid_w, freq_hz = _parse_metrics_from_entry(entry)
+        sl_w = _smart_load_power_watts_from_data_list(dl)
+        gen_w = _gen_port_power_watts_from_data_list(dl)
+    _bat, sl_f, pv_f, _grid, _freq = _finalize_live_metrics_for_sn(
+        sn, bat, sl_w if sl_w is not None else load_w, pv_w, grid_w, freq_hz
+    )
+    gen_out = gen_w if gen_w is not None else sl_f
+    return pv_f, sl_f, gen_out
+
