@@ -2500,6 +2500,7 @@ a.pf-node { cursor: pointer; }
 
   .pf-graph {
     --pf-side: min(calc(100vw - 20px), calc(100vh - 240px), 920px);
+    --pf-graph-anchor-pct: 5.5%;
   }
 
   @supports (height: 100dvh) {
@@ -2532,13 +2533,39 @@ a.pf-node { cursor: pointer; }
   #pf-node-ev .pf-node-value { font-size: 11px; }
   #pf-node-ev .pf-node-meta { font-size: 7px; }
 
-  .pf-ev-port-picker {
-    max-width: min(260px, 76vw);
+  .pf-graph .pf-node-ev-stack[data-pos='right-bottom'] {
+    max-width: min(168px, 44vw);
     gap: 4px;
+    align-items: flex-end;
+  }
+
+  .pf-ev-port-picker {
+    width: auto;
+    max-width: min(148px, 40vw);
+    gap: 3px;
+    justify-content: flex-end;
+  }
+
+  .pf-ev-port-picker .pf-ev-ports-used-count {
+    display: none;
   }
 
   .pf-ev-port-picker__select {
-    font-size: 10px;
+    flex: 0 1 auto;
+    max-width: 9rem;
+    min-height: 28px;
+    padding: 3px 6px;
+    font-size: 9px;
+  }
+
+  .pf-graph .pf-node--graph-share-qr {
+    left: 10%;
+    bottom: 2px;
+    padding: 6px 8px;
+  }
+
+  .pf-graph .pf-node--graph-share-qr img {
+    width: min(68px, 18vw);
   }
 
   .pf-hub { max-width: min(132px, 40vw); }
@@ -2588,6 +2615,28 @@ a.pf-node { cursor: pointer; }
   }
   #pf-node-ev .pf-node-icon__tesla { height: 1.7em; }
   #pf-node-ev .pf-node-value { font-size: 10px; }
+
+  .pf-graph .pf-node-ev-stack[data-pos='right-bottom'] {
+    max-width: min(148px, 42vw);
+  }
+
+  .pf-ev-port-picker {
+    max-width: min(132px, 38vw);
+  }
+
+  .pf-ev-port-picker__select {
+    max-width: 7.75rem;
+    font-size: 8px;
+  }
+
+  .pf-graph .pf-node--graph-share-qr {
+    left: 8%;
+    padding: 5px 6px;
+  }
+
+  .pf-graph .pf-node--graph-share-qr img {
+    width: min(56px, 16vw);
+  }
 
   .pf-hub { max-width: min(96px, 34vw); }
   .pf-hub-logo { width: 32px; height: 32px; }

@@ -36,11 +36,11 @@ import {
   parseEssSelection,
 } from './essSelection';
 import PfScrollNumber from './PfScrollNumber';
-import PortStickerQrImage from './PortStickerQrImage';
+import RoundedQrImage from './RoundedQrImage';
 import SharePageModal from './SharePageModal';
 import KioskFleetGenConsChart from './KioskFleetGenConsChart';
 import { openEmsUrlWithoutKiosk, openEmsUrlWithKiosk } from './openEmsKiosk';
-import { pageShareUrlFromWindow } from './sharePageQr';
+import { buildSharePageModalPayload, pageShareUrlFromWindow } from './sharePageQr';
 import { useMinWidth } from './useMinWidth';
 import { useScreenWakeLock } from './useScreenWakeLock';
 import './power-flow.css';
@@ -822,12 +822,13 @@ function EvPortPicker({
           const num = String(row.number);
           const currentKw = formatPowerKwInteger(Number(row.powerWt)) ?? 0;
           const maxKw = formatPowerKwInteger(Number(row.maxPowerWt));
+          const maxStr = maxKw != null && maxKw > 0 ? maxKw : '—';
           return (
             <option key={num} value={num}>
-              {t('evPortSelectOption', {
+              {t('evPortSelectOptionShort', {
                 number: num,
                 current: currentKw,
-                max: maxKw != null && maxKw > 0 ? maxKw : '—',
+                max: maxStr,
               })}
             </option>
           );
@@ -3522,16 +3523,24 @@ export default function PowerFlowPage({
     };
   }, [kioskMode]);
 
-  const pageShareUrl = useMemo(() => pageShareUrlFromWindow({ stripParams: ['kiosk'] }), []);
+  const pageShareUrl = useMemo(() => pageShareUrlFromWindow(), []);
 
-  const [graphShareQrOpen, setGraphShareQrOpen] = useState(false);
-  const openGraphShareQrModal = useCallback(e => {
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [shareModalUrl, setShareModalUrl] = useState('');
+  const [shareModalCopied, setShareModalCopied] = useState(false);
+  const [shareModalCopyFailed, setShareModalCopyFailed] = useState(false);
+  const openGraphShareQrModal = useCallback(async e => {
     e.preventDefault();
     e.stopPropagation();
-    setGraphShareQrOpen(true);
+    const payload = await buildSharePageModalPayload();
+    if (!payload) return;
+    setShareModalUrl(payload.url);
+    setShareModalCopied(payload.copied);
+    setShareModalCopyFailed(payload.copyFailed);
+    setShareModalOpen(true);
   }, []);
-  const closeGraphShareQrModal = useCallback(() => {
-    setGraphShareQrOpen(false);
+  const closeShareModal = useCallback(() => {
+    setShareModalOpen(false);
   }, []);
 
   /** When the selected inverter has bound EV port(s), select the first in the header dropdown. */
@@ -5191,10 +5200,10 @@ export default function PowerFlowPage({
                           type="button"
                           className={`pf-node pf-node--graph-share-qr${kioskMode ? ' pf-node--kiosk-qr' : ''}`}
                           data-pos="bottom-center"
-                          onClick={openGraphShareQrModal}
-                          aria-label={t('pageShareQrAsideAria')}
+                          onClick={e => void openGraphShareQrModal(e)}
+                          aria-label={t('sharePageAria')}
                         >
-                          <PortStickerQrImage
+                          <RoundedQrImage
                             url={pageShareUrl}
                             size={kioskMode ? 200 : 112}
                             alt={t('sharePageQrAlt')}
@@ -6340,19 +6349,14 @@ export default function PowerFlowPage({
             </section>
           </div>
 
-          {graphShareQrOpen && pageShareUrl ? (
-            <SharePageModal
-              open={graphShareQrOpen}
-              url={pageShareUrl}
-              copied={false}
-              copyFailed={false}
-              onClose={closeGraphShareQrModal}
-              t={t}
-              qrSize={kioskMode ? 360 : 320}
-              qrVariant="portSticker"
-              showCopyStatus={false}
-            />
-          ) : null}
+          <SharePageModal
+            open={shareModalOpen}
+            url={shareModalUrl}
+            copied={shareModalCopied}
+            copyFailed={shareModalCopyFailed}
+            onClose={closeShareModal}
+            t={t}
+          />
 
           {nodePopup ? (
             <div className="pf-modal-backdrop pf-node-popup-backdrop" role="presentation" onClick={closeNodePopup}>

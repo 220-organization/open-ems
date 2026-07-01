@@ -3,6 +3,7 @@
   "pageTitle": "Vyriy EMS — Power flow | smart EMS for microgrids",
   "stationLabel": "Port #",
   "evPortSelectOption": "Port # {{number}}: {{current}} / {{max}} kW",
+  "evPortSelectOptionShort": "#{{number}} · {{current}}/{{max}} kW",
   "stationPlaceholder": "Select EV port",
   "inverterLabel": "Inverter",
   "inverterSelectLabel": "Select source",

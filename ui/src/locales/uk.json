@@ -3,6 +3,7 @@
   "pageTitle": "Вирій ЕМС — Потоки потужності | smart ЕМС для мікромереж",
   "stationLabel": "Порт #",
   "evPortSelectOption": "Порт # {{number}}: {{current}} / {{max}} кВт",
+  "evPortSelectOptionShort": "#{{number}} · {{current}}/{{max}} кВт",
   "stationPlaceholder": "Оберіть EV-порт",
   "inverterLabel": "Інвертор",
   "inverterSelectLabel": "Оберіть джерело",

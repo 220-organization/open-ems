@@ -131,6 +131,7 @@ jobs:
           HUAWEI_STATION_LIST_COOLDOWN_AFTER_407_SEC: ${{ secrets.HUAWEI_STATION_LIST_COOLDOWN_AFTER_407_SEC }}
           HUAWEI_POWER_SNAPSHOT_ENABLED: ${{ secrets.HUAWEI_POWER_SNAPSHOT_ENABLED }}
           HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC: ${{ secrets.HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC }}
+          UBETTER_PASSWORD: ${{ secrets.UBETTER_PASSWORD }}
         run: |
           set -e
           umask 077
@@ -161,6 +162,7 @@ jobs:
             printf '%s\n' "HUAWEI_STATION_LIST_COOLDOWN_AFTER_407_SEC=${HUAWEI_STATION_LIST_COOLDOWN_AFTER_407_SEC:-300}"
             printf '%s\n' "HUAWEI_POWER_SNAPSHOT_ENABLED=${HUAWEI_POWER_SNAPSHOT_ENABLED:-true}"
             printf '%s\n' "HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC=${HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC:-300}"
+            printf '%s\n' "UBETTER_PASSWORD=${UBETTER_PASSWORD:-}"
           } > /tmp/open-ems-deploy.env
           test -s /tmp/open-ems-deploy.env
       # appleboy/scp-action often creates a *directory* named like the target and nests the file

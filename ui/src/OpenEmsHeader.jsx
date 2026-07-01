@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import SharePageModal from './SharePageModal';
+import { buildSharePageModalPayload } from './sharePageQr';
 import { VYRIY_EMS_LOGO_SRC } from './vyriyEmsLogo';
 import './power-flow.css';
 import './landing.css';
@@ -112,27 +113,11 @@ export default function OpenEmsHeader({
   const themeLabels = themeToggleLabels(theme);
 
   const handleSharePage = useCallback(async () => {
-    let url = '';
-    try {
-      url = window.location.href.split('#')[0];
-    } catch {
-      url = '';
-    }
-    if (!url) return;
-
-    let copied = false;
-    try {
-      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(url);
-        copied = true;
-      }
-    } catch {
-      copied = false;
-    }
-
-    setShareModalUrl(url);
-    setShareModalCopied(copied);
-    setShareModalCopyFailed(!copied);
+    const payload = await buildSharePageModalPayload();
+    if (!payload) return;
+    setShareModalUrl(payload.url);
+    setShareModalCopied(payload.copied);
+    setShareModalCopyFailed(payload.copyFailed);
     setShareModalOpen(true);
   }, []);
 
