@@ -1315,6 +1315,29 @@ body {
   padding-top: 12px;
 }
 
+.pf-flow-tariff-vs-ukraine {
+  margin: 0.85rem 0 0;
+  padding: 0 1rem;
+  max-width: 44rem;
+  text-align: center;
+  font-size: clamp(1.15rem, 3.2vw, 1.5rem);
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--pf-label);
+}
+
+.pf-flow-tariff-vs-ukraine-pct {
+  font-variant-numeric: tabular-nums;
+}
+
+.pf-flow-tariff-vs-ukraine-pct--down {
+  color: var(--pf-down);
+}
+
+.pf-flow-tariff-vs-ukraine-pct--up {
+  color: var(--pf-up);
+}
+
 .pf-graph {
   --pf-graph-anchor-pct: 8.5%;
   --pf-side: min(calc((100vw - 8px) * 0.9), calc(100vmin * 0.9), 920px);
@@ -1850,6 +1873,98 @@ a.pf-node { cursor: pointer; }
 .pf-peak-dam-toggle--header {
   max-width: none;
   flex-shrink: 0;
+}
+
+.pf-peak-dam-toggle--debug {
+  opacity: 0.92;
+}
+
+.pf-peak-dam-toggle--debug .pf-peak-dam-toggle-label {
+  font-size: 0.82rem;
+  letter-spacing: 0.01em;
+}
+
+.pf-gen-port-settings-details {
+  width: 100%;
+  margin-top: 4px;
+  border-top: 1px solid rgba(252, 1, 155, 0.12);
+}
+
+.pf-gen-port-settings-summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  user-select: none;
+  -webkit-user-select: none;
+  margin: 0;
+  padding: 6px 0;
+}
+
+.pf-gen-port-settings-summary::-webkit-details-marker {
+  display: none;
+}
+
+.pf-gen-port-settings-summary::marker {
+  content: '';
+}
+
+.pf-gen-port-settings-summary::before {
+  content: '\25B6';
+  font-size: 0.72rem;
+  line-height: 1;
+  opacity: 0.72;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+  color: var(--pf-label, #e9d5f7);
+}
+
+.pf-gen-port-settings-details[open] .pf-gen-port-settings-summary::before {
+  transform: rotate(90deg);
+}
+
+.pf-gen-port-settings-summary-label {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--pf-text-muted);
+}
+
+.pf-gen-port-settings-summary:hover .pf-gen-port-settings-summary-label {
+  color: var(--pf-label, #f9a8ef);
+}
+
+.pf-gen-port-settings-body {
+  padding: 4px 0 8px 1.1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.pf-peak-dam-toggle--loading {
+  opacity: 0.85;
+  cursor: wait;
+}
+
+.pf-peak-dam-toggle--loading input {
+  cursor: wait;
+}
+
+.pf-gen-port-toggle-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border: 2px solid rgba(252, 1, 155, 0.22);
+  border-top-color: var(--pf-pink, #fc019b);
+  border-radius: 50%;
+  animation: pf-gen-port-spin 0.7s linear infinite;
+}
+
+@keyframes pf-gen-port-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .pf-discharge-delta-controls {
