@@ -839,11 +839,10 @@ function EvPortPicker({
 }
 
 function EvNodeWithPortPicker({ kioskMode, evNode, picker }) {
-  if (kioskMode) return evNode;
   return (
     <div className="pf-node-ev-stack" data-pos="right-bottom">
       {evNode}
-      {picker}
+      {!kioskMode ? picker : null}
     </div>
   );
 }

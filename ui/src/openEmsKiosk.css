@@ -48,7 +48,8 @@ html.open-ems-kiosk .app-root-layout {
 .pf-body--kiosk .pf-post-charts-bar,
 .pf-body--kiosk .pf-ukraine-qr,
 .pf-body--kiosk .pf-discharge-feedback,
-.pf-body--kiosk .pf-rdn-callback-section {
+.pf-body--kiosk .pf-rdn-callback-section,
+.pf-body--kiosk .pf-graph-refresh {
   display: none !important;
 }
 
@@ -356,8 +357,44 @@ html.open-ems-kiosk .app-root-layout {
   outline-offset: 4px;
 }
 
+/* Spread corner nodes vertically; keep QR lane clear at the bottom. */
+.pf-body--kiosk .pf-graph .pf-node[data-pos='left-top'],
+.pf-body--kiosk .pf-graph .pf-node[data-pos='right-top'] {
+  top: 1.5%;
+}
+
+.pf-body--kiosk .pf-graph .pf-node[data-pos='left-bottom'] {
+  bottom: 10%;
+  top: auto;
+  transform: translateX(-50%);
+}
+
+.pf-body--kiosk .pf-graph .pf-node-ev-stack[data-pos='right-bottom'] {
+  bottom: 10%;
+  max-width: min(280px, 34vw);
+}
+
 .pf-body--kiosk .pf-graph .pf-node[data-pos='bottom-center'] {
-  bottom: 0;
+  bottom: 1%;
+  z-index: 5;
+}
+
+.pf-body--kiosk .pf-kiosk-layout .pf-graph .pf-node {
+  min-width: clamp(128px, 15vmin, 240px);
+  max-width: clamp(148px, 17.5vmin, 260px);
+  padding: clamp(12px, 1.6vmin, 22px) clamp(10px, 1.4vmin, 18px);
+}
+
+.pf-body--kiosk .pf-kiosk-layout .pf-graph .pf-node-value {
+  font-size: clamp(18px, 2.4vmin, 32px);
+}
+
+.pf-body--kiosk .pf-kiosk-layout .pf-graph .pf-node-icon {
+  font-size: clamp(28px, 3.6vmin, 46px);
+}
+
+.pf-body--kiosk .pf-kiosk-layout .pf-node--kiosk-qr img {
+  width: clamp(96px, 12.5vmin, 168px);
 }
 
 .open-ems-kiosk-close {

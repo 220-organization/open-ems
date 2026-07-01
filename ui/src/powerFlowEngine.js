@@ -123,7 +123,10 @@ export function edgeInsetPx(containerW, options = {}) {
   if (w >= 560) {
     const base = Math.min(90, Math.max(48, Math.round(0.074 * w + 19)));
     if (kiosk) {
-      return Math.min(172, Math.max(base, Math.round(0.128 * w + 28)));
+      const narrow = w < 860;
+      const mult = narrow ? 0.15 : 0.128;
+      const cap = narrow ? 188 : 172;
+      return Math.min(cap, Math.max(base, Math.round(mult * w + 28)));
     }
     return base;
   }
