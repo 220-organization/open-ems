@@ -188,6 +188,28 @@ async function fetchReverseGeocode(lng, lat, language, types) {
   return res.json();
 }
 
+async function fetchForwardGeocode(query, language) {
+  const trimmed = String(query || '').trim();
+  if (trimmed.length < 2) return [];
+  const res = await fetch(
+    `https://api.maptiler.com/geocoding/${encodeURIComponent(trimmed)}.json?key=${MAPTILER_API_KEY}&language=${language}&limit=6&country=ua`
+  );
+  if (!res.ok) throw new Error('geocode failed');
+  const data = await res.json();
+  return data.features || [];
+}
+
+function featureCoordinates(feature) {
+  if (Array.isArray(feature?.center) && feature.center.length >= 2) {
+    return feature.center;
+  }
+  const coords = feature?.geometry?.coordinates;
+  if (Array.isArray(coords) && coords.length >= 2) {
+    return coords;
+  }
+  return null;
+}
+
 async function reverseGeocodePoint(lng, lat, language) {
   try {
     const data = await fetchReverseGeocode(lng, lat, language, null);
@@ -221,8 +243,14 @@ export default function LocationMapPicker({ t, locale = 'uk', locations, onChang
   const onChangeRef = useRef(onChange);
   const selectionModeRef = useRef(selectionMode);
   const regionRadiusKmRef = useRef(REGION_RADIUS_KM_DEFAULT);
+  const searchDebounceRef = useRef(null);
+  const searchRequestIdRef = useRef(0);
   const [resolving, setResolving] = useState(false);
   const [regionRadiusKm, setRegionRadiusKm] = useState(REGION_RADIUS_KM_DEFAULT);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
 
   const isRegionMode = selectionMode === 'region';
 
@@ -388,7 +416,7 @@ export default function LocationMapPicker({ t, locale = 'uk', locations, onChang
     if (existingRadius != null && existingRadius !== regionRadiusKm) {
       setRegionRadiusKm(existingRadius);
     }
-  }, [isRegionMode, locations]);
+  }, [isRegionMode, locations, regionRadiusKm]);
 
   const removeLocation = id => {
     const next = locations.filter(loc => loc.id !== id);
@@ -408,6 +436,76 @@ export default function LocationMapPicker({ t, locale = 'uk', locations, onChang
       { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 }
     );
   };
+
+  const applySearchFeature = useCallback(
+    feature => {
+      const coords = featureCoordinates(feature);
+      if (!coords) return;
+      const [lng, lat] = coords;
+      const label = feature.place_name || feature.text || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+      setSearchQuery(label);
+      setSearchResults([]);
+      setSearchOpen(false);
+      mapRef.current?.flyTo({ center: [lng, lat], zoom: isRegionMode ? 8 : 15, duration: 1200 });
+      if (isRegionMode) {
+        const next = [buildRegionLocation(lng, lat, label, regionRadiusKmRef.current)];
+        onChangeRef.current(next);
+        syncMapLayers(next);
+      }
+    },
+    [isRegionMode, syncMapLayers]
+  );
+
+  const handleSearchChange = e => {
+    const nextQuery = e.target.value;
+    setSearchQuery(nextQuery);
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+    }
+    const trimmed = nextQuery.trim();
+    if (trimmed.length < 2) {
+      setSearchResults([]);
+      setSearchOpen(false);
+      setSearchLoading(false);
+      return;
+    }
+    setSearchLoading(true);
+    setSearchOpen(true);
+    const requestId = searchRequestIdRef.current + 1;
+    searchRequestIdRef.current = requestId;
+    searchDebounceRef.current = setTimeout(async () => {
+      try {
+        const features = await fetchForwardGeocode(trimmed, resolveGeocodeLanguage(locale));
+        if (searchRequestIdRef.current !== requestId) return;
+        setSearchResults(features);
+        setSearchOpen(features.length > 0);
+      } catch {
+        if (searchRequestIdRef.current !== requestId) return;
+        setSearchResults([]);
+        setSearchOpen(false);
+      } finally {
+        if (searchRequestIdRef.current === requestId) {
+          setSearchLoading(false);
+        }
+      }
+    }, 300);
+  };
+
+  const handleSearchSubmit = e => {
+    e.preventDefault();
+    if (searchResults.length > 0) {
+      applySearchFeature(searchResults[0]);
+    }
+  };
+
+  useEffect(
+    () => () => {
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
+      }
+    },
+    []
+  );
 
   const hintKey = isRegionMode ? 'marketplaceLeadFormRegionMapHint' : 'marketplaceLeadFormMapHint';
   const ariaKey = isRegionMode ? 'marketplaceLeadFormRegionMapAria' : 'marketplaceLeadFormMapAria';
@@ -435,14 +533,60 @@ export default function LocationMapPicker({ t, locale = 'uk', locations, onChang
         </div>
       ) : null}
       <div className={styles.mapWrap}>
+        <form className={styles.mapToolbar} onSubmit={handleSearchSubmit}>
+          <div className={styles.searchWrap}>
+            <input
+              type="search"
+              className={styles.searchInput}
+              value={searchQuery}
+              onChange={handleSearchChange}
+              onFocus={() => {
+                if (searchResults.length > 0) setSearchOpen(true);
+              }}
+              onBlur={() => {
+                window.setTimeout(() => setSearchOpen(false), 150);
+              }}
+              placeholder={t('marketplaceLeadFormMapSearchPlaceholder')}
+              aria-label={t('marketplaceLeadFormMapSearchAria')}
+              autoComplete="off"
+            />
+            {searchOpen ? (
+              <ul className={styles.searchResults} role="listbox" aria-label={t('marketplaceLeadFormMapSearchAria')}>
+                {searchLoading ? (
+                  <li className={styles.searchResultItemMuted}>{t('marketplaceLeadFormMapLoading')}</li>
+                ) : searchResults.length === 0 ? (
+                  <li className={styles.searchResultItemMuted}>{t('marketplaceLeadFormMapSearchNoResults')}</li>
+                ) : (
+                  searchResults.map((feature, index) => {
+                    const label = feature.place_name || feature.text;
+                    return (
+                      <li key={`${feature.id || label}-${index}`}>
+                        <button
+                          type="button"
+                          className={styles.searchResultBtn}
+                          role="option"
+                          aria-selected={false}
+                          onMouseDown={e => e.preventDefault()}
+                          onClick={() => applySearchFeature(feature)}
+                        >
+                          {label}
+                        </button>
+                      </li>
+                    );
+                  })
+                )}
+              </ul>
+            ) : null}
+          </div>
+          <button type="button" className={styles.geolocateBtn} onClick={locateMe}>
+            {t('marketplaceLeadFormMapGeolocate')}
+          </button>
+        </form>
         <div
           ref={mapContainerRef}
           className={`${styles.map}${isRegionMode ? ` ${styles.mapRegionMode}` : ''}`}
           aria-label={t(ariaKey)}
         />
-        <button type="button" className={styles.geolocateBtn} onClick={locateMe}>
-          {t('marketplaceLeadFormMapGeolocate')}
-        </button>
         {resolving ? <div className={styles.resolving}>{t('marketplaceLeadFormMapLoading')}</div> : null}
       </div>
       {locations.length > 0 ? (

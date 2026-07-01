@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as maptilersdk from '@maptiler/sdk';
 import maplibregl from 'maplibre-gl';
 import '@maptiler/sdk/dist/maptiler-sdk.css';
@@ -24,9 +24,12 @@ import {
   storeHeatmapZoomUnlockLocalDev,
 } from './marketplaceHeatmapAccess';
 import { useEvua80KwStations } from './useEvua80KwStations';
+import { useGovmapHeatmapPoints } from './useGovmapHeatmapPoints';
+import { aggregateHeatmapPoints, buildHeatmapWeightedPoints, HEATMAP_INTENSITY_SCALE, HEATMAP_LAYER_OPACITY, precisionForZoom } from './marketplaceHeatmapPoints';
 import { downloadContractPhotosAsPdf } from './marketplaceContractPdf';
 import { formatKwLabel } from './marketplaceKw';
 import { buildMarketplacePayRedirectBase } from './marketplacePayRedirect';
+import { infoPaymentAmountUah } from './marketplacePaymentAmounts';
 import MarketplaceModal from './MarketplaceModal';
 import styles from './MarketplaceMap.module.css';
 
@@ -43,14 +46,6 @@ const HEATMAP_PAY_AMOUNT_UAH = 44;
 
 if (typeof maplibregl.setWorkerUrl === 'function') {
   maplibregl.setWorkerUrl(MAPLIBRE_WORKER_URL);
-}
-/** Group EV UA coords; finer grid when zoomed in so single stations stay visible. */
-const REGION_GROUP_PRECISION = 1;
-
-function precisionForZoom(zoom) {
-  if (zoom >= 12) return 3;
-  if (zoom >= 9) return 2;
-  return REGION_GROUP_PRECISION;
 }
 
 function buildHybridStyle(apiKey) {
@@ -81,6 +76,7 @@ function buildHybridStyle(apiKey) {
 function flattenLocations(items) {
   const points = [];
   (items || []).forEach(item => {
+    const requestType = item.request_type === 'LOOKING' ? 'LOOKING' : 'PROPOSE';
     const hasContract =
       item.distribution_contract === true ? 1 : item.distribution_contract === false ? 0 : -1;
     (item.locations || []).forEach((loc, index) => {
@@ -92,19 +88,23 @@ function flattenLocations(items) {
         label: loc.label,
         hasContract,
         kw: item.kw_available,
+        requestType,
       });
     });
   });
   return points;
 }
 
+function markerClassForPoint(point, styles) {
+  if (point.requestType === 'LOOKING') return styles.mapMarkerLooking;
+  if (point.hasContract === 0) return styles.mapMarkerContractNo;
+  return styles.mapMarkerContractYes;
+}
+
 function createMarketplaceMarkerElement(point, styles) {
   const el = document.createElement('button');
   el.type = 'button';
-  el.className = [
-    styles.mapMarker,
-    point.hasContract === 0 ? styles.mapMarkerContractNo : styles.mapMarkerContractYes,
-  ].join(' ');
+  el.className = [styles.mapMarker, markerClassForPoint(point, styles)].join(' ');
   el.textContent = formatKwLabel(point.kw);
   return el;
 }
@@ -142,70 +142,27 @@ function heatmapPointsToGeoJson(regions) {
   };
 }
 
-/** Aggregate EV UA station coords into grid hotspots (weight = stations per cell). */
-function aggregateEvuaHeatmapPoints(stations, groupPrecision = REGION_GROUP_PRECISION) {
-  const groups = new Map();
-  (stations || []).forEach(station => {
-    const lat = Number(station?.lat);
-    const lng = Number(station?.lon);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-    const key = `${lat.toFixed(groupPrecision)}:${lng.toFixed(groupPrecision)}`;
-    const existing = groups.get(key);
-    if (existing) {
-      existing.weight += 1;
-      existing.lat += lat;
-      existing.lng += lng;
-      existing.count += 1;
-    } else {
-      groups.set(key, { weight: 1, lat, lng, count: 1 });
-    }
-  });
-
-  const raw = Array.from(groups.values()).map(group => ({
-    lat: group.lat / group.count,
-    lng: group.lng / group.count,
-    count: group.weight,
-  }));
-  if (!raw.length) return [];
-
-  // Zoomed-in grid: keep every cell visible, including count === 1.
-  if (groupPrecision >= 2) {
-    const maxCount = Math.max(...raw.map(group => group.count));
-    const logMax = Math.log1p(maxCount);
-    return raw.map(group => ({
-      lat: group.lat,
-      lng: group.lng,
-      weight: logMax > 0 ? Math.max(0.42, Math.log1p(group.count) / logMax) : 0.42,
-    }));
-  }
-
-  const sortedCounts = raw.map(group => group.count).sort((a, b) => a - b);
-  const topWarmStartIndex = Math.max(0, Math.ceil(sortedCounts.length * 0.5) - 1);
-  const topWarmThreshold = sortedCounts[topWarmStartIndex] ?? sortedCounts[sortedCounts.length - 1];
-  const maxCount = sortedCounts[sortedCounts.length - 1];
-  const logTopWarm = Math.log1p(topWarmThreshold);
-  const logMax = Math.log1p(maxCount);
-
-  return raw.map(group => {
-    const logCount = Math.log1p(group.count);
-    let weight;
-
-    if (logCount <= logTopWarm || logMax <= logTopWarm) {
-      // Bottom ~50%: blue → green → yellow on the map.
-      weight = logTopWarm > 0 ? (logCount / logTopWarm) * 0.55 : 0.2;
-    } else {
-      // Top ~50%: orange → red; log keeps dense vs sparse cities distinguishable.
-      const topSpan = logMax - logTopWarm;
-      weight = topSpan > 0 ? 0.55 + ((logCount - logTopWarm) / topSpan) * 0.45 : 1;
-    }
-
-    return { lat: group.lat, lng: group.lng, weight };
-  });
+function heatmapSyncKey(zoom, pointCount) {
+  return `${precisionForZoom(zoom)}:${pointCount}`;
 }
 
 const HEATMAP_PAINT = {
   'heatmap-weight': ['interpolate', ['linear'], ['get', 'weight'], 0, 0, 0.4, 0.5, 0.75, 0.75, 1, 1],
-  'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 4, 0.45, 6, 0.65, 9, 1.2, 11, 1.9, 13, 2.6],
+  'heatmap-intensity': [
+    'interpolate',
+    ['linear'],
+    ['zoom'],
+    4,
+    0.45 * HEATMAP_INTENSITY_SCALE,
+    6,
+    0.65 * HEATMAP_INTENSITY_SCALE,
+    9,
+    1.2 * HEATMAP_INTENSITY_SCALE,
+    11,
+    1.9 * HEATMAP_INTENSITY_SCALE,
+    13,
+    2.6 * HEATMAP_INTENSITY_SCALE,
+  ],
   'heatmap-color': [
     'interpolate',
     ['linear'],
@@ -224,7 +181,7 @@ const HEATMAP_PAINT = {
     'rgb(215, 25, 28)',
   ],
   'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 4, 12, 6, 18, 9, 28, 11, 38, 13, 52],
-  'heatmap-opacity': 0.65,
+  'heatmap-opacity': HEATMAP_LAYER_OPACITY,
 };
 
 function removeHeatmapLayer(map) {
@@ -241,27 +198,55 @@ function isMapHeatmapReady(map) {
   return Boolean(map && typeof map.loaded === 'function' && map.loaded());
 }
 
-/** Run now when the style is loaded; also after the next idle (tiles/repaint). */
-function scheduleMapIdleWork(map, work) {
-  if (!map) return;
+function upsertHeatmapLayer(map, regions) {
+  if (!regions?.length) {
+    removeHeatmapLayer(map);
+    return;
+  }
+  if (!isMapHeatmapReady(map)) return;
 
-  const run = () => {
-    if (!isMapHeatmapReady(map)) return;
-    work();
-  };
-
-  if (isMapHeatmapReady(map)) {
-    run();
-    requestAnimationFrame(run);
-    map.once('idle', run);
+  const data = heatmapPointsToGeoJson(regions);
+  const existingSource = map.getSource(HEATMAP_SOURCE_ID);
+  if (existingSource && typeof existingSource.setData === 'function') {
+    existingSource.setData(data);
     return;
   }
 
-  map.once('load', () => {
-    run();
-    requestAnimationFrame(run);
-    map.once('idle', run);
+  removeHeatmapLayer(map);
+  map.addSource(HEATMAP_SOURCE_ID, { type: 'geojson', data });
+  map.addLayer({
+    id: HEATMAP_LAYER_ID,
+    type: 'heatmap',
+    source: HEATMAP_SOURCE_ID,
+    paint: HEATMAP_PAINT,
   });
+}
+
+function syncHeatmapLayerData(map, heatmapPoints, zoom, zoomUnlocked = false, lastSyncKeyRef = null) {
+  const regions = aggregateHeatmapPoints(heatmapPoints, precisionForZoom(zoom));
+  if (!isMapHeatmapReady(map)) {
+    return regions;
+  }
+
+  if (!isHeatmapVisibleAtMapScale(map, zoomUnlocked) || !regions.length) {
+    removeHeatmapLayer(map);
+    if (lastSyncKeyRef) lastSyncKeyRef.current = '';
+    return regions;
+  }
+
+  const syncKey = heatmapSyncKey(zoom, heatmapPoints.length);
+  if (lastSyncKeyRef?.current === syncKey && map.getLayer(HEATMAP_LAYER_ID)) {
+    return regions;
+  }
+
+  try {
+    upsertHeatmapLayer(map, regions);
+    if (lastSyncKeyRef) lastSyncKeyRef.current = syncKey;
+  } catch {
+    removeHeatmapLayer(map);
+    if (lastSyncKeyRef) lastSyncKeyRef.current = '';
+  }
+  return regions;
 }
 
 function getMapScaleBarKm(map, scaleBarCssPx = HEATMAP_SCALE_BAR_MAX_PX) {
@@ -282,46 +267,6 @@ function shouldShowHeatmapAtMapScale(map) {
 function isHeatmapVisibleAtMapScale(map, zoomUnlocked) {
   if (zoomUnlocked) return true;
   return shouldShowHeatmapAtMapScale(map);
-}
-
-function upsertHeatmapLayer(map, regions) {
-  if (!regions?.length) {
-    removeHeatmapLayer(map);
-    return;
-  }
-  if (!isMapHeatmapReady(map)) return;
-
-  const data = heatmapPointsToGeoJson(regions);
-  removeHeatmapLayer(map);
-  map.addSource(HEATMAP_SOURCE_ID, { type: 'geojson', data });
-  map.addLayer({
-    id: HEATMAP_LAYER_ID,
-    type: 'heatmap',
-    source: HEATMAP_SOURCE_ID,
-    paint: HEATMAP_PAINT,
-  });
-  if (typeof map.triggerRepaint === 'function') {
-    map.triggerRepaint();
-  }
-}
-
-function syncHeatmapLayerData(map, stations, zoom, zoomUnlocked = false) {
-  const regions = aggregateEvuaHeatmapPoints(stations, precisionForZoom(zoom));
-  if (!isMapHeatmapReady(map)) {
-    return regions;
-  }
-
-  if (!isHeatmapVisibleAtMapScale(map, zoomUnlocked) || !regions.length) {
-    removeHeatmapLayer(map);
-    return regions;
-  }
-
-  try {
-    upsertHeatmapLayer(map, regions);
-  } catch {
-    removeHeatmapLayer(map);
-  }
-  return regions;
 }
 
 function formatContract(value, t) {
@@ -511,6 +456,7 @@ export default function MarketplaceMap({
   requestType = 'PROPOSE',
   hideHeader = false,
   showLookingHeatmap = true,
+  showLookingMarkers = true,
   loadEvuaHeatmap = false,
   paymentReturnId = '',
   paymentReturnLocationId = '',
@@ -524,13 +470,21 @@ export default function MarketplaceMap({
   const itemsRef = useRef([]);
   const pointsRef = useRef([]);
   const heatmapRegionsRef = useRef([]);
-  const evuaStationsRef = useRef([]);
+  const heatmapPointsRef = useRef([]);
   const heatmapSyncGenerationRef = useRef(0);
+  const lastHeatmapSyncKeyRef = useRef('');
   const lastAllowedZoomRef = useRef(DEFAULT_ZOOM);
   const heatmapZoomUnlockedRef = useRef(isHeatmapZoomUnlocked());
   const [mapReady, setMapReady] = useState(false);
   const [items, setItems] = useState([]);
-  const { stations: evuaStations } = useEvua80KwStations(showLookingHeatmap && loadEvuaHeatmap);
+  const [lookingItems, setLookingItems] = useState([]);
+  const heatmapEnabled = showLookingHeatmap && loadEvuaHeatmap;
+  const { stations: evuaStations } = useEvua80KwStations(heatmapEnabled);
+  const { points: govmapPoints } = useGovmapHeatmapPoints(heatmapEnabled);
+  const heatmapPoints = useMemo(
+    () => buildHeatmapWeightedPoints(evuaStations, govmapPoints),
+    [evuaStations, govmapPoints]
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
@@ -545,12 +499,16 @@ export default function MarketplaceMap({
   const [heatmapPaymentError, setHeatmapPaymentError] = useState('');
   const ownerPdfDownloadKeyRef = useRef('');
 
-  itemsRef.current = items;
-  evuaStationsRef.current = evuaStations;
+  const allItems = useMemo(() => [...items, ...lookingItems], [items, lookingItems]);
+  itemsRef.current = allItems;
+  heatmapPointsRef.current = heatmapPoints;
   heatmapZoomUnlockedRef.current = heatmapZoomUnlocked;
-  const points = flattenLocations(items);
+  const points = useMemo(
+    () => [...flattenLocations(items), ...flattenLocations(lookingItems)],
+    [items, lookingItems]
+  );
   pointsRef.current = points;
-  const hasHeatmapData = showLookingHeatmap && loadEvuaHeatmap && evuaStations.length > 0;
+  const hasHeatmapData = heatmapEnabled && heatmapPoints.length > 0;
   const showHeatmapLegend = hasHeatmapData && heatmapAtScale;
 
   const openOwnerInfo = useCallback(info => {
@@ -580,9 +538,9 @@ export default function MarketplaceMap({
 
   const upsertItemViewCount = useCallback((locationId, viewCount) => {
     if (!locationId) return;
-    setItems(prev =>
-      prev.map(row => (String(row.id) === String(locationId) ? { ...row, view_count: viewCount } : row))
-    );
+    const patch = row => (String(row.id) === String(locationId) ? { ...row, view_count: viewCount } : row);
+    setItems(prev => prev.map(patch));
+    setLookingItems(prev => prev.map(patch));
     setSelectedItem(prev =>
       prev && String(prev.id) === String(locationId) ? { ...prev, view_count: viewCount } : prev
     );
@@ -642,8 +600,8 @@ export default function MarketplaceMap({
   }, []);
 
   const requestHeatmapSync = useCallback(
-    (map, stations) => {
-      if (!map || !showLookingHeatmap || !loadEvuaHeatmap) return;
+    (map, points) => {
+      if (!map || !heatmapEnabled) return;
 
       const generation = heatmapSyncGenerationRef.current + 1;
       heatmapSyncGenerationRef.current = generation;
@@ -651,27 +609,41 @@ export default function MarketplaceMap({
       const run = () => {
         if (heatmapSyncGenerationRef.current !== generation) return;
         if (mapRef.current !== map || !isMapHeatmapReady(map)) return;
-        if (!showLookingHeatmap || !loadEvuaHeatmap) return;
+        if (!heatmapEnabled) return;
         heatmapRegionsRef.current = syncHeatmapLayerData(
           map,
-          stations,
+          points,
           map.getZoom(),
-          heatmapZoomUnlockedRef.current
+          heatmapZoomUnlockedRef.current,
+          lastHeatmapSyncKeyRef
         );
       };
 
-      scheduleMapIdleWork(map, run);
+      if (isMapHeatmapReady(map)) {
+        run();
+        return;
+      }
+      map.once('load', run);
     },
-    [showLookingHeatmap, loadEvuaHeatmap]
+    [heatmapEnabled]
   );
 
   const refreshHeatmapOnMap = useCallback(() => {
     const map = mapRef.current;
-    if (!map) return;
+    if (!map || !heatmapEnabled) return;
     const visible = isHeatmapVisibleAtMapScale(map, heatmapZoomUnlockedRef.current);
     setHeatmapAtScale(visible);
-    requestHeatmapSync(map, evuaStationsRef.current);
-  }, [requestHeatmapSync]);
+    if (!visible) {
+      removeHeatmapLayer(map);
+      return;
+    }
+    requestHeatmapSync(map, heatmapPointsRef.current);
+  }, [requestHeatmapSync, heatmapEnabled]);
+
+  const closeHeatmapPayModal = useCallback(() => {
+    setHeatmapPayModalOpen(false);
+    refreshHeatmapOnMap();
+  }, [refreshHeatmapOnMap]);
 
   const applyHeatmapZoomUnlock = useCallback(
     paymentId => {
@@ -727,9 +699,16 @@ export default function MarketplaceMap({
     setLoading(true);
     setError('');
 
-    fetchMarketplaceLocations(requestType)
-      .then(data => {
-        if (!cancelled) setItems(data);
+    const fetches = [fetchMarketplaceLocations(requestType)];
+    if (showLookingMarkers && requestType !== 'LOOKING') {
+      fetches.push(fetchMarketplaceLocations('LOOKING'));
+    }
+
+    Promise.all(fetches)
+      .then(results => {
+        if (cancelled) return;
+        setItems(results[0] || []);
+        setLookingItems(showLookingMarkers && requestType !== 'LOOKING' ? results[1] || [] : []);
       })
       .catch(() => {
         if (!cancelled) setError(t('marketplaceLoadError'));
@@ -741,7 +720,7 @@ export default function MarketplaceMap({
     return () => {
       cancelled = true;
     };
-  }, [loadEvuaHeatmap, requestType, t]);
+  }, [loadEvuaHeatmap, requestType, showLookingMarkers, t]);
 
   useEffect(() => {
     if (!loadEvuaHeatmap || mapRef.current || !mapContainerRef.current) return undefined;
@@ -763,46 +742,61 @@ export default function MarketplaceMap({
 
     map.addControl(new maplibregl.ScaleControl({ maxWidth: HEATMAP_SCALE_BAR_MAX_PX, unit: 'metric' }), 'bottom-right');
 
-    const syncHeatmapScaleVisibility = () => {
+    const updateHeatmapLegendVisibility = () => {
       const visible = isHeatmapVisibleAtMapScale(map, heatmapZoomUnlockedRef.current);
       setHeatmapAtScale(visible);
-      if (!visible) removeHeatmapLayer(map);
+      if (!visible) {
+        removeHeatmapLayer(map);
+        lastHeatmapSyncKeyRef.current = '';
+      }
+    };
+
+    const syncHeatmapAfterZoom = () => {
+      const visible = isHeatmapVisibleAtMapScale(map, heatmapZoomUnlockedRef.current);
+      setHeatmapAtScale(visible);
+      if (!visible) {
+        removeHeatmapLayer(map);
+        lastHeatmapSyncKeyRef.current = '';
+        return;
+      }
+      requestHeatmapSync(map, heatmapPointsRef.current);
     };
 
     const enforceHeatmapZoomPaywall = () => {
-      if (!showLookingHeatmap || !loadEvuaHeatmap || heatmapZoomUnlockedRef.current) return;
+      if (!heatmapEnabled || heatmapZoomUnlockedRef.current) return;
       const scaleKm = getMapScaleBarKm(map);
       if (scaleKm >= HEATMAP_MIN_SCALE_KM) {
         lastAllowedZoomRef.current = map.getZoom();
         return;
       }
-      map.setZoom(lastAllowedZoomRef.current);
+      const restoreZoom = lastAllowedZoomRef.current;
       setHeatmapPayModalOpen(true);
-    };
-
-    const refreshHeatmap = () => {
-      requestHeatmapSync(map, evuaStationsRef.current);
+      requestAnimationFrame(() => {
+        if (mapRef.current !== map) return;
+        if (typeof map.stop === 'function') map.stop();
+        map.setZoom(restoreZoom);
+        syncHeatmapAfterZoom();
+      });
     };
 
     map.on('load', () => {
       setMapReady(true);
       lastAllowedZoomRef.current = map.getZoom();
       syncMarketplaceMarkers(map, pointsRef.current, handleMarkerSelect, htmlMarkersRef, styles);
-      syncHeatmapScaleVisibility();
-      refreshHeatmap();
+      syncHeatmapAfterZoom();
     });
 
-    map.on('zoom', syncHeatmapScaleVisibility);
+    map.on('zoom', updateHeatmapLegendVisibility);
     const onZoomEnd = () => {
       enforceHeatmapZoomPaywall();
-      syncHeatmapScaleVisibility();
-      refreshHeatmap();
+      syncHeatmapAfterZoom();
     };
     map.on('zoomend', onZoomEnd);
 
     return () => {
       heatmapSyncGenerationRef.current += 1;
-      map.off('zoom', syncHeatmapScaleVisibility);
+      lastHeatmapSyncKeyRef.current = '';
+      map.off('zoom', updateHeatmapLegendVisibility);
       map.off('zoomend', onZoomEnd);
       removeHeatmapLayer(map);
       removeMarketplaceMarkers(htmlMarkersRef);
@@ -810,7 +804,7 @@ export default function MarketplaceMap({
       map.remove();
       mapRef.current = null;
     };
-  }, [loadEvuaHeatmap, handleMarkerSelect, showLookingHeatmap, requestHeatmapSync]);
+  }, [loadEvuaHeatmap, handleMarkerSelect, showLookingHeatmap, requestHeatmapSync, heatmapEnabled]);
 
   useEffect(() => {
     if (!mapReady) return;
@@ -825,12 +819,13 @@ export default function MarketplaceMap({
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!mapReady || !map || !showLookingHeatmap || !loadEvuaHeatmap) {
+    if (!mapReady || !map || !heatmapEnabled) {
       if (mapReady && map) removeHeatmapLayer(map);
       return;
     }
-    requestHeatmapSync(map, evuaStations);
-  }, [evuaStations, showLookingHeatmap, loadEvuaHeatmap, mapReady, requestHeatmapSync]);
+    lastHeatmapSyncKeyRef.current = '';
+    requestHeatmapSync(map, heatmapPoints);
+  }, [heatmapPoints, heatmapEnabled, mapReady, requestHeatmapSync]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -847,10 +842,12 @@ export default function MarketplaceMap({
   }, [selectedItem]);
 
   useEffect(() => {
-    if (!paymentReturnLocationId || items.length === 0) return;
-    const item = items.find(row => String(row.id) === String(paymentReturnLocationId));
+    if (!paymentReturnLocationId || (items.length === 0 && lookingItems.length === 0)) return;
+    const item =
+      items.find(row => String(row.id) === String(paymentReturnLocationId)) ||
+      lookingItems.find(row => String(row.id) === String(paymentReturnLocationId));
     if (item) setSelectedItem(item);
-  }, [paymentReturnLocationId, items]);
+  }, [paymentReturnLocationId, items, lookingItems]);
 
   useEffect(() => {
     if (!paymentReturnId || !isMarketplaceApiConfigured()) return undefined;
@@ -1058,9 +1055,7 @@ export default function MarketplaceMap({
 
             <MarketplaceDetailsBody item={selectedItem} t={t} language={locale} variant="map" />
 
-            <p className={styles.viewCount}>
-              {t('marketplaceViewedTimes', { count: selectedItem.view_count || 0 })}
-            </p>
+            <p className={styles.viewCount}>{t('marketplaceViewedTimes', { count: selectedItem.view_count || 0 })}</p>
 
             {paymentError ? <p className={styles.paymentError}>{paymentError}</p> : null}
 
@@ -1070,7 +1065,11 @@ export default function MarketplaceMap({
               onClick={handleRequestInfo}
               disabled={requestLoading}
             >
-              {requestLoading ? t('marketplaceLeadFormMapLoading') : t('marketplaceRequestInfo')}
+              {requestLoading
+                ? t('marketplaceLeadFormMapLoading')
+                : t('marketplaceRequestInfoPayButton', {
+                    amount: infoPaymentAmountUah(selectedItem.request_type),
+                  })}
             </button>
             {showLocalTestPayment ? (
               <button
@@ -1086,7 +1085,7 @@ export default function MarketplaceMap({
         ) : null}
       </div>
 
-      {!loading && !error && items.length === 0 ? (
+      {!loading && !error && items.length === 0 && lookingItems.length === 0 ? (
         <p className={styles.empty}>{t('marketplaceEmpty')}</p>
       ) : null}
 
@@ -1104,7 +1103,7 @@ export default function MarketplaceMap({
 
       <MarketplaceModal
         open={heatmapPayModalOpen}
-        onClose={() => setHeatmapPayModalOpen(false)}
+        onClose={closeHeatmapPayModal}
         ariaLabel={t('marketplaceHeatmapPayTitle')}
         closeAriaLabel={t('marketplaceClose')}
       >

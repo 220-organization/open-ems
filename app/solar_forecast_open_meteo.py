@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
@@ -194,3 +194,143 @@ async def fetch_today_tomorrow_insolation_forecast(
             "date": m_date,
         },
     }
+
+
+def _get_zoned_hour_key(dt: datetime, tz: ZoneInfo) -> Optional[str]:
+    return dt.strftime("%Y-%m-%dT%H")
+
+
+def _get_zoned_date_key(dt: datetime, tz: ZoneInfo) -> Optional[str]:
+    return dt.strftime("%Y-%m-%d")
+
+
+def _add_days_to_date_key(date_key: str, days: int) -> Optional[str]:
+    if not isinstance(date_key, str) or len(date_key) != 10:
+        return None
+    try:
+        year, month, day = (int(x) for x in date_key.split("-"))
+        next_day = datetime(year, month, day, tzinfo=ZoneInfo("UTC")) + timedelta(days=days)
+        return next_day.strftime("%Y-%m-%d")
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_hourly_insolation_for_date(
+    data: dict,
+    date_key: str,
+    now: Optional[datetime] = None,
+) -> Optional[dict[str, Any]]:
+    """Normalize Open-Meteo hourly shortwave radiation into one local calendar day."""
+    hourly = data.get("hourly")
+    tz_name = data.get("timezone")
+    if not isinstance(hourly, dict) or not isinstance(tz_name, str) or not tz_name.strip():
+        return None
+    times = hourly.get("time")
+    radiation = hourly.get("shortwave_radiation")
+    if not isinstance(times, list) or not isinstance(radiation, list) or not date_key:
+        return None
+    try:
+        tz = ZoneInfo(tz_name.strip())
+    except Exception:
+        return None
+
+    local_now = now if now is not None else datetime.now(tz)
+    if local_now.tzinfo is None:
+        local_now = local_now.replace(tzinfo=tz)
+    else:
+        local_now = local_now.astimezone(tz)
+
+    today_key = _get_zoned_date_key(local_now, tz)
+    current_hour_key = _get_zoned_hour_key(local_now, tz)
+    is_today = date_key == today_key
+
+    hours: list[dict[str, Any]] = []
+    for index, time_iso in enumerate(times):
+        if not isinstance(time_iso, str) or not time_iso.startswith(date_key):
+            continue
+        try:
+            hour = int(time_iso[11:13])
+        except (TypeError, ValueError):
+            continue
+        if not 0 <= hour <= 23:
+            continue
+        raw = radiation[index] if index < len(radiation) else None
+        try:
+            radiation_wm2 = max(0.0, float(raw)) if raw is not None else 0.0
+        except (TypeError, ValueError):
+            radiation_wm2 = 0.0
+        hour_key = time_iso[:13]
+        hours.append(
+            {
+                "hour": hour,
+                "radiationWm2": radiation_wm2,
+                "isCurrent": is_today and hour_key == current_hour_key,
+                "isPast": is_today and hour_key < current_hour_key,
+            }
+        )
+
+    if not hours:
+        return None
+
+    max_radiation = max((entry["radiationWm2"] for entry in hours), default=1.0)
+    max_radiation = max(max_radiation, 1.0)
+    return {
+        "timeZone": tz_name,
+        "date": date_key,
+        "hours": [
+            {
+                "hour": entry["hour"],
+                "levelPct": int(round((entry["radiationWm2"] / max_radiation) * 100)),
+                "isCurrent": entry["isCurrent"],
+                "isPast": entry["isPast"],
+            }
+            for entry in hours
+        ],
+        "maxRadiationWm2": max_radiation,
+    }
+
+
+async def fetch_hourly_insolation_by_day(lat: float, lon: float) -> Optional[dict[str, Any]]:
+    """
+    Hourly shortwave-radiation bars for local today and tomorrow (Open-Meteo ``timezone=auto``).
+
+    Coordinates stay server-side; response contains only normalized bar levels (0–100 per day).
+    """
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "hourly": "shortwave_radiation",
+        "forecast_days": 2,
+        "timezone": "auto",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.get(_OPEN_METEO_FORECAST, params=params)
+            r.raise_for_status()
+            data = r.json()
+    except Exception:
+        logger.exception("Open-Meteo forecast request failed (hourly insolation)")
+        return None
+
+    if not isinstance(data, dict):
+        return None
+    tz_name = data.get("timezone")
+    if not isinstance(tz_name, str) or not tz_name.strip():
+        return None
+    try:
+        tz = ZoneInfo(tz_name.strip())
+    except Exception:
+        return None
+
+    local_now = datetime.now(tz)
+    today_key = _get_zoned_date_key(local_now, tz)
+    tomorrow_key = _add_days_to_date_key(today_key, 1) if today_key else None
+    if not today_key or not tomorrow_key:
+        return None
+
+    today = _parse_hourly_insolation_for_date(data, today_key, local_now)
+    tomorrow = _parse_hourly_insolation_for_date(data, tomorrow_key, local_now)
+    if today is None and tomorrow is None:
+        return None
+
+    return {"today": today, "tomorrow": tomorrow}

@@ -257,6 +257,18 @@ class DeyeNightChargeFired(Base):
     )
 
 
+class DeyeSmartLoadPref(Base):
+    """Per-inverter: smart-load automation (PV vs Smart Load, Gen port On Grid always on)."""
+
+    __tablename__ = "deye_smart_load_pref"
+
+    device_sn: Mapped[str] = mapped_column(String(64), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    updated_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
 class OreeDamPrice(Base):
     """Hourly DAM price from OREE (UAH/MWh); period 1..24."""
 

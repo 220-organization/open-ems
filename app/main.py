@@ -42,6 +42,7 @@ from app.deye_night_charge_scheduler import deye_night_charge_loop
 from app.deye_peak_auto_scheduler import deye_peak_auto_discharge_loop
 from app.deye_ev_port_scheduler import deye_ev_port_export_loop
 from app.deye_self_consumption_auto_dam_scheduler import deye_self_consumption_auto_dam_loop
+from app.deye_smart_load_scheduler import deye_smart_load_loop
 from app.rate_limit_middleware import InMemoryIpRateLimiter, PerIpRateLimitMiddleware
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -75,6 +76,8 @@ async def lifespan(app: FastAPI):
         logger.info("Huawei FusionSolar: API disabled (HUAWEI_ENABLED=0)")
     elif huawei_configured():
         logger.info("Huawei FusionSolar: configured (base: %s)", settings.HUAWEI_BASE_URL)
+    elif not settings.HUAWEI_ENABLED:
+        logger.info("Huawei FusionSolar: disabled (HUAWEI_ENABLED=0; local dev uses ./run-local.sh -hua to enable)")
     else:
         hm = huawei_missing_env_names()
         logger.warning(
@@ -133,7 +136,7 @@ async def lifespan(app: FastAPI):
 
     stop_huawei_power: Optional[asyncio.Event] = None
     huawei_power_task: Optional[asyncio.Task[None]] = None
-    if settings.HUAWEI_POWER_SNAPSHOT_ENABLED:
+    if settings.HUAWEI_POWER_SNAPSHOT_ENABLED and huawei_configured():
         stop_huawei_power = asyncio.Event()
         huawei_power_task = asyncio.create_task(huawei_power_snapshot_loop(stop_huawei_power))
         logger.info(
@@ -153,7 +156,7 @@ async def lifespan(app: FastAPI):
 
     stop_huawei_station_energy: Optional[asyncio.Event] = None
     huawei_station_energy_task: Optional[asyncio.Task[None]] = None
-    if settings.HUAWEI_STATION_ENERGY_SNAPSHOT_ENABLED:
+    if settings.HUAWEI_STATION_ENERGY_SNAPSHOT_ENABLED and huawei_configured():
         stop_huawei_station_energy = asyncio.Event()
         huawei_station_energy_task = asyncio.create_task(
             huawei_station_energy_loop(stop_huawei_station_energy)
@@ -212,6 +215,16 @@ async def lifespan(app: FastAPI):
         logger.info(
             "Deye self-consumption auto DAM vs LCOE: tick every %ss when DEYE_* is set (DEYE_SELF_CONSUMPTION_AUTO_DAM_*)",
             settings.DEYE_SELF_CONSUMPTION_AUTO_DAM_INTERVAL_SEC,
+        )
+
+    stop_smart_load: Optional[asyncio.Event] = None
+    smart_load_task: Optional[asyncio.Task[None]] = None
+    if settings.DEYE_SMART_LOAD_SCHEDULER_ENABLED:
+        stop_smart_load = asyncio.Event()
+        smart_load_task = asyncio.create_task(deye_smart_load_loop(stop_smart_load))
+        logger.info(
+            "Deye smart-load: tick every %ss when DEYE_* is set (DEYE_SMART_LOAD_*)",
+            settings.DEYE_SMART_LOAD_INTERVAL_SEC,
         )
 
     yield
@@ -291,6 +304,13 @@ async def lifespan(app: FastAPI):
         sc_auto_dam_task.cancel()
         try:
             await sc_auto_dam_task
+        except asyncio.CancelledError:
+            pass
+    if smart_load_task is not None and stop_smart_load is not None:
+        stop_smart_load.set()
+        smart_load_task.cancel()
+        try:
+            await smart_load_task
         except asyncio.CancelledError:
             pass
     logger.info("Open EMS shutting down")

@@ -27,6 +27,16 @@
   --b2b-button-outline-radius: 14px;
   --b2b-button-outline-border: rgba(249, 76, 175, 0.35);
   --b2b-button-font-family: var(--mp-font);
+
+  /* LocationMapPicker toolbar / search (dark defaults) */
+  --mp-map-toolbar-bg: rgba(17, 12, 23, 0.92);
+  --mp-map-toolbar-border: var(--b2b-border-subtle);
+  --mp-map-control-bg: rgba(0, 0, 0, 0.28);
+  --mp-map-control-border: rgba(249, 76, 175, 0.45);
+  --mp-map-dropdown-bg: rgba(17, 12, 23, 0.96);
+  --mp-map-dropdown-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --mp-map-overlay-bg: rgba(17, 12, 23, 0.88);
+  --mp-map-control-hover-bg: rgba(249, 76, 175, 0.16);
 }
 
 .marketplace-hero {
@@ -49,6 +59,41 @@
   color: var(--mp-success);
   background: rgba(110, 231, 160, 0.1);
   border: 1px solid rgba(110, 231, 160, 0.35);
+}
+
+.marketplace-publish-error {
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  text-align: center;
+  font-size: 0.95rem;
+  color: var(--mp-error, #e5484d);
+  background: rgba(229, 72, 77, 0.08);
+  border: 1px solid rgba(229, 72, 77, 0.35);
+}
+
+.marketplace-pay-test-skip-btn {
+  display: block;
+  width: 100%;
+  margin-top: 0.75rem;
+  padding: 0.65rem 1rem;
+  border-radius: 10px;
+  border: 1px dashed var(--mp-border);
+  background: transparent;
+  color: var(--mp-muted);
+  font-family: var(--mp-font);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.marketplace-pay-test-skip-btn:hover:not(:disabled) {
+  border-color: var(--mp-body);
+  color: var(--mp-body);
+}
+
+.marketplace-pay-test-skip-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .marketplace-share-row {
@@ -375,4 +420,34 @@
   .marketplace-messenger-actions {
     flex-direction: column;
   }
+}
+
+/* Light theme — map search toolbar and lead form controls */
+[data-theme='light'] .marketplace-page {
+  --mp-map-toolbar-bg: rgba(255, 255, 255, 0.97);
+  --mp-map-toolbar-border: var(--pf-divider);
+  --mp-map-control-bg: var(--km220-input-bg, #ffffff);
+  --mp-map-control-border: var(--km220-input-border, rgba(20, 22, 28, 0.14));
+  --mp-map-dropdown-bg: #ffffff;
+  --mp-map-dropdown-shadow: 0 8px 24px rgba(20, 22, 28, 0.12);
+  --mp-map-overlay-bg: rgba(255, 255, 255, 0.94);
+  --mp-map-control-hover-bg: rgba(20, 22, 28, 0.06);
+  --b2b-button-outline-border: var(--km220-input-border, rgba(20, 22, 28, 0.14));
+}
+
+[data-theme='light'] .marketplace-page .marketplace-lead-option--active {
+  color: var(--mp-accent);
+}
+
+[data-theme='light'] .marketplace-modal-backdrop {
+  background: rgba(20, 22, 28, 0.35);
+}
+
+[data-theme='light'] .marketplace-modal-panel {
+  box-shadow: 0 12px 48px rgba(20, 22, 28, 0.12);
+}
+
+[data-theme='light'] .marketplace-modal-close:hover,
+[data-theme='light'] .marketplace-modal-close:focus-visible {
+  background: rgba(249, 76, 175, 0.08);
 }

@@ -1,6 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import KwhCalibrationModal from './KwhCalibrationModal';
-import { formatEnergyKwhText, inverterNeedsKwhCalibration } from './kwhCalibration';
+import {
+  formatEnergyKwhText,
+  inverterNeedsKwhCalibration,
+  readKwhCalibrationChoice,
+  writeKwhCalibrationChoice,
+} from './kwhCalibration';
 
 const KwhCalibrationContext = createContext(null);
 
@@ -13,30 +18,38 @@ const NOOP = {
 
 export function KwhCalibrationProvider({ inverterSn, t, children }) {
   const needsCalibration = inverterNeedsKwhCalibration(inverterSn);
-  /** Session-only: approximate kWh shown until reload or inverter change. */
-  const [optIn, setOptIn] = useState(false);
+  /** Approximate kWh visible after user confirms; persisted until local end of day. */
+  const [optIn, setOptIn] = useState(() => readKwhCalibrationChoice(inverterSn) === 'confirm');
+  /** Modal dismissed for today (decline); no re-prompt until midnight. */
+  const [snoozedToday, setSnoozedToday] = useState(() => readKwhCalibrationChoice(inverterSn) === 'decline');
   const [modalOpen, setModalOpen] = useState(false);
 
   useEffect(() => {
-    setOptIn(false);
+    const choice = readKwhCalibrationChoice(inverterSn);
+    setOptIn(choice === 'confirm');
+    setSnoozedToday(choice === 'decline');
     setModalOpen(false);
   }, [inverterSn]);
 
   const kwhHidden = needsCalibration && !optIn;
 
   const requestReveal = useCallback(() => {
-    if (!needsCalibration || optIn) return;
+    if (!needsCalibration || optIn || snoozedToday) return;
     setModalOpen(true);
-  }, [needsCalibration, optIn]);
+  }, [needsCalibration, optIn, snoozedToday]);
 
   const confirmApproximate = useCallback(() => {
+    writeKwhCalibrationChoice(inverterSn, 'confirm');
     setOptIn(true);
+    setSnoozedToday(false);
     setModalOpen(false);
-  }, []);
+  }, [inverterSn]);
 
   const declineApproximate = useCallback(() => {
+    writeKwhCalibrationChoice(inverterSn, 'decline');
+    setSnoozedToday(true);
     setModalOpen(false);
-  }, []);
+  }, [inverterSn]);
 
   const formatEnergyKwh = useCallback(
     (value, fmt, unit) => formatEnergyKwhText(value, fmt, unit, kwhHidden),

@@ -75,18 +75,6 @@ const TAB_LABEL_FALLBACK = {
   year: 'Year',
 };
 
-function shiftIsoDate(isoDate, deltaDays) {
-  const raw = String(isoDate || '').trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-  const d = new Date(`${raw}T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return raw;
-  d.setUTCDate(d.getUTCDate() + deltaDays);
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(d.getUTCDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
 function shiftByPeriod(isoDate, period, delta) {
   const raw = String(isoDate || '').trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;

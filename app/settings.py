@@ -338,6 +338,20 @@ EV_PORT_DEVICE_CLIENT_UI_ID: str = (os.environ.get("EV_PORT_DEVICE_CLIENT_UI_ID"
 # TOU SoC floor while SELLING_FIRST tracks an active EV job (low value allows discharge / export). Hardcoded — not env-overridable.
 DEYE_EV_PORT_EXPORT_TOU_SOC_PCT: int = 5
 
+# Backend: compare PV vs Smart Load every N seconds; manage Gen port "On Grid always on" (Deye SmartLoad API).
+DEYE_SMART_LOAD_SCHEDULER_ENABLED: bool = _env_bool("DEYE_SMART_LOAD_SCHEDULER_ENABLED", True)
+DEYE_SMART_LOAD_INTERVAL_SEC: int = _env_int("DEYE_SMART_LOAD_INTERVAL_SEC", 300, 60, 3600)
+DEYE_SMART_LOAD_MIN_SL_W: int = _env_int("DEYE_SMART_LOAD_MIN_SL_W", 100, 0, 50_000)
+DEYE_SMART_LOAD_PV_BELOW_STREAK: int = _env_int("DEYE_SMART_LOAD_PV_BELOW_STREAK", 3, 1, 12)
+DEYE_SMART_LOAD_HOURLY_PROBE_ENABLED: bool = _env_bool("DEYE_SMART_LOAD_HOURLY_PROBE_ENABLED", True)
+DEYE_SMART_LOAD_FORECAST_SKIP_INSOLATION_PCT: int = _env_int(
+    "DEYE_SMART_LOAD_FORECAST_SKIP_INSOLATION_PCT", 15, 0, 100
+)
+# Min samples in yesterday's Kyiv hour bucket to skip hourly probe (all pv < sl).
+DEYE_SMART_LOAD_YESTERDAY_SKIP_MIN_SAMPLES: int = _env_int(
+    "DEYE_SMART_LOAD_YESTERDAY_SKIP_MIN_SAMPLES", 2, 1, 12
+)
+
 # Per-client IP HTTP rate limit (sliding 60s window, in-process memory). Trust X-Forwarded-For only behind a trusted proxy.
 RATE_LIMIT_ENABLED: bool = _env_bool("RATE_LIMIT_ENABLED", True)
 RATE_LIMIT_PER_IP_PER_MINUTE: int = _env_int("RATE_LIMIT_PER_IP_PER_MINUTE", 600, 1, 10_000)

@@ -1,0 +1,248 @@
+.pf-solar-popup {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  min-height: 280px;
+  padding: 16px 14px;
+  background:
+    linear-gradient(165deg, rgba(216, 160, 232, 0.16) 0%, rgba(96, 48, 128, 0.1) 42%, rgba(255, 255, 255, 0.03) 100%);
+  border: 1px solid rgba(216, 160, 232, 0.34);
+  box-shadow:
+    0 10px 28px rgba(0, 0, 0, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 0 24px rgba(180, 100, 220, 0.14);
+}
+
+.pf-solar-popup--active {
+  background:
+    linear-gradient(165deg, rgba(232, 184, 255, 0.2) 0%, rgba(120, 60, 160, 0.12) 45%, rgba(255, 255, 255, 0.04) 100%);
+  border-color: rgba(232, 184, 255, 0.42);
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 0 28px rgba(200, 120, 240, 0.22);
+}
+
+.pf-solar-popup__title {
+  flex-shrink: 0;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.pf-solar-popup__head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  flex-shrink: 0;
+}
+
+.pf-solar-popup__icon {
+  font-size: 42px;
+  margin-bottom: 0;
+  filter: drop-shadow(0 0 10px rgba(255, 180, 80, 0.35));
+}
+
+.pf-solar-popup__power {
+  font-size: 34px;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.pf-solar-popup__power--active {
+  color: #c8f5dc;
+  text-shadow:
+    0 0 14px rgba(157, 212, 184, 0.55),
+    0 0 4px rgba(255, 224, 102, 0.35);
+}
+
+.pf-solar-popup__days {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  width: 100%;
+  flex-shrink: 0;
+  gap: 0;
+  padding: 11px 6px;
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.02) 100%);
+  border: 1px solid rgba(216, 160, 232, 0.22);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 4px 14px rgba(0, 0, 0, 0.18);
+}
+
+.pf-solar-popup__day {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pf-solar-popup__day:focus-visible {
+  outline: 2px solid rgba(232, 184, 255, 0.65);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+.pf-solar-popup__day--selected .pf-solar-popup__day-label {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.pf-solar-popup__day-indicator {
+  width: 5px;
+  height: 5px;
+  margin-top: 2px;
+  border-radius: 50%;
+  background: #ffe066;
+  box-shadow: 0 0 8px rgba(255, 224, 102, 0.85);
+}
+
+.pf-solar-popup__day-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 0;
+  background: linear-gradient(180deg, transparent, rgba(216, 160, 232, 0.35), transparent);
+}
+
+.pf-solar-popup__day-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.35px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.48);
+  line-height: 1.2;
+  text-align: center;
+}
+
+.pf-solar-popup__day-value {
+  font-size: 22px;
+  font-weight: 800;
+  color: #e8b8ff;
+  line-height: 1.1;
+  text-align: center;
+  text-shadow: 0 0 12px rgba(216, 160, 232, 0.38);
+}
+
+.pf-solar-popup__day-value--tomorrow {
+  color: #c8a0e0;
+  text-shadow: 0 0 8px rgba(184, 150, 212, 0.28);
+}
+
+.pf-solar-popup__day--selected .pf-solar-popup__day-value {
+  color: #f0d0ff;
+  text-shadow: 0 0 16px rgba(232, 184, 255, 0.52);
+}
+
+.pf-solar-popup__day--selected .pf-solar-popup__day-value--tomorrow {
+  color: #e8c8ff;
+  text-shadow: 0 0 14px rgba(216, 160, 232, 0.45);
+}
+
+.pf-solar-popup__hint {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.35;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.pf-solar-popup__lcoe {
+  margin-top: auto;
+  text-align: center;
+}
+
+.pf-node-popup-modal:has(.pf-solar-popup) {
+  width: min(92vw, 380px);
+  max-width: min(92vw, 380px);
+}
+
+/* Light theme — warm solar card, dark readable text (no white-on-lavender). */
+[data-theme="light"] .pf-solar-popup {
+  background: linear-gradient(165deg, #fffbeb 0%, #ffffff 48%, #fff8f0 100%);
+  border-color: rgba(217, 119, 6, 0.28);
+  box-shadow: 0 8px 28px rgba(20, 22, 28, 0.08);
+}
+
+[data-theme="light"] .pf-solar-popup--active {
+  background: linear-gradient(165deg, #fef3c7 0%, #ffffff 52%, #fff7ed 100%);
+  border-color: rgba(217, 119, 6, 0.42);
+  box-shadow:
+    0 10px 32px rgba(217, 119, 6, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+[data-theme="light"] .pf-solar-popup__title {
+  color: rgba(16, 18, 22, 0.58);
+}
+
+[data-theme="light"] .pf-solar-popup__power {
+  color: var(--pf-label, #15171c);
+  text-shadow: none;
+}
+
+[data-theme="light"] .pf-solar-popup__power--active {
+  color: #1e6b3f;
+  text-shadow: none;
+}
+
+[data-theme="light"] .pf-solar-popup__days {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(20, 22, 28, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+[data-theme="light"] .pf-solar-popup__day-label {
+  color: rgba(16, 18, 22, 0.52);
+}
+
+[data-theme="light"] .pf-solar-popup__day-value,
+[data-theme="light"] .pf-solar-popup__day-value--tomorrow {
+  color: #6d28d9;
+  text-shadow: none;
+}
+
+[data-theme="light"] .pf-solar-popup__day--selected .pf-solar-popup__day-label {
+  color: rgba(16, 18, 22, 0.72);
+}
+
+[data-theme="light"] .pf-solar-popup__day--selected .pf-solar-popup__day-value,
+[data-theme="light"] .pf-solar-popup__day--selected .pf-solar-popup__day-value--tomorrow {
+  color: #5b21b6;
+  text-shadow: none;
+}
+
+[data-theme="light"] .pf-solar-popup__day-divider {
+  background: linear-gradient(180deg, transparent, rgba(20, 22, 28, 0.12), transparent);
+}
+
+[data-theme="light"] .pf-solar-popup__hint,
+[data-theme="light"] .pf-solar-popup__lcoe {
+  color: rgba(16, 18, 22, 0.52);
+}
+
+[data-theme="light"] .pf-solar-popup__day-indicator {
+  background: #d97706;
+  box-shadow: 0 0 6px rgba(217, 119, 6, 0.45);
+}

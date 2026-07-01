@@ -1,8 +1,19 @@
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import PortStickerQrImage from './PortStickerQrImage';
 import RoundedQrImage from './RoundedQrImage';
 
-export default function SharePageModal({ open, url, copied, copyFailed, onClose, t }) {
+export default function SharePageModal({
+  open,
+  url,
+  copied,
+  copyFailed,
+  onClose,
+  t,
+  qrSize = 256,
+  qrVariant = 'rounded',
+  showCopyStatus = true,
+}) {
   useEffect(() => {
     if (!open) return undefined;
     const onKey = e => {
@@ -27,14 +38,22 @@ export default function SharePageModal({ open, url, copied, copyFailed, onClose,
           <h2 id="pf-share-page-title" className="pf-messenger-title">
             {t('sharePageModalTitle')}
           </h2>
-          {copied ? <p className="pf-share-modal-status">{t('sharePageCopied')}</p> : null}
-          {copyFailed ? <p className="pf-share-modal-status pf-share-modal-status--error">{t('sharePageFailed')}</p> : null}
-          <RoundedQrImage
-            className="pf-share-modal-qr"
-            url={url}
-            size={256}
-            alt={t('sharePageQrAlt')}
-          />
+          {showCopyStatus && copied ? <p className="pf-share-modal-status">{t('sharePageCopied')}</p> : null}
+          {showCopyStatus && copyFailed ? (
+            <p className="pf-share-modal-status pf-share-modal-status--error">{t('sharePageFailed')}</p>
+          ) : null}
+          {qrVariant === 'portSticker' ? (
+            <div className="pf-share-modal-qr pf-share-modal-qr--port-sticker">
+              <PortStickerQrImage url={url} size={qrSize} alt={t('sharePageQrAlt')} />
+            </div>
+          ) : (
+            <RoundedQrImage
+              className="pf-share-modal-qr"
+              url={url}
+              size={qrSize}
+              alt={t('sharePageQrAlt')}
+            />
+          )}
           <p className="pf-share-modal-url">{url}</p>
           <div className="pf-roi-modal-actions pf-share-modal-actions">
             <button type="button" className="pf-roi-modal-btn pf-roi-modal-btn--primary" onClick={onClose}>

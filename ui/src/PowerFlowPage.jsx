@@ -9,6 +9,7 @@ import {
   edgeInsetPx,
   flowMotionPath,
   formatPower,
+  formatPowerKwInteger,
 } from './powerFlowEngine';
 import DamChartPanel from './DamChartPanel';
 import RdnConsultationCallback from './RdnConsultationCallback';
@@ -16,12 +17,11 @@ import DeyeInverterMessengerModal from './DeyeInverterMessengerModal';
 import PeakExportHourlyChartModal from './PeakExportHourlyChartModal';
 import MonthlyRetailTariffChartModal from './MonthlyRetailTariffChartModal';
 import GridBalancingChartModal from './GridBalancingChartModal';
+import SolarNodePopupContent from './SolarNodePopupContent';
 import RoiStackStatistics from './RoiStackStatistics';
 import { KwhCalibrationProvider, useKwhCalibration } from './KwhCalibrationContext';
 import { VYRIY_EMS_LOGO_SRC } from './vyriyEmsLogo';
 import PartnerHubLogo from './PartnerHubLogo';
-import PageShareQrAside from './PageShareQrAside';
-import { pageShareUrlFromWindow } from './sharePageQr';
 import { DEYE_FLOW_BALANCE_PV_FACTOR, usesDeyeFlowBalance } from './deyeFlowBalanceSites';
 import { inverterSelectShortLabel, parseEvPortStationNumber } from './deyeInverterDisplay';
 import { clearInverterPinCache, readCachedInverterPin, rememberInverterPin } from './deyeInverterPinCache';
@@ -36,11 +36,69 @@ import {
   parseEssSelection,
 } from './essSelection';
 import PfScrollNumber from './PfScrollNumber';
+import PortStickerQrImage from './PortStickerQrImage';
+import SharePageModal from './SharePageModal';
+import KioskFleetGenConsChart from './KioskFleetGenConsChart';
+import { openEmsUrlWithoutKiosk, openEmsUrlWithKiosk } from './openEmsKiosk';
+import { pageShareUrlFromWindow } from './sharePageQr';
+import { useMinWidth } from './useMinWidth';
+import { useScreenWakeLock } from './useScreenWakeLock';
 import './power-flow.css';
 import './dam-chart.css';
+import './openEmsKiosk.css';
 import { useOpenEmsSeo } from './useOpenEmsSeo';
 
 const INVERTER_STORAGE = 'pf-deye-inverter';
+const PF_GEN_PORT_SETTINGS_OPEN_KEY = 'pf-gen-port-settings-open';
+/** Gen port Smart Load / On Grid toggles — visible in UI but disabled until rollout is complete. */
+const GEN_PORT_SETTINGS_CONTROLS_ENABLED = false;
+
+function readGenPortSettingsOpen() {
+  try {
+    const v = localStorage.getItem(PF_GEN_PORT_SETTINGS_OPEN_KEY);
+    if (v === '1') return true;
+    if (v === '0') return false;
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
+function writeGenPortSettingsOpen(open) {
+  try {
+    localStorage.setItem(PF_GEN_PORT_SETTINGS_OPEN_KEY, open ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
+
+function formatGenPortDeyeFeedback(data) {
+  if (!data?.deye) return '';
+  try {
+    return `Deye: ${JSON.stringify(data.deye)}`;
+  } catch {
+    return '';
+  }
+}
+
+function genOnGridAlwaysOnFromApiData(data) {
+  if (data && typeof data.genOnGridAlwaysOn === 'boolean') return data.genOnGridAlwaysOn;
+  const orderResult = data?.deye?.orderResult;
+  if (typeof orderResult === 'string' && orderResult.trim()) {
+    try {
+      const parsed = JSON.parse(orderResult);
+      if (parsed?.verified === true && typeof parsed.onGridAlwaysOn === 'boolean') {
+        return parsed.onGridAlwaysOn;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return undefined;
+}
+
+/** Wide viewport — kiosk entry button (aligned with B2B graphView=1 at 992px). */
+const KIOSK_WIDE_MIN_PX = 992;
 
 /** Huawei Northbound thirdData — strict rate limits (failCode 407 if polled too often). */
 const HUAWEI_NORTHBOUND_POLL_MS = 210_000;
@@ -658,6 +716,104 @@ function landingMonthlyRatesTariffVsUkraineSupplement(landingTotals, bcp47) {
   return { kind: 'less', deltaPct: vs.deltaPct, deltaStr };
 }
 
+function TariffVsUkraineMessage({ supplement, t, className, pctClassName }) {
+  if (!supplement) return null;
+  const pctModifier =
+    supplement.kind === 'more' ? `${pctClassName}--up` : supplement.kind === 'less' ? `${pctClassName}--down` : '';
+  return (
+    <p className={className}>
+      {supplement.kind === 'equal' ? (
+        t('powerFlowLandingTariffVsUkraineEqual')
+      ) : supplement.kind === 'more' ? (
+        <>
+          {t('powerFlowLandingTariffVsUkraineMoreBefore')}
+          <span className={[pctClassName, pctModifier].filter(Boolean).join(' ')}>{supplement.deltaStr}%</span>
+          {t('powerFlowLandingTariffVsUkraineMoreAfter')}
+        </>
+      ) : (
+        <>
+          {t('powerFlowLandingTariffVsUkraineLessBefore')}
+          <span className={[pctClassName, pctModifier].filter(Boolean).join(' ')}>{supplement.deltaStr}%</span>
+          {t('powerFlowLandingTariffVsUkraineLessAfter')}
+        </>
+      )}
+    </p>
+  );
+}
+
+function readGeoForEvPorts() {
+  return new Promise(resolve => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      p => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }),
+      () => resolve(null),
+      { maximumAge: 300_000, timeout: 8_000 }
+    );
+  });
+}
+
+/** EV port count + dropdown — sits under the EV node on the power-flow graph. */
+function EvPortPicker({
+  t,
+  evPortsUsedCount,
+  stationFilter,
+  chargingPortsLoading,
+  portSelectOptions,
+  onStationChange,
+}) {
+  return (
+    <div
+      className="pf-ev-port-picker"
+      onClick={e => e.stopPropagation()}
+      onKeyDown={e => e.stopPropagation()}
+    >
+      <span
+        className="pf-ev-ports-used-count"
+        aria-label={`${t('stationPlaceholder')}: ${evPortsUsedCount} x`}
+      >
+        {evPortsUsedCount} x
+      </span>
+      <select
+        id="pf-station"
+        className="pf-inverter-select pf-header-select--port pf-ev-port-picker__select"
+        aria-label={t('stationLabel')}
+        title={t('stationPlaceholder')}
+        value={stationFilter}
+        onChange={onStationChange}
+      >
+        <option value="">{chargingPortsLoading ? '…' : t('stationPlaceholder')}</option>
+        {portSelectOptions.map(row => {
+          const num = String(row.number);
+          const currentKw = formatPowerKwInteger(Number(row.powerWt)) ?? 0;
+          const maxKw = formatPowerKwInteger(Number(row.maxPowerWt));
+          return (
+            <option key={num} value={num}>
+              {t('evPortSelectOption', {
+                number: num,
+                current: currentKw,
+                max: maxKw != null && maxKw > 0 ? maxKw : '—',
+              })}
+            </option>
+          );
+        })}
+      </select>
+    </div>
+  );
+}
+
+function EvNodeWithPortPicker({ kioskMode, evNode, picker }) {
+  if (kioskMode) return evNode;
+  return (
+    <div className="pf-node-ev-stack" data-pos="right-bottom">
+      {evNode}
+      {picker}
+    </div>
+  );
+}
+
 const LANDING_MONTHLY_RATES_WRAP_CLASS =
   'pf-landing-totals__counter-wrap pf-landing-totals__counter-wrap--monthly-rates';
 const LANDING_MONTHLY_RATES_COUNTER_CLASS = 'pf-landing-totals__counter pf-landing-totals__counter--monthly-rates';
@@ -1065,9 +1221,9 @@ function formatLandingTotalsDisplay(landingTotals, bcp47, t) {
     const retailPrev = landingRetailUahPerKwh(dam.prevAvgUahPerKwh);
     const rate = retailCurrent != null ? fmtRate.format(retailCurrent) : '—';
     const isDeviceScope =
-    landingTotals.exportScope === 'device' ||
-    landingTotals.exportScope === 'huawei' ||
-    landingTotals.exportScope === 'ev_ports';
+      landingTotals.exportScope === 'device' ||
+      landingTotals.exportScope === 'huawei' ||
+      landingTotals.exportScope === 'ev_ports';
     const personalDamWavg = dam.currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd;
     let damTariffLine = null;
     if (isDeviceScope && personalDamWavg != null && Number.isFinite(Number(personalDamWavg))) {
@@ -1306,8 +1462,10 @@ export default function PowerFlowPage({
   LOCALE_NAMES,
   onLangSelectChange,
   isDark,
+  kioskMode = false,
 }) {
   const graphRef = useRef(null);
+  const isWideViewport = useMinWidth(KIOSK_WIDE_MIN_PX);
   const [graphWidth, setGraphWidth] = useState(400);
   const [stationFilter, setStationFilter] = useState(() => {
     try {
@@ -1439,46 +1597,38 @@ export default function PowerFlowPage({
   /** First solar-insolation fetch per inverter sets `loading` (page overlay); hourly refresh does not. */
   const solarInsolationInitialFetchRef = useRef(true);
 
+  const loadChargingPorts = useCallback(async () => {
+    if (!geoRequestedRef.current) {
+      geoRequestedRef.current = true;
+      geoForPortsRef.current = await readGeoForEvPorts();
+    }
+    const geo = geoForPortsRef.current;
+    const params = new URLSearchParams();
+    if (geo) {
+      params.set('lat', String(geo.lat));
+      params.set('lon', String(geo.lon));
+    }
+    const qs = params.toString();
+    const r = await fetch(apiUrl(`/api/b2b/charging-ports${qs ? `?${qs}` : ''}`), {
+      cache: 'no-store',
+    });
+    const data = await r.json();
+    const items = Array.isArray(data?.items) ? data.items : [];
+    return { ok: data?.ok !== false, items };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
-    const readGeoOnce = () =>
-      new Promise(resolve => {
-        if (typeof navigator === 'undefined' || !navigator.geolocation) {
-          resolve(null);
-          return;
-        }
-        navigator.geolocation.getCurrentPosition(
-          p => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }),
-          () => resolve(null),
-          { maximumAge: 300_000, timeout: 8_000 }
-        );
-      });
-
     const load = async () => {
       if (chargingPortsInitialFetchRef.current) {
         setChargingPorts(s => ({ ...s, loading: true }));
       }
       try {
-        if (!geoRequestedRef.current) {
-          geoRequestedRef.current = true;
-          geoForPortsRef.current = await readGeoOnce();
-        }
-        const geo = geoForPortsRef.current;
-        const params = new URLSearchParams();
-        if (geo) {
-          params.set('lat', String(geo.lat));
-          params.set('lon', String(geo.lon));
-        }
-        const qs = params.toString();
-        const r = await fetch(apiUrl(`/api/b2b/charging-ports${qs ? `?${qs}` : ''}`), {
-          cache: 'no-store',
-        });
-        const data = await r.json();
+        const { ok, items } = await loadChargingPorts();
         if (cancelled) return;
-        const items = Array.isArray(data?.items) ? data.items : [];
         setChargingPorts({
           loading: false,
-          ok: data?.ok !== false,
+          ok,
           items,
         });
       } catch {
@@ -1496,7 +1646,7 @@ export default function PowerFlowPage({
       cancelled = true;
       clearInterval(id);
     };
-  }, []);
+  }, [loadChargingPorts]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2005,7 +2155,7 @@ export default function PowerFlowPage({
       cancelled = true;
       clearInterval(id);
     };
-  }, [essAnySelected, inverterRows.configured, inverterRows.error, fleetDeyeRepresentativeSnsKey]);
+  }, [essAnySelected, inverterRows.configured, inverterRows.error, fleetDeyeRepresentativeSnsKey, deyeCombinedItems]);
 
   const huaweiStationCodesKey = useMemo(
     () =>
@@ -2070,7 +2220,14 @@ export default function PowerFlowPage({
       cancelled = true;
       clearInterval(id);
     };
-  }, [essAnySelected, huaweiRows.configured, huaweiRows.error, huaweiRows.authFailed, huaweiStationCodesKey]);
+  }, [
+    essAnySelected,
+    huaweiRows.configured,
+    huaweiRows.error,
+    huaweiRows.authFailed,
+    huaweiStationCodesKey,
+    huaweiRows.items,
+  ]);
 
   const selInverterPinRequired = useMemo(() => {
     const sn = selInverterSn.trim();
@@ -2157,6 +2314,10 @@ export default function PowerFlowPage({
   const [chargeSocDeltaPct, setChargeSocDeltaPct] = useState(10);
   const [selfConsumptionEnabled, setSelfConsumptionEnabled] = useState(false);
   const [nightChargeEnabled, setNightChargeEnabled] = useState(false);
+  const [smartLoadEnabled, setSmartLoadEnabled] = useState(false);
+  const [genOnGridAlwaysOn, setGenOnGridAlwaysOn] = useState(false);
+  const [genOnGridAlwaysOnLoading, setGenOnGridAlwaysOnLoading] = useState(false);
+  const [genPortSettingsOpen, setGenPortSettingsOpen] = useState(() => readGenPortSettingsOpen());
   const [toolbarPrefsLoading, setToolbarPrefsLoading] = useState(false);
   /** Fleet or per-inverter totals from GET /api/power-flow/landing-totals. */
   const [landingTotals, setLandingTotals] = useState(null);
@@ -2247,7 +2408,7 @@ export default function PowerFlowPage({
     };
     setLandingExportMetric(preferredLandingExportMetric(offers));
     writeStoredLandingExportMetric(selInverterSn, selHuaweiStationCode, preferredLandingExportMetric(offers));
-  }, [selInverterSn, selHuaweiStationCode, landingTotals]);
+  }, [selInverterSn, selHuaweiStationCode, landingTotals, selEvPortsAcdc]);
 
   useEffect(() => {
     replaceLandingExportMetricInUrl(landingExportMetric);
@@ -2317,6 +2478,7 @@ export default function PowerFlowPage({
     landingExportMetric,
     selInverterSn,
     selHuaweiStationCode,
+    selEvPortsAcdc,
   ]);
 
   const [exportHourlyChartOpen, setExportHourlyChartOpen] = useState(false);
@@ -2400,12 +2562,23 @@ export default function PowerFlowPage({
     const html = String(event.currentTarget.innerHTML || '').replace(/\sid="[^"]*"/g, '');
     if (!html) return;
     setNodePopup({
+      variant: 'html',
       html,
       title: options.title ? String(options.title) : '',
       actionHref: options.actionHref ? String(options.actionHref) : '',
       actionLabel: options.actionLabel ? String(options.actionLabel) : '',
     });
   }, []);
+
+  const openSolarNodePopup = useCallback(
+    event => {
+      if (!event?.currentTarget) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setNodePopup({ variant: 'solar', title: t('nodeSolar') });
+    },
+    [t]
+  );
 
   useEffect(() => {
     peakDamEnabledRef.current = peakDamDischargeEnabled;
@@ -2459,6 +2632,7 @@ export default function PowerFlowPage({
       setChargeSocDeltaPct(10);
       setSelfConsumptionEnabled(false);
       setNightChargeEnabled(false);
+      setSmartLoadEnabled(false);
       setToolbarPrefsLoading(false);
       return undefined;
     }
@@ -2472,6 +2646,7 @@ export default function PowerFlowPage({
       setChargeSocDeltaPct(10);
       setSelfConsumptionEnabled(false);
       setNightChargeEnabled(false);
+      setSmartLoadEnabled(false);
       setToolbarPrefsLoading(false);
       return undefined;
     }
@@ -2480,16 +2655,18 @@ export default function PowerFlowPage({
       setToolbarPrefsLoading(true);
       try {
         const q = new URLSearchParams({ deviceSn: selInverterSn });
-        const [rPeak, rLow, rSc, rNight] = await Promise.all([
+        const [rPeak, rLow, rSc, rNight, rSmart] = await Promise.all([
           fetch(`${apiUrl('/api/deye/peak-auto-discharge')}?${q}`, { cache: 'no-store' }),
           fetch(`${apiUrl('/api/deye/low-dam-charge')}?${q}`, { cache: 'no-store' }),
           fetch(`${apiUrl('/api/deye/self-consumption')}?${q}`, { cache: 'no-store' }),
           fetch(`${apiUrl('/api/deye/night-charge')}?${q}`, { cache: 'no-store' }),
+          fetch(`${apiUrl('/api/deye/smart-load')}?${q}`, { cache: 'no-store' }),
         ]);
         const dataPeak = await rPeak.json().catch(() => ({}));
         const dataLow = await rLow.json().catch(() => ({}));
         const dataSc = await rSc.json().catch(() => ({}));
         const dataNight = await rNight.json().catch(() => ({}));
+        const dataSmart = await rSmart.json().catch(() => ({}));
         if (cancelled) return;
         if (rPeak.ok && dataPeak.ok && dataPeak.configured && typeof dataPeak.enabled === 'boolean') {
           setPeakDamDischargeEnabled(dataPeak.enabled);
@@ -2540,6 +2717,18 @@ export default function PowerFlowPage({
         } else {
           setNightChargeEnabled(false);
         }
+        if (rSmart.ok && dataSmart.ok && dataSmart.configured && typeof dataSmart.smartLoadEnabled === 'boolean') {
+          setSmartLoadEnabled(dataSmart.smartLoadEnabled);
+        } else if (rSmart.ok && dataSmart.ok && dataSmart.configured && typeof dataSmart.enabled === 'boolean') {
+          setSmartLoadEnabled(dataSmart.enabled);
+        } else {
+          setSmartLoadEnabled(false);
+        }
+        if (rSmart.ok && dataSmart.ok && dataSmart.configured && typeof dataSmart.genOnGridAlwaysOn === 'boolean') {
+          setGenOnGridAlwaysOn(dataSmart.genOnGridAlwaysOn);
+        } else {
+          setGenOnGridAlwaysOn(false);
+        }
       } catch {
         if (!cancelled) {
           setPeakDamDischargeEnabled(false);
@@ -2548,6 +2737,8 @@ export default function PowerFlowPage({
           setChargeSocDeltaPct(10);
           setSelfConsumptionEnabled(false);
           setNightChargeEnabled(false);
+          setSmartLoadEnabled(false);
+          setGenOnGridAlwaysOn(false);
         }
       } finally {
         if (!cancelled) setToolbarPrefsLoading(false);
@@ -2706,6 +2897,100 @@ export default function PowerFlowPage({
     },
     [selInverterSn]
   );
+
+  const saveSmartLoadPref = useCallback(
+    async (nextEnabled, pin) => {
+      const sn = selInverterSn?.trim();
+      if (!sn) return null;
+      const body = { deviceSn: sn, enabled: nextEnabled };
+      const p = pin != null ? String(pin).trim() : '';
+      if (p) body.pin = p;
+      const r = await fetch(apiUrl('/api/deye/smart-load'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        cache: 'no-store',
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        if (r.status === 403) {
+          clearInverterPinCache(sn);
+          setPinCacheBust(x => x + 1);
+        }
+        let msg = data.detail ?? r.statusText;
+        if (Array.isArray(msg)) {
+          msg = msg.map(x => (x && typeof x === 'object' ? x.msg || JSON.stringify(x) : x)).join('; ');
+        }
+        throw new Error(String(msg || 'Save failed'));
+      }
+      if (p) {
+        rememberInverterPin(sn, p);
+        setPinCacheBust(x => x + 1);
+      }
+      return data;
+    },
+    [selInverterSn]
+  );
+
+  const saveGenOnGridAlwaysOn = useCallback(
+    async (nextEnabled, pin) => {
+      const sn = selInverterSn?.trim();
+      if (!sn) return null;
+      const body = { deviceSn: sn, enabled: nextEnabled };
+      const p = pin != null ? String(pin).trim() : '';
+      if (p) body.pin = p;
+      const r = await fetch(apiUrl('/api/deye/smart-load/gen-port'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        cache: 'no-store',
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        if (r.status === 403) {
+          clearInverterPinCache(sn);
+          setPinCacheBust(x => x + 1);
+        }
+        let msg = data.detail ?? r.statusText;
+        if (Array.isArray(msg)) {
+          msg = msg.map(x => (x && typeof x === 'object' ? x.msg || JSON.stringify(x) : x)).join('; ');
+        }
+        let errMsg = String(msg || 'Save failed');
+        const deyeDbg = formatGenPortDeyeFeedback(data);
+        if (deyeDbg) errMsg = `${errMsg} | ${deyeDbg}`;
+        throw new Error(errMsg);
+      }
+      if (p) {
+        rememberInverterPin(sn, p);
+        setPinCacheBust(x => x + 1);
+      }
+      return data;
+    },
+    [selInverterSn]
+  );
+
+  const runGenOnGridAlwaysOnSave = useCallback(
+    async (nextEnabled, pin) => {
+      setGenOnGridAlwaysOnLoading(true);
+      try {
+        const data = await saveGenOnGridAlwaysOn(nextEnabled, pin);
+        const confirmed = genOnGridAlwaysOnFromApiData(data);
+        if (typeof confirmed === 'boolean') {
+          setGenOnGridAlwaysOn(confirmed);
+        }
+        const deyeFb = formatGenPortDeyeFeedback(data);
+        setDischarge2Feedback(deyeFb || '');
+        return data;
+      } finally {
+        setGenOnGridAlwaysOnLoading(false);
+      }
+    },
+    [saveGenOnGridAlwaysOn]
+  );
+
+  useEffect(() => {
+    setGenOnGridAlwaysOnLoading(false);
+  }, [selInverterSn]);
 
   useEffect(() => {
     if (!inverterRows.configured || inverterRows.items.length === 0) {
@@ -3140,6 +3425,49 @@ export default function PowerFlowPage({
     window.history.replaceState({}, '', u);
   }, []);
 
+  const openKiosk = useCallback(() => {
+    try {
+      const next = openEmsUrlWithKiosk(window.location.href);
+      window.history.pushState({}, '', next);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const exitKiosk = useCallback(() => {
+    try {
+      const next = openEmsUrlWithoutKiosk(window.location.href);
+      window.history.replaceState({}, '', next);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useScreenWakeLock(kioskMode);
+
+  useEffect(() => {
+    if (!kioskMode) return undefined;
+    document.documentElement.classList.add('open-ems-kiosk');
+    document.documentElement.setAttribute('data-theme', 'light');
+    return () => {
+      document.documentElement.classList.remove('open-ems-kiosk');
+    };
+  }, [kioskMode]);
+
+  const pageShareUrl = useMemo(() => pageShareUrlFromWindow({ stripParams: ['kiosk'] }), []);
+
+  const [graphShareQrOpen, setGraphShareQrOpen] = useState(false);
+  const openGraphShareQrModal = useCallback(e => {
+    e.preventDefault();
+    e.stopPropagation();
+    setGraphShareQrOpen(true);
+  }, []);
+  const closeGraphShareQrModal = useCallback(() => {
+    setGraphShareQrOpen(false);
+  }, []);
+
   /** When the selected inverter label contains ``evport<N>``, select that EV port in the header dropdown. */
   useEffect(() => {
     if (inverterRows.loading || inverterRows.error || !inverterRows.configured) return;
@@ -3212,7 +3540,7 @@ export default function PowerFlowPage({
     ? { solarW: 0, gridW: 0, essW: 0, minerW: 0, consumptionW: 0 }
     : computeSimulatedSources(consumptionMw, liveMinerW);
 
-  const { solarW, gridW, essW, minerW, consumptionW } = sim;
+  const { solarW, gridW, essW } = sim;
 
   const fleetDeyeAggregateActive =
     !essAnySelected && inverterRows.configured && !inverterRows.error && fleetDeyeAggregate.okResponses > 0;
@@ -3390,8 +3718,11 @@ export default function PowerFlowPage({
     loadFlowActive ||
     (graphDisplayEssW != null && Math.abs(graphDisplayEssW) > 0) ||
     graphMinerFlowW > 0;
-  const geom = useMemo(() => computeWideGeometry(graphWidth), [graphWidth]);
-  const graphAnchorPct = useMemo(() => (edgeInsetPx(graphWidth) / Math.max(graphWidth, 1)) * 100, [graphWidth]);
+  const geom = useMemo(() => computeWideGeometry(graphWidth, { kiosk: kioskMode }), [graphWidth, kioskMode]);
+  const graphAnchorPct = useMemo(
+    () => (edgeInsetPx(graphWidth, { kiosk: kioskMode }) / Math.max(graphWidth, 1)) * 100,
+    [graphWidth, kioskMode]
+  );
   const gridDamMonthAvgUahPerKwh = useMemo(() => {
     const dam = landingTotals?.dam;
     if (!dam?.configured) return null;
@@ -3456,10 +3787,6 @@ export default function PowerFlowPage({
     fleetDeyeAggregate.okResponses === 0;
   const evBusy = fleetDeyePollBusy;
   const qrBase = process.env.PUBLIC_URL || '';
-  const pageShareUrl = useMemo(
-    () => pageShareUrlFromWindow(),
-    [stationFilter, selInverterSn, locale, selHuaweiStationCode, essSel.provider, evOnlyFocusMode],
-  );
 
   const essSocPercent = useMemo(() => {
     const ubSn = selUbetterSn.trim();
@@ -3512,15 +3839,7 @@ export default function PowerFlowPage({
       });
     }
     return t('dischargeSoc2Hint');
-  }, [
-    selInverterSn,
-    essSocHasKey,
-    dischargeGoDisabledInsufficientSoc,
-    essSocPercent,
-    dischargeSocDeltaPct,
-    inverterSocFmt,
-    t,
-  ]);
+  }, [selInverterSn, essSocHasKey, dischargeGoDisabledInsufficientSoc, dischargeSocDeltaPct, inverterSocFmt, t]);
 
   const clearDischargeHoverTipTimer = useCallback(() => {
     if (dischargeHoverTipTimerRef.current != null) {
@@ -3899,6 +4218,21 @@ export default function PowerFlowPage({
       } else if (g.kind === 'nightCharge') {
         const data = await saveNightChargePref(g.nextEnabled, g.nextPct, pin);
         applyNightChargeToolbarSnap(data);
+      } else if (g.kind === 'smartLoad') {
+        const data = await saveSmartLoadPref(g.nextEnabled, pin);
+        if (data && typeof data.smartLoadEnabled === 'boolean') {
+          setSmartLoadEnabled(data.smartLoadEnabled);
+        } else if (data && typeof data.enabled === 'boolean') {
+          setSmartLoadEnabled(data.enabled);
+        }
+      } else if (g.kind === 'genOnGrid') {
+        try {
+          await runGenOnGridAlwaysOnSave(g.nextEnabled, pin);
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err);
+          setWritePinError(m);
+          return;
+        }
       }
       setWritePinGate(null);
       setWritePinValue('');
@@ -3914,6 +4248,8 @@ export default function PowerFlowPage({
     saveLowDamChargePref,
     saveSelfConsumptionPref,
     saveNightChargePref,
+    saveSmartLoadPref,
+    runGenOnGridAlwaysOnSave,
     applyNightChargeToolbarSnap,
     selInverterEvportBound,
   ]);
@@ -4052,12 +4388,17 @@ export default function PowerFlowPage({
     };
   }, [selInverterSn, selHuaweiStationCode, selEvPortsAcdc, inverterListReady]);
 
+  const flowTariffVsUkraineSupplement = useMemo(
+    () => landingMonthlyRatesTariffVsUkraineSupplement(landingTotals, bcp47),
+    [landingTotals, bcp47]
+  );
+
   const showPowerFlowSections =
     (!inverterRows.error && (inverterRows.loading || inverterRows.configured)) ||
     (!huaweiRows.error && (huaweiRows.loading || huaweiRows.configured)) ||
     (!ubetterRows.error && (ubetterRows.loading || ubetterRows.configured));
   const dischargeFeedbackText = discharge2Feedback;
-  /** One full-page (main column) blur until initial REST payloads needed for Power Flow are ready — no per-section blur. */
+  /** Blur below the power-flow graph until initial REST payloads are ready — site header and flow stay visible. */
   const pageRestHydrationPending =
     inverterRows.loading ||
     huaweiRows.loading ||
@@ -4093,10 +4434,26 @@ export default function PowerFlowPage({
     !huaweiListReady &&
     !ubetterListReady;
 
+  const evPortPicker = (
+    <EvPortPicker
+      t={t}
+      evPortsUsedCount={evPortsUsedCount}
+      stationFilter={stationFilter}
+      chargingPortsLoading={chargingPorts.loading}
+      portSelectOptions={portSelectOptions}
+      onStationChange={onStationChange}
+    />
+  );
+
   return (
     <KwhCalibrationProvider inverterSn={selInverterSn} t={t}>
-      <div className="pf-body">
-        <div className="pf-root">
+      <div className={`pf-body${kioskMode ? ' pf-body--kiosk' : ''}`}>
+        {kioskMode ? (
+          <button type="button" className="open-ems-kiosk-close" onClick={exitKiosk}>
+            ← {t('openEmsKioskClose')}
+          </button>
+        ) : null}
+        <div className={`pf-root${kioskMode ? ' pf-root--kiosk' : ''}`}>
           <div className="pf-top-bar">
             <header className="pf-header">
               <div className="pf-header-primary">
@@ -4210,6 +4567,549 @@ export default function PowerFlowPage({
           </div>
 
           <div className="pf-page-main" aria-busy={pageRestHydrationPending ? 'true' : undefined}>
+            {isWideViewport && !kioskMode ? (
+              <div className="pf-kiosk-wide-actions">
+                <button type="button" className="pf-kiosk-expand-btn" onClick={openKiosk}>
+                  {t('openEmsKioskOpen')}
+                </button>
+              </div>
+            ) : null}
+
+            <div className={kioskMode ? 'pf-kiosk-layout' : 'pf-kiosk-layout-passthrough'}>
+              <div className={kioskMode ? 'pf-kiosk-layout__graph' : 'pf-kiosk-layout-passthrough'}>
+                <div className={`pf-graph-wrap${kioskMode ? ' pf-graph-wrap--kiosk' : ''}`}>
+                  <div
+                    id="pf-graph"
+                    ref={graphRef}
+                    className={`pf-graph${kioskMode ? ' pf-graph--kiosk' : ''}`}
+                    style={{ '--pf-graph-anchor-pct': `${graphAnchorPct}%` }}
+                    aria-label={t('graphAriaLabel')}
+                  >
+                    <div className="pf-graph-sizer" aria-hidden="true" />
+                    <svg id="pf-svg" className="pf-flow-svg" viewBox="0 0 400 400" preserveAspectRatio="xMidYMid meet">
+                      <defs>
+                        <radialGradient
+                          id="pf-flow-dot-grad"
+                          cx="40%"
+                          cy="40%"
+                          r="65%"
+                          gradientUnits="objectBoundingBox"
+                        >
+                          <stop offset="0%" stopColor="#fdf4ff" />
+                          <stop offset="60%" stopColor="#e879f9" />
+                          <stop offset="100%" stopColor="#a855f7" />
+                        </radialGradient>
+                      </defs>
+                      <g id="pf-lines">
+                        <line
+                          id="pf-line-solar"
+                          className="pf-line"
+                          data-active={solarFlowActive ? 'true' : 'false'}
+                          x1={geom.solarLine.start.x}
+                          y1={geom.solarLine.start.y}
+                          x2={geom.solarLine.end.x}
+                          y2={geom.solarLine.end.y}
+                        />
+                        <line
+                          id="pf-line-grid"
+                          className="pf-line"
+                          data-active={gridLineCoords.active ? 'true' : 'false'}
+                          x1={gridLineCoords.start.x}
+                          y1={gridLineCoords.start.y}
+                          x2={gridLineCoords.end.x}
+                          y2={gridLineCoords.end.y}
+                        />
+                        <line
+                          id="pf-line-load"
+                          className="pf-line"
+                          data-active={loadFlowActive ? 'true' : 'false'}
+                          x1={geom.loadLine.start.x}
+                          y1={geom.loadLine.start.y}
+                          x2={geom.loadLine.end.x}
+                          y2={geom.loadLine.end.y}
+                        />
+                        <line
+                          id="pf-line-ess"
+                          className="pf-line"
+                          data-active={essActive ? 'true' : 'false'}
+                          x1={essCoords.start.x}
+                          y1={essCoords.start.y}
+                          x2={essCoords.end.x}
+                          y2={essCoords.end.y}
+                        />
+                        <line
+                          id="pf-line-miner"
+                          className="pf-line"
+                          data-active={hasFlow && graphMinerFlowW > 0 ? 'true' : 'false'}
+                          x1={geom.minerLine.start.x}
+                          y1={geom.minerLine.start.y}
+                          x2={geom.minerLine.end.x}
+                          y2={geom.minerLine.end.y}
+                        />
+                        <line
+                          id="pf-line-cons"
+                          className="pf-line"
+                          data-active={evFlowActive ? 'true' : 'false'}
+                          x1={geom.consumptionLine.start.x}
+                          y1={geom.consumptionLine.start.y}
+                          x2={geom.consumptionLine.end.x}
+                          y2={geom.consumptionLine.end.y}
+                        />
+                      </g>
+                      <g id="pf-dots">
+                        <g id="pf-dot-solar" style={{ display: solarFlowActive ? undefined : 'none' }}>
+                          <MotionDot
+                            pathD={flowMotionPath(
+                              geom.solarLine.start.x,
+                              geom.solarLine.start.y,
+                              geom.solarLine.end.x,
+                              geom.solarLine.end.y
+                            )}
+                          />
+                        </g>
+                        <g id="pf-dot-grid" style={{ display: gridLineCoords.active ? undefined : 'none' }}>
+                          <MotionDot pathD={gridDotPath} />
+                        </g>
+                        <g id="pf-dot-load" style={{ display: loadFlowActive ? undefined : 'none' }}>
+                          <MotionDot
+                            pathD={flowMotionPath(
+                              geom.loadLine.start.x,
+                              geom.loadLine.start.y,
+                              geom.loadLine.end.x,
+                              geom.loadLine.end.y
+                            )}
+                          />
+                        </g>
+                        <g id="pf-dot-ess" style={{ display: essActive ? undefined : 'none' }}>
+                          <MotionDot pathD={essPath} />
+                        </g>
+                        <g id="pf-dot-miner" style={{ display: hasFlow && graphMinerFlowW > 0 ? undefined : 'none' }}>
+                          <MotionDot
+                            pathD={flowMotionPath(
+                              geom.minerLine.start.x,
+                              geom.minerLine.start.y,
+                              geom.minerLine.end.x,
+                              geom.minerLine.end.y
+                            )}
+                          />
+                        </g>
+                        <g id="pf-dot-cons" style={{ display: evFlowActive ? undefined : 'none' }}>
+                          <MotionDot
+                            pathD={flowMotionPath(
+                              geom.consumptionLine.start.x,
+                              geom.consumptionLine.start.y,
+                              geom.consumptionLine.end.x,
+                              geom.consumptionLine.end.y
+                            )}
+                          />
+                        </g>
+                      </g>
+                    </svg>
+
+                    <div id="pf-nodes">
+                      <div
+                        className="pf-node"
+                        data-pos="left-top"
+                        id="pf-node-solar"
+                        data-active={solarFlowActive ? 'true' : 'false'}
+                        role="button"
+                        tabIndex={0}
+                        onClick={openSolarNodePopup}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' || e.key === ' ') openSolarNodePopup(e);
+                        }}
+                      >
+                        <div className="pf-solar-header">
+                          <span
+                            className="pf-node-icon"
+                            aria-hidden={!solarForecastIconAria}
+                            aria-label={solarForecastIconAria}
+                            title={solarForecastIconAria}
+                          >
+                            {solarForecastIconChar}
+                          </span>
+                          {selInverterSn && (solarForecast.loading || solarForecast.todayPct != null) ? (
+                            <span className="pf-solar-today-near-icon" id="pf-solar-insolation-today">
+                              {solarForecast.loading ? '…' : t('solarInsolationToday', { pct: solarForecast.todayPct })}
+                            </span>
+                          ) : null}
+                        </div>
+                        <span className="pf-node-label">{t('nodeSolar')}</span>
+                        <span className="pf-node-value" id="pf-val-solar">
+                          {evOnlyGraphLoading ? '…' : formatPower(graphDisplaySolarW, t, bcp47)}
+                        </span>
+                        {selInverterSn ? (
+                          <span className="pf-node-sub pf-node-solar-forecast" id="pf-solar-insolation-forecast">
+                            {solarForecast.loading ? (
+                              ''
+                            ) : solarForecast.tomorrowPct != null ? (
+                              <span className="pf-solar-insolation-line">
+                                {t('solarInsolationTomorrow', { pct: solarForecast.tomorrowPct })}
+                              </span>
+                            ) : solarForecast.hintKey ? (
+                              t(solarForecast.hintKey)
+                            ) : (
+                              ''
+                            )}
+                          </span>
+                        ) : null}
+                        <div className="pf-node-meta" id="pf-solar-lcoe" title={t('lcoeSolarMetaTitle')}>
+                          {!referenceLcoe.loading && referenceLcoe.ok
+                            ? formatUahPerKwhTariffLine(referenceLcoe.solarUahPerKwh)
+                            : ''}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="pf-graph-refresh"
+                        data-pos="top-center"
+                        onClick={() => window.location.reload()}
+                        aria-label={t('hubRefreshAria')}
+                        title={t('hubRefreshAria')}
+                      >
+                        <span className="pf-graph-refresh-icon" aria-hidden>
+                          ↻
+                        </span>
+                      </button>
+                      <div className="pf-node-stack" data-pos="left-center">
+                        <button
+                          type="button"
+                          className="pf-node"
+                          id="pf-node-grid"
+                          data-active={hasFlow && gridFlowActive ? 'true' : 'false'}
+                          onClick={e => openNodePopup(e, { title: t('nodeGrid') })}
+                        >
+                          <span className="pf-node-icon" aria-hidden>
+                            ⚡
+                          </span>
+                          <span className="pf-node-label">{t('nodeGrid')}</span>
+                          <span className="pf-node-value" id="pf-val-grid">
+                            {evOnlyGraphLoading
+                              ? '…'
+                              : gridSelling
+                                ? `↓ ${formatPower(Math.abs(graphDisplayGridW), t, bcp47)}`
+                                : formatPower(graphDisplayGridW, t, bcp47)}
+                          </span>
+                          <span className="pf-ess-status" id="pf-grid-selling" hidden={!gridSelling}>
+                            {t('gridSelling')}
+                          </span>
+                          <div className="pf-node-meta" id="pf-grid-tariff" title={t('gridDamTariffNodeTitle')}>
+                            {formatUahPerKwhTariffLine(gridDamTariffUahPerKwh)}
+                          </div>
+                        </button>
+                      </div>
+                      <div
+                        className="pf-node"
+                        data-pos="left-bottom"
+                        id="pf-node-load"
+                        data-active={loadFlowActive ? 'true' : 'false'}
+                        role="button"
+                        tabIndex={0}
+                        onClick={e => openNodePopup(e, { title: t('nodeLoad') })}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' || e.key === ' ') openNodePopup(e, { title: t('nodeLoad') });
+                        }}
+                      >
+                        <span className="pf-node-icon" aria-hidden>
+                          🏠
+                        </span>
+                        <span className="pf-node-label">{t('nodeLoad')}</span>
+                        <span className="pf-node-value" id="pf-val-load">
+                          {!essAnySelected
+                            ? evOnlyFocusMode
+                              ? evStationPowerLoading && evStationPowerW == null
+                                ? '…'
+                                : formatPower(graphDisplayLoadW, t, bcp47)
+                              : fleetDeyePollBusy
+                                ? '…'
+                                : fleetLoadTelemetryActive
+                                  ? formatPower(displayLoadW, t, bcp47)
+                                  : formatPower(null, t, bcp47)
+                            : selUbetterSn
+                              ? ubetterLiveLoading
+                                ? '…'
+                                : displayLoadW != null
+                                  ? formatPower(displayLoadW, t, bcp47)
+                                  : formatPower(null, t, bcp47)
+                            : selHuaweiStationCode
+                              ? huaweiLiveLoading
+                                ? '…'
+                                : displayLoadW != null
+                                  ? formatPower(displayLoadW, t, bcp47)
+                                  : formatPower(null, t, bcp47)
+                              : deyeLiveLoading
+                                ? '…'
+                                : displayLoadW != null
+                                  ? formatPower(displayLoadW, t, bcp47)
+                                  : formatPower(null, t, bcp47)}
+                        </span>
+                      </div>
+                      <div className="pf-hub" id="pf-hub">
+                        <PartnerHubLogo t={t} flowEndsHere={hubLogoInboundFlow} />
+                        <a
+                          className="pf-hub-opensource"
+                          href={OPEN_EMS_GITHUB_URL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={t('openSourceGithubAria')}
+                        >
+                          <svg
+                            className="pf-hub-opensource-icon"
+                            viewBox="0 0 98 96"
+                            xmlns="http://www.w3.org/2000/svg"
+                            aria-hidden="true"
+                            focusable="false"
+                          >
+                            <path
+                              fill="currentColor"
+                              fillRule="evenodd"
+                              clipRule="evenodd"
+                              d="M48.854 0C21.839 0 0 22 0 49.217c0 21.756 13.993 40.172 33.405 46.69 2.427.49 3.316-1.059 3.316-2.362 0-1.141-.08-5.052-.08-9.127-13.59 2.934-16.42-5.867-16.42-5.867-2.184-5.704-5.42-7.17-5.42-7.17-4.448-3.015.324-3.015.324-3.015 4.934.326 7.523 5.052 7.523 5.052 4.367 7.496 11.404 5.378 14.235 4.074.404-3.178 1.699-5.378 3.074-6.6-10.839-1.225-22.23-5.546-22.23-24.727 0-5.378 1.94-9.778 5.014-13.2-.485-1.222-2.184-6.275.486-13.038 0 0 4.125-1.304 13.426 5.052a46.97 46.97 0 0 1 12.214-1.63c4.125 0 8.33.571 12.213 1.63 9.302-6.356 13.427-5.052 13.427-5.052 2.67 6.763.97 11.816.485 13.038 3.155 3.422 5.015 7.822 5.015 13.2 0 19.343-11.424 23.502-22.307 24.727 1.814 1.577 3.483 4.731 3.483 9.578 0 6.896-.08 12.55-.08 14.29 0 1.307.89 2.853 3.316 2.364 19.412-6.52 33.405-24.935 33.405-46.691C97.707 22 75.788 0 48.854 0z"
+                            />
+                          </svg>
+                          <span className="pf-hub-opensource-text">{t('openSourceLabel')}</span>
+                        </a>
+                      </div>
+                      <button
+                        type="button"
+                        className="pf-node"
+                        data-pos="right-top"
+                        id="pf-node-ess"
+                        data-active={essActive ? 'true' : 'false'}
+                        onClick={e => openNodePopup(e, { title: t('nodeEss') })}
+                      >
+                        <span className="pf-node-icon" id="pf-ess-icon" aria-hidden>
+                          {graphDisplayEssCharging ? (
+                            <span className="pf-ess-icon-charging">
+                              <span className="pf-ess-icon-charging-bat">🔋</span>
+                              <span className="pf-ess-icon-charging-bolt">⚡</span>
+                            </span>
+                          ) : (
+                            '🔋'
+                          )}
+                        </span>
+                        <span className="pf-node-label">{t('nodeEss')}</span>
+                        <span className="pf-node-value" id="pf-val-ess">
+                          {evOnlyGraphLoading
+                            ? '…'
+                            : formatPower(graphDisplayEssW != null ? Math.abs(graphDisplayEssW) : null, t, bcp47)}
+                        </span>
+                        {(selInverterSn || selUbetterSn) && essSocPercent != null && Number.isFinite(essSocPercent) ? (
+                          <span
+                            className={`pf-node-sub pf-ess-soc ${essSocBandClassName(essSocPercent)}`.trim()}
+                            id="pf-ess-soc"
+                          >
+                            {t('essSoc', {
+                              value: inverterSocFmt.format(essSocPercent),
+                            })}
+                          </span>
+                        ) : null}
+                        {essSocPending ? (
+                          <span className="pf-node-sub pf-ess-soc pf-ess-soc-loading" id="pf-ess-soc-loading">
+                            {t('essSocLoading')}
+                          </span>
+                        ) : null}
+                        <div className="pf-node-meta" id="pf-ess-lcoe" title={t('lcoeBatteryMetaTitle')}>
+                          {!referenceLcoe.loading && referenceLcoe.ok
+                            ? formatUahPerKwhTariffLine(referenceLcoe.batteryUahPerKwh)
+                            : ''}
+                        </div>
+                      </button>
+                      <a
+                        className="pf-node"
+                        data-pos="right-center"
+                        id="pf-node-miner"
+                        href={BINANCE_MINER_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        data-active={hasFlow && graphMinerFlowW > 0 ? 'true' : 'false'}
+                        onClick={e =>
+                          openNodePopup(e, {
+                            title: t('nodeMiner'),
+                            actionHref: BINANCE_MINER_URL,
+                            actionLabel: 'Open Binance',
+                          })
+                        }
+                      >
+                        <span className="pf-node-icon" aria-hidden>
+                          💠
+                        </span>
+                        <span className="pf-node-label" id="pf-miner-label">
+                          {minerLabel}
+                        </span>
+                        <span className="pf-node-value" id="pf-val-miner">
+                          {evOnlyGraphLoading ? '…' : formatPower(graphDisplayMinerW, t, bcp47)}
+                        </span>
+                        <div className="pf-node-meta" id="pf-miner-tariff">
+                          {formatUahPerKwhTariffLine(tf)}
+                        </div>
+                      </a>
+                      <EvNodeWithPortPicker
+                        kioskMode={kioskMode}
+                        picker={evPortPicker}
+                        evNode={
+                          stationFilter.trim() ? (
+                            <a
+                              className="pf-node"
+                              id="pf-node-ev"
+                              href={`${EV_START_URL}?station=${encodeURIComponent(stationFilter.trim())}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              data-active={evFlowActive ? 'true' : 'false'}
+                              title={t('stationLabel')}
+                              onClick={e =>
+                                openNodePopup(e, {
+                                  title: t('nodeEv'),
+                                  actionHref: `${EV_START_URL}?station=${encodeURIComponent(stationFilter.trim())}`,
+                                  actionLabel: 'Open EV station',
+                                })
+                              }
+                            >
+                              <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
+                                <EvCarMark className="pf-node-icon__tesla" />
+                              </span>
+                              <span className="pf-node-label">{t('nodeEv')}</span>
+                              <span className="pf-node-value" id="pf-val-ev">
+                                {evStationPowerLoading && evStationPowerW == null
+                                  ? '…'
+                                  : formatPower(evStationPowerW, t, bcp47)}
+                              </span>
+                              <div className="pf-node-meta" id="pf-ev-tariff">
+                                {evDisplayTariffUahPerKwh != null
+                                  ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh)
+                                  : ''}
+                              </div>
+                            </a>
+                          ) : selEvPortsAggregate ? (
+                            <a
+                              className="pf-node"
+                              id="pf-node-ev"
+                              href={SITE_220KM_HOME}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              data-active={evFlowActive ? 'true' : 'false'}
+                              title={selEvPortsAcdc === 'ac' ? t('essEvPortsAc') : t('essEvPortsDc')}
+                              onClick={e =>
+                                openNodePopup(e, {
+                                  title: t('nodeEv'),
+                                  actionHref: SITE_220KM_HOME,
+                                  actionLabel: 'Open EV station',
+                                })
+                              }
+                            >
+                              <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
+                                <EvCarMark className="pf-node-icon__tesla" />
+                              </span>
+                              <span className="pf-node-label">{t('nodeEv')}</span>
+                              <span className="pf-node-value" id="pf-val-ev">
+                                {evPortsLive.loading && evPortsDisplayPowerW == null
+                                  ? '…'
+                                  : formatPower(evPortsDisplayPowerW, t, bcp47)}
+                              </span>
+                              <div className="pf-node-meta" id="pf-ev-tariff">
+                                {evPortsLive.activeSessions > 0
+                                  ? t('essEvPortsActiveCount', { count: evPortsLive.activeSessions })
+                                  : ''}
+                              </div>
+                            </a>
+                          ) : showEvAggregate ? (
+                            <a
+                              className="pf-node"
+                              id="pf-node-ev"
+                              href={SITE_220KM_HOME}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              data-active={evFlowActive ? 'true' : 'false'}
+                              onClick={e =>
+                                openNodePopup(e, {
+                                  title: t('nodeEv'),
+                                  actionHref: SITE_220KM_HOME,
+                                  actionLabel: 'Open EV station',
+                                })
+                              }
+                            >
+                              <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
+                                <EvCarMark className="pf-node-icon__tesla" />
+                              </span>
+                              <span className="pf-node-label">{t('nodeEv')}</span>
+                              <span className="pf-node-value" id="pf-val-ev">
+                                {evBusy ? '…' : formatPower(aggregateEvFlowW, t, bcp47)}
+                              </span>
+                              <div className="pf-node-meta" id="pf-ev-tariff">
+                                {evDisplayTariffUahPerKwh != null
+                                  ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh)
+                                  : ''}
+                              </div>
+                            </a>
+                          ) : (
+                            <div
+                              className="pf-node pf-node-ev-disabled"
+                              id="pf-node-ev"
+                              data-active="false"
+                              title={t('evHiddenByInverter')}
+                              role="button"
+                              tabIndex={0}
+                              onClick={e => openNodePopup(e, { title: t('nodeEv') })}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter' || e.key === ' ') openNodePopup(e, { title: t('nodeEv') });
+                              }}
+                            >
+                              <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
+                                <EvCarMark className="pf-node-icon__tesla" />
+                              </span>
+                              <span className="pf-node-label">{t('nodeEv')}</span>
+                              <span className="pf-node-value" id="pf-val-ev">
+                                {formatPower(null, t, bcp47)}
+                              </span>
+                              <div className="pf-node-meta" id="pf-ev-tariff">
+                                {evDisplayTariffUahPerKwh != null
+                                  ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh)
+                                  : ''}
+                              </div>
+                            </div>
+                          )
+                        }
+                      />
+                      {pageShareUrl ? (
+                        <button
+                          type="button"
+                          className={`pf-node pf-node--graph-share-qr${kioskMode ? ' pf-node--kiosk-qr' : ''}`}
+                          data-pos="bottom-center"
+                          onClick={openGraphShareQrModal}
+                          aria-label={t('pageShareQrAsideAria')}
+                        >
+                          <PortStickerQrImage
+                            url={pageShareUrl}
+                            size={kioskMode ? 200 : 112}
+                            alt={t('sharePageQrAlt')}
+                          />
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div id="pf-error" className="pf-error" hidden={!loadError}>
+                    {loadError}
+                  </div>
+                </div>
+                {flowTariffVsUkraineSupplement && showPowerFlowSections && !landingTotalsLoading ? (
+                  <TariffVsUkraineMessage
+                    supplement={flowTariffVsUkraineSupplement}
+                    t={t}
+                    className="pf-flow-tariff-vs-ukraine"
+                    pctClassName="pf-flow-tariff-vs-ukraine-pct"
+                  />
+                ) : null}
+              </div>
+              {kioskMode ? (
+                <KioskFleetGenConsChart
+                  deyeItems={deyeCombinedItems}
+                  huaweiItems={huaweiListReady ? huaweiRows.items : []}
+                  t={t}
+                  getBcp47Locale={getBcp47Locale}
+                />
+              ) : null}
+            </div>
+
             {showPowerFlowSections
               ? (() => {
                   const ltd = inverterListReady ? formatLandingTotalsDisplay(landingTotals, bcp47, t) : null;
@@ -4277,9 +5177,6 @@ export default function PowerFlowPage({
                       landingExportMetricUi !== LANDING_EXPORT_METRIC.GRID_BALANCING);
                   const gridBalancingSupplement = showGridBalancingSupplement
                     ? landingGridBalancingSupplement(landingTotals, bcp47)
-                    : null;
-                  const monthlyRatesTariffVsUkraineSupplement = showMonthlyRatesInverterSupplements
-                    ? landingMonthlyRatesTariffVsUkraineSupplement(landingTotals, bcp47)
                     : null;
                   const inverterMetricDisplay =
                     landingExportMetricUi === LANDING_EXPORT_METRIC.GRID_BALANCING
@@ -4369,7 +5266,7 @@ export default function PowerFlowPage({
 
                   if (listPending) {
                     return (
-                      <div className="pf-landing-totals-slot">
+                      <div className="pf-landing-totals-slot pf-landing-totals-slot--after-flow">
                         <div
                           className="pf-landing-totals pf-landing-totals--skeleton"
                           aria-busy="true"
@@ -4390,7 +5287,7 @@ export default function PowerFlowPage({
                   }
 
                   return (
-                    <div className="pf-landing-totals-slot">
+                    <div className="pf-landing-totals-slot pf-landing-totals-slot--after-flow">
                       <div className="pf-landing-totals" aria-label={t('powerFlowLandingTotalsAria')}>
                         <div className="pf-landing-totals__export pf-landing-totals__export--inverter-metric">
                           <div
@@ -4535,29 +5432,6 @@ export default function PowerFlowPage({
                                 </span>
                               </p>
                             ) : null}
-                            {monthlyRatesTariffVsUkraineSupplement ? (
-                              <p className="pf-landing-totals__tariff pf-landing-totals__tariff--monthly-rates-vs-ukraine">
-                                {monthlyRatesTariffVsUkraineSupplement.kind === 'equal' ? (
-                                  t('powerFlowLandingTariffVsUkraineEqual')
-                                ) : monthlyRatesTariffVsUkraineSupplement.kind === 'more' ? (
-                                  <>
-                                    {t('powerFlowLandingTariffVsUkraineMoreBefore')}
-                                    <span className="pf-landing-totals__monthly-rates-vs-ukraine-pct pf-landing-totals__monthly-rates-vs-ukraine-pct--up">
-                                      {monthlyRatesTariffVsUkraineSupplement.deltaStr}%
-                                    </span>
-                                    {t('powerFlowLandingTariffVsUkraineMoreAfter')}
-                                  </>
-                                ) : (
-                                  <>
-                                    {t('powerFlowLandingTariffVsUkraineLessBefore')}
-                                    <span className="pf-landing-totals__monthly-rates-vs-ukraine-pct pf-landing-totals__monthly-rates-vs-ukraine-pct--down">
-                                      {monthlyRatesTariffVsUkraineSupplement.deltaStr}%
-                                    </span>
-                                    {t('powerFlowLandingTariffVsUkraineLessAfter')}
-                                  </>
-                                )}
-                              </p>
-                            ) : null}
                           </>
                         ) : landingExportMetricUi === LANDING_EXPORT_METRIC.GRID_BALANCING ? (
                           <p className="pf-landing-totals__tariff pf-landing-totals__tariff--monthly-rates-hint">
@@ -4601,683 +5475,383 @@ export default function PowerFlowPage({
                 })()
               : null}
 
-            <div className="pf-graph-wrap">
-              <div
-                id="pf-graph"
-                ref={graphRef}
-                className="pf-graph"
-                style={{ '--pf-graph-anchor-pct': `${graphAnchorPct}%` }}
-                aria-label={t('graphAriaLabel')}
-              >
-                <div className="pf-graph-sizer" aria-hidden="true" />
-                <svg id="pf-svg" className="pf-flow-svg" viewBox="0 0 400 400" preserveAspectRatio="xMidYMid meet">
-                  <defs>
-                    <radialGradient id="pf-flow-dot-grad" cx="40%" cy="40%" r="65%" gradientUnits="objectBoundingBox">
-                      <stop offset="0%" stopColor="#fdf4ff" />
-                      <stop offset="60%" stopColor="#e879f9" />
-                      <stop offset="100%" stopColor="#a855f7" />
-                    </radialGradient>
-                  </defs>
-                  <g id="pf-lines">
-                    <line
-                      id="pf-line-solar"
-                      className="pf-line"
-                      data-active={solarFlowActive ? 'true' : 'false'}
-                      x1={geom.solarLine.start.x}
-                      y1={geom.solarLine.start.y}
-                      x2={geom.solarLine.end.x}
-                      y2={geom.solarLine.end.y}
-                    />
-                    <line
-                      id="pf-line-grid"
-                      className="pf-line"
-                      data-active={gridLineCoords.active ? 'true' : 'false'}
-                      x1={gridLineCoords.start.x}
-                      y1={gridLineCoords.start.y}
-                      x2={gridLineCoords.end.x}
-                      y2={gridLineCoords.end.y}
-                    />
-                    <line
-                      id="pf-line-load"
-                      className="pf-line"
-                      data-active={loadFlowActive ? 'true' : 'false'}
-                      x1={geom.loadLine.start.x}
-                      y1={geom.loadLine.start.y}
-                      x2={geom.loadLine.end.x}
-                      y2={geom.loadLine.end.y}
-                    />
-                    <line
-                      id="pf-line-ess"
-                      className="pf-line"
-                      data-active={essActive ? 'true' : 'false'}
-                      x1={essCoords.start.x}
-                      y1={essCoords.start.y}
-                      x2={essCoords.end.x}
-                      y2={essCoords.end.y}
-                    />
-                    <line
-                      id="pf-line-miner"
-                      className="pf-line"
-                      data-active={hasFlow && graphMinerFlowW > 0 ? 'true' : 'false'}
-                      x1={geom.minerLine.start.x}
-                      y1={geom.minerLine.start.y}
-                      x2={geom.minerLine.end.x}
-                      y2={geom.minerLine.end.y}
-                    />
-                    <line
-                      id="pf-line-cons"
-                      className="pf-line"
-                      data-active={evFlowActive ? 'true' : 'false'}
-                      x1={geom.consumptionLine.start.x}
-                      y1={geom.consumptionLine.start.y}
-                      x2={geom.consumptionLine.end.x}
-                      y2={geom.consumptionLine.end.y}
-                    />
-                  </g>
-                  <g id="pf-dots">
-                    <g id="pf-dot-solar" style={{ display: solarFlowActive ? undefined : 'none' }}>
-                      <MotionDot
-                        pathD={flowMotionPath(
-                          geom.solarLine.start.x,
-                          geom.solarLine.start.y,
-                          geom.solarLine.end.x,
-                          geom.solarLine.end.y
-                        )}
-                      />
-                    </g>
-                    <g id="pf-dot-grid" style={{ display: gridLineCoords.active ? undefined : 'none' }}>
-                      <MotionDot pathD={gridDotPath} />
-                    </g>
-                    <g id="pf-dot-load" style={{ display: loadFlowActive ? undefined : 'none' }}>
-                      <MotionDot
-                        pathD={flowMotionPath(
-                          geom.loadLine.start.x,
-                          geom.loadLine.start.y,
-                          geom.loadLine.end.x,
-                          geom.loadLine.end.y
-                        )}
-                      />
-                    </g>
-                    <g id="pf-dot-ess" style={{ display: essActive ? undefined : 'none' }}>
-                      <MotionDot pathD={essPath} />
-                    </g>
-                    <g id="pf-dot-miner" style={{ display: hasFlow && graphMinerFlowW > 0 ? undefined : 'none' }}>
-                      <MotionDot
-                        pathD={flowMotionPath(
-                          geom.minerLine.start.x,
-                          geom.minerLine.start.y,
-                          geom.minerLine.end.x,
-                          geom.minerLine.end.y
-                        )}
-                      />
-                    </g>
-                    <g id="pf-dot-cons" style={{ display: evFlowActive ? undefined : 'none' }}>
-                      <MotionDot
-                        pathD={flowMotionPath(
-                          geom.consumptionLine.start.x,
-                          geom.consumptionLine.start.y,
-                          geom.consumptionLine.end.x,
-                          geom.consumptionLine.end.y
-                        )}
-                      />
-                    </g>
-                  </g>
-                </svg>
-
-                <div id="pf-nodes">
-                  <div
-                    className="pf-node"
-                    data-pos="left-top"
-                    id="pf-node-solar"
-                    data-active={solarFlowActive ? 'true' : 'false'}
-                    role="button"
-                    tabIndex={0}
-                    onClick={e => openNodePopup(e, { title: t('nodeSolar') })}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' || e.key === ' ') openNodePopup(e, { title: t('nodeSolar') });
-                    }}
-                  >
-                    <div className="pf-solar-header">
-                      <span
-                        className="pf-node-icon"
-                        aria-hidden={!solarForecastIconAria}
-                        aria-label={solarForecastIconAria}
-                        title={solarForecastIconAria}
-                      >
-                        {solarForecastIconChar}
-                      </span>
-                      {selInverterSn && (solarForecast.loading || solarForecast.todayPct != null) ? (
-                        <span className="pf-solar-today-near-icon" id="pf-solar-insolation-today">
-                          {solarForecast.loading ? '…' : t('solarInsolationToday', { pct: solarForecast.todayPct })}
-                        </span>
-                      ) : null}
-                    </div>
-                    <span className="pf-node-label">{t('nodeSolar')}</span>
-                    <span className="pf-node-value" id="pf-val-solar">
-                      {evOnlyGraphLoading ? '…' : formatPower(graphDisplaySolarW, t, bcp47)}
-                    </span>
-                    {selInverterSn ? (
-                      <span className="pf-node-sub pf-node-solar-forecast" id="pf-solar-insolation-forecast">
-                        {solarForecast.loading ? (
-                          ''
-                        ) : solarForecast.tomorrowPct != null ? (
-                          <span className="pf-solar-insolation-line">
-                            {t('solarInsolationTomorrow', { pct: solarForecast.tomorrowPct })}
-                          </span>
-                        ) : solarForecast.hintKey ? (
-                          t(solarForecast.hintKey)
-                        ) : (
-                          ''
-                        )}
-                      </span>
-                    ) : null}
-                    <div className="pf-node-meta" id="pf-solar-lcoe" title={t('lcoeSolarMetaTitle')}>
-                      {!referenceLcoe.loading && referenceLcoe.ok
-                        ? formatUahPerKwhTariffLine(referenceLcoe.solarUahPerKwh)
-                        : ''}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    className="pf-graph-refresh"
-                    data-pos="top-center"
-                    onClick={() => window.location.reload()}
-                    aria-label={t('hubRefreshAria')}
-                    title={t('hubRefreshAria')}
-                  >
-                    <span className="pf-graph-refresh-icon" aria-hidden>
-                      ↻
-                    </span>
-                  </button>
-                  <div className="pf-node-stack" data-pos="left-center">
-                    <button
-                      type="button"
-                      className="pf-node"
-                      id="pf-node-grid"
-                      data-active={hasFlow && gridFlowActive ? 'true' : 'false'}
-                      onClick={e => openNodePopup(e, { title: t('nodeGrid') })}
-                    >
-                      <span className="pf-node-icon" aria-hidden>
-                        ⚡
-                      </span>
-                      <span className="pf-node-label">{t('nodeGrid')}</span>
-                      <span className="pf-node-value" id="pf-val-grid">
-                        {evOnlyGraphLoading
-                          ? '…'
-                          : gridSelling
-                            ? `↓ ${formatPower(Math.abs(graphDisplayGridW), t, bcp47)}`
-                            : formatPower(graphDisplayGridW, t, bcp47)}
-                      </span>
-                      <span className="pf-ess-status" id="pf-grid-selling" hidden={!gridSelling}>
-                        {t('gridSelling')}
-                      </span>
-                      <div className="pf-node-meta" id="pf-grid-tariff" title={t('gridDamTariffNodeTitle')}>
-                        {formatUahPerKwhTariffLine(gridDamTariffUahPerKwh)}
-                      </div>
-                    </button>
-                  </div>
-                  <div
-                    className="pf-node"
-                    data-pos="left-bottom"
-                    id="pf-node-load"
-                    data-active={loadFlowActive ? 'true' : 'false'}
-                    role="button"
-                    tabIndex={0}
-                    onClick={e => openNodePopup(e, { title: t('nodeLoad') })}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' || e.key === ' ') openNodePopup(e, { title: t('nodeLoad') });
-                    }}
-                  >
-                    <span className="pf-node-icon" aria-hidden>
-                      🏠
-                    </span>
-                    <span className="pf-node-label">{t('nodeLoad')}</span>
-                    <span className="pf-node-value" id="pf-val-load">
-                      {!essAnySelected
-                        ? evOnlyFocusMode
-                          ? evStationPowerLoading && evStationPowerW == null
-                            ? '…'
-                            : formatPower(graphDisplayLoadW, t, bcp47)
-                          : fleetDeyePollBusy
-                            ? '…'
-                            : fleetLoadTelemetryActive
-                              ? formatPower(displayLoadW, t, bcp47)
-                              : formatPower(null, t, bcp47)
-                        : selUbetterSn
-                          ? ubetterLiveLoading
-                            ? '…'
-                            : displayLoadW != null
-                              ? formatPower(displayLoadW, t, bcp47)
-                              : formatPower(null, t, bcp47)
-                        : selHuaweiStationCode
-                          ? huaweiLiveLoading
-                            ? '…'
-                            : displayLoadW != null
-                              ? formatPower(displayLoadW, t, bcp47)
-                              : formatPower(null, t, bcp47)
-                          : deyeLiveLoading
-                            ? '…'
-                            : displayLoadW != null
-                              ? formatPower(displayLoadW, t, bcp47)
-                              : formatPower(null, t, bcp47)}
-                    </span>
-                  </div>
-                  <div className="pf-hub" id="pf-hub">
-                    <PartnerHubLogo t={t} flowEndsHere={hubLogoInboundFlow} />
-                    <a
-                      className="pf-hub-opensource"
-                      href={OPEN_EMS_GITHUB_URL}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-label={t('openSourceGithubAria')}
-                    >
-                      <svg
-                        className="pf-hub-opensource-icon"
-                        viewBox="0 0 98 96"
-                        xmlns="http://www.w3.org/2000/svg"
-                        aria-hidden="true"
-                        focusable="false"
-                      >
-                        <path
-                          fill="currentColor"
-                          fillRule="evenodd"
-                          clipRule="evenodd"
-                          d="M48.854 0C21.839 0 0 22 0 49.217c0 21.756 13.993 40.172 33.405 46.69 2.427.49 3.316-1.059 3.316-2.362 0-1.141-.08-5.052-.08-9.127-13.59 2.934-16.42-5.867-16.42-5.867-2.184-5.704-5.42-7.17-5.42-7.17-4.448-3.015.324-3.015.324-3.015 4.934.326 7.523 5.052 7.523 5.052 4.367 7.496 11.404 5.378 14.235 4.074.404-3.178 1.699-5.378 3.074-6.6-10.839-1.225-22.23-5.546-22.23-24.727 0-5.378 1.94-9.778 5.014-13.2-.485-1.222-2.184-6.275.486-13.038 0 0 4.125-1.304 13.426 5.052a46.97 46.97 0 0 1 12.214-1.63c4.125 0 8.33.571 12.213 1.63 9.302-6.356 13.427-5.052 13.427-5.052 2.67 6.763.97 11.816.485 13.038 3.155 3.422 5.015 7.822 5.015 13.2 0 19.343-11.424 23.502-22.307 24.727 1.814 1.577 3.483 4.731 3.483 9.578 0 6.896-.08 12.55-.08 14.29 0 1.307.89 2.853 3.316 2.364 19.412-6.52 33.405-24.935 33.405-46.691C97.707 22 75.788 0 48.854 0z"
-                        />
-                      </svg>
-                      <span className="pf-hub-opensource-text">{t('openSourceLabel')}</span>
-                    </a>
-                  </div>
-                  <button
-                    type="button"
-                    className="pf-node"
-                    data-pos="right-top"
-                    id="pf-node-ess"
-                    data-active={essActive ? 'true' : 'false'}
-                    onClick={e => openNodePopup(e, { title: t('nodeEss') })}
-                  >
-                    <span className="pf-node-icon" id="pf-ess-icon" aria-hidden>
-                      {graphDisplayEssCharging ? (
-                        <span className="pf-ess-icon-charging">
-                          <span className="pf-ess-icon-charging-bat">🔋</span>
-                          <span className="pf-ess-icon-charging-bolt">⚡</span>
-                        </span>
-                      ) : (
-                        '🔋'
-                      )}
-                    </span>
-                    <span className="pf-node-label">{t('nodeEss')}</span>
-                    <span className="pf-node-value" id="pf-val-ess">
-                      {evOnlyGraphLoading ? '…' : formatPower(graphDisplayEssW != null ? Math.abs(graphDisplayEssW) : null, t, bcp47)}
-                    </span>
-                    {(selInverterSn || selUbetterSn) && essSocPercent != null && Number.isFinite(essSocPercent) ? (
-                      <span
-                        className={`pf-node-sub pf-ess-soc ${essSocBandClassName(essSocPercent)}`.trim()}
-                        id="pf-ess-soc"
-                      >
-                        {t('essSoc', {
-                          value: inverterSocFmt.format(essSocPercent),
-                        })}
-                      </span>
-                    ) : null}
-                    {essSocPending ? (
-                      <span className="pf-node-sub pf-ess-soc pf-ess-soc-loading" id="pf-ess-soc-loading">
-                        {t('essSocLoading')}
-                      </span>
-                    ) : null}
-                    <div className="pf-node-meta" id="pf-ess-lcoe" title={t('lcoeBatteryMetaTitle')}>
-                      {!referenceLcoe.loading && referenceLcoe.ok
-                        ? formatUahPerKwhTariffLine(referenceLcoe.batteryUahPerKwh)
-                        : ''}
-                    </div>
-                  </button>
-                  <a
-                    className="pf-node"
-                    data-pos="right-center"
-                    id="pf-node-miner"
-                    href={BINANCE_MINER_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    data-active={hasFlow && graphMinerFlowW > 0 ? 'true' : 'false'}
-                    onClick={e =>
-                      openNodePopup(e, {
-                        title: t('nodeMiner'),
-                        actionHref: BINANCE_MINER_URL,
-                        actionLabel: 'Open Binance',
-                      })
-                    }
-                  >
-                    <span className="pf-node-icon" aria-hidden>
-                      💠
-                    </span>
-                    <span className="pf-node-label" id="pf-miner-label">
-                      {minerLabel}
-                    </span>
-                    <span className="pf-node-value" id="pf-val-miner">
-                      {evOnlyGraphLoading ? '…' : formatPower(graphDisplayMinerW, t, bcp47)}
-                    </span>
-                    <div className="pf-node-meta" id="pf-miner-tariff">
-                      {formatUahPerKwhTariffLine(tf)}
-                    </div>
-                  </a>
-                  {stationFilter.trim() ? (
-                    <a
-                      className="pf-node"
-                      data-pos="right-bottom"
-                      id="pf-node-ev"
-                      href={`${EV_START_URL}?station=${encodeURIComponent(stationFilter.trim())}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      data-active={evFlowActive ? 'true' : 'false'}
-                      title={t('stationLabel')}
-                      onClick={e =>
-                        openNodePopup(e, {
-                          title: t('nodeEv'),
-                          actionHref: `${EV_START_URL}?station=${encodeURIComponent(stationFilter.trim())}`,
-                          actionLabel: 'Open EV station',
-                        })
-                      }
-                    >
-                      <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
-                        <EvCarMark className="pf-node-icon__tesla" />
-                      </span>
-                      <span className="pf-node-label">{t('nodeEv')}</span>
-                      <span className="pf-node-value" id="pf-val-ev">
-                        {evStationPowerLoading && evStationPowerW == null
-                          ? '…'
-                          : formatPower(evStationPowerW, t, bcp47)}
-                      </span>
-                      <div className="pf-node-meta" id="pf-ev-tariff">
-                        {evDisplayTariffUahPerKwh != null ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh) : ''}
-                      </div>
-                    </a>
-                  ) : selEvPortsAggregate ? (
-                    <a
-                      className="pf-node"
-                      data-pos="right-bottom"
-                      id="pf-node-ev"
-                      href={SITE_220KM_HOME}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      data-active={evFlowActive ? 'true' : 'false'}
-                      title={selEvPortsAcdc === 'ac' ? t('essEvPortsAc') : t('essEvPortsDc')}
-                      onClick={e =>
-                        openNodePopup(e, {
-                          title: t('nodeEv'),
-                          actionHref: SITE_220KM_HOME,
-                          actionLabel: 'Open EV station',
-                        })
-                      }
-                    >
-                      <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
-                        <EvCarMark className="pf-node-icon__tesla" />
-                      </span>
-                      <span className="pf-node-label">{t('nodeEv')}</span>
-                      <span className="pf-node-value" id="pf-val-ev">
-                        {evPortsLive.loading && evPortsDisplayPowerW == null
-                          ? '…'
-                          : formatPower(evPortsDisplayPowerW, t, bcp47)}
-                      </span>
-                      <div className="pf-node-meta" id="pf-ev-tariff">
-                        {evPortsLive.activeSessions > 0
-                          ? t('essEvPortsActiveCount', { count: evPortsLive.activeSessions })
-                          : ''}
-                      </div>
-                    </a>
-                  ) : showEvAggregate ? (
-                    <a
-                      className="pf-node"
-                      data-pos="right-bottom"
-                      id="pf-node-ev"
-                      href={SITE_220KM_HOME}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      data-active={evFlowActive ? 'true' : 'false'}
-                      onClick={e =>
-                        openNodePopup(e, {
-                          title: t('nodeEv'),
-                          actionHref: SITE_220KM_HOME,
-                          actionLabel: 'Open EV station',
-                        })
-                      }
-                    >
-                      <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
-                        <EvCarMark className="pf-node-icon__tesla" />
-                      </span>
-                      <span className="pf-node-label">{t('nodeEv')}</span>
-                      <span className="pf-node-value" id="pf-val-ev">
-                        {evBusy ? '…' : formatPower(aggregateEvFlowW, t, bcp47)}
-                      </span>
-                      <div className="pf-node-meta" id="pf-ev-tariff">
-                        {evDisplayTariffUahPerKwh != null ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh) : ''}
-                      </div>
-                    </a>
-                  ) : (
-                    <div
-                      className="pf-node pf-node-ev-disabled"
-                      data-pos="right-bottom"
-                      id="pf-node-ev"
-                      data-active="false"
-                      title={t('evHiddenByInverter')}
-                      role="button"
-                      tabIndex={0}
-                      onClick={e => openNodePopup(e, { title: t('nodeEv') })}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' || e.key === ' ') openNodePopup(e, { title: t('nodeEv') });
-                      }}
-                    >
-                      <span className="pf-node-icon pf-node-icon--inline-count" aria-hidden>
-                        <EvCarMark className="pf-node-icon__tesla" />
-                      </span>
-                      <span className="pf-node-label">{t('nodeEv')}</span>
-                      <span className="pf-node-value" id="pf-val-ev">
-                        {formatPower(null, t, bcp47)}
-                      </span>
-                      <div className="pf-node-meta" id="pf-ev-tariff">
-                        {evDisplayTariffUahPerKwh != null ? formatUahPerKwhTariffLine(evDisplayTariffUahPerKwh) : ''}
-                      </div>
-                    </div>
-                  )}
-                <PageShareQrAside url={pageShareUrl} t={t} compact showCaption={false} />
-                </div>
-              </div>
-              <div id="pf-error" className="pf-error" hidden={!loadError}>
-                {loadError}
-              </div>
-            </div>
-
-            <div className="pf-lang-port-bar" style={{ '--pf-graph-anchor-pct': `${graphAnchorPct}%` }}>
-              <div className="pf-lang-port-port-track">
-                <div className="pf-lang-port-port-align">
-                  <span
-                    className="pf-ev-ports-used-count"
-                    aria-label={`${t('stationPlaceholder')}: ${evPortsUsedCount} x`}
-                  >
-                    {evPortsUsedCount} x
-                  </span>
-                  <select
-                    id="pf-station"
-                    className="pf-inverter-select pf-header-select--port"
-                    aria-label={t('stationLabel')}
-                    title={t('stationPlaceholder')}
-                    value={stationFilter}
-                    onChange={onStationChange}
-                  >
-                    <option value="">{chargingPorts.loading ? '…' : t('stationPlaceholder')}</option>
-                    {portSelectOptions.map(row => {
-                      const num = String(row.number);
-                      const maxW = Number(row.maxPowerWt);
-                      const maxLabel = Number.isFinite(maxW) && maxW > 0 ? ` · ${formatPower(maxW, t, bcp47)}` : '';
-                      return (
-                        <option key={num} value={num}>
-                          {num}
-                          {maxLabel}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <section className="pf-dam-section" aria-label={t('damChartHeading')}>
-              <DamChartPanel
-                variant="embedded"
-                inverterSn={essSel.provider === 'deye' ? selInverterSn || undefined : undefined}
-                huaweiStationCode={
-                  essSel.provider === 'huawei' && huaweiListReady && !huaweiRows.error
-                    ? selHuaweiStationCode || undefined
-                    : undefined
-                }
-                ubetterDeviceSn={
-                  essSel.provider === 'ubetter' && ubetterListReady && !ubetterRows.error
-                    ? selUbetterSn || undefined
-                    : undefined
-                }
-                evPortsAcdc={selEvPortsAcdc || undefined}
-                liveEvPortsPowerW={
-                  selEvPortsAcdc && evPortsLive.powerW != null ? Number(evPortsLive.powerW) : undefined
-                }
-                t={t}
-                getBcp47Locale={getBcp47Locale}
-                chartHeight={320}
-              />
-            </section>
-
-            <div className="pf-post-charts-bar">
-              <div className="pf-roi-bar">
-                <RoiStackStatistics
+            <div className="pf-page-rest-pending-host">
+              <section className="pf-dam-section" aria-label={t('damChartHeading')}>
+                <DamChartPanel
+                  variant="embedded"
+                  inverterSn={essSel.provider === 'deye' ? selInverterSn || undefined : undefined}
+                  huaweiStationCode={
+                    essSel.provider === 'huawei' && huaweiListReady && !huaweiRows.error
+                      ? selHuaweiStationCode || undefined
+                      : undefined
+                  }
+                  ubetterDeviceSn={
+                    essSel.provider === 'ubetter' && ubetterListReady && !ubetterRows.error
+                      ? selUbetterSn || undefined
+                      : undefined
+                  }
+                  evPortsAcdc={selEvPortsAcdc || undefined}
+                  liveEvPortsPowerW={
+                    selEvPortsAcdc && evPortsLive.powerW != null ? Number(evPortsLive.powerW) : undefined
+                  }
                   t={t}
-                  bcp47={bcp47}
-                  selInverterSn={selInverterSn}
-                  inverterHeaderOk={inverterListReady}
-                  inverterListPending={inverterRows.loading && !inverterRows.error}
-                  pinRequired={remoteWriteConfigured}
-                  cachedPin={cachedWritePin}
-                  pinCacheBust={pinCacheBust}
-                  onPinRemembered={() => setPinCacheBust(x => x + 1)}
-                  onRoiCapexSaved={loadInverters}
+                  getBcp47Locale={getBcp47Locale}
+                  chartHeight={320}
                 />
-              </div>
-              {showPowerFlowSections ? (
-                !inverterListReady && !selEvPortsAggregate ? (
-                  <div className="pf-header-discharge-row pf-header-discharge-row--skeleton" aria-busy="true">
-                    <div className="pf-discharge-toolbar pf-discharge-toolbar--combined pf-discharge-toolbar--skeleton">
-                      <div className="pf-discharge-skeleton-rows" aria-hidden>
-                        <div className="pf-discharge-skeleton-row" />
-                        <div className="pf-discharge-skeleton-row" />
+              </section>
+
+              <div className="pf-post-charts-bar">
+                <div className="pf-roi-bar">
+                  <RoiStackStatistics
+                    t={t}
+                    bcp47={bcp47}
+                    selInverterSn={selInverterSn}
+                    inverterHeaderOk={inverterListReady}
+                    inverterListPending={inverterRows.loading && !inverterRows.error}
+                    pinRequired={remoteWriteConfigured}
+                    cachedPin={cachedWritePin}
+                    pinCacheBust={pinCacheBust}
+                    onPinRemembered={() => setPinCacheBust(x => x + 1)}
+                    onRoiCapexSaved={loadInverters}
+                  />
+                </div>
+                {showPowerFlowSections ? (
+                  !inverterListReady && !selEvPortsAggregate ? (
+                    <div className="pf-header-discharge-row pf-header-discharge-row--skeleton" aria-busy="true">
+                      <div className="pf-discharge-toolbar pf-discharge-toolbar--combined pf-discharge-toolbar--skeleton">
+                        <div className="pf-discharge-skeleton-rows" aria-hidden>
+                          <div className="pf-discharge-skeleton-row" />
+                          <div className="pf-discharge-skeleton-row" />
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ) : (
-                  <>
-                    {selHuaweiStationCode || selUbetterSn || selEvPortsAggregate ? null : (
-                      <div className="pf-header-discharge-row">
-                        <div className="pf-discharge-toolbar pf-discharge-toolbar--combined">
-                          <div className="pf-deye-command-stack">
-                            <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header pf-deye-command-line">
-                              <div className="pf-discharge-delta-controls">
-                                <span
-                                  className="pf-discharge-go-hover-wrap"
-                                  onMouseEnter={onDischargeGoWrapMouseEnter}
-                                  onMouseLeave={onDischargeGoWrapMouseLeave}
-                                >
-                                  {dischargeHoverTipOpen ? (
-                                    <span
-                                      id="pf-discharge-go-tooltip"
-                                      role="tooltip"
-                                      className="pf-discharge-go-tooltip"
+                  ) : (
+                    <>
+                      {selHuaweiStationCode || selUbetterSn || selEvPortsAggregate ? null : (
+                        <div className="pf-header-discharge-row">
+                          <div className="pf-discharge-toolbar pf-discharge-toolbar--combined">
+                            <div className="pf-deye-command-stack">
+                              <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header pf-deye-command-line">
+                                <div className="pf-discharge-delta-controls">
+                                  <span
+                                    className="pf-discharge-go-hover-wrap"
+                                    onMouseEnter={onDischargeGoWrapMouseEnter}
+                                    onMouseLeave={onDischargeGoWrapMouseLeave}
+                                  >
+                                    {dischargeHoverTipOpen ? (
+                                      <span
+                                        id="pf-discharge-go-tooltip"
+                                        role="tooltip"
+                                        className="pf-discharge-go-tooltip"
+                                      >
+                                        {dischargeHoverTipText}
+                                      </span>
+                                    ) : null}
+                                    <button
+                                      type="button"
+                                      className="pf-discharge-btn pf-discharge-go-btn"
+                                      onClick={requestDischarge2Pct}
+                                      disabled={
+                                        deyeWritesHardBlocked ||
+                                        toolbarLockedByNightCharge ||
+                                        dischargeGoDisabledInsufficientSoc ||
+                                        (Boolean(selInverterSn.trim()) && !essSocHasKey)
+                                      }
+                                      aria-label={t('dischargeGoAria')}
+                                      aria-describedby={dischargeHoverTipOpen ? 'pf-discharge-go-tooltip' : undefined}
                                     >
-                                      {dischargeHoverTipText}
-                                    </span>
-                                  ) : null}
+                                      {t('dischargeGoButton')}
+                                    </button>
+                                  </span>
+                                  <select
+                                    id="pf-discharge-delta-select"
+                                    className="pf-discharge-delta-select pf-discharge-delta-select--header"
+                                    value={String(dischargeSocDeltaPct)}
+                                    disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
+                                    aria-label={t('dischargeSocDeltaAria')}
+                                    onChange={e => {
+                                      if (!remoteWriteConfigured) {
+                                        setRemoteWriteNeedsPinOpen(true);
+                                        return;
+                                      }
+                                      const n = normalizeDischargeSocDeltaPct(e.target.value);
+                                      const apiPct = peakPrefDischargePctForApi(n);
+                                      const cached = readCachedInverterPin(selInverterSn?.trim() || '');
+                                      if (cached) {
+                                        void (async () => {
+                                          try {
+                                            const data = await savePeakAutoPref(
+                                              peakDamEnabledRef.current,
+                                              apiPct,
+                                              cached
+                                            );
+                                            setDischargeSocDeltaPct(n);
+                                            if (data && typeof data.enabled === 'boolean') {
+                                              setPeakDamDischargeEnabled(data.enabled);
+                                            }
+                                            const p = data?.dischargeSocDeltaPct;
+                                            if (p != null && Number.isFinite(Number(p))) {
+                                              setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
+                                            }
+                                          } catch (err) {
+                                            const m = err instanceof Error ? err.message : String(err);
+                                            setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
+                                          }
+                                        })();
+                                        return;
+                                      }
+                                      if (selInverterEvportBound) {
+                                        void (async () => {
+                                          try {
+                                            const data = await savePeakAutoPref(peakDamEnabledRef.current, apiPct, '');
+                                            setDischargeSocDeltaPct(n);
+                                            if (data && typeof data.enabled === 'boolean') {
+                                              setPeakDamDischargeEnabled(data.enabled);
+                                            }
+                                            const p = data?.dischargeSocDeltaPct;
+                                            if (p != null && Number.isFinite(Number(p))) {
+                                              setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
+                                            }
+                                          } catch (err) {
+                                            const m = err instanceof Error ? err.message : String(err);
+                                            setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
+                                          }
+                                        })();
+                                        return;
+                                      }
+                                      setWritePinGate({ kind: 'peakPct', nextPct: apiPct });
+                                    }}
+                                  >
+                                    {DISCHARGE_TARGET_SOC_OPTIONS.map(o => (
+                                      <option key={o} value={o}>
+                                        {t('dischargeTillSocOption', { pct: o })}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <DelayedHintTooltip hintText={peakDamHintWithTillSoc.hint}>
+                                  <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
+                                    <input
+                                      type="checkbox"
+                                      checked={peakDamDischargeEnabled}
+                                      disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
+                                      onChange={async e => {
+                                        if (!remoteWriteConfigured) {
+                                          setRemoteWriteNeedsPinOpen(true);
+                                          return;
+                                        }
+                                        const v = e.target.checked;
+                                        const sn = selInverterSn?.trim();
+                                        if (!sn) return;
+                                        const prev = peakDamDischargeEnabled;
+                                        const prevPct = dischargeSocDeltaPct;
+                                        if (peakPrefSaveTimerRef.current != null) {
+                                          clearTimeout(peakPrefSaveTimerRef.current);
+                                          peakPrefSaveTimerRef.current = null;
+                                        }
+                                        if (chargePrefSaveTimerRef.current != null) {
+                                          clearTimeout(chargePrefSaveTimerRef.current);
+                                          chargePrefSaveTimerRef.current = null;
+                                        }
+                                        const cached = readCachedInverterPin(sn);
+                                        if (cached) {
+                                          setPeakDamDischargeEnabled(v);
+                                          setDischarge2Feedback('');
+                                          try {
+                                            const data = await savePeakAutoPref(
+                                              v,
+                                              peakPrefDischargePctForApi(dischargeSocDeltaPct),
+                                              cached
+                                            );
+                                            if (data && typeof data.enabled === 'boolean') {
+                                              setPeakDamDischargeEnabled(data.enabled);
+                                            }
+                                            const p = data?.dischargeSocDeltaPct;
+                                            if (p != null && Number.isFinite(Number(p))) {
+                                              setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
+                                            }
+                                          } catch (err) {
+                                            setPeakDamDischargeEnabled(prev);
+                                            setDischargeSocDeltaPct(prevPct);
+                                            const m = err instanceof Error ? err.message : String(err);
+                                            setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
+                                          }
+                                          return;
+                                        }
+                                        if (selInverterEvportBound) {
+                                          setPeakDamDischargeEnabled(v);
+                                          setDischarge2Feedback('');
+                                          try {
+                                            const data = await savePeakAutoPref(
+                                              v,
+                                              peakPrefDischargePctForApi(dischargeSocDeltaPct),
+                                              ''
+                                            );
+                                            if (data && typeof data.enabled === 'boolean') {
+                                              setPeakDamDischargeEnabled(data.enabled);
+                                            }
+                                            const p = data?.dischargeSocDeltaPct;
+                                            if (p != null && Number.isFinite(Number(p))) {
+                                              setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
+                                            }
+                                          } catch (err) {
+                                            setPeakDamDischargeEnabled(prev);
+                                            setDischargeSocDeltaPct(prevPct);
+                                            const m = err instanceof Error ? err.message : String(err);
+                                            setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
+                                          }
+                                          return;
+                                        }
+                                        setWritePinGate({
+                                          kind: 'peak',
+                                          nextEnabled: v,
+                                          nextPct: peakPrefDischargePctForApi(dischargeSocDeltaPct),
+                                        });
+                                      }}
+                                      aria-label={peakDamHintWithTillSoc.aria}
+                                    />
+                                    <span className="pf-peak-dam-toggle-label">{t('peakDamDischargeToggle')}</span>
+                                  </label>
+                                </DelayedHintTooltip>
+                                <DelayedHintTooltip hintText={selfConsumptionHintWithLcoe.hint}>
+                                  <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
+                                    <input
+                                      type="checkbox"
+                                      checked={nightChargeEnabled || selfConsumptionEnabled}
+                                      disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
+                                      onChange={async e => {
+                                        if (!remoteWriteConfigured) {
+                                          setRemoteWriteNeedsPinOpen(true);
+                                          return;
+                                        }
+                                        const v = e.target.checked;
+                                        const sn = selInverterSn?.trim();
+                                        if (!sn) return;
+                                        const prev = selfConsumptionEnabled;
+                                        const cached = readCachedInverterPin(sn);
+                                        if (cached) {
+                                          setSelfConsumptionEnabled(v);
+                                          setDischarge2Feedback('');
+                                          try {
+                                            const data = await saveSelfConsumptionPref(v, cached);
+                                            if (data && typeof data.selfConsumptionEnabled === 'boolean') {
+                                              setSelfConsumptionEnabled(data.selfConsumptionEnabled);
+                                            } else if (data && typeof data.enabled === 'boolean') {
+                                              setSelfConsumptionEnabled(data.enabled);
+                                            }
+                                          } catch (err) {
+                                            setSelfConsumptionEnabled(prev);
+                                            const m = err instanceof Error ? err.message : String(err);
+                                            setDischarge2Feedback(`${t('selfConsumptionSaveError')}: ${m}`);
+                                          }
+                                          return;
+                                        }
+                                        if (selInverterEvportBound) {
+                                          setSelfConsumptionEnabled(v);
+                                          setDischarge2Feedback('');
+                                          try {
+                                            const data = await saveSelfConsumptionPref(v, '');
+                                            if (data && typeof data.selfConsumptionEnabled === 'boolean') {
+                                              setSelfConsumptionEnabled(data.selfConsumptionEnabled);
+                                            } else if (data && typeof data.enabled === 'boolean') {
+                                              setSelfConsumptionEnabled(data.enabled);
+                                            }
+                                          } catch (err) {
+                                            setSelfConsumptionEnabled(prev);
+                                            const m = err instanceof Error ? err.message : String(err);
+                                            setDischarge2Feedback(`${t('selfConsumptionSaveError')}: ${m}`);
+                                          }
+                                          return;
+                                        }
+                                        setWritePinGate({ kind: 'selfConsumption', nextEnabled: v });
+                                      }}
+                                      aria-label={selfConsumptionHintWithLcoe.aria}
+                                    />
+                                    <span className="pf-peak-dam-toggle-label">{t('selfConsumptionToggle')}</span>
+                                  </label>
+                                </DelayedHintTooltip>
+                              </div>
+                              <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header pf-deye-command-line pf-deye-command-line--charge">
+                                <div className="pf-discharge-delta-controls">
                                   <button
                                     type="button"
-                                    className="pf-discharge-btn pf-discharge-go-btn"
-                                    onClick={requestDischarge2Pct}
-                                    disabled={
-                                      deyeWritesHardBlocked ||
-                                      toolbarLockedByNightCharge ||
-                                      dischargeGoDisabledInsufficientSoc ||
-                                      (Boolean(selInverterSn.trim()) && !essSocHasKey)
-                                    }
-                                    aria-label={t('dischargeGoAria')}
-                                    aria-describedby={dischargeHoverTipOpen ? 'pf-discharge-go-tooltip' : undefined}
+                                    className="pf-discharge-btn pf-discharge-go-btn pf-charge-go-btn"
+                                    onClick={requestCharge2Pct}
+                                    disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
+                                    title={t('chargeSoc2Hint')}
+                                    aria-label={t('chargeGoAria')}
                                   >
-                                    {t('dischargeGoButton')}
+                                    {t('chargeGoButton')}
                                   </button>
-                                </span>
-                                <select
-                                  id="pf-discharge-delta-select"
-                                  className="pf-discharge-delta-select pf-discharge-delta-select--header"
-                                  value={String(dischargeSocDeltaPct)}
-                                  disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
-                                  aria-label={t('dischargeSocDeltaAria')}
-                                  onChange={e => {
-                                    if (!remoteWriteConfigured) {
-                                      setRemoteWriteNeedsPinOpen(true);
-                                      return;
-                                    }
-                                    const n = normalizeDischargeSocDeltaPct(e.target.value);
-                                    const apiPct = peakPrefDischargePctForApi(n);
-                                    const cached = readCachedInverterPin(selInverterSn?.trim() || '');
-                                    if (cached) {
-                                      void (async () => {
-                                        try {
-                                          const data = await savePeakAutoPref(
-                                            peakDamEnabledRef.current,
-                                            apiPct,
-                                            cached
-                                          );
-                                          setDischargeSocDeltaPct(n);
-                                          if (data && typeof data.enabled === 'boolean') {
-                                            setPeakDamDischargeEnabled(data.enabled);
+                                  <select
+                                    id="pf-charge-delta-select"
+                                    className="pf-discharge-delta-select pf-discharge-delta-select--header"
+                                    value={chargeSocDeltaPct}
+                                    disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
+                                    aria-label={t('chargeSocDeltaAria')}
+                                    onChange={e => {
+                                      if (!remoteWriteConfigured) {
+                                        setRemoteWriteNeedsPinOpen(true);
+                                        return;
+                                      }
+                                      const n = normalizeChargeSocDeltaPct(e.target.value);
+                                      const cached = readCachedInverterPin(selInverterSn?.trim() || '');
+                                      if (cached) {
+                                        void (async () => {
+                                          try {
+                                            const data = await saveLowDamChargePref(
+                                              lowDamEnabledRef.current,
+                                              n,
+                                              cached
+                                            );
+                                            setChargeSocDeltaPct(n);
+                                            if (data && typeof data.enabled === 'boolean') {
+                                              setLowDamChargeEnabled(data.enabled);
+                                            }
+                                            const p = data?.chargeSocDeltaPct;
+                                            if (p != null && Number.isFinite(Number(p))) {
+                                              setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
+                                            }
+                                          } catch (err) {
+                                            const m = err instanceof Error ? err.message : String(err);
+                                            setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
                                           }
-                                          const p = data?.dischargeSocDeltaPct;
-                                          if (p != null && Number.isFinite(Number(p))) {
-                                            setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
+                                        })();
+                                        return;
+                                      }
+                                      if (selInverterEvportBound) {
+                                        void (async () => {
+                                          try {
+                                            const data = await saveLowDamChargePref(lowDamEnabledRef.current, n, '');
+                                            setChargeSocDeltaPct(n);
+                                            if (data && typeof data.enabled === 'boolean') {
+                                              setLowDamChargeEnabled(data.enabled);
+                                            }
+                                            const p = data?.chargeSocDeltaPct;
+                                            if (p != null && Number.isFinite(Number(p))) {
+                                              setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
+                                            }
+                                          } catch (err) {
+                                            const m = err instanceof Error ? err.message : String(err);
+                                            setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
                                           }
-                                        } catch (err) {
-                                          const m = err instanceof Error ? err.message : String(err);
-                                          setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
-                                        }
-                                      })();
-                                      return;
-                                    }
-                                    if (selInverterEvportBound) {
-                                      void (async () => {
-                                        try {
-                                          const data = await savePeakAutoPref(peakDamEnabledRef.current, apiPct, '');
-                                          setDischargeSocDeltaPct(n);
-                                          if (data && typeof data.enabled === 'boolean') {
-                                            setPeakDamDischargeEnabled(data.enabled);
-                                          }
-                                          const p = data?.dischargeSocDeltaPct;
-                                          if (p != null && Number.isFinite(Number(p))) {
-                                            setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
-                                          }
-                                        } catch (err) {
-                                          const m = err instanceof Error ? err.message : String(err);
-                                          setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
-                                        }
-                                      })();
-                                      return;
-                                    }
-                                    setWritePinGate({ kind: 'peakPct', nextPct: apiPct });
-                                  }}
-                                >
-                                  {DISCHARGE_TARGET_SOC_OPTIONS.map(o => (
-                                    <option key={o} value={o}>
-                                      {t('dischargeTillSocOption', { pct: o })}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                              <DelayedHintTooltip hintText={peakDamHintWithTillSoc.hint}>
+                                        })();
+                                        return;
+                                      }
+                                      setWritePinGate({ kind: 'lowPct', nextPct: n });
+                                    }}
+                                  >
+                                    {CHARGE_SOC_DELTA_OPTIONS.map(o => (
+                                      <option key={o} value={o}>
+                                        {t('chargeSocDeltaValue', { pct: o })}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
                                 <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
                                   <input
                                     type="checkbox"
-                                    checked={peakDamDischargeEnabled}
+                                    checked={lowDamChargeEnabled}
                                     disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
                                     onChange={async e => {
                                       if (!remoteWriteConfigured) {
@@ -5287,8 +5861,8 @@ export default function PowerFlowPage({
                                       const v = e.target.checked;
                                       const sn = selInverterSn?.trim();
                                       if (!sn) return;
-                                      const prev = peakDamDischargeEnabled;
-                                      const prevPct = dischargeSocDeltaPct;
+                                      const prev = lowDamChargeEnabled;
+                                      const prevPct = chargeSocDeltaPct;
                                       if (peakPrefSaveTimerRef.current != null) {
                                         clearTimeout(peakPrefSaveTimerRef.current);
                                         peakPrefSaveTimerRef.current = null;
@@ -5299,70 +5873,62 @@ export default function PowerFlowPage({
                                       }
                                       const cached = readCachedInverterPin(sn);
                                       if (cached) {
-                                        setPeakDamDischargeEnabled(v);
+                                        setLowDamChargeEnabled(v);
                                         setDischarge2Feedback('');
                                         try {
-                                          const data = await savePeakAutoPref(
-                                            v,
-                                            peakPrefDischargePctForApi(dischargeSocDeltaPct),
-                                            cached
-                                          );
+                                          const data = await saveLowDamChargePref(v, chargeSocDeltaPct, cached);
                                           if (data && typeof data.enabled === 'boolean') {
-                                            setPeakDamDischargeEnabled(data.enabled);
+                                            setLowDamChargeEnabled(data.enabled);
                                           }
-                                          const p = data?.dischargeSocDeltaPct;
+                                          const p = data?.chargeSocDeltaPct;
                                           if (p != null && Number.isFinite(Number(p))) {
-                                            setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
+                                            setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
                                           }
                                         } catch (err) {
-                                          setPeakDamDischargeEnabled(prev);
-                                          setDischargeSocDeltaPct(prevPct);
+                                          setLowDamChargeEnabled(prev);
+                                          setChargeSocDeltaPct(prevPct);
                                           const m = err instanceof Error ? err.message : String(err);
-                                          setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
+                                          setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
                                         }
                                         return;
                                       }
                                       if (selInverterEvportBound) {
-                                        setPeakDamDischargeEnabled(v);
+                                        setLowDamChargeEnabled(v);
                                         setDischarge2Feedback('');
                                         try {
-                                          const data = await savePeakAutoPref(
-                                            v,
-                                            peakPrefDischargePctForApi(dischargeSocDeltaPct),
-                                            ''
-                                          );
+                                          const data = await saveLowDamChargePref(v, chargeSocDeltaPct, '');
                                           if (data && typeof data.enabled === 'boolean') {
-                                            setPeakDamDischargeEnabled(data.enabled);
+                                            setLowDamChargeEnabled(data.enabled);
                                           }
-                                          const p = data?.dischargeSocDeltaPct;
+                                          const p = data?.chargeSocDeltaPct;
                                           if (p != null && Number.isFinite(Number(p))) {
-                                            setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(p));
+                                            setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
                                           }
                                         } catch (err) {
-                                          setPeakDamDischargeEnabled(prev);
-                                          setDischargeSocDeltaPct(prevPct);
+                                          setLowDamChargeEnabled(prev);
+                                          setChargeSocDeltaPct(prevPct);
                                           const m = err instanceof Error ? err.message : String(err);
-                                          setDischarge2Feedback(`${t('peakDamDischargeSaveError')}: ${m}`);
+                                          setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
                                         }
                                         return;
                                       }
                                       setWritePinGate({
-                                        kind: 'peak',
+                                        kind: 'low',
                                         nextEnabled: v,
-                                        nextPct: peakPrefDischargePctForApi(dischargeSocDeltaPct),
+                                        nextPct: chargeSocDeltaPct,
                                       });
                                     }}
-                                    aria-label={peakDamHintWithTillSoc.aria}
+                                    aria-label={t('lowDamChargeToggleAria')}
                                   />
-                                  <span className="pf-peak-dam-toggle-label">{t('peakDamDischargeToggle')}</span>
+                                  <span className="pf-peak-dam-toggle-label" title={t('lowDamChargeToggleHint')}>
+                                    {t('lowDamChargeToggle')}
+                                  </span>
                                 </label>
-                              </DelayedHintTooltip>
-                              <DelayedHintTooltip hintText={selfConsumptionHintWithLcoe.hint}>
                                 <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
                                   <input
                                     type="checkbox"
-                                    checked={nightChargeEnabled || selfConsumptionEnabled}
-                                    disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
+                                    checked={nightChargeEnabled}
+                                    disabled={deyeWritesHardBlocked}
                                     onChange={async e => {
                                       if (!remoteWriteConfigured) {
                                         setRemoteWriteNeedsPinOpen(true);
@@ -5371,327 +5937,284 @@ export default function PowerFlowPage({
                                       const v = e.target.checked;
                                       const sn = selInverterSn?.trim();
                                       if (!sn) return;
-                                      const prev = selfConsumptionEnabled;
+                                      const prevNight = nightChargeEnabled;
+                                      const prevPeak = peakDamDischargeEnabled;
+                                      const prevLow = lowDamChargeEnabled;
+                                      const prevSc = selfConsumptionEnabled;
+                                      const prevChargePct = chargeSocDeltaPct;
+                                      if (peakPrefSaveTimerRef.current != null) {
+                                        clearTimeout(peakPrefSaveTimerRef.current);
+                                        peakPrefSaveTimerRef.current = null;
+                                      }
+                                      if (chargePrefSaveTimerRef.current != null) {
+                                        clearTimeout(chargePrefSaveTimerRef.current);
+                                        chargePrefSaveTimerRef.current = null;
+                                      }
                                       const cached = readCachedInverterPin(sn);
+                                      const pct = chargeSocDeltaPct;
                                       if (cached) {
-                                        setSelfConsumptionEnabled(v);
+                                        setNightChargeEnabled(v);
+                                        if (v) {
+                                          setPeakDamDischargeEnabled(false);
+                                          setLowDamChargeEnabled(false);
+                                          setSelfConsumptionEnabled(true);
+                                        }
                                         setDischarge2Feedback('');
                                         try {
-                                          const data = await saveSelfConsumptionPref(v, cached);
-                                          if (data && typeof data.selfConsumptionEnabled === 'boolean') {
-                                            setSelfConsumptionEnabled(data.selfConsumptionEnabled);
-                                          } else if (data && typeof data.enabled === 'boolean') {
-                                            setSelfConsumptionEnabled(data.enabled);
-                                          }
+                                          const data = await saveNightChargePref(v, pct, cached);
+                                          applyNightChargeToolbarSnap(data);
                                         } catch (err) {
-                                          setSelfConsumptionEnabled(prev);
+                                          setNightChargeEnabled(prevNight);
+                                          setPeakDamDischargeEnabled(prevPeak);
+                                          setLowDamChargeEnabled(prevLow);
+                                          setSelfConsumptionEnabled(prevSc);
+                                          setChargeSocDeltaPct(prevChargePct);
                                           const m = err instanceof Error ? err.message : String(err);
-                                          setDischarge2Feedback(`${t('selfConsumptionSaveError')}: ${m}`);
+                                          setDischarge2Feedback(`${t('nightChargeSaveError')}: ${m}`);
                                         }
                                         return;
                                       }
                                       if (selInverterEvportBound) {
-                                        setSelfConsumptionEnabled(v);
+                                        setNightChargeEnabled(v);
+                                        if (v) {
+                                          setPeakDamDischargeEnabled(false);
+                                          setLowDamChargeEnabled(false);
+                                          setSelfConsumptionEnabled(true);
+                                        }
                                         setDischarge2Feedback('');
                                         try {
-                                          const data = await saveSelfConsumptionPref(v, '');
-                                          if (data && typeof data.selfConsumptionEnabled === 'boolean') {
-                                            setSelfConsumptionEnabled(data.selfConsumptionEnabled);
-                                          } else if (data && typeof data.enabled === 'boolean') {
-                                            setSelfConsumptionEnabled(data.enabled);
-                                          }
+                                          const data = await saveNightChargePref(v, pct, '');
+                                          applyNightChargeToolbarSnap(data);
                                         } catch (err) {
-                                          setSelfConsumptionEnabled(prev);
+                                          setNightChargeEnabled(prevNight);
+                                          setPeakDamDischargeEnabled(prevPeak);
+                                          setLowDamChargeEnabled(prevLow);
+                                          setSelfConsumptionEnabled(prevSc);
+                                          setChargeSocDeltaPct(prevChargePct);
                                           const m = err instanceof Error ? err.message : String(err);
-                                          setDischarge2Feedback(`${t('selfConsumptionSaveError')}: ${m}`);
+                                          setDischarge2Feedback(`${t('nightChargeSaveError')}: ${m}`);
                                         }
                                         return;
                                       }
-                                      setWritePinGate({ kind: 'selfConsumption', nextEnabled: v });
+                                      setWritePinGate({
+                                        kind: 'nightCharge',
+                                        nextEnabled: v,
+                                        nextPct: pct,
+                                      });
                                     }}
-                                    aria-label={selfConsumptionHintWithLcoe.aria}
+                                    aria-label={t('nightChargeToggleAria')}
                                   />
-                                  <span className="pf-peak-dam-toggle-label">{t('selfConsumptionToggle')}</span>
+                                  <span className="pf-peak-dam-toggle-label" title={t('nightChargeToggleHint')}>
+                                    {t('nightChargeToggle')}
+                                  </span>
                                 </label>
-                              </DelayedHintTooltip>
-                            </div>
-                            <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header pf-deye-command-line pf-deye-command-line--charge">
-                              <div className="pf-discharge-delta-controls">
-                                <button
-                                  type="button"
-                                  className="pf-discharge-btn pf-discharge-go-btn pf-charge-go-btn"
-                                  onClick={requestCharge2Pct}
-                                  disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
-                                  title={t('chargeSoc2Hint')}
-                                  aria-label={t('chargeGoAria')}
-                                >
-                                  {t('chargeGoButton')}
-                                </button>
-                                <select
-                                  id="pf-charge-delta-select"
-                                  className="pf-discharge-delta-select pf-discharge-delta-select--header"
-                                  value={chargeSocDeltaPct}
-                                  disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
-                                  aria-label={t('chargeSocDeltaAria')}
-                                  onChange={e => {
-                                    if (!remoteWriteConfigured) {
-                                      setRemoteWriteNeedsPinOpen(true);
-                                      return;
-                                    }
-                                    const n = normalizeChargeSocDeltaPct(e.target.value);
-                                    const cached = readCachedInverterPin(selInverterSn?.trim() || '');
-                                    if (cached) {
-                                      void (async () => {
-                                        try {
-                                          const data = await saveLowDamChargePref(lowDamEnabledRef.current, n, cached);
-                                          setChargeSocDeltaPct(n);
-                                          if (data && typeof data.enabled === 'boolean') {
-                                            setLowDamChargeEnabled(data.enabled);
-                                          }
-                                          const p = data?.chargeSocDeltaPct;
-                                          if (p != null && Number.isFinite(Number(p))) {
-                                            setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
-                                          }
-                                        } catch (err) {
-                                          const m = err instanceof Error ? err.message : String(err);
-                                          setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
-                                        }
-                                      })();
-                                      return;
-                                    }
-                                    if (selInverterEvportBound) {
-                                      void (async () => {
-                                        try {
-                                          const data = await saveLowDamChargePref(lowDamEnabledRef.current, n, '');
-                                          setChargeSocDeltaPct(n);
-                                          if (data && typeof data.enabled === 'boolean') {
-                                            setLowDamChargeEnabled(data.enabled);
-                                          }
-                                          const p = data?.chargeSocDeltaPct;
-                                          if (p != null && Number.isFinite(Number(p))) {
-                                            setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
-                                          }
-                                        } catch (err) {
-                                          const m = err instanceof Error ? err.message : String(err);
-                                          setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
-                                        }
-                                      })();
-                                      return;
-                                    }
-                                    setWritePinGate({ kind: 'lowPct', nextPct: n });
-                                  }}
-                                >
-                                  {CHARGE_SOC_DELTA_OPTIONS.map(o => (
-                                    <option key={o} value={o}>
-                                      {t('chargeSocDeltaValue', { pct: o })}
-                                    </option>
-                                  ))}
-                                </select>
                               </div>
-                              <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
-                                <input
-                                  type="checkbox"
-                                  checked={lowDamChargeEnabled}
-                                  disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
-                                  onChange={async e => {
-                                    if (!remoteWriteConfigured) {
-                                      setRemoteWriteNeedsPinOpen(true);
-                                      return;
+                              <details
+                                className={`pf-gen-port-settings-details${GEN_PORT_SETTINGS_CONTROLS_ENABLED ? '' : ' pf-gen-port-settings-details--to-be-supported'}`}
+                                open={genPortSettingsOpen}
+                                onToggle={e => {
+                                  const open = e.currentTarget.open;
+                                  setGenPortSettingsOpen(open);
+                                  writeGenPortSettingsOpen(open);
+                                }}
+                              >
+                                <summary className="pf-gen-port-settings-summary">
+                                  <span
+                                    className={
+                                      GEN_PORT_SETTINGS_CONTROLS_ENABLED
+                                        ? 'pf-gen-port-settings-summary-label'
+                                        : 'pf-roi-stack-seg-title pf-gen-port-settings-summary-title'
                                     }
-                                    const v = e.target.checked;
-                                    const sn = selInverterSn?.trim();
-                                    if (!sn) return;
-                                    const prev = lowDamChargeEnabled;
-                                    const prevPct = chargeSocDeltaPct;
-                                    if (peakPrefSaveTimerRef.current != null) {
-                                      clearTimeout(peakPrefSaveTimerRef.current);
-                                      peakPrefSaveTimerRef.current = null;
+                                  >
+                                    {t('genPortSettingsSection')}
+                                  </span>
+                                  {!GEN_PORT_SETTINGS_CONTROLS_ENABLED ? (
+                                    <span className="pf-roi-stack-seg-sub pf-gen-port-settings-status">
+                                      {t('roiUnderDevelopment')}
+                                    </span>
+                                  ) : null}
+                                </summary>
+                                <div className="pf-gen-port-settings-body">
+                                  <DelayedHintTooltip
+                                    hintText={
+                                      GEN_PORT_SETTINGS_CONTROLS_ENABLED
+                                        ? t('smartLoadToggleHint')
+                                        : t('genPortSettingsUnderDevelopmentHint')
                                     }
-                                    if (chargePrefSaveTimerRef.current != null) {
-                                      clearTimeout(chargePrefSaveTimerRef.current);
-                                      chargePrefSaveTimerRef.current = null;
-                                    }
-                                    const cached = readCachedInverterPin(sn);
-                                    if (cached) {
-                                      setLowDamChargeEnabled(v);
-                                      setDischarge2Feedback('');
-                                      try {
-                                        const data = await saveLowDamChargePref(v, chargeSocDeltaPct, cached);
-                                        if (data && typeof data.enabled === 'boolean') {
-                                          setLowDamChargeEnabled(data.enabled);
+                                  >
+                                    <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
+                                      <input
+                                        type="checkbox"
+                                        checked={smartLoadEnabled}
+                                        disabled={!GEN_PORT_SETTINGS_CONTROLS_ENABLED || deyeWritesHardBlocked}
+                                        onChange={async e => {
+                                          if (!GEN_PORT_SETTINGS_CONTROLS_ENABLED) return;
+                                          if (!remoteWriteConfigured) {
+                                            setRemoteWriteNeedsPinOpen(true);
+                                            return;
+                                          }
+                                          const v = e.target.checked;
+                                          const sn = selInverterSn?.trim();
+                                          if (!sn) return;
+                                          const prev = smartLoadEnabled;
+                                          const cached = readCachedInverterPin(sn);
+                                          if (cached) {
+                                            setSmartLoadEnabled(v);
+                                            setDischarge2Feedback('');
+                                            try {
+                                              const data = await saveSmartLoadPref(v, cached);
+                                              if (data && typeof data.smartLoadEnabled === 'boolean') {
+                                                setSmartLoadEnabled(data.smartLoadEnabled);
+                                              } else if (data && typeof data.enabled === 'boolean') {
+                                                setSmartLoadEnabled(data.enabled);
+                                              }
+                                            } catch (err) {
+                                              setSmartLoadEnabled(prev);
+                                              const m = err instanceof Error ? err.message : String(err);
+                                              setDischarge2Feedback(`${t('smartLoadSaveError')}: ${m}`);
+                                            }
+                                            return;
+                                          }
+                                          if (selInverterEvportBound) {
+                                            setSmartLoadEnabled(v);
+                                            setDischarge2Feedback('');
+                                            try {
+                                              const data = await saveSmartLoadPref(v, '');
+                                              if (data && typeof data.smartLoadEnabled === 'boolean') {
+                                                setSmartLoadEnabled(data.smartLoadEnabled);
+                                              } else if (data && typeof data.enabled === 'boolean') {
+                                                setSmartLoadEnabled(data.enabled);
+                                              }
+                                            } catch (err) {
+                                              setSmartLoadEnabled(prev);
+                                              const m = err instanceof Error ? err.message : String(err);
+                                              setDischarge2Feedback(`${t('smartLoadSaveError')}: ${m}`);
+                                            }
+                                            return;
+                                          }
+                                          setWritePinGate({ kind: 'smartLoad', nextEnabled: v });
+                                        }}
+                                        aria-label={
+                                          GEN_PORT_SETTINGS_CONTROLS_ENABLED
+                                            ? t('smartLoadToggleAria')
+                                            : t('genPortSettingsUnderDevelopmentHint')
                                         }
-                                        const p = data?.chargeSocDeltaPct;
-                                        if (p != null && Number.isFinite(Number(p))) {
-                                          setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
+                                      />
+                                      <span className="pf-peak-dam-toggle-label">{t('smartLoadToggle')}</span>
+                                    </label>
+                                  </DelayedHintTooltip>
+                                  <DelayedHintTooltip
+                                    hintText={
+                                      GEN_PORT_SETTINGS_CONTROLS_ENABLED
+                                        ? t('genOnGridAlwaysOnToggleHint')
+                                        : t('genPortSettingsUnderDevelopmentHint')
+                                    }
+                                  >
+                                    <label
+                                      className={`pf-peak-dam-toggle pf-peak-dam-toggle--header pf-peak-dam-toggle--debug${genOnGridAlwaysOnLoading ? ' pf-peak-dam-toggle--loading' : ''}`}
+                                      aria-busy={genOnGridAlwaysOnLoading ? 'true' : undefined}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={genOnGridAlwaysOn}
+                                        disabled={
+                                          !GEN_PORT_SETTINGS_CONTROLS_ENABLED ||
+                                          deyeWritesHardBlocked ||
+                                          genOnGridAlwaysOnLoading
                                         }
-                                      } catch (err) {
-                                        setLowDamChargeEnabled(prev);
-                                        setChargeSocDeltaPct(prevPct);
-                                        const m = err instanceof Error ? err.message : String(err);
-                                        setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
-                                      }
-                                      return;
-                                    }
-                                    if (selInverterEvportBound) {
-                                      setLowDamChargeEnabled(v);
-                                      setDischarge2Feedback('');
-                                      try {
-                                        const data = await saveLowDamChargePref(v, chargeSocDeltaPct, '');
-                                        if (data && typeof data.enabled === 'boolean') {
-                                          setLowDamChargeEnabled(data.enabled);
+                                        onChange={async e => {
+                                          if (!GEN_PORT_SETTINGS_CONTROLS_ENABLED) return;
+                                          if (genOnGridAlwaysOnLoading) return;
+                                          if (!remoteWriteConfigured) {
+                                            setRemoteWriteNeedsPinOpen(true);
+                                            return;
+                                          }
+                                          const v = e.target.checked;
+                                          const sn = selInverterSn?.trim();
+                                          if (!sn) return;
+                                          const cached = readCachedInverterPin(sn);
+                                          if (cached) {
+                                            setDischarge2Feedback('');
+                                            try {
+                                              await runGenOnGridAlwaysOnSave(v, cached);
+                                            } catch (err) {
+                                              const m = err instanceof Error ? err.message : String(err);
+                                              setDischarge2Feedback(`${t('genOnGridAlwaysOnSaveError')}: ${m}`);
+                                            }
+                                            return;
+                                          }
+                                          if (selInverterEvportBound) {
+                                            setDischarge2Feedback('');
+                                            try {
+                                              await runGenOnGridAlwaysOnSave(v, '');
+                                            } catch (err) {
+                                              const m = err instanceof Error ? err.message : String(err);
+                                              setDischarge2Feedback(`${t('genOnGridAlwaysOnSaveError')}: ${m}`);
+                                            }
+                                            return;
+                                          }
+                                          setWritePinGate({ kind: 'genOnGrid', nextEnabled: v });
+                                        }}
+                                        aria-label={
+                                          !GEN_PORT_SETTINGS_CONTROLS_ENABLED
+                                            ? t('genPortSettingsUnderDevelopmentHint')
+                                            : genOnGridAlwaysOnLoading
+                                              ? t('genOnGridAlwaysOnToggleLoading')
+                                              : t('genOnGridAlwaysOnToggleAria')
                                         }
-                                        const p = data?.chargeSocDeltaPct;
-                                        if (p != null && Number.isFinite(Number(p))) {
-                                          setChargeSocDeltaPct(normalizeChargeSocDeltaPct(p));
-                                        }
-                                      } catch (err) {
-                                        setLowDamChargeEnabled(prev);
-                                        setChargeSocDeltaPct(prevPct);
-                                        const m = err instanceof Error ? err.message : String(err);
-                                        setDischarge2Feedback(`${t('lowDamChargeSaveError')}: ${m}`);
-                                      }
-                                      return;
-                                    }
-                                    setWritePinGate({
-                                      kind: 'low',
-                                      nextEnabled: v,
-                                      nextPct: chargeSocDeltaPct,
-                                    });
-                                  }}
-                                  aria-label={t('lowDamChargeToggleAria')}
-                                />
-                                <span className="pf-peak-dam-toggle-label" title={t('lowDamChargeToggleHint')}>
-                                  {t('lowDamChargeToggle')}
-                                </span>
-                              </label>
-                              <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
-                                <input
-                                  type="checkbox"
-                                  checked={nightChargeEnabled}
-                                  disabled={deyeWritesHardBlocked}
-                                  onChange={async e => {
-                                    if (!remoteWriteConfigured) {
-                                      setRemoteWriteNeedsPinOpen(true);
-                                      return;
-                                    }
-                                    const v = e.target.checked;
-                                    const sn = selInverterSn?.trim();
-                                    if (!sn) return;
-                                    const prevNight = nightChargeEnabled;
-                                    const prevPeak = peakDamDischargeEnabled;
-                                    const prevLow = lowDamChargeEnabled;
-                                    const prevSc = selfConsumptionEnabled;
-                                    const prevChargePct = chargeSocDeltaPct;
-                                    if (peakPrefSaveTimerRef.current != null) {
-                                      clearTimeout(peakPrefSaveTimerRef.current);
-                                      peakPrefSaveTimerRef.current = null;
-                                    }
-                                    if (chargePrefSaveTimerRef.current != null) {
-                                      clearTimeout(chargePrefSaveTimerRef.current);
-                                      chargePrefSaveTimerRef.current = null;
-                                    }
-                                    const cached = readCachedInverterPin(sn);
-                                    const pct = chargeSocDeltaPct;
-                                    if (cached) {
-                                      setNightChargeEnabled(v);
-                                      if (v) {
-                                        setPeakDamDischargeEnabled(false);
-                                        setLowDamChargeEnabled(false);
-                                        setSelfConsumptionEnabled(true);
-                                      }
-                                      setDischarge2Feedback('');
-                                      try {
-                                        const data = await saveNightChargePref(v, pct, cached);
-                                        applyNightChargeToolbarSnap(data);
-                                      } catch (err) {
-                                        setNightChargeEnabled(prevNight);
-                                        setPeakDamDischargeEnabled(prevPeak);
-                                        setLowDamChargeEnabled(prevLow);
-                                        setSelfConsumptionEnabled(prevSc);
-                                        setChargeSocDeltaPct(prevChargePct);
-                                        const m = err instanceof Error ? err.message : String(err);
-                                        setDischarge2Feedback(`${t('nightChargeSaveError')}: ${m}`);
-                                      }
-                                      return;
-                                    }
-                                    if (selInverterEvportBound) {
-                                      setNightChargeEnabled(v);
-                                      if (v) {
-                                        setPeakDamDischargeEnabled(false);
-                                        setLowDamChargeEnabled(false);
-                                        setSelfConsumptionEnabled(true);
-                                      }
-                                      setDischarge2Feedback('');
-                                      try {
-                                        const data = await saveNightChargePref(v, pct, '');
-                                        applyNightChargeToolbarSnap(data);
-                                      } catch (err) {
-                                        setNightChargeEnabled(prevNight);
-                                        setPeakDamDischargeEnabled(prevPeak);
-                                        setLowDamChargeEnabled(prevLow);
-                                        setSelfConsumptionEnabled(prevSc);
-                                        setChargeSocDeltaPct(prevChargePct);
-                                        const m = err instanceof Error ? err.message : String(err);
-                                        setDischarge2Feedback(`${t('nightChargeSaveError')}: ${m}`);
-                                      }
-                                      return;
-                                    }
-                                    setWritePinGate({
-                                      kind: 'nightCharge',
-                                      nextEnabled: v,
-                                      nextPct: pct,
-                                    });
-                                  }}
-                                  aria-label={t('nightChargeToggleAria')}
-                                />
-                                <span className="pf-peak-dam-toggle-label" title={t('nightChargeToggleHint')}>
-                                  {t('nightChargeToggle')}
-                                </span>
-                              </label>
+                                      />
+                                      <span className="pf-peak-dam-toggle-label">{t('genOnGridAlwaysOnToggle')}</span>
+                                      {genOnGridAlwaysOnLoading ? (
+                                        <span className="pf-gen-port-toggle-spinner" aria-hidden="true" />
+                                      ) : null}
+                                    </label>
+                                  </DelayedHintTooltip>
+                                </div>
+                              </details>
                             </div>
                           </div>
                         </div>
-                      </div>
-                    )}
-                  </>
-                )
-              ) : null}
-            </div>
-
-            {dischargeFeedbackText ? (
-              <div className="pf-discharge-feedback" role="status">
-                <p>{dischargeFeedbackText}</p>
+                      )}
+                    </>
+                  )
+                ) : null}
               </div>
-            ) : null}
 
-            <aside className="pf-ukraine-qr" aria-label={t('qrAsideAria')}>
-              <a className="pf-ukraine-qr-link" href={QR_SUPPORT_URL} target="_blank" rel="noopener noreferrer">
-                <img
-                  className="pf-ukraine-qr-img"
-                  src={`${qrBase}/static/power-flow/protect-ukraine-qr.png`}
-                  width={120}
-                  height={120}
-                  alt={t('qrImageAlt')}
-                  decoding="async"
-                />
-                <span className="pf-ukraine-qr-caption">{t('qrCaption')}</span>
-              </a>
-            </aside>
+              {dischargeFeedbackText ? (
+                <div className="pf-discharge-feedback" role="status">
+                  <p>{dischargeFeedbackText}</p>
+                </div>
+              ) : null}
 
-            {pageRestHydrationPending ? (
-              <div className="pf-page-rest-pending-overlay" aria-hidden="true">
-                <div className="pf-page-rest-pending-loader">
+              <aside className="pf-ukraine-qr" aria-label={t('qrAsideAria')}>
+                <a className="pf-ukraine-qr-link" href={QR_SUPPORT_URL} target="_blank" rel="noopener noreferrer">
                   <img
-                    className="pf-page-rest-pending-loader__logo"
-                    src={VYRIY_EMS_LOGO_SRC}
-                    alt=""
+                    className="pf-ukraine-qr-img"
+                    src={`${qrBase}/static/power-flow/protect-ukraine-qr.png`}
                     width={120}
                     height={120}
+                    alt={t('qrImageAlt')}
                     decoding="async"
                   />
+                  <span className="pf-ukraine-qr-caption">{t('qrCaption')}</span>
+                </a>
+              </aside>
+
+              {pageRestHydrationPending ? (
+                <div className="pf-page-rest-pending-overlay" aria-hidden="true">
+                  <div className="pf-page-rest-pending-loader">
+                    <img
+                      className="pf-page-rest-pending-loader__logo"
+                      src={VYRIY_EMS_LOGO_SRC}
+                      alt=""
+                      width={120}
+                      height={120}
+                      decoding="async"
+                    />
+                  </div>
                 </div>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
 
             <section
               className="pf-rdn-callback-section pf-rdn-callback-section--page-end"
@@ -5700,6 +6223,20 @@ export default function PowerFlowPage({
               <RdnConsultationCallback t={t} />
             </section>
           </div>
+
+          {graphShareQrOpen && pageShareUrl ? (
+            <SharePageModal
+              open={graphShareQrOpen}
+              url={pageShareUrl}
+              copied={false}
+              copyFailed={false}
+              onClose={closeGraphShareQrModal}
+              t={t}
+              qrSize={kioskMode ? 360 : 320}
+              qrVariant="portSticker"
+              showCopyStatus={false}
+            />
+          ) : null}
 
           {nodePopup ? (
             <div className="pf-modal-backdrop pf-node-popup-backdrop" role="presentation" onClick={closeNodePopup}>
@@ -5710,7 +6247,25 @@ export default function PowerFlowPage({
                 aria-label={nodePopup.title || 'Node details'}
                 onClick={e => e.stopPropagation()}
               >
-                <div className="pf-node pf-node-popup-tile" dangerouslySetInnerHTML={{ __html: nodePopup.html }} />
+                {nodePopup.variant === 'solar' ? (
+                  <SolarNodePopupContent
+                    deviceSn={selInverterSn}
+                    solarForecast={solarForecast}
+                    solarPowerW={graphDisplaySolarW}
+                    solarForecastIconChar={solarForecastIconChar}
+                    solarForecastIconAria={solarForecastIconAria}
+                    lcoeLine={
+                      !referenceLcoe.loading && referenceLcoe.ok
+                        ? formatUahPerKwhTariffLine(referenceLcoe.solarUahPerKwh)
+                        : ''
+                    }
+                    bcp47={bcp47}
+                    evOnlyGraphLoading={evOnlyGraphLoading}
+                    t={t}
+                  />
+                ) : (
+                  <div className="pf-node pf-node-popup-tile" dangerouslySetInnerHTML={{ __html: nodePopup.html }} />
+                )}
                 {nodePopup.actionHref ? (
                   <a
                     className="pf-modal-btn pf-modal-btn--primary pf-node-popup-link"
@@ -5872,7 +6427,11 @@ export default function PowerFlowPage({
                             ? t('deyeWritePinTitleSelfConsumption')
                             : writePinGate.kind === 'nightCharge'
                               ? t('deyeWritePinTitleNightCharge')
-                              : t('deyeWritePinTitleLowPct')}
+                              : writePinGate.kind === 'smartLoad'
+                                ? t('deyeWritePinTitleSmartLoad')
+                                : writePinGate.kind === 'genOnGrid'
+                                  ? t('deyeWritePinTitleGenOnGrid')
+                                  : t('deyeWritePinTitleLowPct')}
                 </p>
                 <div className="pf-modal-pin-row">
                   <label htmlFor="pf-write-pin-input" className="pf-modal-pin-label">
