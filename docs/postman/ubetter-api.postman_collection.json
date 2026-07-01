@@ -1,0 +1,360 @@
+{
+  "info": {
+    "_postman_id": "a8f3c2e1-4b5d-6e7f-8a9b-0c1d2e3f4a5b",
+    "name": "ubetter-api",
+    "description": "Third-Party EMS Open API integration collection.\n\nDocument: Third-Party API Integration Guide v1.4 (2026-06-18)\nBase URL: {{baseUrl}}\nSwagger: {{baseUrl}}/swagger-ui/index.html\n\n**Flow**\n1. Run **API 1 — Obtain Access Token** first.\n2. On success (`code=0`), `accessToken` and `tenantId` are saved to collection variables.\n3. All other requests automatically send `Authorization: Bearer {{accessToken}}` and `X-Tenant-Id: {{tenantId}}`.\n4. Re-run API 1 when token expires (`40101`).\n\n**Unified response** (HTTP 200): `{ code, message, data, requestId, timestamp }` — `code=0` means success.\n\n**Error codes (appendix A):** 40001 invalid parameter; 40101 token invalid; 40102 bad credentials; 40303 Open API not enabled; 40305 IP not whitelisted; 40401 device not found; 42901 rate limit.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const url = pm.request.url.toString();",
+          "if (url.includes('/v1/auth/token')) {",
+          "  return;",
+          "}",
+          "const token = pm.collectionVariables.get('accessToken');",
+          "const tenantId = pm.collectionVariables.get('tenantId');",
+          "if (token) {",
+          "  pm.request.headers.upsert({ key: 'Authorization', value: 'Bearer ' + token });",
+          "}",
+          "if (tenantId) {",
+          "  pm.request.headers.upsert({ key: 'X-Tenant-Id', value: tenantId });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://eur.ubetter.com.cn/ems-open-api",
+      "type": "string"
+    },
+    {
+      "key": "username",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "password",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "tenantUsername",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "tenantId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "deviceSn",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "componentType",
+      "value": "bms",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Auth",
+      "item": [
+        {
+          "name": "API 1 — Obtain Access Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('business code present', function () {",
+                  "  pm.expect(body).to.have.property('code');",
+                  "});",
+                  "if (body.code === 0 && body.data) {",
+                  "  pm.collectionVariables.set('accessToken', body.data.accessToken);",
+                  "  pm.collectionVariables.set('tenantId', body.data.tenantId);",
+                  "  pm.test('token saved', function () {",
+                  "    pm.expect(body.data.accessToken).to.be.a('string').and.not.empty;",
+                  "    pm.expect(body.data.tenantId).to.be.a('string').and.not.empty;",
+                  "  });",
+                  "} else {",
+                  "  console.warn('Auth failed:', body.code, body.message);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\",\n  \"tenantUsername\": \"{{tenantUsername}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/v1/auth/token",
+            "description": "Obtain JWT access token and tenant ID. No auth headers required.\n\nResponse `data`: accessToken, tokenType (Bearer), expiresIn (seconds), tenantId, tenantUsername."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "2. Devices",
+      "item": [
+        {
+          "name": "API 2 — Paginated Device List",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/devices?page=1&size=20&onlineStatus=all&productType=all",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "devices"],
+              "query": [
+                { "key": "page", "value": "1", "description": "Page number (default 1)" },
+                { "key": "size", "value": "20", "description": "Page size (default 20, max 50)" },
+                { "key": "onlineStatus", "value": "all", "description": "all | online | offline" },
+                { "key": "productType", "value": "all", "description": "all | bess | hv_battery" }
+              ]
+            },
+            "description": "Returns paginated `data.items[]` with sn, name, online."
+          },
+          "response": []
+        },
+        {
+          "name": "API 3 — Device Real-Time Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/v1/devices/{{deviceSn}}",
+            "description": "Real-time summary: gridActivePower, loadActivePower, pvTotalPower, soc, batteryPower (kW; + = charging), etc."
+          },
+          "response": []
+        },
+        {
+          "name": "API 4 — Device Real-Time Detail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/devices/{{deviceSn}}/detail?viewScope=group",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "devices", "{{deviceSn}}", "detail"],
+              "query": [
+                { "key": "viewScope", "value": "group", "description": "group (default) | single" }
+              ]
+            },
+            "description": "Detailed device view: groupRow / singleDevice. See appendix C in integration guide."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "3. Components",
+      "item": [
+        {
+          "name": "API 5 — All Component Snapshots",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/v1/devices/{{deviceSn}}/components",
+            "description": "Component map keys: bms, pcs, mppt, sts, gridMeter, loadMeter, cooling, emsStatus."
+          },
+          "response": []
+        },
+        {
+          "name": "API 6 — Single Component Snapshot",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/v1/devices/{{deviceSn}}/components/{{componentType}}",
+            "description": "type: bms | pcs | mppt | sts | gridMeter | loadMeter | cooling | emsStatus"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "4. Run Strategy",
+      "item": [
+        {
+          "name": "API 7 — Get Run Strategy",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/v1/devices/{{deviceSn}}/run-strategy",
+            "description": "strategy 0–6 (see appendix B). strategy=0: chargeCtrl 1=charge, 2=discharge."
+          },
+          "response": []
+        },
+        {
+          "name": "API 8 — Update Run Strategy",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategy\": 5,\n  \"chargeSoc\": 95,\n  \"dischargeSoc\": 10\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/v1/devices/{{deviceSn}}/run-strategy",
+            "description": "Same fields as API 7 response. `strategy` is required. Fields depend on strategy type.\n\nAppendix B: 0=Manual, 1=Backup, 2=Test, 3=Peak shaving, 4=Scheduled, 5=Self-consumption, 6=AI economic (read-only)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "5. Time Schedule",
+      "item": [
+        {
+          "name": "API 9 — Get Today's Time Schedule",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/v1/devices/{{deviceSn}}/time-schedule",
+            "description": "Today's slots in device timezone. Check `editable` before PUT."
+          },
+          "response": []
+        },
+        {
+          "name": "API 10 — Set Today's Time Schedule",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"chargeSoc\": 95,\n  \"dischargeSoc\": 10,\n  \"slots\": [\n    {\n      \"startTime\": \"00:00:00\",\n      \"endTime\": \"06:00:00\",\n      \"mode\": 1,\n      \"power\": 5,\n      \"chargeSocLimit\": 95\n    },\n    {\n      \"startTime\": \"18:00:00\",\n      \"endTime\": \"22:00:00\",\n      \"mode\": 2,\n      \"power\": 5,\n      \"dischargeSocLimit\": 10\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/v1/devices/{{deviceSn}}/time-schedule",
+            "description": "Requires `editable=true` from API 9. Slot mode: 0=idle, 1=charge, 2=discharge."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "6. Analytics",
+      "item": [
+        {
+          "name": "API 11 — Daily Power Curves",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/devices/{{deviceSn}}/power-curves?date=2026-06-26",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "devices", "{{deviceSn}}", "power-curves"],
+              "query": [
+                { "key": "date", "value": "2026-06-26", "description": "yyyy-MM-dd; default = today in device TZ" }
+              ]
+            },
+            "description": "curves keys: grid, load, battery, pv. Each point: time (ms), power (kW)."
+          },
+          "response": []
+        },
+        {
+          "name": "API 12 — Energy Statistics (year)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/devices/{{deviceSn}}/energy?year=2026",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "devices", "{{deviceSn}}", "energy"],
+              "query": [
+                { "key": "year", "value": "2026", "description": "Year only → monthly stats for that year" }
+              ]
+            },
+            "description": "year only → monthly stats; year + month → stats for that month."
+          },
+          "response": []
+        },
+        {
+          "name": "API 12 — Energy Statistics (year + month)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/devices/{{deviceSn}}/energy?year=2026&month=06",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "devices", "{{deviceSn}}", "energy"],
+              "query": [
+                { "key": "year", "value": "2026" },
+                { "key": "month", "value": "06" }
+              ]
+            },
+            "description": "Monthly energy: totalCharge, totalDischarge, fees/income."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "7. Device Config",
+      "item": [
+        {
+          "name": "API 13 — Get Advanced Device Config",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/v1/devices/{{deviceSn}}/config",
+            "description": "Advanced EMS/device configuration. reportedPayload and reportedTs are read-only."
+          },
+          "response": []
+        },
+        {
+          "name": "API 14 — Update Advanced Device Config",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"antiBackflowEnable\": 1,\n  \"backupReserveSoc\": 20\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/v1/devices/{{deviceSn}}/config",
+            "description": "Send only fields to change. Do not write reportedPayload or reportedTs."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

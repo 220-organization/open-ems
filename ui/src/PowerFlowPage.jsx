@@ -30,6 +30,7 @@ import {
   ESS_PREFIX_DEYE,
   ESS_PREFIX_DC_EV,
   ESS_PREFIX_HUAWEI,
+  ESS_PREFIX_UBETTER,
   evPortsAcdcFromProvider,
   normalizeEssSelectionValue,
   parseEssSelection,
@@ -101,6 +102,8 @@ const KIOSK_WIDE_MIN_PX = 992;
 
 /** Huawei Northbound thirdData — strict rate limits (failCode 407 if polled too often). */
 const HUAWEI_NORTHBOUND_POLL_MS = 210_000;
+/** Ubetter EMS Open API — live summary poll interval. */
+const UBETTER_POLL_MS = 30_000;
 
 /** Aside QR wraps this URL (B12 uncrewed systems unit). */
 const QR_SUPPORT_URL = 'https://b12.army/';
@@ -1382,7 +1385,7 @@ function MotionDot({ pathD }) {
 function LandingExportMetricCounter({
   display,
   t,
-  landingHuaweiEss,
+  landingReadOnlyEss,
   showMonthlyRatesChart,
   showExportHourlyChart,
   landingExportMetric,
@@ -1422,7 +1425,7 @@ function LandingExportMetricCounter({
     );
   }
 
-  if (landingHuaweiEss && !showMonthlyRatesChart && !showExportHourlyChart) {
+  if (landingReadOnlyEss && !showMonthlyRatesChart && !showExportHourlyChart) {
     return (
       <div className={display.wrapClass} aria-label={display.title || undefined}>
         {counterInner}
@@ -1503,6 +1506,13 @@ export default function PowerFlowPage({
     items: [],
     error: false,
     northboundRateLimited: false,
+    authFailed: false,
+  });
+  const [ubetterRows, setUbetterRows] = useState({
+    loading: true,
+    configured: false,
+    items: [],
+    error: false,
     authFailed: false,
   });
   const [chargingPorts, setChargingPorts] = useState({
@@ -1923,6 +1933,44 @@ export default function PowerFlowPage({
     return () => clearInterval(id);
   }, [loadHuaweiStations]);
 
+  const loadUbetterDevices = useCallback(async () => {
+    try {
+      const r = await fetch(apiUrl('/api/ubetter/devices'), { cache: 'no-store' });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setUbetterRows({
+          loading: false,
+          configured: false,
+          items: [],
+          error: true,
+          authFailed: false,
+        });
+      } else {
+        setUbetterRows({
+          loading: false,
+          configured: !!data.configured,
+          items: data.items || [],
+          error: false,
+          authFailed: !!data.ubetterAuthFailed,
+        });
+      }
+    } catch {
+      setUbetterRows({
+        loading: false,
+        configured: false,
+        items: [],
+        error: true,
+        authFailed: false,
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadUbetterDevices();
+    const id = setInterval(() => void loadUbetterDevices(), 60_000);
+    return () => clearInterval(id);
+  }, [loadUbetterDevices]);
+
   const [inverterValue, setInverterValue] = useState('');
   const deyeCombinedItems = useMemo(() => {
     const byKey = new Map();
@@ -1961,7 +2009,7 @@ export default function PowerFlowPage({
   }, [deyeCombinedItems]);
 
   useEffect(() => {
-    if (inverterRows.loading || huaweiRows.loading) return;
+    if (inverterRows.loading || huaweiRows.loading || ubetterRows.loading) return;
     let want = '';
     try {
       want = new URLSearchParams(window.location.search).get('inverter') || '';
@@ -1981,10 +2029,14 @@ export default function PowerFlowPage({
       if (huaweiRows.items.some(r => r.stationCode === parsed.id)) {
         setInverterValue(want);
       }
+    } else if (parsed.provider === 'ubetter' && ubetterRows.configured && !ubetterRows.error) {
+      if (ubetterRows.items.some(r => r.sn === parsed.id)) {
+        setInverterValue(want);
+      }
     } else if (parsed.provider === 'dc-ev' || parsed.provider === 'ac-ev') {
       setInverterValue(`${parsed.provider === 'ac-ev' ? ESS_PREFIX_AC_EV : ESS_PREFIX_DC_EV}${parsed.id || 'all'}`);
     }
-  }, [inverterRows, huaweiRows, deyeCombinedItems, deyeSnToRepresentative]);
+  }, [inverterRows, huaweiRows, ubetterRows, deyeCombinedItems, deyeSnToRepresentative]);
 
   const onInverterChange = useCallback(e => {
     const v = normalizeEssSelectionValue(e.target.value);
@@ -2006,9 +2058,11 @@ export default function PowerFlowPage({
   const essSel = useMemo(() => parseEssSelection(inverterValue), [inverterValue]);
   const selInverterSn = essSel.provider === 'deye' ? essSel.id.trim() : '';
   const selHuaweiStationCode = essSel.provider === 'huawei' ? essSel.id.trim() : '';
+  const selUbetterSn = essSel.provider === 'ubetter' ? essSel.id.trim() : '';
   const selEvPortsAcdc = evPortsAcdcFromProvider(essSel.provider);
   const selEvPortsAggregate = selEvPortsAcdc != null;
-  const essAnySelected = Boolean(selInverterSn || selHuaweiStationCode || selEvPortsAggregate);
+  const readOnlyEssSelected = Boolean(selHuaweiStationCode || selUbetterSn);
+  const essAnySelected = Boolean(selInverterSn || selHuaweiStationCode || selUbetterSn || selEvPortsAggregate);
 
   const inverterSnsKey = useMemo(
     () =>
@@ -2230,6 +2284,9 @@ export default function PowerFlowPage({
   const [huaweiLive, setHuaweiLive] = useState(null);
   const [huaweiLiveLoading, setHuaweiLiveLoading] = useState(false);
   const [huaweiHydratedCode, setHuaweiHydratedCode] = useState('');
+  const [ubetterLive, setUbetterLive] = useState(null);
+  const [ubetterLiveLoading, setUbetterLiveLoading] = useState(false);
+  const [ubetterHydratedSn, setUbetterHydratedSn] = useState('');
   /** Today/tomorrow insolation % + today cloud icon hint (coordinates never exposed to browser). */
   const [solarForecast, setSolarForecast] = useState({
     loading: false,
@@ -2319,7 +2376,7 @@ export default function PowerFlowPage({
     setLandingExportMetric(prev =>
       normalizeLandingExportMetricForContext(prev, selInverterSn, selHuaweiStationCode, selEvPortsAcdc)
     );
-  }, [selInverterSn, selHuaweiStationCode, selEvPortsAcdc]);
+  }, [selInverterSn, selHuaweiStationCode, selUbetterSn, selEvPortsAcdc]);
 
   /** When user selects another Deye inverter, default the landing counter to total export (unless URL sets ``exportMetric``). */
   useEffect(() => {
@@ -2340,11 +2397,11 @@ export default function PowerFlowPage({
     const gridBalancingConfigured = Boolean(landingTotals?.ok && landingTotals?.gridBalancing?.configured !== false);
     const offers = {
       gridBalancing: gridBalancingConfigured,
-      peak: !selHuaweiStationCode && landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.PEAK),
-      manual: !selHuaweiStationCode && landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.MANUAL),
+      peak: !readOnlyEssSelected && landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.PEAK),
+      manual: !readOnlyEssSelected && landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.MANUAL),
       total: landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.TOTAL),
       arbitrage:
-        !selHuaweiStationCode && landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.ARBITRAGE),
+        !readOnlyEssSelected && landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.ARBITRAGE),
       lostSolar:
         Boolean(selInverterSn?.trim()) &&
         landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.LOST_SOLAR_7D),
@@ -2371,11 +2428,11 @@ export default function PowerFlowPage({
     const gridBalancingConfigured = Boolean(landingTotals?.ok && landingTotals?.gridBalancing?.configured !== false);
     return {
       gridBalancing: landingTotalsLoading || !landingTotals?.ok ? true : gridBalancingConfigured,
-      peak: !selHuaweiStationCode && landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.PEAK),
-      manual: !selHuaweiStationCode && landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.MANUAL),
+      peak: !readOnlyEssSelected && landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.PEAK),
+      manual: !readOnlyEssSelected && landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.MANUAL),
       total: landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.TOTAL),
       arbitrage:
-        !selHuaweiStationCode && landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.ARBITRAGE),
+        !readOnlyEssSelected && landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.ARBITRAGE),
       lostSolar:
         Boolean(selInverterSn?.trim()) &&
         landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.LOST_SOLAR_7D),
@@ -2457,7 +2514,7 @@ export default function PowerFlowPage({
     else if (sn) q.set('deviceSn', sn);
     else if (hw) q.set('huaweiStationCode', hw);
     return apiUrl(`/api/power-flow/monthly-retail-tariff-bars?${q}`);
-  }, [selInverterSn, selHuaweiStationCode, selEvPortsAcdc]);
+  }, [selInverterSn, selHuaweiStationCode, selUbetterSn, selEvPortsAcdc]);
   const gridBalancingChartFetchUrl = useMemo(() => {
     const q = new URLSearchParams({ months: '12' });
     const sn = selInverterSn?.trim();
@@ -3155,6 +3212,68 @@ export default function PowerFlowPage({
   }, [selHuaweiStationCode, huaweiLiveLoading, huaweiRows.configured, huaweiRows.error, huaweiRows.authFailed]);
 
   useEffect(() => {
+    if (!selUbetterSn || !ubetterRows.configured || ubetterRows.error || ubetterRows.authFailed) {
+      setUbetterLive(null);
+      setUbetterLiveLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    const loadUbetter = async () => {
+      setUbetterLiveLoading(true);
+      try {
+        const q = new URLSearchParams({ sn: selUbetterSn });
+        const r = await fetch(`${apiUrl('/api/ubetter/power-flow')}?${q}`, { cache: 'no-store' });
+        const data = await r.json().catch(() => ({}));
+        if (cancelled) return;
+        if (r.ok && data.ok && data.configured) {
+          const pvW = data.pvPowerW;
+          const gridW = data.gridPowerW;
+          const loadW = data.loadPowerW;
+          const batW = data.batteryPowerW;
+          const soc = data.socPercent;
+          setUbetterLive({
+            ok: true,
+            pvPowerW: pvW != null && Number.isFinite(Number(pvW)) ? Math.max(0, Number(pvW)) : null,
+            gridPowerW: gridW != null && Number.isFinite(Number(gridW)) ? Number(gridW) : null,
+            loadPowerW: loadW != null && Number.isFinite(Number(loadW)) ? Math.max(0, Number(loadW)) : null,
+            batteryPowerW: batW != null && Number.isFinite(Number(batW)) ? Number(batW) : null,
+            socPercent: soc != null && Number.isFinite(Number(soc)) ? Number(soc) : null,
+          });
+        } else if (!data?.ubetterAuthFailed) {
+          setUbetterLive(null);
+        }
+      } catch {
+        /* keep last value on transient errors */
+      } finally {
+        if (!cancelled) setUbetterLiveLoading(false);
+      }
+    };
+    void loadUbetter();
+    const id = setInterval(() => void loadUbetter(), UBETTER_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [selUbetterSn, ubetterRows.configured, ubetterRows.error, ubetterRows.authFailed]);
+
+  useLayoutEffect(() => {
+    setUbetterHydratedSn('');
+    if (selUbetterSn && ubetterRows.configured && !ubetterRows.error && !ubetterRows.authFailed) {
+      setUbetterLiveLoading(true);
+    }
+  }, [selUbetterSn, ubetterRows.configured, ubetterRows.error, ubetterRows.authFailed]);
+
+  useEffect(() => {
+    if (!selUbetterSn || !ubetterRows.configured || ubetterRows.error || ubetterRows.authFailed) {
+      setUbetterHydratedSn('');
+      return;
+    }
+    if (!ubetterLiveLoading) {
+      setUbetterHydratedSn(selUbetterSn);
+    }
+  }, [selUbetterSn, ubetterLiveLoading, ubetterRows.configured, ubetterRows.error, ubetterRows.authFailed]);
+
+  useEffect(() => {
     if (!selEvPortsAcdc) {
       setEvPortsLive({ loading: false, powerW: null, activeSessions: 0, acdc: null });
       return undefined;
@@ -3458,12 +3577,16 @@ export default function PowerFlowPage({
   const useLivePvDeye = Boolean(selInverterSn) && deyeLive?.pvPowerW != null && Number.isFinite(deyeLive.pvPowerW);
   const useLivePvHuawei =
     Boolean(selHuaweiStationCode) && huaweiLive?.pvPowerW != null && Number.isFinite(huaweiLive.pvPowerW);
-  const useLivePv = useLivePvDeye || useLivePvHuawei;
+  const useLivePvUbetter =
+    Boolean(selUbetterSn) && ubetterLive?.pvPowerW != null && Number.isFinite(ubetterLive.pvPowerW);
+  const useLivePv = useLivePvDeye || useLivePvHuawei || useLivePvUbetter;
   const rawPvW = useLivePvDeye
     ? Math.max(0, deyeLive.pvPowerW)
     : useLivePvHuawei
       ? Math.max(0, huaweiLive.pvPowerW)
-      : null;
+      : useLivePvUbetter
+        ? Math.max(0, ubetterLive.pvPowerW)
+        : null;
   const rawDisplaySolarW = essAnySelected
     ? useLivePv
       ? rawPvW
@@ -3481,20 +3604,28 @@ export default function PowerFlowPage({
     Boolean(selInverterSn) && deyeLive?.gridPowerW != null && Number.isFinite(deyeLive.gridPowerW);
   const useLiveGridHuawei =
     Boolean(selHuaweiStationCode) && huaweiLive?.gridPowerW != null && Number.isFinite(huaweiLive.gridPowerW);
+  const useLiveGridUbetter =
+    Boolean(selUbetterSn) && ubetterLive?.gridPowerW != null && Number.isFinite(ubetterLive.gridPowerW);
   /** No fleet ESS selected: do not sum inverter grid — hub grid is derived from balance below. */
   const effectiveGridW = essAnySelected
-    ? useLiveGridHuawei
-      ? huaweiLive.gridPowerW
-      : useLiveGridDeye
-        ? deyeLive.gridPowerW
-        : null
+    ? useLiveGridUbetter
+      ? ubetterLive.gridPowerW
+      : useLiveGridHuawei
+        ? huaweiLive.gridPowerW
+        : useLiveGridDeye
+          ? deyeLive.gridPowerW
+          : null
     : gridW;
-  const useLiveEss =
+  const useLiveEssDeye =
     Boolean(selInverterSn) && deyeLive?.batteryPowerW != null && Number.isFinite(deyeLive.batteryPowerW);
+  const useLiveEssUbetter =
+    Boolean(selUbetterSn) && ubetterLive?.batteryPowerW != null && Number.isFinite(ubetterLive.batteryPowerW);
   const displayEssW = essAnySelected
-    ? useLiveEss
-      ? deyeLive.batteryPowerW
-      : null
+    ? useLiveEssUbetter
+      ? ubetterLive.batteryPowerW
+      : useLiveEssDeye
+        ? deyeLive.batteryPowerW
+        : null
     : fleetBatteryTelemetryActive
       ? fleetBatteryW
       : essW;
@@ -3503,11 +3634,13 @@ export default function PowerFlowPage({
   const minerFlowW = liveMinerW ?? 0;
   const displayLoadW = fleetLoadTelemetryActive
     ? fleetLoadW
-    : Boolean(selHuaweiStationCode) && huaweiLive?.loadPowerW != null && Number.isFinite(huaweiLive.loadPowerW)
-      ? Math.max(0, huaweiLive.loadPowerW)
-      : Boolean(selInverterSn) && deyeLive?.loadPowerW != null && Number.isFinite(deyeLive.loadPowerW)
-        ? Math.max(0, deyeLive.loadPowerW)
-        : null;
+    : Boolean(selUbetterSn) && ubetterLive?.loadPowerW != null && Number.isFinite(ubetterLive.loadPowerW)
+      ? Math.max(0, ubetterLive.loadPowerW)
+      : Boolean(selHuaweiStationCode) && huaweiLive?.loadPowerW != null && Number.isFinite(huaweiLive.loadPowerW)
+        ? Math.max(0, huaweiLive.loadPowerW)
+        : Boolean(selInverterSn) && deyeLive?.loadPowerW != null && Number.isFinite(deyeLive.loadPowerW)
+          ? Math.max(0, deyeLive.loadPowerW)
+          : null;
   const useSpecialGridBalance =
     usesDeyeFlowBalance(selInverterSn) && displaySolarW != null && displayEssW != null && displayLoadW != null;
   /**
@@ -3656,6 +3789,11 @@ export default function PowerFlowPage({
   const qrBase = process.env.PUBLIC_URL || '';
 
   const essSocPercent = useMemo(() => {
+    const ubSn = selUbetterSn.trim();
+    if (ubSn) {
+      const v = ubetterLive?.socPercent;
+      return v != null && Number.isFinite(Number(v)) ? Number(v) : undefined;
+    }
     const sn = selInverterSn.trim();
     if (!sn) return undefined;
     const row = deyeCombinedItems.find(r => r.representativeSn === sn);
@@ -3673,9 +3811,12 @@ export default function PowerFlowPage({
       if (v != null && Number.isFinite(Number(v))) return Number(v);
     }
     return undefined;
-  }, [selInverterSn, deyeCombinedItems, socBySn]);
+  }, [selInverterSn, selUbetterSn, ubetterLive?.socPercent, deyeCombinedItems, socBySn]);
   const essSocHasKey = essSocPercent != null && Number.isFinite(essSocPercent);
-  const essSocPending = Boolean(selInverterSn.trim() && essSocPercent == null && socListLoading);
+  const essSocPending = Boolean(
+    (selInverterSn.trim() && essSocPercent == null && socListLoading) ||
+      (selUbetterSn.trim() && essSocPercent == null && ubetterLiveLoading)
+  );
 
   /** Same rule as ``requestDischarge2Pct``: no headroom to discharge toward the selected floor. */
   const dischargeGoDisabledInsufficientSoc = useMemo(() => {
@@ -4188,11 +4329,12 @@ export default function PowerFlowPage({
 
   const deyeListReady = inverterRows.configured && !inverterRows.loading && !inverterRows.error;
   const huaweiListReady = huaweiRows.configured && !huaweiRows.loading && !huaweiRows.error && !huaweiRows.authFailed;
-  const inverterListReady = deyeListReady || huaweiListReady;
+  const ubetterListReady = ubetterRows.configured && !ubetterRows.loading && !ubetterRows.error && !ubetterRows.authFailed;
+  const inverterListReady = deyeListReady || huaweiListReady || ubetterListReady;
 
   useEffect(() => {
     setLandingTotals(null);
-  }, [selInverterSn, selHuaweiStationCode, selEvPortsAcdc]);
+  }, [selInverterSn, selHuaweiStationCode, selUbetterSn, selEvPortsAcdc]);
 
   useEffect(() => {
     if (!inverterListReady) {
@@ -4253,12 +4395,14 @@ export default function PowerFlowPage({
 
   const showPowerFlowSections =
     (!inverterRows.error && (inverterRows.loading || inverterRows.configured)) ||
-    (!huaweiRows.error && (huaweiRows.loading || huaweiRows.configured));
+    (!huaweiRows.error && (huaweiRows.loading || huaweiRows.configured)) ||
+    (!ubetterRows.error && (ubetterRows.loading || ubetterRows.configured));
   const dischargeFeedbackText = discharge2Feedback;
   /** Blur below the power-flow graph until initial REST payloads are ready — site header and flow stay visible. */
   const pageRestHydrationPending =
     inverterRows.loading ||
     huaweiRows.loading ||
+    ubetterRows.loading ||
     chargingPorts.loading ||
     (realtimePower === null &&
       loadError === '' &&
@@ -4278,9 +4422,17 @@ export default function PowerFlowPage({
     (Boolean(selHuaweiStationCode) &&
       huaweiListReady &&
       !huaweiRows.error &&
-      (huaweiHydratedCode !== selHuaweiStationCode || huaweiLiveLoading));
+      (huaweiHydratedCode !== selHuaweiStationCode || huaweiLiveLoading)) ||
+    (Boolean(selUbetterSn) &&
+      ubetterListReady &&
+      !ubetterRows.error &&
+      (ubetterHydratedSn !== selUbetterSn || ubetterLiveLoading));
 
-  const noEssListYet = (inverterRows.loading || huaweiRows.loading) && !deyeListReady && !huaweiListReady;
+  const noEssListYet =
+    (inverterRows.loading || huaweiRows.loading || ubetterRows.loading) &&
+    !deyeListReady &&
+    !huaweiListReady &&
+    !ubetterListReady;
 
   const evPortPicker = (
     <EvPortPicker
@@ -4317,13 +4469,32 @@ export default function PowerFlowPage({
                       <option value="" disabled>
                         …
                       </option>
-                    ) : inverterRows.error && huaweiRows.error && !inverterRows.configured && !huaweiRows.configured ? (
+                    ) : inverterRows.error && huaweiRows.error && ubetterRows.error && !inverterRows.configured && !huaweiRows.configured && !ubetterRows.configured ? (
                       <option value="" disabled>
                         {t('inverterLoadError')}
                       </option>
                     ) : (
                       <>
                         <option value="">{t('inverterSelectLabel')}</option>
+                        {ubetterRows.configured && !ubetterRows.loading && !ubetterRows.error && ubetterRows.authFailed ? (
+                          <optgroup label={t('essUbetter')}>
+                            <option value="" disabled>
+                              {t('ubetterAuthFailedHint')}
+                            </option>
+                          </optgroup>
+                        ) : ubetterListReady && ubetterRows.items.length > 0 ? (
+                          <optgroup label={t('essUbetter')}>
+                            {ubetterRows.items.map(row => {
+                              const shortLabel = inverterSelectShortLabel(row.name, row.sn);
+                              const onlineSuffix = row.online === false ? ` · ${t('ubetterOffline')}` : '';
+                              return (
+                                <option key={`ubetter-${row.sn}`} value={`${ESS_PREFIX_UBETTER}${row.sn}`}>
+                                  {shortLabel + onlineSuffix}
+                                </option>
+                              );
+                            })}
+                          </optgroup>
+                        ) : null}
                         {deyeListReady && deyeCombinedItems.length > 0 ? (
                           <optgroup label={t('essDeyeCloud')}>
                             {deyeCombinedItems.map(row => {
@@ -4654,6 +4825,12 @@ export default function PowerFlowPage({
                                 : fleetLoadTelemetryActive
                                   ? formatPower(displayLoadW, t, bcp47)
                                   : formatPower(null, t, bcp47)
+                            : selUbetterSn
+                              ? ubetterLiveLoading
+                                ? '…'
+                                : displayLoadW != null
+                                  ? formatPower(displayLoadW, t, bcp47)
+                                  : formatPower(null, t, bcp47)
                             : selHuaweiStationCode
                               ? huaweiLiveLoading
                                 ? '…'
@@ -4717,7 +4894,7 @@ export default function PowerFlowPage({
                             ? '…'
                             : formatPower(graphDisplayEssW != null ? Math.abs(graphDisplayEssW) : null, t, bcp47)}
                         </span>
-                        {selInverterSn && essSocPercent != null && Number.isFinite(essSocPercent) ? (
+                        {(selInverterSn || selUbetterSn) && essSocPercent != null && Number.isFinite(essSocPercent) ? (
                           <span
                             className={`pf-node-sub pf-ess-soc ${essSocBandClassName(essSocPercent)}`.trim()}
                             id="pf-ess-soc"
@@ -4938,13 +5115,12 @@ export default function PowerFlowPage({
                   const ltd = inverterListReady ? formatLandingTotalsDisplay(landingTotals, bcp47, t) : null;
                   const landingTotalsScopeFleet = landingTotals?.exportScope === 'fleet';
                   const listPending = !inverterListReady;
-                  const landingHuaweiEss = Boolean(selHuaweiStationCode);
                   const landingEvPortsEss = Boolean(selEvPortsAcdc);
                   const landingExportMetricUi = (() => {
                     const m = landingExportMetric;
                     const offers = landingExportMetricOffers;
                     if (
-                      (landingHuaweiEss || landingEvPortsEss) &&
+                      (readOnlyEssSelected || landingEvPortsEss) &&
                       (m === LANDING_EXPORT_METRIC.PEAK ||
                         m === LANDING_EXPORT_METRIC.MANUAL ||
                         m === LANDING_EXPORT_METRIC.ARBITRAGE ||
@@ -4981,14 +5157,14 @@ export default function PowerFlowPage({
                   const showExportHourlyChart =
                     !showGridBalancingChart &&
                     !showMonthlyRatesChart &&
-                    !landingHuaweiEss &&
+                    !readOnlyEssSelected &&
                     (landingExportMetricUi === LANDING_EXPORT_METRIC.PEAK ||
                       landingExportMetricUi === LANDING_EXPORT_METRIC.MANUAL ||
                       landingExportMetricUi === LANDING_EXPORT_METRIC.TOTAL ||
                       landingExportMetricUi === LANDING_EXPORT_METRIC.ARBITRAGE ||
                       landingExportMetricUi === LANDING_EXPORT_METRIC.LOST_SOLAR_7D);
 
-                  const sourceSelected = Boolean(selInverterSn || selHuaweiStationCode || selEvPortsAcdc);
+                  const sourceSelected = Boolean(selInverterSn || selHuaweiStationCode || selUbetterSn || selEvPortsAcdc);
                   const showMonthlyRatesInverterSupplements =
                     sourceSelected &&
                     inverterListReady &&
@@ -5137,12 +5313,12 @@ export default function PowerFlowPage({
                               <option value={LANDING_EXPORT_METRIC.MONTHLY_RATES}>
                                 {t('powerFlowLandingExportMetricMonthlyRates')}
                               </option>
-                              {landingHuaweiEss || landingEvPortsEss || !landingExportMetricOffers.peak ? null : (
+                              {readOnlyEssSelected || landingEvPortsEss || !landingExportMetricOffers.peak ? null : (
                                 <option value={LANDING_EXPORT_METRIC.PEAK}>
                                   {t('powerFlowLandingExportMetricPeak')}
                                 </option>
                               )}
-                              {landingHuaweiEss || landingEvPortsEss || !landingExportMetricOffers.manual ? null : (
+                              {readOnlyEssSelected || landingEvPortsEss || !landingExportMetricOffers.manual ? null : (
                                 <option value={LANDING_EXPORT_METRIC.MANUAL}>
                                   {t('powerFlowLandingExportMetricManual')}
                                 </option>
@@ -5152,12 +5328,12 @@ export default function PowerFlowPage({
                                   {t('powerFlowLandingExportMetricTotal')}
                                 </option>
                               ) : null}
-                              {landingHuaweiEss || landingEvPortsEss || !landingExportMetricOffers.lostSolar ? null : (
+                              {readOnlyEssSelected || landingEvPortsEss || !landingExportMetricOffers.lostSolar ? null : (
                                 <option value={LANDING_EXPORT_METRIC.LOST_SOLAR_7D}>
                                   {t('powerFlowLandingExportMetricLostSolar7d')}
                                 </option>
                               )}
-                              {landingHuaweiEss || landingEvPortsEss || !landingExportMetricOffers.arbitrage ? null : (
+                              {readOnlyEssSelected || landingEvPortsEss || !landingExportMetricOffers.arbitrage ? null : (
                                 <option value={LANDING_EXPORT_METRIC.ARBITRAGE}>
                                   {t('powerFlowLandingExportMetricArbitrage')}
                                 </option>
@@ -5180,7 +5356,7 @@ export default function PowerFlowPage({
                                     display={inverterMetricDisplay}
                                     t={t}
                                     asButton={
-                                      !(landingHuaweiEss || landingEvPortsEss) ||
+                                      !(readOnlyEssSelected || landingEvPortsEss) ||
                                       showGridBalancingChart ||
                                       showExportHourlyChart
                                     }
@@ -5192,7 +5368,7 @@ export default function PowerFlowPage({
                                     display={inverterMetricDisplay}
                                     t={t}
                                     asButton={
-                                      !(landingHuaweiEss || landingEvPortsEss) ||
+                                      !(readOnlyEssSelected || landingEvPortsEss) ||
                                       showMonthlyRatesChart ||
                                       showExportHourlyChart
                                     }
@@ -5203,7 +5379,7 @@ export default function PowerFlowPage({
                                   <LandingExportMetricCounter
                                     display={inverterMetricDisplay}
                                     t={t}
-                                    landingHuaweiEss={landingHuaweiEss}
+                                    landingReadOnlyEss={readOnlyEssSelected}
                                     showMonthlyRatesChart={showMonthlyRatesChart}
                                     showExportHourlyChart={showExportHourlyChart}
                                     landingExportMetric={landingExportMetric}
@@ -5309,6 +5485,11 @@ export default function PowerFlowPage({
                       ? selHuaweiStationCode || undefined
                       : undefined
                   }
+                  ubetterDeviceSn={
+                    essSel.provider === 'ubetter' && ubetterListReady && !ubetterRows.error
+                      ? selUbetterSn || undefined
+                      : undefined
+                  }
                   evPortsAcdc={selEvPortsAcdc || undefined}
                   liveEvPortsPowerW={
                     selEvPortsAcdc && evPortsLive.powerW != null ? Number(evPortsLive.powerW) : undefined
@@ -5346,7 +5527,7 @@ export default function PowerFlowPage({
                     </div>
                   ) : (
                     <>
-                      {selHuaweiStationCode || selEvPortsAggregate ? null : (
+                      {selHuaweiStationCode || selUbetterSn || selEvPortsAggregate ? null : (
                         <div className="pf-header-discharge-row">
                           <div className="pf-discharge-toolbar pf-discharge-toolbar--combined">
                             <div className="pf-deye-command-stack">

@@ -13,11 +13,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.models import Note
-from app.routers import b2b_proxy, dam, deye_proxy, entsoe_dam, huawei_proxy, nbu_fx, power_flow_totals, server_metrics
+from app.routers import (
+    b2b_proxy,
+    dam,
+    deye_proxy,
+    entsoe_dam,
+    huawei_proxy,
+    nbu_fx,
+    power_flow_totals,
+    server_metrics,
+    ubetter_proxy,
+)
 from app.schemas import NoteCreate, NoteRead
 from app import settings
 from app.deye_api import deye_configured, deye_missing_env_names
 from app.huawei_api import huawei_configured, huawei_missing_env_names
+from app.ubetter_api import ubetter_configured, ubetter_missing_env_names
 from app.entsoe_dam_scheduler import entsoe_dam_daily_sync_loop
 from app.entsoe_dam_service import entsoe_dam_configured
 from app.oree_dam_scheduler import dam_daily_sync_loop
@@ -72,6 +83,17 @@ async def lifespan(app: FastAPI):
         logger.warning(
             "Huawei FusionSolar: not configured — set env: %s",
             ", ".join(hm) if hm else "HUAWEI_USER_NAME, HUAWEI_SYSTEM_CODE",
+        )
+
+    if not settings.UBETTER_ENABLED:
+        logger.info("Ubetter EMS Open API: disabled (UBETTER_ENABLED=0)")
+    elif ubetter_configured():
+        logger.info("Ubetter EMS Open API: configured (base: %s)", settings.UBETTER_BASE_URL)
+    else:
+        um = ubetter_missing_env_names()
+        logger.warning(
+            "Ubetter EMS Open API: not configured — set env: %s",
+            ", ".join(um) if um else "UBETTER_PASSWORD",
         )
 
     if settings.RATE_LIMIT_ENABLED:
@@ -326,6 +348,7 @@ app.add_middleware(
 app.include_router(b2b_proxy.router)
 app.include_router(deye_proxy.router)
 app.include_router(huawei_proxy.router)
+app.include_router(ubetter_proxy.router)
 app.include_router(dam.router)
 app.include_router(entsoe_dam.router)
 app.include_router(nbu_fx.router)
