@@ -4119,6 +4119,25 @@ export default function PowerFlowPage({
                     ) : (
                       <>
                         <option value="">{t('inverterSelectLabel')}</option>
+                        {ubetterRows.configured && !ubetterRows.loading && !ubetterRows.error && ubetterRows.authFailed ? (
+                          <optgroup label={t('essUbetter')}>
+                            <option value="" disabled>
+                              {t('ubetterAuthFailedHint')}
+                            </option>
+                          </optgroup>
+                        ) : ubetterListReady && ubetterRows.items.length > 0 ? (
+                          <optgroup label={t('essUbetter')}>
+                            {ubetterRows.items.map(row => {
+                              const shortLabel = inverterSelectShortLabel(row.name, row.sn);
+                              const onlineSuffix = row.online === false ? ` · ${t('ubetterOffline')}` : '';
+                              return (
+                                <option key={`ubetter-${row.sn}`} value={`${ESS_PREFIX_UBETTER}${row.sn}`}>
+                                  {shortLabel + onlineSuffix}
+                                </option>
+                              );
+                            })}
+                          </optgroup>
+                        ) : null}
                         {deyeListReady && deyeCombinedItems.length > 0 ? (
                           <optgroup label={t('essDeyeCloud')}>
                             {deyeCombinedItems.map(row => {
@@ -4167,25 +4186,6 @@ export default function PowerFlowPage({
                                   value={`${ESS_PREFIX_HUAWEI}${row.stationCode}`}
                                 >
                                   {shortLabel}
-                                </option>
-                              );
-                            })}
-                          </optgroup>
-                        ) : null}
-                        {ubetterRows.configured && !ubetterRows.loading && !ubetterRows.error && ubetterRows.authFailed ? (
-                          <optgroup label={t('essUbetter')}>
-                            <option value="" disabled>
-                              {t('ubetterAuthFailedHint')}
-                            </option>
-                          </optgroup>
-                        ) : ubetterListReady && ubetterRows.items.length > 0 ? (
-                          <optgroup label={t('essUbetter')}>
-                            {ubetterRows.items.map(row => {
-                              const shortLabel = inverterSelectShortLabel(row.name, row.sn);
-                              const onlineSuffix = row.online === false ? ` · ${t('ubetterOffline')}` : '';
-                              return (
-                                <option key={`ubetter-${row.sn}`} value={`${ESS_PREFIX_UBETTER}${row.sn}`}>
-                                  {shortLabel + onlineSuffix}
                                 </option>
                               );
                             })}
