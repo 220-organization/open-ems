@@ -62,24 +62,13 @@ class UbetterUpstreamHttpError(RuntimeError):
 
 def ubetter_missing_env_names() -> list[str]:
     missing: list[str] = []
-    if not settings.UBETTER_ENABLED:
-        missing.append("UBETTER_ENABLED")
-    if not settings.UBETTER_USERNAME:
-        missing.append("UBETTER_USERNAME")
     if not settings.UBETTER_PASSWORD:
         missing.append("UBETTER_PASSWORD")
-    if not settings.UBETTER_TENANT_USERNAME:
-        missing.append("UBETTER_TENANT_USERNAME")
     return missing
 
 
 def ubetter_configured() -> bool:
-    return bool(
-        settings.UBETTER_ENABLED
-        and settings.UBETTER_USERNAME
-        and settings.UBETTER_PASSWORD
-        and settings.UBETTER_TENANT_USERNAME
-    )
+    return bool(settings.UBETTER_ENABLED and settings.UBETTER_PASSWORD)
 
 
 def _base_url() -> str:

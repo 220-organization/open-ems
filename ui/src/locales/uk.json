@@ -17,7 +17,7 @@
   "essEvPortsActiveCount": "{{count}} сесій",
   "huaweiNorthboundRateLimited": "Список станцій тимчасово недоступний (ліміт FusionSolar). Спробуйте за кілька хвилин; не використовуйте Postman чи інші клієнти з тим самим Northbound-користувачем.",
   "huaweiAuthFailedHint": "Не вдалося увійти в FusionSolar (перевірте HUAWEI_USER_NAME та HUAWEI_SYSTEM_CODE на сервері).",
-  "ubetterAuthFailedHint": "Не вдалося увійти в Ubetter EMS (перевірте UBETTER_USERNAME, UBETTER_PASSWORD та UBETTER_TENANT_USERNAME на сервері).",
+  "ubetterAuthFailedHint": "Не вдалося увійти в Ubetter EMS (перевірте UBETTER_PASSWORD на сервері).",
   "ubetterOffline": "офлайн",
   "dischargeSoc2Button": "Розряд {{pct}}% SoC",
   "dischargeSoc2Busy": "Розряд…",

@@ -90,7 +90,7 @@ async def lifespan(app: FastAPI):
         um = ubetter_missing_env_names()
         logger.warning(
             "Ubetter EMS Open API: not configured — set env: %s",
-            ", ".join(um) if um else "UBETTER_USERNAME, UBETTER_PASSWORD, UBETTER_TENANT_USERNAME",
+            ", ".join(um) if um else "UBETTER_PASSWORD",
         )
 
     if settings.RATE_LIMIT_ENABLED:

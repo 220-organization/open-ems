@@ -17,7 +17,7 @@
   "essEvPortsActiveCount": "{{count}} sessions",
   "huaweiNorthboundRateLimited": "Plant list temporarily unavailable (FusionSolar rate limit). Retry in a few minutes; avoid Postman or other tools using the same Northbound user.",
   "huaweiAuthFailedHint": "FusionSolar login failed (check HUAWEI_USER_NAME and HUAWEI_SYSTEM_CODE on the server).",
-  "ubetterAuthFailedHint": "Ubetter EMS login failed (check UBETTER_USERNAME, UBETTER_PASSWORD, and UBETTER_TENANT_USERNAME on the server).",
+  "ubetterAuthFailedHint": "Ubetter EMS login failed (check UBETTER_PASSWORD on the server).",
   "ubetterOffline": "offline",
   "dischargeSoc2Button": "Discharge {{pct}}% SoC",
   "dischargeSoc2Busy": "Discharge…",
