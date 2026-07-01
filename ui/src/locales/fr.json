@@ -279,6 +279,8 @@
   "roiCatDam": "DAM",
   "roiCatMining": "Mining",
   "roiUnderDevelopment": "Bientôt disponible",
+  "genPortSettingsUnderDevelopment": "En développement",
+  "genPortSettingsUnderDevelopmentHint": "Smart load et Toujours sur le réseau sont en développement et désactivés pour l'instant.",
   "roiStackAria": "Sources ROI : charge kWh · DAM (Kyiv) · PV référence · autres — placeholders.",
   "roiSetupTitle": "ROI statistics",
   "roiCapexPrompt": "CAPEX (USD)",

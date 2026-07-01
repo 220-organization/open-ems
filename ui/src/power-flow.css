@@ -1313,12 +1313,22 @@ body {
   justify-content: center;
   min-height: 0;
   padding-top: 12px;
+  width: 100%;
+  --pf-side: min(calc((100vw - 8px) * 0.9), calc(100vmin * 0.9), 920px);
 }
 
 .pf-flow-tariff-vs-ukraine {
-  margin: 0.85rem 0 0;
+  margin: 0.85rem auto 0;
   padding: 0 1rem;
-  max-width: 44rem;
+  width: 100%;
+  max-width: var(--pf-side);
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  align-self: center;
+  gap: 0.15em;
   text-align: center;
   font-size: clamp(1.15rem, 3.2vw, 1.5rem);
   font-weight: 600;
@@ -1340,7 +1350,6 @@ body {
 
 .pf-graph {
   --pf-graph-anchor-pct: 8.5%;
-  --pf-side: min(calc((100vw - 8px) * 0.9), calc(100vmin * 0.9), 920px);
   position: relative;
   width: var(--pf-side);
   max-width: 920px;
@@ -1349,19 +1358,24 @@ body {
 }
 
 @media (min-width: 721px) and (max-width: 1023px) {
-  .pf-graph {
+  .pf-graph-wrap {
     --pf-side: min(calc((100vw - 16px) * 0.9), max(400px, calc(100vmin * 0.92)), 920px);
   }
 }
 
 @media (min-width: 1024px) {
   .pf-graph-wrap { padding-block: 14px; }
-  .pf-graph {
+  .pf-graph-wrap {
     --pf-side: min(min(calc((100vw - 32px) * 0.85), max(440px, calc(100svh - 260px))), 860px);
+  }
+  .pf-graph {
+    max-width: 860px;
+  }
+  .pf-flow-tariff-vs-ukraine {
     max-width: 860px;
   }
   @supports (height: 100dvh) {
-    .pf-graph {
+    .pf-graph-wrap {
       --pf-side: min(min(calc((100vw - 32px) * 0.85), max(440px, calc(100dvh - 260px))), 860px);
     }
   }
@@ -1884,6 +1898,43 @@ a.pf-node { cursor: pointer; }
   letter-spacing: 0.01em;
 }
 
+.pf-gen-port-settings-details--to-be-supported {
+  border: 1px solid var(--pf-border);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.15);
+  opacity: 0.85;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border-top: none;
+  margin-top: 8px;
+}
+
+.pf-gen-port-settings-details--to-be-supported .pf-gen-port-settings-body {
+  opacity: 1;
+}
+
+.pf-gen-port-settings-details--to-be-supported .pf-gen-port-settings-summary {
+  justify-content: center;
+  gap: 6px 10px;
+  text-align: center;
+}
+
+.pf-gen-port-settings-summary .pf-gen-port-settings-status {
+  margin-left: 0;
+  flex-shrink: 0;
+  text-align: center;
+}
+
+.pf-gen-port-settings-summary-title {
+  min-width: 0;
+  flex: 0 0 auto;
+  text-align: center;
+}
+
+.pf-gen-port-settings-details--to-be-supported .pf-peak-dam-toggle {
+  cursor: not-allowed;
+}
+
 .pf-gen-port-settings-details {
   width: 100%;
   margin-top: 4px;
@@ -1930,7 +1981,8 @@ a.pf-node { cursor: pointer; }
   color: var(--pf-text-muted);
 }
 
-.pf-gen-port-settings-summary:hover .pf-gen-port-settings-summary-label {
+.pf-gen-port-settings-summary:hover .pf-gen-port-settings-summary-label,
+.pf-gen-port-settings-summary:hover .pf-gen-port-settings-summary-title {
   color: var(--pf-label, #f9a8ef);
 }
 
@@ -1938,7 +1990,12 @@ a.pf-node { cursor: pointer; }
   padding: 4px 0 8px 1.1rem;
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 8px 12px;
+}
+
+.pf-gen-port-settings-details--to-be-supported .pf-gen-port-settings-body {
+  justify-content: center;
 }
 
 .pf-peak-dam-toggle--loading {
@@ -3720,6 +3777,10 @@ a.pf-node { cursor: pointer; }
 }
 
 [data-theme="light"] .pf-roi-stack-seg--placeholder {
+  background: rgba(16, 18, 22, 0.04);
+}
+
+[data-theme="light"] .pf-gen-port-settings-details--to-be-supported {
   background: rgba(16, 18, 22, 0.04);
 }
 

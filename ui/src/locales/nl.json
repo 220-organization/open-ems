@@ -279,6 +279,8 @@
   "roiCatDam": "DAM",
   "roiCatMining": "Mining",
   "roiUnderDevelopment": "Binnenkort",
+  "genPortSettingsUnderDevelopment": "In ontwikkeling",
+  "genPortSettingsUnderDevelopmentHint": "Smart load en Altijd van het net zijn in ontwikkeling en tijdelijk uitgeschakeld.",
   "roiStackAria": "ROI-bronnen: belasting kWh · DAM (Kyiv) · PV referentie · overig — placeholders.",
   "roiSetupTitle": "ROI statistics",
   "roiCapexPrompt": "CAPEX (USD)",

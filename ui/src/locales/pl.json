@@ -326,6 +326,8 @@
   "genOnGridAlwaysOnSaveError": "Could not change On Grid always on",
   "deyeWritePinTitleGenOnGrid": "Enter PIN to change On Grid always on (Gen port)",
   "genPortSettingsSection": "Gen port settings",
+  "genPortSettingsUnderDevelopment": "W trakcie rozwoju",
+  "genPortSettingsUnderDevelopmentHint": "Smart load i Zawsze z sieci są w trakcie rozwoju i tymczasowo wyłączone.",
   "seoMetaDescription": "Open EMS — smart energy management for microgrids in Ukraine: solar, BESS, and EV charging. Automated charge/discharge scenarios, DAM/IDM arbitrage (OREE), ML solar and price forecasts, Modbus/MQTT/OPC UA, island mode, grid balancing. Deye & Huawei monitoring. Self-hosted, open-source.",
   "seoMetaKeywords": "smart energy management system, microgrid EMS, BESS monitoring, solar plant monitoring, ML solar generation forecast, ML day-ahead price forecast, electricity arbitrage, DAM IDM, active consumer, island mode, Modbus MQTT OPC UA, Open EMS, EMS Ukraine, OREE, grid balancing, Deye, Huawei FusionSolar, smart charging, 220-km",
   "seoOgTitle": "Open EMS — smart EMS for microgrids | DAM, IDM, BESS, solar",

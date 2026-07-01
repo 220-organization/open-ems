@@ -279,6 +279,8 @@
   "roiCatDam": "DAM",
   "roiCatMining": "Mining",
   "roiUnderDevelopment": "Již brzy",
+  "genPortSettingsUnderDevelopment": "Ve vývoji",
+  "genPortSettingsUnderDevelopmentHint": "Smart load a Vždy ze sítě jsou ve vývoji a dočasně vypnuté.",
   "roiStackAria": "Zdroje ROI: spotřeba kWh · DAM (Kyjev) · PV reference · ostatní — zástupné.",
   "roiSetupTitle": "ROI statistics",
   "roiCapexPrompt": "CAPEX (USD)",
