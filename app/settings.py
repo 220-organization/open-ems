@@ -70,7 +70,7 @@ HUAWEI_ENABLED: bool = _env_bool("HUAWEI_ENABLED", True)
 # Ubetter EMS Open API (third-party REST — device list + realtime summary; read-only in Open EMS).
 UBETTER_BASE_URL: str = os.environ.get(
     "UBETTER_BASE_URL",
-    "http://47.120.67.73/ems-open-api",
+    "https://eur.ubetter.com.cn/ems-open-api",
 ).rstrip("/")
 UBETTER_USERNAME: str = (os.environ.get("UBETTER_USERNAME") or "").strip()
 UBETTER_PASSWORD: str = os.environ.get("UBETTER_PASSWORD") or ""

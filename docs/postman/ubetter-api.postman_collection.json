@@ -30,7 +30,7 @@
   "variable": [
     {
       "key": "baseUrl",
-      "value": "http://47.120.67.73/ems-open-api",
+      "value": "https://eur.ubetter.com.cn/ems-open-api",
       "type": "string"
     },
     {
