@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useSta
 import {
   BINANCE_MINER_URL,
   evStationOpenUrl,
+  evStationPowerPortsToPoll,
   SITE_220KM_HOME,
   FLOW_DOT_MOTION_DUR,
   computeSimulatedSources,
@@ -1563,7 +1564,7 @@ export default function PowerFlowPage({
     ok: true,
     items: [],
   });
-  /** Charging power (W) from GET /api/b2b/station-status for the selected EV port; null = unknown / error. */
+  /** Charging power (W) from GET /api/b2b/station-status — sum for all inverter-bound ports, else selected port. */
   const [evStationPowerW, setEvStationPowerW] = useState(null);
   const [evStationTariffUahPerKwh, setEvStationTariffUahPerKwh] = useState(null);
   const [evStationPowerLoading, setEvStationPowerLoading] = useState(false);
@@ -1836,65 +1837,6 @@ export default function PowerFlowPage({
       clearInterval(id);
     };
   }, [fetchRealtime]);
-
-  useEffect(() => {
-    const sn = stationFilter.trim();
-    if (!sn) {
-      setEvStationPowerW(null);
-      setEvStationTariffUahPerKwh(null);
-      setEvStationPowerLoading(false);
-      return undefined;
-    }
-    let cancelled = false;
-    let first = true;
-    const parsePowerFromStationStatus = data => {
-      if (!data || typeof data !== 'object') return null;
-      if (data.lastJobPresented === false) return 0;
-      const job = data.lastJob;
-      if (!job || typeof job !== 'object') return 0;
-      if (job.deviceOnline === false) return 0;
-      const st = String(job.state || '')
-        .toUpperCase()
-        .replace(/-/g, '_');
-      if (st !== 'IN_PROGRESS') return 0;
-      const p = job.powerWt;
-      if (p == null || !Number.isFinite(Number(p))) return 0;
-      return Math.max(0, Number(p));
-    };
-    const tick = async () => {
-      if (first) setEvStationPowerLoading(true);
-      try {
-        const q = new URLSearchParams({ station_number: sn });
-        const r = await fetch(apiUrl(`/api/b2b/station-status?${q}`), { cache: 'no-store' });
-        const data = await r.json().catch(() => null);
-        if (!cancelled) {
-          if (r.ok && data && typeof data === 'object') {
-            setEvStationPowerW(parsePowerFromStationStatus(data));
-            setEvStationTariffUahPerKwh(tariffUahPerKwhFromPortRow(data));
-          } else {
-            setEvStationPowerW(null);
-            setEvStationTariffUahPerKwh(null);
-          }
-        }
-      } catch {
-        if (!cancelled) {
-          setEvStationPowerW(null);
-          setEvStationTariffUahPerKwh(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setEvStationPowerLoading(false);
-          first = false;
-        }
-      }
-    };
-    void tick();
-    const id = setInterval(() => void tick(), 15_000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [stationFilter]);
 
   const loadInverters = useCallback(async () => {
     try {
@@ -3601,6 +3543,79 @@ export default function PowerFlowPage({
       }),
     [stationFilter, boundEvPortNumbers]
   );
+
+  /** Poll station-status for all inverter-bound EV ports (sum power on the EV node). */
+  useEffect(() => {
+    const ports = evStationPowerPortsToPoll({ stationFilter, boundEvPortNumbers });
+    const tariffPort = stationFilter.trim() || ports[0] || '';
+    if (ports.length === 0) {
+      setEvStationPowerW(null);
+      setEvStationTariffUahPerKwh(null);
+      setEvStationPowerLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    let first = true;
+    const parsePowerFromStationStatus = data => {
+      if (!data || typeof data !== 'object') return null;
+      if (data.lastJobPresented === false) return 0;
+      const job = data.lastJob;
+      if (!job || typeof job !== 'object') return 0;
+      if (job.deviceOnline === false) return 0;
+      const st = String(job.state || '')
+        .toUpperCase()
+        .replace(/-/g, '_');
+      if (st !== 'IN_PROGRESS') return 0;
+      const p = job.powerWt;
+      if (p == null || !Number.isFinite(Number(p))) return 0;
+      return Math.max(0, Number(p));
+    };
+    const tick = async () => {
+      if (first) setEvStationPowerLoading(true);
+      try {
+        const rows = await Promise.all(
+          ports.map(async port => {
+            const q = new URLSearchParams({ station_number: port });
+            const r = await fetch(apiUrl(`/api/b2b/station-status?${q}`), { cache: 'no-store' });
+            const data = await r.json().catch(() => null);
+            if (!r.ok || !data || typeof data !== 'object') {
+              return { port, data: null, power: null };
+            }
+            return { port, data, power: parsePowerFromStationStatus(data) };
+          })
+        );
+        if (!cancelled) {
+          if (rows.every(row => row.power == null)) {
+            setEvStationPowerW(null);
+            setEvStationTariffUahPerKwh(null);
+          } else {
+            setEvStationPowerW(rows.reduce((sum, row) => sum + (row.power ?? 0), 0));
+            const tariffRow =
+              rows.find(row => String(row.port) === tariffPort) ?? rows.find(row => row.data) ?? null;
+            setEvStationTariffUahPerKwh(
+              tariffRow?.data ? tariffUahPerKwhFromPortRow(tariffRow.data) : null
+            );
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setEvStationPowerW(null);
+          setEvStationTariffUahPerKwh(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setEvStationPowerLoading(false);
+          first = false;
+        }
+      }
+    };
+    void tick();
+    const id = setInterval(() => void tick(), 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [stationFilter, boundEvPortNumbers]);
 
   /** Prefer selected port list price; else monthly retail when no port selected; else fleet average. */
   const evDisplayTariffUahPerKwh = useMemo(() => {

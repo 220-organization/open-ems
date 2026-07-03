@@ -11,6 +11,30 @@ export const EV_START_URL = 'https://220-km.com/start';
 /** Deep link to start flow for all ports on one device (query `ports` = comma-separated numbers). */
 export const EV_START_MANY_URL = 'https://220-km.com/startMany';
 
+/** Station numbers to poll for aggregate EV node power (all inverter-bound ports, else selected port). */
+export function evStationPowerPortsToPoll({ stationFilter, boundPortNumbers }) {
+  const bound = (boundPortNumbers ?? []).map(String).filter(Boolean);
+  if (bound.length > 0) return bound;
+  const sn = String(stationFilter ?? '').trim();
+  return sn ? [sn] : [];
+}
+
+/** Sum live charging power (W) from charging-ports rows for bound EV port numbers. */
+export function sumBoundEvPortsPowerW(boundPortNumbers, chargingPortItems) {
+  if (!Array.isArray(boundPortNumbers) || boundPortNumbers.length === 0) return null;
+  const byNumber = new Map((chargingPortItems ?? []).map(row => [String(row?.number), row]));
+  let sum = 0;
+  let any = false;
+  for (const num of boundPortNumbers) {
+    const pw = Number(byNumber.get(String(num))?.powerWt);
+    if (Number.isFinite(pw) && pw > 0) {
+      sum += pw;
+      any = true;
+    }
+  }
+  return any ? sum : 0;
+}
+
 /** 220-km charging page URL for a selected port or a multi-port site binding. */
 export function evStationOpenUrl({ station, boundPorts }) {
   const ports = (boundPorts ?? []).map(String).filter(Boolean);
