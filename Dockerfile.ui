@@ -4,8 +4,6 @@ FROM node:20-alpine AS ui-build
 WORKDIR /ui
 
 COPY ui/package.json ui/package-lock.json ./
-RUN npm ci
-
 COPY ui/ ./
 
 ARG REACT_APP_API_BASE_URL=
@@ -15,7 +13,16 @@ ENV REACT_APP_CLARITY_PROJECT_ID=${REACT_APP_CLARITY_PROJECT_ID}
 ARG REACT_APP_GA_MEASUREMENT_ID=
 ENV REACT_APP_GA_MEASUREMENT_ID=${REACT_APP_GA_MEASUREMENT_ID}
 
-RUN npm run build
+ENV NODE_OPTIONS=--max-old-space-size=1536
+ENV GENERATE_SOURCEMAP=false
+ENV CI=true
+
+# Deploy ships ui/build from GitHub Actions (small hosts OOM on react-scripts). Local builds still compile here.
+RUN if [ -f build/index.html ]; then \
+      echo "Using pre-built ui/build from deploy artifact"; \
+    else \
+      npm ci && npm run build; \
+    fi
 
 FROM nginx:1.27-alpine
 COPY --from=ui-build /ui/build /usr/share/nginx/html

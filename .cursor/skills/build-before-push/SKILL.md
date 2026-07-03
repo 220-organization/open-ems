@@ -57,7 +57,7 @@ npm run build
 
 ## Docker parity
 
-Server build: `Dockerfile.ui` → `COPY ui/` → `RUN npm run build`. This script validates the same step without Docker. Server OOM is a separate ops issue; compile errors must still be caught here.
+Deploy builds UI on the GitHub runner (`deploy.yml`) and ships `ui/build/` in the tarball; `Dockerfile.ui` copies it into nginx without running `react-scripts` on the small deploy host. This script validates the same compile step locally. Compile errors must still be caught here before push.
 
 ## Backend-only changes
 

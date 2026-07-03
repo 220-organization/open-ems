@@ -2236,14 +2236,6 @@ export default function PowerFlowPage({
     const row = deyeCombinedItems.find(r => r.representativeSn === sn);
     return Boolean(row?.pinRequired);
   }, [selInverterSn, deyeCombinedItems]);
-
-  /** Composed list label for the selected inverter (includes evport<N> when bound). */
-  const selInverterLabel = useMemo(() => {
-    const sn = selInverterSn.trim();
-    if (!sn) return '';
-    const row = deyeCombinedItems.find(r => r.representativeSn === sn);
-    return row?.shortLabel != null ? String(row.shortLabel) : '';
-  }, [selInverterSn, deyeCombinedItems]);
   /**
    * Some Deye plants expose multiple ESS serials under one station label (e.g. "Холод Склад 1").
    * For realtime graph values we aggregate all serials that share the same select short-label.
@@ -2416,7 +2408,7 @@ export default function PowerFlowPage({
     };
     setLandingExportMetric(preferredLandingExportMetric(offers));
     writeStoredLandingExportMetric(selInverterSn, selHuaweiStationCode, preferredLandingExportMetric(offers));
-  }, [selInverterSn, selHuaweiStationCode, landingTotals, selEvPortsAcdc]);
+  }, [selInverterSn, selHuaweiStationCode, landingTotals, selEvPortsAcdc, readOnlyEssSelected]);
 
   useEffect(() => {
     replaceLandingExportMetricInUrl(landingExportMetric);
@@ -2445,7 +2437,7 @@ export default function PowerFlowPage({
         Boolean(selInverterSn?.trim()) &&
         landingExportMetricHasPositiveValue(landingTotals, LANDING_EXPORT_METRIC.LOST_SOLAR_7D),
     };
-  }, [selEvPortsAcdc, selHuaweiStationCode, selInverterSn, landingTotals, landingTotalsLoading]);
+  }, [selEvPortsAcdc, selInverterSn, landingTotals, landingTotalsLoading, readOnlyEssSelected]);
 
   useEffect(() => {
     if (landingTotalsLoading || !landingTotals?.ok) return;
@@ -2522,7 +2514,7 @@ export default function PowerFlowPage({
     else if (sn) q.set('deviceSn', sn);
     else if (hw) q.set('huaweiStationCode', hw);
     return apiUrl(`/api/power-flow/monthly-retail-tariff-bars?${q}`);
-  }, [selInverterSn, selHuaweiStationCode, selUbetterSn, selEvPortsAcdc]);
+  }, [selInverterSn, selHuaweiStationCode, selEvPortsAcdc]);
   const gridBalancingChartFetchUrl = useMemo(() => {
     const q = new URLSearchParams({ months: '12' });
     const sn = selInverterSn?.trim();
