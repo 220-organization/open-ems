@@ -36,6 +36,7 @@ from app.oree_dam_service import oree_dam_configured
 from app.deye_soc_scheduler import deye_soc_snapshot_loop
 from app.ev_port_power_scheduler import ev_port_power_snapshot_loop
 from app.ubetter_power_scheduler import ubetter_power_snapshot_loop
+from app.huawei_power_scheduler import huawei_power_snapshot_loop
 from app.huawei_station_energy_scheduler import huawei_station_energy_loop
 from app.deye_low_dam_charge_scheduler import deye_low_dam_charge_loop
 from app.deye_night_charge_scheduler import deye_night_charge_loop
