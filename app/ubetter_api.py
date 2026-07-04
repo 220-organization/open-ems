@@ -259,27 +259,113 @@ async def list_devices(page: int = 1, size: int = 50) -> list[dict[str, Any]]:
     return out
 
 
+def _kw_to_w(kw: Optional[float]) -> Optional[float]:
+    return kw * 1000.0 if kw is not None else None
+
+
+def _battery_power_w_from_api_kw(bat_kw: Optional[float]) -> Optional[float]:
+    # Ubetter API: +batteryPower = charging; UI/Deye: +batteryPowerW = discharge.
+    return -bat_kw * 1000.0 if bat_kw is not None else None
+
+
 def _map_summary_to_power_flow(sn: str, summary: dict[str, Any]) -> dict[str, Any]:
     pv_kw = _float_or_none(summary.get("pvTotalPower"))
     grid_kw = _float_or_none(summary.get("gridActivePower"))
     load_kw = _float_or_none(summary.get("loadActivePower"))
     bat_kw = _float_or_none(summary.get("batteryPower"))
-    soc = _int_or_none(summary.get("soc"))
+    soc = _float_or_none(summary.get("soc"))
+    if soc is None:
+        soc_int = _int_or_none(summary.get("soc"))
+        soc = float(soc_int) if soc_int is not None else None
     return {
         "ok": True,
         "configured": True,
         "sn": sn,
-        "pvPowerW": pv_kw * 1000.0 if pv_kw is not None else None,
-        "gridPowerW": grid_kw * 1000.0 if grid_kw is not None else None,
-        "loadPowerW": load_kw * 1000.0 if load_kw is not None else None,
-        # API: +batteryPower = charging; UI/Deye: +batteryPowerW = discharge.
-        "batteryPowerW": -bat_kw * 1000.0 if bat_kw is not None else None,
-        "socPercent": float(soc) if soc is not None else None,
+        "pvPowerW": _kw_to_w(pv_kw),
+        "gridPowerW": _kw_to_w(grid_kw),
+        "loadPowerW": _kw_to_w(load_kw),
+        "batteryPowerW": _battery_power_w_from_api_kw(bat_kw),
+        "socPercent": soc,
         "sohPercent": _int_or_none(summary.get("soh")),
         "batteryVoltageV": _float_or_none(summary.get("batteryVoltage")),
         "batteryCurrentA": _float_or_none(summary.get("batteryCurrent")),
         "batteryTemperatureC": _float_or_none(summary.get("batteryTemperature")),
         "reportTimeMs": _int_or_none(summary.get("reportTime")),
+    }
+
+
+def _extract_detail_group_summary(detail_data: Any) -> Optional[dict[str, Any]]:
+    """Return groupRow.summary or singleDevice.summary from GET /v1/devices/{sn}/detail."""
+    if not isinstance(detail_data, dict):
+        return None
+    group = detail_data.get("groupRow")
+    if isinstance(group, dict):
+        summary = group.get("summary")
+        if isinstance(summary, dict):
+            return summary
+    single = detail_data.get("singleDevice")
+    if isinstance(single, dict):
+        summary = single.get("summary")
+        if isinstance(summary, dict):
+            return summary
+    return None
+
+
+def _energy_flow_power_kw(energy_flow: Any, block_key: str) -> Optional[float]:
+    if not isinstance(energy_flow, dict):
+        return None
+    block = energy_flow.get(block_key)
+    if not isinstance(block, dict):
+        return None
+    return _float_or_none(block.get("power"))
+
+
+def _map_detail_to_power_flow(
+    sn: str,
+    detail_summary: dict[str, Any],
+    summary_fallback: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    """Map GET /v1/devices/{sn}/detail group summary; fill gaps from realtime summary."""
+    fb = summary_fallback if isinstance(summary_fallback, dict) else {}
+    rt = detail_summary.get("realtimePower")
+    rt = rt if isinstance(rt, dict) else {}
+    ef = detail_summary.get("energyFlow")
+
+    pv_kw = _energy_flow_power_kw(ef, "pvData")
+    load_kw = _energy_flow_power_kw(ef, "loadData")
+    grid_kw = _energy_flow_power_kw(ef, "gridData")
+    if pv_kw is None:
+        pv_kw = _float_or_none(fb.get("pvTotalPower"))
+    if load_kw is None:
+        load_kw = _float_or_none(fb.get("loadActivePower"))
+    if grid_kw is None:
+        grid_kw = _float_or_none(fb.get("gridActivePower"))
+
+    bat_kw = _float_or_none(rt.get("batteryPower"))
+    if bat_kw is None:
+        bat_kw = _float_or_none(fb.get("batteryPower"))
+
+    soc = _float_or_none(detail_summary.get("soc"))
+    if soc is None:
+        soc_int = _int_or_none(fb.get("soc"))
+        soc = float(soc_int) if soc_int is not None else None
+
+    report_ts = _int_or_none(rt.get("powerTimestamp")) or _int_or_none(fb.get("reportTime"))
+
+    return {
+        "ok": True,
+        "configured": True,
+        "sn": sn,
+        "pvPowerW": _kw_to_w(pv_kw),
+        "gridPowerW": _kw_to_w(grid_kw),
+        "loadPowerW": _kw_to_w(load_kw),
+        "batteryPowerW": _battery_power_w_from_api_kw(bat_kw),
+        "socPercent": soc,
+        "sohPercent": _int_or_none(fb.get("soh")),
+        "batteryVoltageV": _float_or_none(fb.get("batteryVoltage")),
+        "batteryCurrentA": _float_or_none(fb.get("batteryCurrent")),
+        "batteryTemperatureC": _float_or_none(fb.get("batteryTemperature")),
+        "reportTimeMs": report_ts,
     }
 
 
@@ -290,11 +376,31 @@ async def get_device_summary(sn: str) -> dict[str, Any]:
     if not ubetter_configured():
         return {"ok": False, "configured": False, "reason": "not_configured"}
     async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-        data = await _request(client, "GET", f"/v1/devices/{device_sn}")
-    if not isinstance(data, dict):
-        return {"ok": False, "configured": True, "reason": "invalid_summary", "sn": device_sn}
-    body = _map_summary_to_power_flow(device_sn, data)
-    return body
+        detail_summary: Optional[dict[str, Any]] = None
+        summary_data: Optional[dict[str, Any]] = None
+        try:
+            detail_raw = await _request(
+                client,
+                "GET",
+                f"/v1/devices/{device_sn}/detail",
+                params={"viewScope": "group"},
+            )
+            detail_summary = _extract_detail_group_summary(detail_raw)
+        except Exception as exc:
+            logger.warning("Ubetter: detail fetch failed for %s: %s", device_sn, exc)
+        try:
+            summary_raw = await _request(client, "GET", f"/v1/devices/{device_sn}")
+            if isinstance(summary_raw, dict):
+                summary_data = summary_raw
+        except Exception as exc:
+            logger.warning("Ubetter: summary fetch failed for %s: %s", device_sn, exc)
+            if detail_summary is None:
+                raise
+    if detail_summary is not None:
+        return _map_detail_to_power_flow(device_sn, detail_summary, summary_data)
+    if summary_data is not None:
+        return _map_summary_to_power_flow(device_sn, summary_data)
+    return {"ok": False, "configured": True, "reason": "invalid_summary", "sn": device_sn}
 
 
 async def get_power_flow(sn: str) -> dict[str, Any]:
