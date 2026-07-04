@@ -35,7 +35,7 @@ from app.oree_dam_scheduler import dam_daily_sync_loop
 from app.oree_dam_service import oree_dam_configured
 from app.deye_soc_scheduler import deye_soc_snapshot_loop
 from app.ev_port_power_scheduler import ev_port_power_snapshot_loop
-from app.huawei_power_scheduler import huawei_power_snapshot_loop
+from app.ubetter_power_scheduler import ubetter_power_snapshot_loop
 from app.huawei_station_energy_scheduler import huawei_station_energy_loop
 from app.deye_low_dam_charge_scheduler import deye_low_dam_charge_loop
 from app.deye_night_charge_scheduler import deye_night_charge_loop
@@ -132,6 +132,16 @@ async def lifespan(app: FastAPI):
         logger.info(
             "Deye SoC: snapshot to DB every %ss (DEYE_SOC_SNAPSHOT_*)",
             settings.DEYE_SOC_SNAPSHOT_INTERVAL_SEC,
+        )
+
+    stop_ubetter_power: Optional[asyncio.Event] = None
+    ubetter_power_task: Optional[asyncio.Task[None]] = None
+    if settings.UBETTER_POWER_SNAPSHOT_ENABLED and ubetter_configured():
+        stop_ubetter_power = asyncio.Event()
+        ubetter_power_task = asyncio.create_task(ubetter_power_snapshot_loop(stop_ubetter_power))
+        logger.info(
+            "Ubetter power: snapshot to DB every %ss (UBETTER_POWER_SNAPSHOT_*)",
+            settings.UBETTER_POWER_SNAPSHOT_INTERVAL_SEC,
         )
 
     stop_huawei_power: Optional[asyncio.Event] = None
@@ -248,6 +258,13 @@ async def lifespan(app: FastAPI):
         deye_soc_task.cancel()
         try:
             await deye_soc_task
+        except asyncio.CancelledError:
+            pass
+    if ubetter_power_task is not None and stop_ubetter_power is not None:
+        stop_ubetter_power.set()
+        ubetter_power_task.cancel()
+        try:
+            await ubetter_power_task
         except asyncio.CancelledError:
             pass
     if huawei_power_task is not None and stop_huawei_power is not None:

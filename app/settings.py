@@ -139,6 +139,10 @@ HUAWEI_BATTERY_DEV_TYPE_IDS: str = (os.environ.get("HUAWEI_BATTERY_DEV_TYPE_IDS"
 # Ubetter EMS Open API — in-memory cache TTLs (device list / power-flow).
 UBETTER_DEVICE_LIST_CACHE_TTL_SEC: int = 300
 UBETTER_POWER_FLOW_CACHE_TTL_SEC: int = 30
+# Persist Ubetter SoC / grid / PV / load to Postgres — UTC 5-minute buckets (same as Deye).
+UBETTER_POWER_SNAPSHOT_ENABLED: bool = _env_bool("UBETTER_POWER_SNAPSHOT_ENABLED", True)
+UBETTER_POWER_SNAPSHOT_INTERVAL_SEC: int = _env_int("UBETTER_POWER_SNAPSHOT_INTERVAL_SEC", 300, 60, 3600)
+
 def _parse_oree_sync_hours_kyiv() -> tuple[int, ...]:
     """
     Europe/Kiev wall-clock hours for scheduled OREE DAM pulls (comma-separated), default 12–15.

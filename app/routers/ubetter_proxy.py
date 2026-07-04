@@ -1,12 +1,15 @@
 """Ubetter EMS Open API — device list + realtime summary (no secrets in browser)."""
 
 import logging
+from datetime import date as date_cls
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db import get_db
 from app.ubetter_api import (
     UbetterApiError,
     UbetterAuthError,
@@ -18,6 +21,7 @@ from app.ubetter_api import (
     ubetter_configured,
     ubetter_missing_env_names,
 )
+from app.ubetter_power_service import hourly_device_history_for_kyiv_day, run_ubetter_power_snapshot
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -144,6 +148,83 @@ async def get_device_summary_route(
         )
     except Exception as exc:
         _log_ubetter_route_error("GET /api/ubetter/device-summary", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/soc-history-day")
+async def get_soc_history_day_route(
+    sn: str = Query(
+        ...,
+        min_length=1,
+        max_length=128,
+        description="Ubetter device serial number",
+    ),
+    date: str = Query(
+        ...,
+        min_length=10,
+        max_length=10,
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+        description="Calendar day YYYY-MM-DD (Europe/Kyiv boundaries)",
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mean SoC / grid / PV / load per Kyiv hour from ubetter_power_sample (5-min buckets)."""
+    if not ubetter_configured():
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": False,
+                "sn": sn,
+                "date": date,
+                "hourlySocPercent": [None] * 24,
+                "hourlyGridPowerW": [None] * 24,
+                "hourlyGridFrequencyHz": [None] * 24,
+                "hourlyPvKwh": [None] * 24,
+                "hourlyLoadKwh": [None] * 24,
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    try:
+        trade_day = date_cls.fromisoformat(date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD") from exc
+    try:
+        hourly_soc, hourly_grid_w, hourly_grid_hz, hourly_pv_kwh, hourly_load_kwh = (
+            await hourly_device_history_for_kyiv_day(db, sn, trade_day)
+        )
+        return JSONResponse(
+            content={
+                "ok": True,
+                "configured": True,
+                "sn": sn,
+                "date": date,
+                "hourlySocPercent": hourly_soc,
+                "hourlyGridPowerW": hourly_grid_w,
+                "hourlyGridFrequencyHz": hourly_grid_hz,
+                "hourlyPvKwh": hourly_pv_kwh,
+                "hourlyLoadKwh": hourly_load_kwh,
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    except Exception as exc:
+        logger.exception("GET /api/ubetter/soc-history-day — failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/power-snapshot")
+async def post_power_snapshot_route(db: AsyncSession = Depends(get_db)):
+    """Manual trigger: fetch live Ubetter metrics and upsert current 5-min bucket."""
+    if not ubetter_configured():
+        return JSONResponse(
+            content={"ok": False, "configured": False, "reason": "not_configured"},
+            headers=_NO_STORE_CACHE,
+        )
+    try:
+        n = await run_ubetter_power_snapshot(db)
+        await db.commit()
+        return JSONResponse(content={"ok": True, "configured": True, "rowsUpserted": n}, headers=_NO_STORE_CACHE)
+    except Exception as exc:
+        logger.exception("POST /api/ubetter/power-snapshot — failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 

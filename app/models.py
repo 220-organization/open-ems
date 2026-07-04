@@ -75,6 +75,29 @@ class EvPortPowerSample(Base):
     )
 
 
+class UbetterPowerSample(Base):
+    """
+    Ubetter EMS metrics in 5-minute UTC buckets (same cadence as deye_soc_sample).
+    grid_power_w > 0 = import, < 0 = export; battery_power_w > 0 = discharge (Deye/UI sign).
+    """
+
+    __tablename__ = "ubetter_power_sample"
+
+    device_sn: Mapped[str] = mapped_column(String(128), primary_key=True)
+    bucket_start: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), primary_key=True
+    )
+    soc_percent: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    grid_power_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    load_power_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    pv_power_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    pv_generation_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    battery_power_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    created_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class HuaweiPowerSample(Base):
     """
     Huawei plant power in 5-minute UTC buckets (aligned with Deye snapshot cadence).

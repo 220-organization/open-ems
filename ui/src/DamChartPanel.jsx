@@ -771,9 +771,11 @@ export default function DamChartPanel({
   const effectiveEvPortsAcdc =
     evPortsAcdcProp === 'dc' || evPortsAcdcProp === 'ac' ? evPortsAcdcProp : '';
   const deyeNoExportMode = Boolean(effectiveInverterSn) && DEYE_NO_EXPORT_DEVICE_SNS.has(effectiveInverterSn);
-  const showEnergyBars = Boolean(effectiveInverterSn || effectiveHuaweiStation || effectiveEvPortsAcdc);
-  const showPvLoadBars = Boolean(effectiveInverterSn || effectiveHuaweiStation);
-  const showDeyeExtras = Boolean(effectiveInverterSn && !effectiveHuaweiStation);
+  const showEnergyBars = Boolean(
+    effectiveInverterSn || effectiveHuaweiStation || effectiveEvPortsAcdc || effectiveUbetterDevice
+  );
+  const showPvLoadBars = Boolean(effectiveInverterSn || effectiveHuaweiStation || effectiveUbetterDevice);
+  const showDeyeExtras = Boolean((effectiveInverterSn || effectiveUbetterDevice) && !effectiveHuaweiStation);
 
   const damChartMobile = useDamChartMobileLayout();
 
@@ -993,7 +995,7 @@ export default function DamChartPanel({
   }, [load]);
 
   useEffect(() => {
-    if (!effectiveInverterSn || effectiveHuaweiStation) {
+    if (effectiveHuaweiStation || (!effectiveInverterSn && !effectiveUbetterDevice)) {
       setSocPayload(null);
       setSocError('');
       setSocLoading(false);
@@ -1004,8 +1006,11 @@ export default function DamChartPanel({
       setSocLoading(true);
       setSocError('');
       try {
-        const q = new URLSearchParams({ deviceSn: effectiveInverterSn, date: tradeDay });
-        const r = await fetch(apiUrl(`/api/deye/soc-history-day?${q}`), { cache: 'no-store' });
+        const q = effectiveUbetterDevice
+          ? new URLSearchParams({ sn: effectiveUbetterDevice, date: tradeDay })
+          : new URLSearchParams({ deviceSn: effectiveInverterSn, date: tradeDay });
+        const path = effectiveUbetterDevice ? '/api/ubetter/soc-history-day' : '/api/deye/soc-history-day';
+        const r = await fetch(apiUrl(`${path}?${q}`), { cache: 'no-store' });
         if (!r.ok) throw new Error((await r.text()) || r.statusText);
         const data = await r.json();
         if (cancelled) return;
@@ -1020,7 +1025,7 @@ export default function DamChartPanel({
     return () => {
       cancelled = true;
     };
-  }, [tradeDay, effectiveInverterSn, effectiveHuaweiStation]);
+  }, [tradeDay, effectiveInverterSn, effectiveUbetterDevice, effectiveHuaweiStation]);
 
   useEffect(() => {
     if (!effectiveInverterSn || effectiveHuaweiStation) {
