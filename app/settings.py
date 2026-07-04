@@ -142,6 +142,8 @@ UBETTER_POWER_FLOW_CACHE_TTL_SEC: int = 30
 # Persist Ubetter SoC / grid / PV / load to Postgres — UTC 5-minute buckets (same as Deye).
 UBETTER_POWER_SNAPSHOT_ENABLED: bool = _env_bool("UBETTER_POWER_SNAPSHOT_ENABLED", True)
 UBETTER_POWER_SNAPSHOT_INTERVAL_SEC: int = _env_int("UBETTER_POWER_SNAPSHOT_INTERVAL_SEC", 300, 60, 3600)
+# Manual charge/discharge (Open API strategy=0): default PCS power cap in kW when upstream omits power.
+UBETTER_MANUAL_POWER_KW: float = _env_float("UBETTER_MANUAL_POWER_KW", 50.0, 1.0, 500.0)
 
 def _parse_oree_sync_hours_kyiv() -> tuple[int, ...]:
     """

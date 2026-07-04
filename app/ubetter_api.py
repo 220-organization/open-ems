@@ -454,3 +454,175 @@ async def get_energy(
                 }
             )
     return {"ok": True, "configured": True, "sn": device_sn, "items": rows}
+
+
+# Open API run-strategy: 0=Manual; chargeCtrl 1=charge, 2=discharge (appendix B).
+_STRATEGY_MANUAL = 0
+_CHARGE_CTRL_IDLE = 0
+_CHARGE_CTRL_CHARGE = 1
+_CHARGE_CTRL_DISCHARGE = 2
+
+
+def _invalidate_power_flow_cache(device_sn: str) -> None:
+    _power_flow_cache.pop((device_sn or "").strip(), None)
+
+
+def _clamp_soc(value: Any, *, default: int) -> int:
+    n = _int_or_none(value)
+    if n is None:
+        return default
+    return max(0, min(100, n))
+
+
+def _manual_run_strategy_body(
+    *,
+    charge_ctrl: int,
+    charge_soc: int,
+    discharge_soc: int,
+    power_kw: Optional[float] = None,
+    for_charge: bool,
+    include_power: bool = True,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "strategy": _STRATEGY_MANUAL,
+        "chargeCtrl": int(charge_ctrl),
+        "chargeSoc": _clamp_soc(charge_soc, default=95),
+        "dischargeSoc": _clamp_soc(discharge_soc, default=10),
+    }
+    if include_power:
+        kw = power_kw if power_kw is not None else float(settings.UBETTER_MANUAL_POWER_KW)
+        if kw > 0:
+            if for_charge:
+                body["chargePower"] = float(kw)
+            else:
+                body["dischargePower"] = float(kw)
+    return body
+
+
+async def get_run_strategy(sn: str) -> dict[str, Any]:
+    device_sn = (sn or "").strip()
+    if not device_sn:
+        return {"ok": False, "configured": bool(ubetter_configured()), "reason": "missing_sn"}
+    if not ubetter_configured():
+        return {"ok": False, "configured": False, "reason": "not_configured"}
+    async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+        data = await _request(client, "GET", f"/v1/devices/{device_sn}/run-strategy")
+    return {"ok": True, "configured": True, "sn": device_sn, "strategy": data}
+
+
+async def update_run_strategy(sn: str, body: dict[str, Any]) -> dict[str, Any]:
+    device_sn = (sn or "").strip()
+    if not device_sn:
+        return {"ok": False, "configured": bool(ubetter_configured()), "reason": "missing_sn"}
+    if not ubetter_configured():
+        return {"ok": False, "configured": False, "reason": "not_configured"}
+    async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+        data = await _request(client, "PUT", f"/v1/devices/{device_sn}/run-strategy", json_body=body)
+    _invalidate_power_flow_cache(device_sn)
+    return {"ok": True, "configured": True, "sn": device_sn, "strategy": data}
+
+
+async def start_manual_charge(
+    sn: str,
+    *,
+    charge_soc_percent: int,
+    discharge_soc_percent: int = 10,
+    power_kw: Optional[float] = None,
+) -> dict[str, Any]:
+    """Manual charge until chargeSoc (Open API strategy=0, chargeCtrl=1)."""
+    device_sn = (sn or "").strip()
+    if not device_sn:
+        return {"ok": False, "configured": bool(ubetter_configured()), "reason": "missing_sn"}
+    if not ubetter_configured():
+        return {"ok": False, "configured": False, "reason": "not_configured"}
+    summary = await get_device_summary(device_sn)
+    start_soc = _float_or_none(summary.get("socPercent")) if summary.get("ok") else None
+    charge_soc = _clamp_soc(charge_soc_percent, default=95)
+    discharge_soc = _clamp_soc(discharge_soc_percent, default=10)
+    if start_soc is not None and start_soc >= charge_soc - 0.05:
+        return {
+            "ok": False,
+            "configured": True,
+            "reason": "already_at_charge_target",
+            "sn": device_sn,
+            "startSoc": start_soc,
+            "chargeSocPercent": charge_soc,
+        }
+    body = _manual_run_strategy_body(
+        charge_ctrl=_CHARGE_CTRL_CHARGE,
+        charge_soc=charge_soc,
+        discharge_soc=discharge_soc,
+        power_kw=power_kw,
+        for_charge=True,
+    )
+    result = await update_run_strategy(device_sn, body)
+    return {
+        **result,
+        "startSoc": start_soc,
+        "chargeSocPercent": charge_soc,
+        "dischargeSocPercent": discharge_soc,
+        "chargeCtrl": _CHARGE_CTRL_CHARGE,
+        "respondAfterStart": True,
+    }
+
+
+async def start_manual_discharge(
+    sn: str,
+    *,
+    discharge_soc_percent: int,
+    charge_soc_percent: int = 95,
+    power_kw: Optional[float] = None,
+) -> dict[str, Any]:
+    """Manual discharge until dischargeSoc (Open API strategy=0, chargeCtrl=2)."""
+    device_sn = (sn or "").strip()
+    if not device_sn:
+        return {"ok": False, "configured": bool(ubetter_configured()), "reason": "missing_sn"}
+    if not ubetter_configured():
+        return {"ok": False, "configured": False, "reason": "not_configured"}
+    summary = await get_device_summary(device_sn)
+    start_soc = _float_or_none(summary.get("socPercent")) if summary.get("ok") else None
+    discharge_soc = _clamp_soc(discharge_soc_percent, default=10)
+    charge_soc = _clamp_soc(charge_soc_percent, default=95)
+    if start_soc is not None and start_soc <= discharge_soc + 0.05:
+        return {
+            "ok": False,
+            "configured": True,
+            "reason": "already_at_discharge_target",
+            "sn": device_sn,
+            "startSoc": start_soc,
+            "dischargeSocPercent": discharge_soc,
+        }
+    body = _manual_run_strategy_body(
+        charge_ctrl=_CHARGE_CTRL_DISCHARGE,
+        charge_soc=charge_soc,
+        discharge_soc=discharge_soc,
+        power_kw=power_kw,
+        for_charge=False,
+    )
+    result = await update_run_strategy(device_sn, body)
+    return {
+        **result,
+        "startSoc": start_soc,
+        "chargeSocPercent": charge_soc,
+        "dischargeSocPercent": discharge_soc,
+        "chargeCtrl": _CHARGE_CTRL_DISCHARGE,
+        "respondAfterStart": True,
+    }
+
+
+async def stop_manual_control(
+    sn: str,
+    *,
+    charge_soc_percent: int = 95,
+    discharge_soc_percent: int = 10,
+) -> dict[str, Any]:
+    """Stop manual charge/discharge (chargeCtrl=0, strategy stays Manual)."""
+    device_sn = (sn or "").strip()
+    body = _manual_run_strategy_body(
+        charge_ctrl=_CHARGE_CTRL_IDLE,
+        charge_soc=charge_soc_percent,
+        discharge_soc=discharge_soc_percent,
+        for_charge=True,
+        include_power=False,
+    )
+    return await update_run_strategy(device_sn, body)

@@ -82,6 +82,69 @@ function formatGenPortDeyeFeedback(data) {
   }
 }
 
+function ubetterChargeCtrlLabel(ctrl) {
+  if (ctrl === 1) return 'charge';
+  if (ctrl === 2) return 'discharge';
+  if (ctrl === 0) return 'idle';
+  return String(ctrl ?? '?');
+}
+
+function formatUbetterStrategyLine(prefix, strategy) {
+  if (!strategy || typeof strategy !== 'object') return null;
+  const parts = [
+    `${prefix}strategy=${strategy.strategy ?? '?'}`,
+    `chargeCtrl=${strategy.chargeCtrl ?? '?'} (${ubetterChargeCtrlLabel(strategy.chargeCtrl)})`,
+  ];
+  if (strategy.chargeSoc != null) parts.push(`chargeSoc=${strategy.chargeSoc}%`);
+  if (strategy.dischargeSoc != null) parts.push(`dischargeSoc=${strategy.dischargeSoc}%`);
+  if (strategy.chargePower != null) parts.push(`chargePower=${strategy.chargePower} kW`);
+  if (strategy.dischargePower != null) parts.push(`dischargePower=${strategy.dischargePower} kW`);
+  return parts.join(' · ');
+}
+
+/** Human-readable Ubetter Open API payload for the command result modal. */
+function formatUbetterCloudFeedback(commandData, verifiedData) {
+  const lines = ['Ubetter cloud'];
+  const putLine = formatUbetterStrategyLine('PUT run-strategy → ', commandData?.strategy);
+  if (putLine) lines.push(`  ${putLine}`);
+  const getLine = formatUbetterStrategyLine('GET run-strategy → ', verifiedData?.strategy);
+  if (getLine) lines.push(`  ${getLine}`);
+  if (commandData?.reason && !commandData?.ok) {
+    lines.push(`  reason=${commandData.reason}`);
+  }
+  if (commandData?.detail) {
+    lines.push(`  detail=${String(commandData.detail)}`);
+  }
+  lines.push('');
+  try {
+    lines.push(
+      JSON.stringify(
+        {
+          command: commandData,
+          verified: verifiedData,
+        },
+        null,
+        2
+      )
+    );
+  } catch {
+    lines.push(String(commandData));
+  }
+  return lines.join('\n');
+}
+
+async function fetchUbetterRunStrategy(sn) {
+  const q = new URLSearchParams({ sn });
+  const r = await fetch(`${apiUrl('/api/ubetter/run-strategy')}?${q}`, { cache: 'no-store' });
+  let data = {};
+  try {
+    data = await r.json();
+  } catch {
+    /* ignore */
+  }
+  return { ok: r.ok && data.ok, data };
+}
+
 function genOnGridAlwaysOnFromApiData(data) {
   if (data && typeof data.genOnGridAlwaysOn === 'boolean') return data.genOnGridAlwaysOn;
   const orderResult = data?.deye?.orderResult;
@@ -4165,9 +4228,129 @@ export default function PowerFlowPage({
     [selInverterSn, inverterSocFmt, t, chargeSocDeltaPct]
   );
 
+  const executeUbetterDischarge = useCallback(async () => {
+    const sn = selUbetterSn?.trim();
+    if (!sn || discharge2BusyRef.current) return null;
+    discharge2BusyRef.current = true;
+    setDischarge2Feedback('');
+    try {
+      const targetSoc = Math.round(Number(dischargeSocDeltaPct));
+      const r = await fetch(apiUrl('/api/ubetter/discharge'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sn, dischargeSocPercent: targetSoc, chargeSocPercent: 95 }),
+        cache: 'no-store',
+      });
+      let data = {};
+      try {
+        data = await r.json();
+      } catch {
+        /* ignore */
+      }
+      if (!r.ok || !data.ok) {
+        const msg = data.detail ?? data.reason ?? data.message ?? r.statusText;
+        return {
+          ok: false,
+          message: `${t('dischargeSoc2Error')}: ${String(msg || 'Request failed')}`,
+          cloudOutput: formatUbetterCloudFeedback(data, null),
+        };
+      }
+      const verified = await fetchUbetterRunStrategy(sn);
+      const from =
+        data.startSoc != null && Number.isFinite(Number(data.startSoc))
+          ? inverterSocFmt.format(Number(data.startSoc))
+          : essSocPercent != null
+            ? inverterSocFmt.format(Number(essSocPercent))
+            : '—';
+      const to = inverterSocFmt.format(targetSoc);
+      const message = `${t('commandSentStatus')}\n\n${t('ubetterCommandContinuesBackground')}\n${t('ubetterDischargePartial', { from, to })}`;
+      return {
+        ok: true,
+        message,
+        cloudOutput: formatUbetterCloudFeedback(data, verified.data),
+      };
+    } catch (e) {
+      const err = e instanceof Error ? e.message : String(e);
+      return { ok: false, message: `${t('dischargeSoc2Error')}: ${err}`, cloudOutput: null };
+    } finally {
+      discharge2BusyRef.current = false;
+    }
+  }, [selUbetterSn, dischargeSocDeltaPct, essSocPercent, inverterSocFmt, t]);
+
+  const executeUbetterCharge = useCallback(async () => {
+    const sn = selUbetterSn?.trim();
+    if (!sn || charge2BusyRef.current) return null;
+    charge2BusyRef.current = true;
+    setDischarge2Feedback('');
+    try {
+      const cur = essSocPercent != null && Number.isFinite(Number(essSocPercent)) ? Number(essSocPercent) : null;
+      const chargeTarget = cur != null ? Math.min(100, Math.round(cur + Number(chargeSocDeltaPct))) : 95;
+      const r = await fetch(apiUrl('/api/ubetter/charge'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sn, chargeSocPercent: chargeTarget, dischargeSocPercent: 10 }),
+        cache: 'no-store',
+      });
+      let data = {};
+      try {
+        data = await r.json();
+      } catch {
+        /* ignore */
+      }
+      if (!r.ok || !data.ok) {
+        const msg = data.detail ?? data.reason ?? data.message ?? r.statusText;
+        return {
+          ok: false,
+          message: `${t('chargeSoc2Error')}: ${String(msg || 'Request failed')}`,
+          cloudOutput: formatUbetterCloudFeedback(data, null),
+        };
+      }
+      const verified = await fetchUbetterRunStrategy(sn);
+      const from =
+        data.startSoc != null && Number.isFinite(Number(data.startSoc))
+          ? inverterSocFmt.format(Number(data.startSoc))
+          : cur != null
+            ? inverterSocFmt.format(cur)
+            : '—';
+      const to = inverterSocFmt.format(chargeTarget);
+      const message = `${t('commandSentStatus')}\n\n${t('ubetterCommandContinuesBackground')}\n${t('ubetterChargePartial', { from, to })}`;
+      return {
+        ok: true,
+        message,
+        cloudOutput: formatUbetterCloudFeedback(data, verified.data),
+      };
+    } catch (e) {
+      const err = e instanceof Error ? e.message : String(e);
+      return { ok: false, message: `${t('chargeSoc2Error')}: ${err}`, cloudOutput: null };
+    } finally {
+      charge2BusyRef.current = false;
+    }
+  }, [selUbetterSn, chargeSocDeltaPct, essSocPercent, inverterSocFmt, t]);
+
   const requestDischarge2Pct = useCallback(() => {
+    const ubSn = selUbetterSn?.trim();
     const deviceSn = selInverterSn?.trim();
-    if (!deviceSn || discharge2BusyRef.current) return;
+    if ((!ubSn && !deviceSn) || discharge2BusyRef.current) return;
+    if (ubSn) {
+      if (!essSocHasKey || essSocPercent == null || !Number.isFinite(Number(essSocPercent))) {
+        setDischarge2Feedback(t('dischargeConfirmNoSoc'));
+        return;
+      }
+      const cur = Number(essSocPercent);
+      const targetSoc = Math.round(Number(dischargeSocDeltaPct));
+      if (cur <= targetSoc + 0.05) {
+        setDischarge2Feedback(
+          t('dischargeConfirmInsufficientSoc', {
+            current: inverterSocFmt.format(cur),
+            target: inverterSocFmt.format(targetSoc),
+          })
+        );
+        return;
+      }
+      setDischarge2Feedback('');
+      setDischargeConfirmOpen(true);
+      return;
+    }
     if (!remoteWriteConfigured) {
       setRemoteWriteNeedsPinOpen(true);
       return;
@@ -4191,11 +4374,36 @@ export default function PowerFlowPage({
     setDischarge2Feedback('');
     setDischargeConfirmPin('');
     setDischargeConfirmOpen(true);
-  }, [selInverterSn, remoteWriteConfigured, essSocHasKey, essSocPercent, dischargeSocDeltaPct, inverterSocFmt, t]);
+  }, [
+    selInverterSn,
+    selUbetterSn,
+    remoteWriteConfigured,
+    essSocHasKey,
+    essSocPercent,
+    dischargeSocDeltaPct,
+    inverterSocFmt,
+    t,
+  ]);
 
   const requestCharge2Pct = useCallback(() => {
+    const ubSn = selUbetterSn?.trim();
     const deviceSn = selInverterSn?.trim();
-    if (!deviceSn || charge2BusyRef.current) return;
+    if ((!ubSn && !deviceSn) || charge2BusyRef.current) return;
+    if (ubSn) {
+      if (!essSocHasKey || essSocPercent == null || !Number.isFinite(Number(essSocPercent))) {
+        setDischarge2Feedback(t('chargeConfirmNoSoc'));
+        return;
+      }
+      const cur = Number(essSocPercent);
+      const target = Math.min(100, cur + chargeSocDeltaPct);
+      if (cur >= target - 0.06) {
+        setDischarge2Feedback(t('chargeConfirmNoHeadroom'));
+        return;
+      }
+      setDischarge2Feedback('');
+      setChargeConfirmOpen(true);
+      return;
+    }
     if (!remoteWriteConfigured) {
       setRemoteWriteNeedsPinOpen(true);
       return;
@@ -4213,7 +4421,7 @@ export default function PowerFlowPage({
     setDischarge2Feedback('');
     setChargeConfirmPin('');
     setChargeConfirmOpen(true);
-  }, [selInverterSn, remoteWriteConfigured, essSocHasKey, essSocPercent, chargeSocDeltaPct, t]);
+  }, [selInverterSn, selUbetterSn, remoteWriteConfigured, essSocHasKey, essSocPercent, chargeSocDeltaPct, t]);
 
   const cancelDischargeConfirm = useCallback(() => {
     setDischargeConfirmOpen(false);
@@ -4221,6 +4429,27 @@ export default function PowerFlowPage({
   }, []);
 
   const confirmDischargeFromModal = useCallback(() => {
+    if (selUbetterSn.trim()) {
+      setDischarge2Feedback('');
+      setDischargeConfirmOpen(false);
+      setDeyeCommandModal({ phase: 'loading', kind: 'discharge', provider: 'ubetter' });
+      void (async () => {
+        const out = await executeUbetterDischarge();
+        if (out == null) {
+          setDeyeCommandModal(null);
+          return;
+        }
+        setDeyeCommandModal({
+          phase: 'result',
+          kind: 'discharge',
+          provider: 'ubetter',
+          ok: out.ok,
+          message: out.message,
+          cloudOutput: out.cloudOutput ?? null,
+        });
+      })();
+      return;
+    }
     const pinForCmd = (cachedWritePin || dischargeConfirmPin).trim();
     if (selInverterPinRequired && !pinForCmd) {
       setDischarge2Feedback(t('deyeWritePinMissing'));
@@ -4243,7 +4472,7 @@ export default function PowerFlowPage({
         message: out.message,
       });
     })();
-  }, [executeDischarge2Pct, selInverterPinRequired, dischargeConfirmPin, cachedWritePin, t]);
+  }, [executeDischarge2Pct, executeUbetterDischarge, selUbetterSn, selInverterPinRequired, dischargeConfirmPin, cachedWritePin, t]);
 
   const cancelChargeConfirm = useCallback(() => {
     setChargeConfirmOpen(false);
@@ -4251,6 +4480,27 @@ export default function PowerFlowPage({
   }, []);
 
   const confirmChargeFromModal = useCallback(() => {
+    if (selUbetterSn.trim()) {
+      setDischarge2Feedback('');
+      setChargeConfirmOpen(false);
+      setDeyeCommandModal({ phase: 'loading', kind: 'charge', provider: 'ubetter' });
+      void (async () => {
+        const out = await executeUbetterCharge();
+        if (out == null) {
+          setDeyeCommandModal(null);
+          return;
+        }
+        setDeyeCommandModal({
+          phase: 'result',
+          kind: 'charge',
+          provider: 'ubetter',
+          ok: out.ok,
+          message: out.message,
+          cloudOutput: out.cloudOutput ?? null,
+        });
+      })();
+      return;
+    }
     const pinForCmd = (cachedWritePin || chargeConfirmPin).trim();
     if (selInverterPinRequired && !pinForCmd) {
       setDischarge2Feedback(t('deyeWritePinMissing'));
@@ -4273,7 +4523,7 @@ export default function PowerFlowPage({
         message: out.message,
       });
     })();
-  }, [executeCharge2Pct, selInverterPinRequired, chargeConfirmPin, cachedWritePin, t]);
+  }, [executeCharge2Pct, executeUbetterCharge, selUbetterSn, selInverterPinRequired, chargeConfirmPin, cachedWritePin, t]);
 
   const cancelWritePinGate = useCallback(() => {
     setWritePinGate(null);
@@ -5658,7 +5908,74 @@ export default function PowerFlowPage({
                     </div>
                   ) : (
                     <>
-                      {selHuaweiStationCode || selUbetterSn || selEvPortsAggregate ? null : (
+                      {selHuaweiStationCode || selEvPortsAggregate ? null : selUbetterSn &&
+                        ubetterListReady &&
+                        !ubetterRows.error &&
+                        !ubetterRows.authFailed ? (
+                        <div className="pf-header-discharge-row">
+                          <div className="pf-discharge-toolbar pf-discharge-toolbar--combined">
+                            <div className="pf-deye-command-stack">
+                              <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header pf-deye-command-line">
+                                <div className="pf-discharge-delta-controls">
+                                  <button
+                                    type="button"
+                                    className="pf-discharge-btn pf-discharge-go-btn"
+                                    onClick={requestDischarge2Pct}
+                                    disabled={
+                                      dischargeGoDisabledInsufficientSoc ||
+                                      ubetterLiveLoading ||
+                                      !essSocHasKey
+                                    }
+                                    aria-label={t('dischargeGoAria')}
+                                  >
+                                    {t('dischargeGoButton')}
+                                  </button>
+                                  <select
+                                    id="pf-ubetter-discharge-delta-select"
+                                    className="pf-discharge-delta-select pf-discharge-delta-select--header"
+                                    value={String(dischargeSocDeltaPct)}
+                                    aria-label={t('dischargeSocDeltaAria')}
+                                    onChange={e => setDischargeSocDeltaPct(normalizeDischargeSocDeltaPct(e.target.value))}
+                                  >
+                                    {DISCHARGE_TARGET_SOC_OPTIONS.map(o => (
+                                      <option key={o} value={o}>
+                                        {t('dischargeTillSocOption', { pct: o })}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              </div>
+                              <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header pf-deye-command-line pf-deye-command-line--charge">
+                                <div className="pf-discharge-delta-controls">
+                                  <button
+                                    type="button"
+                                    className="pf-discharge-btn pf-discharge-go-btn pf-charge-go-btn"
+                                    onClick={requestCharge2Pct}
+                                    disabled={ubetterLiveLoading || !essSocHasKey}
+                                    title={t('chargeSoc2Hint')}
+                                    aria-label={t('chargeGoAria')}
+                                  >
+                                    {t('chargeGoButton')}
+                                  </button>
+                                  <select
+                                    id="pf-ubetter-charge-delta-select"
+                                    className="pf-discharge-delta-select pf-discharge-delta-select--header"
+                                    value={chargeSocDeltaPct}
+                                    aria-label={t('chargeSocDeltaAria')}
+                                    onChange={e => setChargeSocDeltaPct(normalizeChargeSocDeltaPct(e.target.value))}
+                                  >
+                                    {CHARGE_SOC_DELTA_OPTIONS.map(o => (
+                                      <option key={o} value={o}>
+                                        +{o}%
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ) : selHuaweiStationCode || selUbetterSn || selEvPortsAggregate ? null : (
                         <div className="pf-header-discharge-row">
                           <div className="pf-discharge-toolbar pf-discharge-toolbar--combined">
                             <div className="pf-deye-command-stack">
@@ -6602,7 +6919,9 @@ export default function PowerFlowPage({
               onClick={deyeCommandModal.phase === 'result' ? closeDeyeCommandModal : undefined}
             >
               <div
-                className="pf-modal pf-modal--deye-command"
+                className={`pf-modal pf-modal--deye-command${
+                  deyeCommandModal.cloudOutput ? ' pf-modal--ubetter-cloud' : ''
+                }`}
                 role="dialog"
                 aria-modal="true"
                 aria-busy={deyeCommandModal.phase === 'loading' ? 'true' : 'false'}
@@ -6625,7 +6944,9 @@ export default function PowerFlowPage({
                         decoding="async"
                       />
                       <p id="pf-deye-command-loading-title" className="pf-modal-message">
-                        {t('deyeCommandWaiting')}
+                        {deyeCommandModal.provider === 'ubetter'
+                          ? t('ubetterCommandWaiting')
+                          : t('deyeCommandWaiting')}
                       </p>
                     </div>
                   </>
@@ -6639,6 +6960,11 @@ export default function PowerFlowPage({
                     >
                       {deyeCommandModal.message}
                     </p>
+                    {deyeCommandModal.cloudOutput ? (
+                      <pre className="pf-modal-cloud-output" aria-label="Ubetter cloud response">
+                        {deyeCommandModal.cloudOutput}
+                      </pre>
+                    ) : null}
                     <div className="pf-modal-actions">
                       <button
                         type="button"

@@ -2772,6 +2772,23 @@ a.pf-node { cursor: pointer; }
 }
 
 .pf-modal--deye-command { max-width: 22rem; }
+.pf-modal--deye-command.pf-modal--ubetter-cloud { max-width: 36rem; }
+
+.pf-modal-cloud-output {
+  margin: 0 0 0.75rem;
+  padding: 0.65rem 0.75rem;
+  max-height: 14rem;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--pf-surface);
+  border: 1px solid var(--pf-border);
+  border-radius: 0.5rem;
+  color: var(--pf-muted);
+}
 
 .pf-node-popup-backdrop {
   z-index: 3200;
