@@ -4,13 +4,12 @@ import logging
 from typing import Optional
 
 import psutil
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
-from app.log_buffer import log_buffer_tail
 
 logger = logging.getLogger(__name__)
 
@@ -22,11 +21,6 @@ class ServerMetricsOut(BaseModel):
     memory_used_mb: float
     memory_total_mb: float
     db_size_mb: Optional[float] = Field(None, description="PostgreSQL database size; null if unavailable")
-
-
-class ServerLogsOut(BaseModel):
-    lines: list[str]
-    count: int
 
 
 @router.get("/server-metrics", response_model=ServerMetricsOut)
@@ -52,11 +46,3 @@ async def server_metrics(db: AsyncSession = Depends(get_db)) -> ServerMetricsOut
         memory_total_mb=round(total_mb, 1),
         db_size_mb=round(db_mb, 1) if db_mb is not None else None,
     )
-
-
-@router.get("/server-logs", response_model=ServerLogsOut)
-async def server_logs(
-    limit: int = Query(50, ge=1, le=500, description="Number of recent log lines"),
-) -> ServerLogsOut:
-    lines = log_buffer_tail(limit)
-    return ServerLogsOut(lines=lines, count=len(lines))

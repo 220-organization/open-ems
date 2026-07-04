@@ -45,9 +45,6 @@ from app.deye_ev_port_scheduler import deye_ev_port_export_loop
 from app.deye_self_consumption_auto_dam_scheduler import deye_self_consumption_auto_dam_loop
 from app.deye_smart_load_scheduler import deye_smart_load_loop
 from app.rate_limit_middleware import InMemoryIpRateLimiter, PerIpRateLimitMiddleware
-from app.log_buffer import install_log_buffer
-
-install_log_buffer()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 UI_BUILD = BASE_DIR / "ui" / "build"
