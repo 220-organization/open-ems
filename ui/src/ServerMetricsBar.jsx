@@ -33,6 +33,7 @@ export default function ServerMetricsBar() {
         memUsed: j.memory_used_mb,
         memTotal: j.memory_total_mb,
         db: j.db_size_mb,
+        diskFreePct: j.disk_free_percent,
       });
       setStale(false);
     } catch {
@@ -54,7 +55,7 @@ export default function ServerMetricsBar() {
   const label =
     data == null
       ? 'Server metrics: loading'
-      : `CPU ${data.cpu}%, memory ${formatGbFromMb(data.memUsed)} of ${formatGbFromMb(data.memTotal)} GB, database ${data.db != null ? `${formatGbFromMb(data.db)} GB` : 'n/a'}`;
+      : `CPU ${data.cpu}%, memory ${formatGbFromMb(data.memUsed)} of ${formatGbFromMb(data.memTotal)} GB, database ${data.db != null ? `${formatGbFromMb(data.db)} GB` : 'n/a'}, disk free ${data.diskFreePct != null ? `${data.diskFreePct}%` : 'n/a'}`;
 
   return (
     <div
@@ -65,11 +66,12 @@ export default function ServerMetricsBar() {
       title={label}
     >
       {data == null ? (
-        <span className="pf-server-metrics-inner">CPU: … · RAM: … · DB: …</span>
+        <span className="pf-server-metrics-inner">CPU: … · RAM: … · DB: … · DISK: …</span>
       ) : (
         <span className="pf-server-metrics-inner">
           CPU: {data.cpu}% · RAM: {formatGbFromMb(data.memUsed)}/{formatGbFromMb(data.memTotal)} GB · DB:{' '}
-          {data.db != null ? `${formatGbFromMb(data.db)} GB` : '—'}
+          {data.db != null ? `${formatGbFromMb(data.db)} GB` : '—'} · DISK:{' '}
+          {data.diskFreePct != null && Number.isFinite(Number(data.diskFreePct)) ? `${data.diskFreePct}% free` : '—'}
         </span>
       )}
     </div>

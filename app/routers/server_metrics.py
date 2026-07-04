@@ -1,4 +1,4 @@
-"""Host metrics for ops dashboard (CPU, RAM, PostgreSQL size)."""
+"""Host metrics for ops dashboard (CPU, RAM, disk, PostgreSQL size)."""
 
 import logging
 from typing import Optional
@@ -15,12 +15,28 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["server"])
 
+_DISK_PATH = "/"
+
 
 class ServerMetricsOut(BaseModel):
     cpu_percent: float = Field(..., description="Mean CPU usage over a short sample window, 0–100")
     memory_used_mb: float
     memory_total_mb: float
     db_size_mb: Optional[float] = Field(None, description="PostgreSQL database size; null if unavailable")
+    disk_free_percent: Optional[float] = Field(
+        None, description="Free space on root filesystem (/) as percent of total, 0–100"
+    )
+
+
+def _disk_free_percent(path: str = _DISK_PATH) -> Optional[float]:
+    try:
+        usage = psutil.disk_usage(path)
+        if usage.total <= 0:
+            return None
+        return round(float(usage.free) / float(usage.total) * 100.0, 1)
+    except Exception as e:
+        logger.warning("server-metrics: could not read disk usage for %s: %s", path, e)
+        return None
 
 
 @router.get("/server-metrics", response_model=ServerMetricsOut)
@@ -45,4 +61,5 @@ async def server_metrics(db: AsyncSession = Depends(get_db)) -> ServerMetricsOut
         memory_used_mb=round(used_mb, 1),
         memory_total_mb=round(total_mb, 1),
         db_size_mb=round(db_mb, 1) if db_mb is not None else None,
+        disk_free_percent=_disk_free_percent(),
     )
