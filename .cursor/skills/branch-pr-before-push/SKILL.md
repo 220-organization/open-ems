@@ -5,7 +5,7 @@ description: >-
   push, GitHub PR, checkout main. Use only in the open-ems repository when the
   user asks to push, commit and push, ship changes, open a PR, or publish
   open-ems work. Do not apply in the parent activecharge monorepo or other
-  projects.
+  projects. Runs check-before-push (API lifespan + UI build) before commit.
 ---
 
 # Branch and PR Before Push (Open EMS)
@@ -14,7 +14,7 @@ description: >-
 
 Remote: `origin` → `220-organization/open-ems`. Default base branch: **`main`**.
 
-Never push directly to `main`. Correct order: **branch → build → commit → push → PR → `main`**.
+Never push directly to `main`. Correct order: **branch → checks → commit → push → PR → `main`**.
 
 ## When to apply
 
@@ -26,6 +26,10 @@ Never push directly to `main`. Correct order: **branch → build → commit → 
 
 - Working outside `open-ems/` (e.g. `activecharge/` root, `admin-portal/`, `src-js/`)
 - User explicitly asks to push to `main` or force-push (warn; follow their rule only if they insist)
+
+Correct order: **branch → checks → commit → push → PR → `main`**.
+
+Never push directly to `main` unless the user explicitly overrides.
 
 ## Preconditions
 
@@ -48,7 +52,7 @@ Copy and track:
 
 ```
 - [ ] On feature branch (not main)
-- [ ] build-before-push passed (if ui/ touched) — BEFORE commit
+- [ ] check-before-push passed (API startup if app/ touched; UI build if ui/ touched) — BEFORE commit
 - [ ] Changes committed (if user asked)
 - [ ] Branch pushed with -u
 - [ ] PR created (gh pr create)
@@ -69,19 +73,24 @@ git checkout -b <branch-name>
 
 If already on a suitable feature branch with unpushed work, keep it.
 
-### 2. Build before commit
+### 2. Pre-push checks before commit
 
-If any file under `ui/` changed, run **build-before-push** while changes are still uncommitted:
+Run while changes are still uncommitted:
 
 ```bash
-./scripts/check-ui-production-build.sh
+./scripts/check-before-push.sh
 ```
 
-Do not `git commit` or `git push` until it passes. Fix errors, re-run build, then proceed.
+| Check | When | Catches |
+|-------|------|---------|
+| `check-api-startup.sh` | `app/` changed | `NameError` in `lifespan`, missing scheduler imports |
+| `check-ui-production-build.sh` | `ui/` changed | CRA/ESLint compile errors |
+
+Do not `git commit` or `git push` until checks pass.
 
 ### 3. Commit (only when user requests)
 
-After build passes (or when `ui/` was not touched):
+After checks pass:
 
 ```bash
 git add <files>
@@ -137,7 +146,7 @@ Leave the feature branch on the remote; local branch may stay or be deleted only
 
 | Rule | Detail |
 |------|--------|
-| Build before commit | When `ui/` changed, run build on dirty tree before `git commit` |
+| Build before commit | Run `./scripts/check-before-push.sh` before `git commit` when `app/` or `ui/` changed |
 | Never push `main` | `git push origin main` is forbidden unless user explicitly overrides |
 | Never force-push `main` | Warn if requested |
 | Never `git config` changes | Do not modify git config |
@@ -153,7 +162,7 @@ git fetch origin main
 git checkout main && git pull --ff-only origin main
 git checkout -b my-feature
 # ... edit files ...
-./scripts/check-ui-production-build.sh   # BEFORE commit (if ui/ changed)
+./scripts/check-before-push.sh   # BEFORE commit (API startup + UI build as needed)
 git add ...
 git commit -m "..."
 git push -u origin HEAD
@@ -163,4 +172,4 @@ git checkout main && git pull --ff-only origin main
 
 ## Related skill
 
-- [build-before-push](../build-before-push/SKILL.md) — required when `ui/` changed; must run before commit
+- [build-before-push](../build-before-push/SKILL.md) — API startup + UI build; must run before commit/push

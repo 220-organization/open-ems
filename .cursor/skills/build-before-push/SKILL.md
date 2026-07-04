@@ -1,26 +1,23 @@
 ---
 name: build-before-push
 description: >-
-  Run the Open EMS UI production build before git commit or push (build first,
-  then commit, then push). Use when the user asks to commit, push, create a PR,
-  deploy, or merge; when UI files under open-ems/ui/ changed; or when prod Docker
-  web build failed with react-scripts / OOM errors.
+  Run Open EMS pre-push checks before git commit or push (API startup + UI build).
+  Use when the user asks to commit, push, create a PR, deploy, or merge; when
+  app/ or ui/ changed; or when prod api container Restarting after deploy.
 ---
 
 # Build Before Commit and Push (Open EMS)
 
-**Order:** `build` → `commit` → `push`. Never commit or push UI changes until the production build passes.
+**Order:** `checks` → `commit` → `push`. Never push until pre-push checks pass.
 
-Deploy runs `npm run build` inside `Dockerfile.ui` on the server; a failed build takes the site down after `docker compose down`.
+Deploy runs `docker compose up --build` on the server. A broken API (`Restarting`) or failed UI build takes the site down.
 
 ## When to apply
 
 - User says: commit, push, commit and push, PR, deploy, merge
-- Any change under `ui/src/`, `ui/public/`, or `ui/package*.json`
-- CI/deploy log shows `[web ui-build] RUN npm run build` failed
-- After kiosk / PowerFlow / marketplace UI work
-
-Skip only if the change is **strictly** backend-only (`app/`, `db/`, no UI files) and the user confirms commit/push without UI.
+- Any change under `app/`, `db/`, `requirements.txt`, or `ui/`
+- Prod symptom: `open-ems-api-1` **Restarting**, `Application startup failed`, `NameError` in `lifespan`
+- CI/deploy log shows compile or container restart errors
 
 ## Workflow
 
@@ -28,53 +25,75 @@ Skip only if the change is **strictly** backend-only (`app/`, `db/`, no UI files
 2. From repo root `open-ems/`:
 
 ```bash
+./scripts/check-before-push.sh
+```
+
+3. If the script fails, fix and re-run until exit 0.
+4. **Only after checks pass:** `git add` → `git commit` (when user asked).
+5. **Only after commit:** `git push`.
+
+Include any fix-up changes in the same commit as the feature.
+
+## What the script runs
+
+### 1. API startup check (when `app/` changed)
+
+```bash
+./scripts/check-api-startup.sh
+```
+
+- Sets prod-like env (`HUAWEI_*`, `UBETTER_*`, `DEYE_*`) so **all lifespan scheduler branches** run
+- Imports `app.main` and enters `lifespan` once, then shuts down
+- Catches errors that plain `import app.main` misses, e.g.:
+
+```
+NameError: name 'huawei_power_snapshot_loop' is not defined
+  File "app/main.py", line 154, in lifespan
+```
+
+Force even without app diff: `CHECK_API_STARTUP_FORCE=1 ./scripts/check-before-push.sh`
+
+### 2. UI production build (when `ui/` changed)
+
+```bash
 ./scripts/check-ui-production-build.sh
 ```
 
-3. If the script fails:
-   - Fix compile/ESLint errors reported by `react-scripts build`
-   - Re-run until it exits 0
-4. **Only after build passes:** `git add` → `git commit` (when user asked).
-5. **Only after commit:** `git push`.
+- `npm ci` in `ui/` if `node_modules` missing
+- `NODE_OPTIONS=--max-old-space-size=4096`, `CI=true`, `GENERATE_SOURCEMAP=false`
+- Same compile step as deploy (`Dockerfile.ui` / GitHub Actions runner)
 
-Include any build-fix changes in the same commit as the feature.
+Force UI build: `CHECK_UI_BUILD_FORCE=1 ./scripts/check-before-push.sh`
 
-## What the script does
-
-- `npm ci` in `ui/` if `node_modules` is missing (matches deploy lockfile check)
-- `NODE_OPTIONS=--max-old-space-size=4096` (avoids local OOM during minification)
-- `CI=true` — CRA fails the build on ESLint errors in production mode
-- `GENERATE_SOURCEMAP=false` — faster local check (optional override via env)
-
-## Manual equivalent
+## Manual equivalents
 
 ```bash
-cd ui
-export NODE_OPTIONS=--max-old-space-size=4096 CI=true GENERATE_SOURCEMAP=false
-npm ci   # if needed
-npm run build
+# API only
+./scripts/check-api-startup.sh
+
+# UI only
+./scripts/check-ui-production-build.sh
+
+# Optional: targeted pytest after app changes
+source .venv/bin/activate
+PYTHONPATH=. pytest tests/ -q --tb=short
 ```
 
 ## Docker parity
 
-Deploy builds UI on the GitHub runner (`deploy.yml`) and ships `ui/build/` in the tarball; `Dockerfile.ui` copies it into nginx without running `react-scripts` on the small deploy host. This script validates the same compile step locally. Compile errors must still be caught here before push.
-
-## Backend-only changes
-
-If only Python/SQL changed, optionally run targeted tests:
-
-```bash
-source .venv/bin/activate
-pytest tests/ -q --tb=short
-```
-
-UI production build is not required when `ui/` did not change.
+- **API:** prod runs uvicorn → `lifespan` startup; local check mirrors that path.
+- **UI:** deploy ships prebuilt `ui/build/` from GitHub Actions; local `npm run build` catches CRA/ESLint failures.
 
 ## Checklist
 
 ```
-- [ ] ./scripts/check-ui-production-build.sh passes (when ui/ touched)
-- [ ] No new ESLint/compile errors in build output
+- [ ] ./scripts/check-before-push.sh passes
+- [ ] API startup check OK when app/ touched (no NameError / import errors in lifespan)
+- [ ] UI production build OK when ui/ touched
 - [ ] Then git commit (if user asked)
 - [ ] Then git push
 ```
+
+## Related skill
+
+- [branch-pr-before-push](../branch-pr-before-push/SKILL.md) — feature branch + PR workflow; uses this skill before commit
