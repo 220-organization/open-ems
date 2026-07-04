@@ -1,5 +1,6 @@
 {
   "appBrandName": "Вирій ЕМС",
+  "deployMaintenanceMessage": "Все добре, ми оновлюємо систему, буде доступно приблизно за 2 хв",
   "pageTitle": "Вирій ЕМС — Потоки потужності | smart ЕМС для мікромереж",
   "stationLabel": "Порт #",
   "evPortSelectOption": "Порт # {{number}}: {{current}} / {{max}} кВт",

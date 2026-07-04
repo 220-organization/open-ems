@@ -83,7 +83,8 @@ services:
         REACT_APP_GA_MEASUREMENT_ID: ${REACT_APP_GA_MEASUREMENT_ID:-}
     restart: unless-stopped
     ports:
-      - '9220:80'
+      # Host nginx listens on 9220 (Hetzner LB target); see scripts/setup-host-nginx-9220.sh
+      - '127.0.0.1:19220:80'
     depends_on:
       - api
 

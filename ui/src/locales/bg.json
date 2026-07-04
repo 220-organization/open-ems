@@ -1,4 +1,5 @@
 {
+  "deployMaintenanceMessage": "Всичко е наред, обновяваме — ще е достъпно след ~ 2 мин",
   "pageTitle": "Open EMS — Поток на мощността",
   "stationLabel": "Порт №",
   "stationPlaceholder": "Изберете EV порт",

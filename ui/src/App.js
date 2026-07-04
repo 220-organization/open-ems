@@ -6,6 +6,7 @@ import OpenEmsHeader from './OpenEmsHeader';
 import PowerFlowPage from './PowerFlowPage';
 import ServerMetricsBar from './ServerMetricsBar';
 import AndroidInstallBanner from './AndroidInstallBanner';
+import DeployMaintenanceOverlay from './DeployMaintenanceOverlay';
 import { isOpenEmsKioskUrl } from './openEmsKiosk';
 import { redirectLegacyDamChartPath, resolveOpenEmsPage } from './openEmsRoutes';
 import { useAutoHideChrome } from './useAutoHideChrome';
@@ -51,6 +52,7 @@ export default function App() {
 
   return (
     <div className="app-root-layout">
+      <DeployMaintenanceOverlay t={i18n.t} />
       {showKiosk ? null : <AndroidInstallBanner t={i18n.t} />}
       {showKiosk ? null : (
         <OpenEmsHeader

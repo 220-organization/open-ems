@@ -39,6 +39,11 @@ def _disk_free_percent(path: str = _DISK_PATH) -> Optional[float]:
         return None
 
 
+@router.get("/health", include_in_schema=False)
+async def api_health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
 @router.get("/server-metrics", response_model=ServerMetricsOut)
 async def server_metrics(db: AsyncSession = Depends(get_db)) -> ServerMetricsOut:
     # Short blocking sample — acceptable for infrequent polling (e.g. every 10s from UI).

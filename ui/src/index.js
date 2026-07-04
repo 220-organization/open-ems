@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import { initAnalytics } from './analytics';
+import './deploy-maintenance.css';
 
 initAnalytics();
 
@@ -11,3 +12,6 @@ root.render(
     <App />
   </React.StrictMode>,
 );
+
+window.__OPEN_EMS_APP_MOUNTED = true;
+document.getElementById('deploy-maintenance-bootstrap')?.remove();

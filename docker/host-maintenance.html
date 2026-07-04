@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="uk">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="theme-color" content="#141414" />
+    <title>Open EMS</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        min-height: 100dvh;
+        background: #141414;
+        color: #f5f5f5;
+        font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      }
+      .deploy-maintenance-page {
+        min-height: 100dvh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px max(16px, env(safe-area-inset-right, 0px)) max(24px, env(safe-area-inset-bottom, 0px))
+          max(16px, env(safe-area-inset-left, 0px));
+        box-sizing: border-box;
+        text-align: center;
+      }
+      .deploy-maintenance-page__text {
+        margin: 0;
+        max-width: 28rem;
+        font-size: clamp(1rem, 2.8vw, 1.25rem);
+        font-weight: 600;
+        line-height: 1.45;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="deploy-maintenance-page" role="status" aria-live="polite">
+      <p class="deploy-maintenance-page__text" id="deploy-maintenance-page-msg"></p>
+    </main>
+    <script>
+      (function () {
+        var I = {
+          en: 'All is ok, we are upgrading, will be available in ~ 2 mins',
+          uk: 'Все добре, ми оновлюємо систему, буде доступно приблизно за 2 хв',
+          pl: 'Wszystko w porządku, aktualizujemy system — będzie dostępny za ok. 2 min',
+          cs: 'Vše v pořádku, právě aktualizujeme — bude k dispozici za ~ 2 min',
+          nl: 'Alles is oké, we zijn aan het upgraden — over ~ 2 min weer beschikbaar',
+          bg: 'Всичко е наред, обновяваме — ще е достъпно след ~ 2 мин',
+          fr: 'Tout va bien, mise à jour en cours — disponible dans ~ 2 min',
+          es: 'Todo bien, estamos actualizando — disponible en ~ 2 min',
+          de: 'Alles in Ordnung, wir aktualisieren — in ~ 2 Min. wieder verfügbar',
+        };
+        var POLL_MS = 3000;
+
+        function resolveLang() {
+          try {
+            var params = new URLSearchParams(window.location.search);
+            var fromUrl = params.get('lang') || params.get('locale');
+            if (fromUrl) return fromUrl.trim().toLowerCase().split('-')[0];
+          } catch (e) {
+            /* ignore */
+          }
+          try {
+            var stored = localStorage.getItem('pf-lang');
+            if (stored) return stored.trim().toLowerCase().split('-')[0];
+          } catch (e) {
+            /* ignore */
+          }
+          return 'uk';
+        }
+
+        function apply() {
+          var el = document.getElementById('deploy-maintenance-page-msg');
+          if (el) el.textContent = I[resolveLang()] || I.en || I.uk;
+        }
+
+        function check() {
+          fetch('/api/health', { cache: 'no-store' })
+            .then(function (r) {
+              if (r.ok) window.location.replace('/');
+            })
+            .catch(function () {
+              /* stay on maintenance page */
+            });
+        }
+
+        apply();
+        check();
+        window.setInterval(check, POLL_MS);
+      })();
+    </script>
+  </body>
+</html>

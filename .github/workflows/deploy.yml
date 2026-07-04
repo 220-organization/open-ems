@@ -204,8 +204,10 @@ jobs:
             rm -rf /tmp/open-ems-deploy.env 2>/dev/null || true
             cd /220/open-ems
             chmod 600 .env
-            docker compose down --remove-orphans
-            docker compose up -d --build
+            # Rolling recreate — avoid full `down` so UI stays up during most of the deploy.
+            docker compose up -d --build --remove-orphans
+            chmod +x scripts/setup-host-nginx-9220.sh
+            ./scripts/setup-host-nginx-9220.sh
           host: ${{ secrets.DEPLOY_HOST }}
           user: root
           key: ${{ secrets.PRIVATE_KEY }}

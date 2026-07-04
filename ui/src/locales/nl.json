@@ -1,4 +1,5 @@
 {
+  "deployMaintenanceMessage": "Alles is oké, we zijn aan het upgraden — over ~ 2 min weer beschikbaar",
   "pageTitle": "Open EMS — Vermogensstromen",
   "stationLabel": "Poort nr.",
   "stationPlaceholder": "Selecteer EV-poort",

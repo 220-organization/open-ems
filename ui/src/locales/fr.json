@@ -1,4 +1,5 @@
 {
+  "deployMaintenanceMessage": "Tout va bien, mise à jour en cours — disponible dans ~ 2 min",
   "pageTitle": "Open EMS — Flux de puissance",
   "stationLabel": "Port n°",
   "stationPlaceholder": "Sélectionner le port EV",
