@@ -144,6 +144,8 @@ Push to `main`, `master`, or `preprod` triggers the deploy workflow (`.github/wo
 | `DEYE_APP_ID`, `DEYE_APP_SECRET`, `DEYE_EMAIL`, `DEYE_PASSWORD` | Deye credentials |
 | `OREE_API_KEY` | OREE API key |
 | `ENTSOE_SECURITY_TOKEN` | (optional) ENTSO-E token |
+| `REACT_APP_CLARITY_PROJECT_ID` | Microsoft Clarity project ID (UI heatmaps / session recordings) |
+| `REACT_APP_CLARITY_PROJECT_ID` | (optional) Microsoft Clarity project ID for production UI analytics |
 
 ---
 

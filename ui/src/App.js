@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { trackPageView } from './analytics';
 import LandingPage from './LandingPage';
 import EvTvPage from './EvTvPage';
 import LocationMarketplacePage from './LocationMarketplacePage';
@@ -47,6 +48,10 @@ export default function App() {
     window.addEventListener('popstate', syncPage);
     return () => window.removeEventListener('popstate', syncPage);
   }, []);
+
+  useEffect(() => {
+    trackPageView(page, window.location.pathname);
+  }, [page]);
 
   const showKiosk = kioskMode && page === 'power';
 
