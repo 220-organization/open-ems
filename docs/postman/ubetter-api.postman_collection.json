@@ -168,9 +168,7 @@
               "raw": "{{baseUrl}}/v1/devices/{{deviceSn}}/detail?viewScope=group",
               "host": ["{{baseUrl}}"],
               "path": ["v1", "devices", "{{deviceSn}}", "detail"],
-              "query": [
-                { "key": "viewScope", "value": "group", "description": "group (default) | single" }
-              ]
+              "query": [{ "key": "viewScope", "value": "group", "description": "group (default) | single" }]
             },
             "description": "Detailed device view: groupRow / singleDevice. See appendix C in integration guide."
           },
@@ -220,9 +218,7 @@
           "name": "API 8 — Update Run Strategy",
           "request": {
             "method": "PUT",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" }
-            ],
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"strategy\": 5,\n  \"chargeSoc\": 95,\n  \"dischargeSoc\": 10\n}",
@@ -252,9 +248,7 @@
           "name": "API 10 — Set Today's Time Schedule",
           "request": {
             "method": "PUT",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" }
-            ],
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"chargeSoc\": 95,\n  \"dischargeSoc\": 10,\n  \"slots\": [\n    {\n      \"startTime\": \"00:00:00\",\n      \"endTime\": \"06:00:00\",\n      \"mode\": 1,\n      \"power\": 5,\n      \"chargeSocLimit\": 95\n    },\n    {\n      \"startTime\": \"18:00:00\",\n      \"endTime\": \"22:00:00\",\n      \"mode\": 2,\n      \"power\": 5,\n      \"dischargeSocLimit\": 10\n    }\n  ]\n}",
@@ -296,9 +290,7 @@
               "raw": "{{baseUrl}}/v1/devices/{{deviceSn}}/energy?year=2026",
               "host": ["{{baseUrl}}"],
               "path": ["v1", "devices", "{{deviceSn}}", "energy"],
-              "query": [
-                { "key": "year", "value": "2026", "description": "Year only → monthly stats for that year" }
-              ]
+              "query": [{ "key": "year", "value": "2026", "description": "Year only → monthly stats for that year" }]
             },
             "description": "year only → monthly stats; year + month → stats for that month."
           },
@@ -341,9 +333,7 @@
           "name": "API 14 — Update Advanced Device Config",
           "request": {
             "method": "PUT",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" }
-            ],
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"antiBackflowEnable\": 1,\n  \"backupReserveSoc\": 20\n}",
