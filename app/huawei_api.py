@@ -43,8 +43,8 @@ _station_list_skip_api_until: list[float] = [0.0]
 _power_flow_cache: dict[str, tuple[dict[str, Any], float]] = {}
 # getDevList rows per station (device topology changes rarely).
 _dev_list_rows_cache: dict[str, tuple[list[dict[str, Any]], float]] = {}
-# Monotonic: skip live Northbound power-flow until then after 407 (scheduler only).
-_northbound_power_flow_cooldown_until: float = 0.0
+# Monotonic: skip live Northbound power-flow per station until then after 407 (scheduler only).
+_northbound_power_flow_cooldown_until: dict[str, float] = {}
 # Resolved (meterId, meterType, inverterId, inverterType) per stationCode.
 _device_pair_cache: dict[str, tuple[str, int, str, int]] = {}
 
@@ -1378,10 +1378,11 @@ async def get_power_flow(station_code: str, *, for_storage: bool = False) -> dic
         }
 
     global _northbound_power_flow_cooldown_until
-    if now < _northbound_power_flow_cooldown_until:
+    cooldown_until = _northbound_power_flow_cooldown_until.get(st, 0.0)
+    if now < cooldown_until:
         logger.info(
             "Huawei: get_power_flow scheduler — Northbound cooldown %.0fs left, skip %s",
-            _northbound_power_flow_cooldown_until - now,
+            cooldown_until - now,
             st,
         )
         return {
@@ -1434,7 +1435,7 @@ async def get_power_flow(station_code: str, *, for_storage: bool = False) -> dic
             return dict(out)
     except HuaweiNorthboundError as exc:
         if exc.fail_code == _FAIL_CODE_RATE_LIMIT:
-            _northbound_power_flow_cooldown_until = now + float(
+            _northbound_power_flow_cooldown_until[st] = now + float(
                 settings.HUAWEI_NORTHBOUND_COOLDOWN_AFTER_407_SEC
             )
             body = await _power_flow_rate_limit_fallback(st, now, stale_display=True)

@@ -120,10 +120,17 @@ async def get_stations():
 
 
 @router.post("/power-snapshot")
-async def post_power_snapshot(session: AsyncSession = Depends(get_db)):
+async def post_power_snapshot(
+    session: AsyncSession = Depends(get_db),
+    stationCodes: Optional[str] = Query(
+        None,
+        max_length=512,
+        description="Optional single plant stationCode; default round-robin one plant per call.",
+    ),
+):
     """
-    Run one Huawei power DB snapshot (same as the background task): fetch live power per plant and upsert
-    ``huawei_power_sample`` for the current 5-minute bucket. Use when hourly chart is empty until samples exist.
+    Run one Huawei power DB snapshot (same as the background task): fetch live power for one plant
+    and upsert ``huawei_power_sample`` for the current 5-minute bucket.
     """
     if not huawei_configured():
         return JSONResponse(
@@ -131,7 +138,10 @@ async def post_power_snapshot(session: AsyncSession = Depends(get_db)):
             headers=_NO_STORE_CACHE,
         )
     try:
-        n = await run_huawei_power_snapshot(session)
+        only = None
+        if stationCodes and str(stationCodes).strip():
+            only = str(stationCodes).split(",")[0].strip()
+        n = await run_huawei_power_snapshot(session, only_station=only)
         await session.commit()
         return JSONResponse(
             content={"ok": True, "configured": True, "plantsUpdated": int(n)},

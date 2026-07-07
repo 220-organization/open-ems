@@ -156,3 +156,14 @@ def test_apply_repairs_on_cached_body():
     fixed = _apply_huawei_power_flow_repairs(body)
     assert fixed["gridPowerW"] == 240.0
     assert 13_000 <= fixed["loadPowerW"] <= 14_000
+
+
+def test_pick_snapshot_station_codes_round_robin():
+    from app.huawei_power_service import pick_snapshot_station_codes
+
+    codes = ["NE=A", "NE=B"]
+    assert pick_snapshot_station_codes(codes, rr_index=0) == ["NE=A"]
+    assert pick_snapshot_station_codes(codes, rr_index=1) == ["NE=B"]
+    assert pick_snapshot_station_codes(codes, rr_index=2) == ["NE=A"]
+    assert pick_snapshot_station_codes(codes, rr_index=0, only_station="NE=B") == ["NE=B"]
+    assert pick_snapshot_station_codes([], rr_index=0) == []

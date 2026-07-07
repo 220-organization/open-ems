@@ -21,6 +21,9 @@ from app.oree_dam_service import KYIV
 
 logger = logging.getLogger(__name__)
 
+# Round-robin index: one plant per snapshot tick (Northbound getDevRealKpi quota is tight).
+_snapshot_rr_index = 0
+
 # kWh per 5-minute bucket: P_w * (5/60) / 1000 (same factor as deye_soc_sample export sums)
 _KWH_PER_BUCKET_DIVISOR = 12000.0
 _BUCKET_ALIGN_SEC = 300
@@ -141,9 +144,41 @@ async def upsert_huawei_power_sample(
     await session.execute(stmt)
 
 
-async def run_huawei_power_snapshot(session: AsyncSession) -> int:
+def _station_codes_from_rows(stations: list[dict[str, Any]]) -> list[str]:
+    codes: list[str] = []
+    for row in stations:
+        code = str(row.get("stationCode") or "").strip()
+        if code:
+            codes.append(code)
+    return sorted(dict.fromkeys(codes))
+
+
+def pick_snapshot_station_codes(
+    codes: list[str],
+    *,
+    rr_index: int,
+    only_station: Optional[str] = None,
+) -> list[str]:
+    """One plant per scheduler tick, or a single forced station for manual snapshot."""
+    if only_station:
+        st = only_station.strip()
+        return [st] if st else []
+    if not codes:
+        return []
+    idx = rr_index % len(codes)
+    return [codes[idx]]
+
+
+async def run_huawei_power_snapshot(
+    session: AsyncSession,
+    *,
+    only_station: Optional[str] = None,
+) -> int:
     """
-    For each plant in getStationList, call get_power_flow and upsert one row per 5-minute UTC bucket.
+    Call get_power_flow for one plant (round-robin) or ``only_station``, upsert one 5-minute bucket row.
+
+    Huawei Northbound allows only a few getDevRealKpi calls per 5 minutes — polling every plant in
+    one tick exhausts quota and leaves later plants (e.g. baza 2) without samples.
     """
     if not huawei_configured():
         return 0
@@ -158,12 +193,17 @@ async def run_huawei_power_snapshot(session: AsyncSession) -> int:
     if not stations:
         return 0
 
+    codes = _station_codes_from_rows(stations)
+    global _snapshot_rr_index
+    targets = pick_snapshot_station_codes(
+        codes, rr_index=_snapshot_rr_index, only_station=only_station
+    )
+    if not only_station and targets:
+        _snapshot_rr_index = (_snapshot_rr_index + 1) % max(len(codes), 1)
+
     bucket = floor_to_5min_utc(datetime.now(timezone.utc))
     n = 0
-    for row in stations:
-        code = str(row.get("stationCode") or "").strip()
-        if not code:
-            continue
+    for code in targets:
         try:
             pf = await get_power_flow(code, for_storage=True)
         except Exception:
