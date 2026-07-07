@@ -45,6 +45,7 @@ _power_flow_cache: dict[str, tuple[dict[str, Any], float]] = {}
 _dev_list_rows_cache: dict[str, tuple[list[dict[str, Any]], float]] = {}
 # Monotonic: skip live Northbound power-flow per station until then after 407 (scheduler only).
 _northbound_power_flow_cooldown_until: dict[str, float] = {}
+_last_third_data_finished_at: float = 0.0
 # Resolved (meterId, meterType, inverterId, inverterType) per stationCode.
 _device_pair_cache: dict[str, tuple[str, int, str, int]] = {}
 
@@ -220,9 +221,18 @@ async def _post_third_data(
     retry_on_session_expired: bool = True,
 ) -> dict[str, Any]:
     async with _third_data_lock:
-        return await _post_third_data_impl(
-            client, path, json_body, retry_on_session_expired=retry_on_session_expired
-        )
+        global _last_third_data_finished_at
+        min_gap = float(settings.HUAWEI_NORTHBOUND_MIN_INTERVAL_SEC)
+        if min_gap > 0:
+            wait = min_gap - (time.time() - _last_third_data_finished_at)
+            if wait > 0:
+                await asyncio.sleep(wait)
+        try:
+            return await _post_third_data_impl(
+                client, path, json_body, retry_on_session_expired=retry_on_session_expired
+            )
+        finally:
+            _last_third_data_finished_at = time.time()
 
 
 def _collect_station_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -608,6 +618,23 @@ async def _write_power_devices_db(station_code: str, quad: tuple[str, int, str, 
         logger.warning("Huawei: power devices DB cache write failed — %s", exc)
 
 
+async def _station_has_power_history(st: str) -> bool:
+    """True when this plant ever had a stored power-flow or sample row."""
+    if _power_flow_cache.get(st):
+        return True
+    if await _read_power_flow_db(st):
+        return True
+    sample = await _read_power_flow_from_sample(st, time.time(), max_age_sec=86400.0 * 365)
+    return sample is not None
+
+
+async def _northbound_cooldown_sec(st: str) -> float:
+    """Shorter cooldown for plants that never got a first successful KPI (e.g. baza 2)."""
+    if await _station_has_power_history(st):
+        return float(settings.HUAWEI_NORTHBOUND_COOLDOWN_AFTER_407_SEC)
+    return min(90.0, float(settings.HUAWEI_NORTHBOUND_COOLDOWN_AFTER_407_SEC))
+
+
 def _power_flow_body_for_storage(body: dict[str, Any]) -> dict[str, Any]:
     """Strip volatile keys before persisting (re-applied on read)."""
     return {k: v for k, v in body.items() if k not in ("northboundRateLimited", "cacheAgeSec")}
@@ -815,7 +842,9 @@ async def _fetch_dev_list_rows(client: httpx.AsyncClient, station: str) -> list[
     return _parse_dev_list_rows(payload)
 
 
-async def _get_dev_list_rows_cached(client: httpx.AsyncClient, station: str) -> list[dict[str, Any]]:
+async def _get_dev_list_rows_cached(
+    client: httpx.AsyncClient, station: str, *, skip_if_devices_cached: bool = True
+) -> list[dict[str, Any]]:
     """Device topology from getDevList — refresh rarely to save Northbound quota for live KPI."""
     st = (station or "").strip()
     if not st:
@@ -825,6 +854,11 @@ async def _get_dev_list_rows_cached(client: httpx.AsyncClient, station: str) -> 
     hit = _dev_list_rows_cache.get(st)
     if hit and (now - hit[1]) <= ttl:
         return hit[0]
+    if skip_if_devices_cached:
+        quad_db = await _read_power_devices_db(st)
+        if quad_db:
+            logger.info("Huawei: getDevList skipped — device pair cached in DB for %s", st)
+            return hit[0] if hit else []
     try:
         rows = await _fetch_dev_list_rows(client, st)
     except HuaweiNorthboundError as exc:
@@ -1279,13 +1313,26 @@ async def _fetch_dev_real_kpi_dims(
         return dims
 
     # Some Northbound regions return only the first devId in a comma-separated batch.
-    out: list[dict[str, Any]] = []
+    out: list[dict[str, Any]] = list(dims)
     for dev_id in ids:
-        one_payload = await _post_third_data(
-            client,
-            "/thirdData/getDevRealKpi",
-            {"devIds": dev_id, "devTypeId": int(dev_type_id)},
-        )
+        if len(out) >= len(ids):
+            break
+        try:
+            one_payload = await _post_third_data(
+                client,
+                "/thirdData/getDevRealKpi",
+                {"devIds": dev_id, "devTypeId": int(dev_type_id)},
+            )
+        except HuaweiNorthboundError as exc:
+            if exc.fail_code == _FAIL_CODE_RATE_LIMIT and out:
+                logger.warning(
+                    "Huawei: getDevRealKpi partial after 407 — %s/%s inverter dims for type %s",
+                    len(out),
+                    len(ids),
+                    dev_type_id,
+                )
+                return out
+            raise
         one_dims = _parse_dev_real_kpi_dims(one_payload)
         if one_dims:
             out.append(one_dims[0])
@@ -1412,7 +1459,8 @@ async def get_power_flow(station_code: str, *, for_storage: bool = False) -> dic
         }
 
     try:
-        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+        client_timeout = 600.0 if for_storage else 60.0
+        async with httpx.AsyncClient(timeout=client_timeout, follow_redirects=True) as client:
             mp, ip, dev_rows = await _resolve_meter_inverter_pairs(client, st)
             inv_pairs = _inverter_pairs_for_power_flow(ip, dev_rows)
             if not inv_pairs:
@@ -1455,9 +1503,8 @@ async def get_power_flow(station_code: str, *, for_storage: bool = False) -> dic
             return dict(out)
     except HuaweiNorthboundError as exc:
         if exc.fail_code == _FAIL_CODE_RATE_LIMIT:
-            _northbound_power_flow_cooldown_until[st] = now + float(
-                settings.HUAWEI_NORTHBOUND_COOLDOWN_AFTER_407_SEC
-            )
+            cooldown = await _northbound_cooldown_sec(st)
+            _northbound_power_flow_cooldown_until[st] = now + cooldown
             body = await _power_flow_rate_limit_fallback(st, now, stale_display=True)
             if body is not None:
                 return body

@@ -294,6 +294,10 @@ HUAWEI_POWER_SAMPLE_STALE_DISPLAY_SEC: int = _env_int(
 HUAWEI_NORTHBOUND_COOLDOWN_AFTER_407_SEC: int = _env_int(
     "HUAWEI_NORTHBOUND_COOLDOWN_AFTER_407_SEC", 300, 60, 3600
 )
+# Min seconds between FusionSolar thirdData POSTs (Northbound: ~1 concurrent req/min).
+HUAWEI_NORTHBOUND_MIN_INTERVAL_SEC: int = _env_int(
+    "HUAWEI_NORTHBOUND_MIN_INTERVAL_SEC", 62, 0, 300
+)
 # getDevList topology cache — device ids rarely change; avoid one list call per UI refresh.
 HUAWEI_DEV_LIST_CACHE_TTL_SEC: int = _env_int("HUAWEI_DEV_LIST_CACHE_TTL_SEC", 86400, 300, 604800)
 

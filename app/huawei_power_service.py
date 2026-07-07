@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.huawei_api import (
     HuaweiRateLimitNoCacheError,
+    _read_power_flow_from_sample,
     get_power_flow,
     huawei_configured,
     list_stations,
@@ -169,6 +170,23 @@ def pick_snapshot_station_codes(
     return [codes[idx]]
 
 
+async def _station_codes_without_recent_sample(
+    session: AsyncSession,
+    codes: list[str],
+    *,
+    max_age_sec: float = 3600.0,
+) -> list[str]:
+    """Plants with no huawei_power_sample within max_age_sec (prioritize for round-robin)."""
+    del session  # samples read via huawei_api helper (own session)
+    now = time.time()
+    missing: list[str] = []
+    for code in codes:
+        hit = await _read_power_flow_from_sample(code, now, max_age_sec=max_age_sec)
+        if hit is None:
+            missing.append(code)
+    return missing
+
+
 async def run_huawei_power_snapshot(
     session: AsyncSession,
     *,
@@ -199,10 +217,12 @@ async def run_huawei_power_snapshot(
         if not stations:
             return 0, {"reason": "no_stations"}
         codes = _station_codes_from_rows(stations)
+        missing = await _station_codes_without_recent_sample(session, codes)
+        pool = missing if missing else codes
         global _snapshot_rr_index
-        targets = pick_snapshot_station_codes(codes, rr_index=_snapshot_rr_index, only_station=None)
+        targets = pick_snapshot_station_codes(pool, rr_index=_snapshot_rr_index, only_station=None)
         if targets:
-            _snapshot_rr_index = (_snapshot_rr_index + 1) % max(len(codes), 1)
+            _snapshot_rr_index = (_snapshot_rr_index + 1) % max(len(pool), 1)
 
     bucket = floor_to_5min_utc(datetime.now(timezone.utc))
     n = 0
