@@ -3238,7 +3238,11 @@ export default function PowerFlowPage({
             loadPowerW: loadW != null && Number.isFinite(Number(loadW)) ? Math.max(0, Number(loadW)) : null,
             northboundRateLimited: !!data.northboundRateLimited,
           });
-        } else if (!data?.northboundRateLimited) {
+        } else if (
+          !data?.northboundRateLimited &&
+          data?.reason !== 'awaiting_fresh_sample' &&
+          data?.reason !== 'rate_limit_cooldown'
+        ) {
           setHuaweiLive(null);
         }
       } catch {

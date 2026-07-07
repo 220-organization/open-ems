@@ -980,6 +980,25 @@ async def _power_flow_rate_limit_fallback(
     return None
 
 
+async def _power_flow_any_age_fallback(st: str, now: float) -> Optional[dict[str, Any]]:
+    """Last resort for UI: show last stored KPI even when older than stale_display (never blank if we ever fetched)."""
+    db_hit = await _read_power_flow_db(st)
+    if db_hit:
+        snap, saved_at = db_hit
+        if snap.get("ok") is True:
+            body = _power_flow_cached_response(snap, saved_at, now, northbound_rate_limited=True)
+            body["source"] = "huawei_power_flow_cache"
+            return body
+    sample_hit = await _read_power_flow_from_sample(st, now, max_age_sec=86400.0 * 365)
+    if sample_hit:
+        snap, saved_at = sample_hit
+        _power_flow_cache[st] = (dict(snap), saved_at)
+        body = _power_flow_cached_response(snap, saved_at, now, northbound_rate_limited=True)
+        body["source"] = "huawei_power_sample"
+        return body
+    return None
+
+
 async def _power_flow_display_body(st: str, now: float) -> Optional[dict[str, Any]]:
     """
     UI path: never call FusionSolar Northbound — read RAM / DB / samples only.
@@ -992,7 +1011,7 @@ async def _power_flow_display_body(st: str, now: float) -> Optional[dict[str, An
     body = await _power_flow_rate_limit_fallback(st, now, stale_display=True)
     if body is not None:
         return body
-    return None
+    return await _power_flow_any_age_fallback(st, now)
 
 
 async def _resolve_meter_inverter_pairs(

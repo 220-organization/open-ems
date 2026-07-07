@@ -288,7 +288,7 @@ HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC: int = _env_int(
 HUAWEI_LIVE_KPI_CACHE_TTL_SEC: int = _env_int("HUAWEI_LIVE_KPI_CACHE_TTL_SEC", 300, 60, 3600)
 # When Northbound is in 407 cooldown, still show last huawei_power_sample up to this age (not 8h).
 HUAWEI_POWER_SAMPLE_STALE_DISPLAY_SEC: int = _env_int(
-    "HUAWEI_POWER_SAMPLE_STALE_DISPLAY_SEC", 3600, 300, 86400
+    "HUAWEI_POWER_SAMPLE_STALE_DISPLAY_SEC", 86400, 300, 604800
 )
 # After failCode 407, scheduler skips live Northbound until this cooldown elapses.
 HUAWEI_NORTHBOUND_COOLDOWN_AFTER_407_SEC: int = _env_int(
