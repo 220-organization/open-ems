@@ -132,6 +132,14 @@ def test_huawei_live_kpi_cache_ttl_five_minutes():
     assert _huawei_live_kpi_cache_fresh(now - 29_000.0, now=now) is False
 
 
+def test_huawei_sample_age_ok_stale_display_window():
+    from app.huawei_api import _huawei_sample_age_ok
+
+    now = 1_000_000.0
+    assert _huawei_sample_age_ok(now - 3500.0, 3600.0, now=now) is True
+    assert _huawei_sample_age_ok(now - 3700.0, 3600.0, now=now) is False
+
+
 def test_repair_legacy_cached_fake_load():
     pv, grid, load = _repair_huawei_power_flow_triplet(13_160.0, 240_000.0, 252_930.0)
     assert grid == 240.0

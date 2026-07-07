@@ -43,6 +43,8 @@ _station_list_skip_api_until: list[float] = [0.0]
 _power_flow_cache: dict[str, tuple[dict[str, Any], float]] = {}
 # getDevList rows per station (device topology changes rarely).
 _dev_list_rows_cache: dict[str, tuple[list[dict[str, Any]], float]] = {}
+# Monotonic: skip live Northbound power-flow until then after 407 (scheduler only).
+_northbound_power_flow_cooldown_until: float = 0.0
 # Resolved (meterId, meterType, inverterId, inverterType) per stationCode.
 _device_pair_cache: dict[str, tuple[str, int, str, int]] = {}
 
@@ -611,10 +613,16 @@ def _power_flow_body_for_storage(body: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in body.items() if k not in ("northboundRateLimited", "cacheAgeSec")}
 
 
+def _huawei_sample_age_ok(saved_at_ts: float, max_age_sec: float, *, now: Optional[float] = None) -> bool:
+    ref = now if now is not None else time.time()
+    return (ref - saved_at_ts) <= max_age_sec
+
+
 def _huawei_live_kpi_cache_fresh(saved_at_ts: float, *, now: Optional[float] = None) -> bool:
     """True when a Northbound 407 fallback snapshot is still within the live KPI TTL (default 5 min)."""
-    ref = now if now is not None else time.time()
-    return (ref - saved_at_ts) <= float(settings.HUAWEI_LIVE_KPI_CACHE_TTL_SEC)
+    return _huawei_sample_age_ok(
+        saved_at_ts, float(settings.HUAWEI_LIVE_KPI_CACHE_TTL_SEC), now=now
+    )
 
 
 def _power_flow_rate_limit_body(body: dict[str, Any], saved_at_ts: float, now: float) -> dict[str, Any]:
@@ -823,10 +831,16 @@ async def _get_dev_list_rows_cached(client: httpx.AsyncClient, station: str) -> 
     return rows
 
 
-async def _read_power_flow_from_sample(st: str, now: float) -> Optional[tuple[dict[str, Any], float]]:
-    """Latest huawei_power_sample row within live KPI TTL (5-min scheduler buckets)."""
+async def _read_power_flow_from_sample(
+    st: str,
+    now: float,
+    *,
+    max_age_sec: Optional[float] = None,
+) -> Optional[tuple[dict[str, Any], float]]:
+    """Latest huawei_power_sample row within max_age_sec (default live KPI TTL)."""
     if not st:
         return None
+    age_limit = float(max_age_sec if max_age_sec is not None else settings.HUAWEI_LIVE_KPI_CACHE_TTL_SEC)
     try:
         async with async_session_factory() as session:
             result = await session.execute(
@@ -839,7 +853,7 @@ async def _read_power_flow_from_sample(st: str, now: float) -> Optional[tuple[di
         if row is None:
             return None
         saved_ts = row.bucket_start.replace(tzinfo=timezone.utc).timestamp()
-        if not _huawei_live_kpi_cache_fresh(saved_ts, now=now):
+        if not _huawei_sample_age_ok(saved_ts, age_limit, now=now):
             return None
         if row.pv_power_w is None and row.grid_power_w is None and row.load_power_w is None:
             return None
@@ -875,25 +889,64 @@ def _power_flow_fresh_cached_body(st: str, now: float) -> Optional[dict[str, Any
     return body
 
 
-async def _power_flow_rate_limit_fallback(st: str, now: float) -> Optional[dict[str, Any]]:
-    """RAM / DB cache, then latest 5-min power sample — never return hour-old Northbound snapshots."""
+async def _power_flow_rate_limit_fallback(
+    st: str, now: float, *, stale_display: bool = False
+) -> Optional[dict[str, Any]]:
+    """RAM / DB cache, then power sample — optional stale sample up to 1h when Northbound is in 407."""
+    sample_max = (
+        float(settings.HUAWEI_POWER_SAMPLE_STALE_DISPLAY_SEC)
+        if stale_display
+        else float(settings.HUAWEI_LIVE_KPI_CACHE_TTL_SEC)
+    )
     cached = _power_flow_cache.get(st)
     if cached:
         snap, saved_at = cached
-        if _huawei_live_kpi_cache_fresh(saved_at, now=now):
-            return _power_flow_rate_limit_body(snap, saved_at, now)
+        max_age = (
+            float(settings.HUAWEI_POWER_SAMPLE_STALE_DISPLAY_SEC)
+            if stale_display
+            else float(settings.HUAWEI_LIVE_KPI_CACHE_TTL_SEC)
+        )
+        if _huawei_sample_age_ok(saved_at, max_age, now=now):
+            stale = stale_display and not _huawei_live_kpi_cache_fresh(saved_at, now=now)
+            return _power_flow_cached_response(
+                snap, saved_at, now, northbound_rate_limited=stale
+            )
     db_hit = await _read_power_flow_db(st)
     if db_hit:
         snap, saved_at = db_hit
-        if _huawei_live_kpi_cache_fresh(saved_at, now=now):
+        max_age = (
+            float(settings.HUAWEI_POWER_SAMPLE_STALE_DISPLAY_SEC)
+            if stale_display
+            else float(settings.HUAWEI_LIVE_KPI_CACHE_TTL_SEC)
+        )
+        if _huawei_sample_age_ok(saved_at, max_age, now=now):
             _power_flow_cache[st] = (dict(snap), saved_at)
-            return _power_flow_rate_limit_body(snap, saved_at, now)
-    sample_hit = await _read_power_flow_from_sample(st, now)
+            stale = stale_display and not _huawei_live_kpi_cache_fresh(saved_at, now=now)
+            return _power_flow_cached_response(
+                snap, saved_at, now, northbound_rate_limited=stale
+            )
+    sample_hit = await _read_power_flow_from_sample(st, now, max_age_sec=sample_max)
     if sample_hit:
         snap, saved_at = sample_hit
         _power_flow_cache[st] = (dict(snap), saved_at)
-        body = _power_flow_rate_limit_body(snap, saved_at, now)
+        stale = not _huawei_live_kpi_cache_fresh(saved_at, now=now)
+        body = _power_flow_cached_response(snap, saved_at, now, northbound_rate_limited=stale)
         body["source"] = "huawei_power_sample"
+        return body
+    return None
+
+
+async def _power_flow_display_body(st: str, now: float) -> Optional[dict[str, Any]]:
+    """
+    UI path: never call FusionSolar Northbound — read RAM / DB / samples only.
+
+    The background scheduler is the sole live Northbound caller (5-min quota).
+    """
+    fresh = _power_flow_fresh_cached_body(st, now)
+    if fresh is not None:
+        return fresh
+    body = await _power_flow_rate_limit_fallback(st, now, stale_display=True)
+    if body is not None:
         return body
     return None
 
@@ -1314,16 +1367,30 @@ async def get_power_flow(station_code: str, *, for_storage: bool = False) -> dic
 
     now = time.time()
     if not for_storage:
-        fresh = _power_flow_fresh_cached_body(st, now)
-        if fresh is not None:
-            return fresh
-        sample_hit = await _read_power_flow_from_sample(st, now)
-        if sample_hit:
-            snap, saved_at = sample_hit
-            _power_flow_cache[st] = (dict(snap), saved_at)
-            return _power_flow_cached_response(
-                snap, saved_at, now, northbound_rate_limited=False
-            )
+        display = await _power_flow_display_body(st, now)
+        if display is not None:
+            return display
+        return {
+            "ok": False,
+            "configured": True,
+            "reason": "awaiting_fresh_sample",
+            "stationCode": st,
+        }
+
+    global _northbound_power_flow_cooldown_until
+    if now < _northbound_power_flow_cooldown_until:
+        logger.info(
+            "Huawei: get_power_flow scheduler — Northbound cooldown %.0fs left, skip %s",
+            _northbound_power_flow_cooldown_until - now,
+            st,
+        )
+        return {
+            "ok": False,
+            "configured": True,
+            "northboundRateLimited": True,
+            "reason": "rate_limit_cooldown",
+            "stationCode": st,
+        }
 
     try:
         async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
@@ -1367,7 +1434,10 @@ async def get_power_flow(station_code: str, *, for_storage: bool = False) -> dic
             return dict(out)
     except HuaweiNorthboundError as exc:
         if exc.fail_code == _FAIL_CODE_RATE_LIMIT:
-            body = await _power_flow_rate_limit_fallback(st, now)
+            _northbound_power_flow_cooldown_until = now + float(
+                settings.HUAWEI_NORTHBOUND_COOLDOWN_AFTER_407_SEC
+            )
+            body = await _power_flow_rate_limit_fallback(st, now, stale_display=True)
             if body is not None:
                 return body
             logger.warning(
