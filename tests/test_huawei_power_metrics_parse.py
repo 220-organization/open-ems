@@ -93,6 +93,36 @@ def test_10ya_baza1_multi_inverter_matches_fusionsolar():
     assert abs(stored["loadPowerW"] - (stored["pvPowerW"] + stored["gridPowerW"])) < 2_000
 
 
+def test_inverter_pairs_for_power_flow_uses_dev_list_not_cached_single():
+    from app.huawei_api import _inverter_pairs_for_power_flow
+
+    rows = [
+        {"id": "1001", "devTypeId": 1},
+        {"id": "1002", "devTypeId": 1},
+    ]
+    pairs = _inverter_pairs_for_power_flow(("1001", 1), rows)
+    assert pairs == [("1001", 1), ("1002", 1)]
+
+    # Cached single pair with empty dev list — legacy fallback (one inverter only).
+    pairs_cached = _inverter_pairs_for_power_flow(("1001", 1), [])
+    assert pairs_cached == [("1001", 1)]
+
+
+def test_10ya_baza1_two_inverter_partial_cloud():
+    """FusionSolar ~21 kW PV when only ~2 of 4 strings produce strongly."""
+    inv_dims = [
+        {"active_power": 12.95, "mppt_power": 12.948},
+        {"active_power": 8.34, "mppt_power": 8.336},
+        {"active_power": 0.0, "mppt_power": 0.0},
+        {"active_power": 0.0, "mppt_power": 0.0},
+    ]
+    meter_dim = {"active_power": -17.168}
+    stored = _parse_huawei_power_flow_from_dims(meter_dim, inv_dims, for_storage=True)
+    assert 20_000 <= stored["pvPowerW"] <= 22_000
+    assert 16_000 <= stored["gridPowerW"] <= 18_500
+    assert 37_000 <= stored["loadPowerW"] <= 40_000
+
+
 def test_repair_legacy_cached_fake_load():
     pv, grid, load = _repair_huawei_power_flow_triplet(13_160.0, 240_000.0, 252_930.0)
     assert grid == 240.0

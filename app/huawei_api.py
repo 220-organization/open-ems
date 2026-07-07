@@ -766,6 +766,11 @@ def _ess_soc_percent_from_inverter_dim(dim: dict[str, Any]) -> Optional[float]:
     return None
 
 
+async def _fetch_dev_list_rows(client: httpx.AsyncClient, station: str) -> list[dict[str, Any]]:
+    payload = await _post_third_data(client, "/thirdData/getDevList", {"stationCodes": station})
+    return _parse_dev_list_rows(payload)
+
+
 async def _resolve_meter_inverter_pairs(
     client: httpx.AsyncClient, station: str
 ) -> tuple[Optional[tuple[str, int]], Optional[tuple[str, int]], list[dict[str, Any]]]:
@@ -785,13 +790,14 @@ async def _resolve_meter_inverter_pairs(
             _device_pair_cache[station] = db
             quad = db
 
-    need_dev_list = quad is None or bool(mid_e) or bool(iid_e)
+    # Always refresh getDevList unless a single inverter is pinned via env — cached quad
+    # stores only one inverter id and would hide siblings on multi-inverter plants.
+    need_dev_list = quad is None or bool(mid_e) or bool(iid_e) or not iid_e
     if not need_dev_list:
         mid2, mt2, iid2, it2 = quad
         return (mid2, mt2), (iid2, it2), []
 
-    payload = await _post_third_data(client, "/thirdData/getDevList", {"stationCodes": station})
-    rows = _parse_dev_list_rows(payload)
+    rows = await _fetch_dev_list_rows(client, station)
     mp, ip = _pick_meter_inverter_from_rows(rows)
     if mid_e:
         mp = (mid_e, settings.HUAWEI_METER_DEV_TYPE_ID)
@@ -1077,7 +1083,22 @@ async def _fetch_dev_real_kpi_dims(
         "/thirdData/getDevRealKpi",
         {"devIds": ",".join(ids), "devTypeId": int(dev_type_id)},
     )
-    return _parse_dev_real_kpi_dims(payload)
+    dims = _parse_dev_real_kpi_dims(payload)
+    if len(ids) == 1 or len(dims) >= len(ids):
+        return dims
+
+    # Some Northbound regions return only the first devId in a comma-separated batch.
+    out: list[dict[str, Any]] = []
+    for dev_id in ids:
+        one_payload = await _post_third_data(
+            client,
+            "/thirdData/getDevRealKpi",
+            {"devIds": dev_id, "devTypeId": int(dev_type_id)},
+        )
+        one_dims = _parse_dev_real_kpi_dims(one_payload)
+        if one_dims:
+            out.append(one_dims[0])
+    return out
 
 
 async def _fetch_dev_real_kpi_dim(
