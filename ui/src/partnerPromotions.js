@@ -2,11 +2,11 @@ import { VYRIY_EMS_LOGO_SRC } from './vyriyEmsLogo';
 
 const staticBase = `${process.env.PUBLIC_URL || ''}/static/partners`;
 
-/** Hub carousel: Vyriy EMS + EV charging partners (3 s per slide). */
+/** Hub carousel: Open EMS + EV charging partners (3 s per slide). */
 export const HUB_PARTNER_PROMOTIONS = [
   {
     id: 'vyriy',
-    name: 'Vyriy EMS',
+    name: 'Open EMS',
     url: 'https://220-km.com',
     logoSrc: VYRIY_EMS_LOGO_SRC,
     hubLabelKey: 'hubLabel',
