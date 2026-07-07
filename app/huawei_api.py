@@ -676,6 +676,25 @@ def _meter_type_fallback_order() -> tuple[int, ...]:
     return tuple(out)
 
 
+def _pick_all_inverters_from_rows(rows: list[dict[str, Any]]) -> list[tuple[str, int]]:
+    """All grid-tied inverters at the plant (multi-string / multi-inverter sites)."""
+    inv_type = settings.HUAWEI_INVERTER_DEV_TYPE_ID
+    out: list[tuple[str, int]] = []
+    seen: set[str] = set()
+    for r in rows:
+        if int(r.get("devTypeId") or 0) != inv_type:
+            continue
+        did = r.get("id")
+        if did is None:
+            continue
+        sid = str(did)
+        if sid in seen:
+            continue
+        seen.add(sid)
+        out.append((sid, int(r["devTypeId"])))
+    return out
+
+
 def _pick_meter_inverter_from_rows(
     rows: list[dict[str, Any]],
 ) -> tuple[Optional[tuple[str, int]], Optional[tuple[str, int]]]:
@@ -958,28 +977,49 @@ def _repair_huawei_power_flow_triplet(
     return pv, grid, load
 
 
+def _sum_inverter_power_from_dims(
+    inv_dims: list[dict[str, Any]],
+) -> tuple[Optional[float], Optional[float]]:
+    """Sum PV (mppt) and AC output across all inverters at the grid tie point."""
+    pv_sum = 0.0
+    pv_count = 0
+    inv_sum = 0.0
+    inv_count = 0
+    for dim in inv_dims:
+        inv_raw = _active_power_w_from_dev_dim(dim)
+        if inv_raw is not None:
+            inv_sum += float(inv_raw)
+            inv_count += 1
+        pv_raw = _pv_power_w_from_dev_dim(dim)
+        if pv_raw is not None:
+            pv_sum += max(0.0, float(pv_raw))
+            pv_count += 1
+        elif inv_raw is not None:
+            pv_sum += max(0.0, float(inv_raw))
+            pv_count += 1
+    pv_w = pv_sum if pv_count else None
+    inv_w = inv_sum if inv_count else None
+    return pv_w, inv_w
+
+
 def _parse_huawei_power_flow_from_dims(
     meter_dim: dict[str, Any],
-    inv_dim: dict[str, Any],
+    inv_dims: list[dict[str, Any]],
     *,
     for_storage: bool = False,
 ) -> dict[str, Optional[float]]:
     """
     Instantaneous PV / grid / load (W) from getDevRealKpi meter + inverter dataItemMaps.
 
+    ``inv_dims`` may contain one or many inverters (multi-inverter plants sum PV and AC output).
     Shared by live API, 5-minute snapshots, and cache repair — same rules for every plant.
     """
-    inv_raw = _active_power_w_from_dev_dim(inv_dim)
+    dims = [d for d in inv_dims if d]
+    if not dims:
+        dims = [{}]
+    pv_w, inv_raw = _sum_inverter_power_from_dims(dims)
     meter_raw = _active_power_w_from_dev_dim(meter_dim, reference_w=inv_raw)
     meter_raw = _normalize_meter_scale_if_implausible(meter_raw, inv_raw)
-
-    pv_raw = _pv_power_w_from_dev_dim(inv_dim)
-    if pv_raw is not None:
-        pv_w: Optional[float] = max(0.0, float(pv_raw))
-    elif inv_raw is not None:
-        pv_w = max(0.0, float(inv_raw))
-    else:
-        pv_w = None
 
     grid_ui: Optional[float] = -float(meter_raw) if meter_raw is not None else None
     load_w: Optional[float] = None
@@ -1012,22 +1052,62 @@ def _apply_huawei_power_flow_repairs(body: dict[str, Any]) -> dict[str, Any]:
     return body
 
 
-async def _fetch_dev_real_kpi_dim(
-    client: httpx.AsyncClient, dev_id: str, dev_type_id: int
-) -> dict[str, Any]:
+def _parse_dev_real_kpi_dims(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    data = payload.get("data")
+    if not isinstance(data, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        dim = item.get("dataItemMap")
+        if isinstance(dim, dict):
+            out.append(dim)
+    return out
+
+
+async def _fetch_dev_real_kpi_dims(
+    client: httpx.AsyncClient, dev_ids: list[str], dev_type_id: int
+) -> list[dict[str, Any]]:
+    ids = [str(d).strip() for d in dev_ids if str(d).strip()]
+    if not ids:
+        return []
     payload = await _post_third_data(
         client,
         "/thirdData/getDevRealKpi",
-        {"devIds": str(dev_id), "devTypeId": int(dev_type_id)},
+        {"devIds": ",".join(ids), "devTypeId": int(dev_type_id)},
     )
-    data = payload.get("data")
-    if isinstance(data, list) and data:
-        first = data[0]
-        if isinstance(first, dict):
-            dim = first.get("dataItemMap")
-            if isinstance(dim, dict):
-                return dim
-    return {}
+    return _parse_dev_real_kpi_dims(payload)
+
+
+async def _fetch_dev_real_kpi_dim(
+    client: httpx.AsyncClient, dev_id: str, dev_type_id: int
+) -> dict[str, Any]:
+    dims = await _fetch_dev_real_kpi_dims(client, [dev_id], dev_type_id)
+    return dims[0] if dims else {}
+
+
+def _inverter_pairs_for_power_flow(
+    ip: Optional[tuple[str, int]],
+    dev_rows: list[dict[str, Any]],
+) -> list[tuple[str, int]]:
+    """Resolve inverter device ids: env override → all from dev list → single cached pair."""
+    iid_e = (settings.HUAWEI_INVERTER_DEV_ID or "").strip()
+    if iid_e:
+        return [(iid_e, settings.HUAWEI_INVERTER_DEV_TYPE_ID)]
+    if dev_rows:
+        pairs = _pick_all_inverters_from_rows(dev_rows)
+        if pairs:
+            return pairs
+    return [ip] if ip else []
+
+
+def _ess_soc_from_inverter_dims(inv_dims: list[dict[str, Any]]) -> Optional[float]:
+    for dim in inv_dims:
+        soc = _ess_soc_percent_from_inverter_dim(dim)
+        if soc is not None:
+            return soc
+    return None
 
 
 def _ensure_power_flow_export_flags(body: dict[str, Any]) -> None:
@@ -1078,7 +1158,9 @@ async def get_power_flow(station_code: str, *, for_storage: bool = False) -> dic
 
     gridPowerW uses the same sign convention as Deye in PowerFlowPage: positive = grid import,
     negative = export. Huawei meter active_power is typically negative on import, so we negate it.
-    loadPowerW = inverter_active_power - meter_active_power (both raw W from API).
+    loadPowerW = sum(inverter_active_power) - meter_active_power (both raw W from API).
+
+    Multi-inverter plants sum every inverter from getDevList (one batched getDevRealKpi per type).
 
     When ``for_storage`` is True, grid import is left as read from the meter (no PV≈load zeroing).
     Use that for ``huawei_power_sample`` so month/year kWh totals are not understated.
@@ -1093,7 +1175,8 @@ async def get_power_flow(station_code: str, *, for_storage: bool = False) -> dic
     try:
         async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
             mp, ip, dev_rows = await _resolve_meter_inverter_pairs(client, st)
-            if not mp or not ip:
+            inv_pairs = _inverter_pairs_for_power_flow(ip, dev_rows)
+            if not mp or not inv_pairs:
                 return {
                     "ok": False,
                     "configured": True,
@@ -1101,17 +1184,19 @@ async def get_power_flow(station_code: str, *, for_storage: bool = False) -> dic
                     "stationCode": st,
                 }
             meter_dim = await _fetch_dev_real_kpi_dim(client, mp[0], mp[1])
-            inv_dim = await _fetch_dev_real_kpi_dim(client, ip[0], ip[1])
+            inv_type_id = inv_pairs[0][1]
+            inv_ids = [p[0] for p in inv_pairs]
+            inv_dims = await _fetch_dev_real_kpi_dims(client, inv_ids, inv_type_id)
 
             metrics = _parse_huawei_power_flow_from_dims(
-                meter_dim, inv_dim, for_storage=for_storage
+                meter_dim, inv_dims, for_storage=for_storage
             )
             pv_w = metrics["pvPowerW"]
             grid_ui = metrics["gridPowerW"]
             load_w = metrics["loadPowerW"]
 
             has_battery_kpi = _has_battery_device_in_dev_list(dev_rows) if dev_rows else False
-            ess_soc = _ess_soc_percent_from_inverter_dim(inv_dim)
+            ess_soc = _ess_soc_from_inverter_dims(inv_dims)
 
             out: dict[str, Any] = {
                 "ok": True,

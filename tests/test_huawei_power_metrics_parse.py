@@ -6,7 +6,9 @@ from app.huawei_api import (
     _normalize_maybe_kw_to_w,
     _normalize_meter_scale_if_implausible,
     _parse_huawei_power_flow_from_dims,
+    _pick_all_inverters_from_rows,
     _repair_huawei_power_flow_triplet,
+    _sum_inverter_power_from_dims,
 )
 
 
@@ -52,12 +54,43 @@ def test_normalize_meter_downscales_legacy_240kw_spike():
 def test_parse_power_flow_from_dims_all_plants():
     inv_dim = {"active_power": 13.16, "mppt_power": 12.925}
     meter_dim = {"active_power": -240.0}
-    stored = _parse_huawei_power_flow_from_dims(meter_dim, inv_dim, for_storage=True)
+    stored = _parse_huawei_power_flow_from_dims(meter_dim, [inv_dim], for_storage=True)
     assert stored["pvPowerW"] == 12_925.0
     assert stored["gridPowerW"] == 240.0
     assert 13_000 <= stored["loadPowerW"] <= 14_000
-    live = _parse_huawei_power_flow_from_dims(meter_dim, inv_dim, for_storage=False)
+    live = _parse_huawei_power_flow_from_dims(meter_dim, [inv_dim], for_storage=False)
     assert live["gridPowerW"] == 0.0
+
+
+def test_pick_all_inverters_from_rows():
+    rows = [
+        {"id": "1001", "devTypeId": 1},
+        {"id": "1002", "devTypeId": 1},
+        {"id": "2001", "devTypeId": 47},
+        {"id": "1001", "devTypeId": 1},
+    ]
+    pairs = _pick_all_inverters_from_rows(rows)
+    assert pairs == [("1001", 1), ("1002", 1)]
+
+
+def test_10ya_baza1_multi_inverter_matches_fusionsolar():
+    """NE=256081648: ~50 kW PV / ~3.7 kW grid / ~54 kW load — sum all inverters, not one."""
+    inv_dims = [
+        {"active_power": 12.52, "mppt_power": 12.519},
+        {"active_power": 12.51, "mppt_power": 12.518},
+        {"active_power": 12.52, "mppt_power": 12.519},
+        {"active_power": 12.52, "mppt_power": 12.518},
+    ]
+    pv_sum, inv_sum = _sum_inverter_power_from_dims(inv_dims)
+    assert 49_000 <= pv_sum <= 51_000
+    assert 49_000 <= inv_sum <= 51_000
+
+    meter_dim = {"active_power": -3.696}
+    stored = _parse_huawei_power_flow_from_dims(meter_dim, inv_dims, for_storage=True)
+    assert 49_000 <= stored["pvPowerW"] <= 51_000
+    assert 3_000 <= stored["gridPowerW"] <= 4_500
+    assert 52_000 <= stored["loadPowerW"] <= 55_000
+    assert abs(stored["loadPowerW"] - (stored["pvPowerW"] + stored["gridPowerW"])) < 2_000
 
 
 def test_repair_legacy_cached_fake_load():
