@@ -165,7 +165,7 @@ function genOnGridAlwaysOnFromApiData(data) {
 const KIOSK_WIDE_MIN_PX = 992;
 
 /** Huawei Northbound thirdData — strict rate limits (failCode 407 if polled too often). */
-const HUAWEI_NORTHBOUND_POLL_MS = 210_000;
+const HUAWEI_NORTHBOUND_POLL_MS = 300_000;
 /** Ubetter EMS Open API — live summary poll interval. */
 const UBETTER_POLL_MS = 30_000;
 

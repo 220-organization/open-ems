@@ -16,7 +16,7 @@ from sqlalchemy import select
 
 from app import settings
 from app.db import async_session_factory
-from app.models import HuaweiPowerDevicesCache, HuaweiPowerFlowCache, HuaweiStationListCache
+from app.models import HuaweiPowerDevicesCache, HuaweiPowerFlowCache, HuaweiPowerSample, HuaweiStationListCache
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -41,6 +41,8 @@ _station_list_skip_api_until: list[float] = [0.0]
 
 # Last successful power-flow snapshot per station (getDevRealKpi; 407 fallback).
 _power_flow_cache: dict[str, tuple[dict[str, Any], float]] = {}
+# getDevList rows per station (device topology changes rarely).
+_dev_list_rows_cache: dict[str, tuple[list[dict[str, Any]], float]] = {}
 # Resolved (meterId, meterType, inverterId, inverterType) per stationCode.
 _device_pair_cache: dict[str, tuple[str, int, str, int]] = {}
 
@@ -623,6 +625,20 @@ def _power_flow_rate_limit_body(body: dict[str, Any], saved_at_ts: float, now: f
     return out
 
 
+def _power_flow_cached_response(
+    body: dict[str, Any],
+    saved_at_ts: float,
+    now: float,
+    *,
+    northbound_rate_limited: bool,
+) -> dict[str, Any]:
+    out = _apply_huawei_power_flow_repairs(dict(body))
+    out["northboundRateLimited"] = northbound_rate_limited
+    out["cacheAgeSec"] = round(now - saved_at_ts, 1)
+    _ensure_power_flow_export_flags(out)
+    return out
+
+
 async def _read_power_flow_db(station_code: str) -> Optional[tuple[dict[str, Any], float]]:
     st = (station_code or "").strip()
     if not st:
@@ -791,6 +807,97 @@ async def _fetch_dev_list_rows(client: httpx.AsyncClient, station: str) -> list[
     return _parse_dev_list_rows(payload)
 
 
+async def _get_dev_list_rows_cached(client: httpx.AsyncClient, station: str) -> list[dict[str, Any]]:
+    """Device topology from getDevList — refresh rarely to save Northbound quota for live KPI."""
+    st = (station or "").strip()
+    if not st:
+        return []
+    now = time.time()
+    ttl = float(settings.HUAWEI_DEV_LIST_CACHE_TTL_SEC)
+    hit = _dev_list_rows_cache.get(st)
+    if hit and (now - hit[1]) <= ttl:
+        return hit[0]
+    rows = await _fetch_dev_list_rows(client, st)
+    if rows:
+        _dev_list_rows_cache[st] = (rows, now)
+    return rows
+
+
+async def _read_power_flow_from_sample(st: str, now: float) -> Optional[tuple[dict[str, Any], float]]:
+    """Latest huawei_power_sample row within live KPI TTL (5-min scheduler buckets)."""
+    if not st:
+        return None
+    try:
+        async with async_session_factory() as session:
+            result = await session.execute(
+                select(HuaweiPowerSample)
+                .where(HuaweiPowerSample.station_code == st)
+                .order_by(HuaweiPowerSample.bucket_start.desc())
+                .limit(1)
+            )
+            row = result.scalar_one_or_none()
+        if row is None:
+            return None
+        saved_ts = row.bucket_start.replace(tzinfo=timezone.utc).timestamp()
+        if not _huawei_live_kpi_cache_fresh(saved_ts, now=now):
+            return None
+        if row.pv_power_w is None and row.grid_power_w is None and row.load_power_w is None:
+            return None
+        body: dict[str, Any] = {
+            "ok": True,
+            "configured": True,
+            "stationCode": st,
+            "pvPowerW": row.pv_power_w,
+            "gridPowerW": row.grid_power_w,
+            "loadPowerW": row.load_power_w,
+            "hasBatteryKpi": False,
+            "essSocPercent": None,
+            "source": "huawei_power_sample",
+        }
+        return body, saved_ts
+    except Exception as exc:
+        logger.warning("Huawei: power sample fallback read failed — %s", exc)
+        return None
+
+
+def _power_flow_fresh_cached_body(st: str, now: float) -> Optional[dict[str, Any]]:
+    """Return RAM power-flow snapshot when still within live KPI TTL (skip Northbound)."""
+    cached = _power_flow_cache.get(st)
+    if not cached:
+        return None
+    snap, saved_at = cached
+    if snap.get("ok") is not True or not _huawei_live_kpi_cache_fresh(saved_at, now=now):
+        return None
+    body = _apply_huawei_power_flow_repairs(dict(snap))
+    body["northboundRateLimited"] = False
+    body["cacheAgeSec"] = round(now - saved_at, 1)
+    _ensure_power_flow_export_flags(body)
+    return body
+
+
+async def _power_flow_rate_limit_fallback(st: str, now: float) -> Optional[dict[str, Any]]:
+    """RAM / DB cache, then latest 5-min power sample — never return hour-old Northbound snapshots."""
+    cached = _power_flow_cache.get(st)
+    if cached:
+        snap, saved_at = cached
+        if _huawei_live_kpi_cache_fresh(saved_at, now=now):
+            return _power_flow_rate_limit_body(snap, saved_at, now)
+    db_hit = await _read_power_flow_db(st)
+    if db_hit:
+        snap, saved_at = db_hit
+        if _huawei_live_kpi_cache_fresh(saved_at, now=now):
+            _power_flow_cache[st] = (dict(snap), saved_at)
+            return _power_flow_rate_limit_body(snap, saved_at, now)
+    sample_hit = await _read_power_flow_from_sample(st, now)
+    if sample_hit:
+        snap, saved_at = sample_hit
+        _power_flow_cache[st] = (dict(snap), saved_at)
+        body = _power_flow_rate_limit_body(snap, saved_at, now)
+        body["source"] = "huawei_power_sample"
+        return body
+    return None
+
+
 async def _resolve_meter_inverter_pairs(
     client: httpx.AsyncClient, station: str
 ) -> tuple[Optional[tuple[str, int]], Optional[tuple[str, int]], list[dict[str, Any]]]:
@@ -810,15 +917,8 @@ async def _resolve_meter_inverter_pairs(
             _device_pair_cache[station] = db
             quad = db
 
-    # Always refresh getDevList unless a single inverter is pinned via env — cached quad
-    # stores only one inverter id and would hide siblings on multi-inverter plants.
-    need_dev_list = quad is None or bool(mid_e) or bool(iid_e) or not iid_e
-    if not need_dev_list:
-        mid2, mt2, iid2, it2 = quad
-        return (mid2, mt2), (iid2, it2), []
-
-    rows = await _fetch_dev_list_rows(client, station)
-    mp, ip = _pick_meter_inverter_from_rows(rows)
+    rows = await _get_dev_list_rows_cached(client, station)
+    mp, ip = _pick_meter_inverter_from_rows(rows) if rows else (None, None)
     if mid_e:
         mp = (mid_e, settings.HUAWEI_METER_DEV_TYPE_ID)
     if iid_e:
@@ -1213,6 +1313,18 @@ async def get_power_flow(station_code: str, *, for_storage: bool = False) -> dic
         return {"ok": False, "configured": False, "reason": "not_configured"}
 
     now = time.time()
+    if not for_storage:
+        fresh = _power_flow_fresh_cached_body(st, now)
+        if fresh is not None:
+            return fresh
+        sample_hit = await _read_power_flow_from_sample(st, now)
+        if sample_hit:
+            snap, saved_at = sample_hit
+            _power_flow_cache[st] = (dict(snap), saved_at)
+            return _power_flow_cached_response(
+                snap, saved_at, now, northbound_rate_limited=False
+            )
+
     try:
         async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
             mp, ip, dev_rows = await _resolve_meter_inverter_pairs(client, st)
@@ -1255,27 +1367,13 @@ async def get_power_flow(station_code: str, *, for_storage: bool = False) -> dic
             return dict(out)
     except HuaweiNorthboundError as exc:
         if exc.fail_code == _FAIL_CODE_RATE_LIMIT:
-            cached = _power_flow_cache.get(st)
-            if cached:
-                snap, saved_at = cached
-                if _huawei_live_kpi_cache_fresh(saved_at, now=now):
-                    return _power_flow_rate_limit_body(snap, saved_at, now)
-                logger.warning(
-                    "Huawei: get_power_flow failCode=407 — RAM cache expired (age %.0fs > ttl %.0fs)",
-                    now - saved_at,
-                    float(settings.HUAWEI_LIVE_KPI_CACHE_TTL_SEC),
-                )
-            db_hit = await _read_power_flow_db(st)
-            if db_hit:
-                snap, saved_at = db_hit
-                if _huawei_live_kpi_cache_fresh(saved_at, now=now):
-                    _power_flow_cache[st] = (dict(snap), saved_at)
-                    return _power_flow_rate_limit_body(snap, saved_at, now)
-                logger.warning(
-                    "Huawei: get_power_flow failCode=407 — DB cache expired (age %.0fs > ttl %.0fs)",
-                    now - saved_at,
-                    float(settings.HUAWEI_LIVE_KPI_CACHE_TTL_SEC),
-                )
+            body = await _power_flow_rate_limit_fallback(st, now)
+            if body is not None:
+                return body
+            logger.warning(
+                "Huawei: get_power_flow failCode=407 — no fresh cache or power sample (ttl %.0fs)",
+                float(settings.HUAWEI_LIVE_KPI_CACHE_TTL_SEC),
+            )
             return {
                 "ok": False,
                 "configured": True,
