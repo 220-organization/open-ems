@@ -124,11 +124,11 @@ def test_10ya_baza1_two_inverter_partial_cloud():
     assert 37_000 <= stored["loadPowerW"] <= 40_000
 
 
-def test_huawei_live_kpi_cache_ttl_five_minutes():
+def test_huawei_live_kpi_cache_ttl_ten_minutes():
     now = 1_000_000.0
-    assert _huawei_live_kpi_cache_fresh(now - 299.0, now=now) is True
-    assert _huawei_live_kpi_cache_fresh(now - 300.0, now=now) is True
-    assert _huawei_live_kpi_cache_fresh(now - 301.0, now=now) is False
+    assert _huawei_live_kpi_cache_fresh(now - 599.0, now=now) is True
+    assert _huawei_live_kpi_cache_fresh(now - 600.0, now=now) is True
+    assert _huawei_live_kpi_cache_fresh(now - 601.0, now=now) is False
     assert _huawei_live_kpi_cache_fresh(now - 29_000.0, now=now) is False
 
 

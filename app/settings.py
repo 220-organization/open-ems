@@ -282,13 +282,13 @@ DEYE_INVERTER_LIST_CACHE_TTL_SEC: int = _env_int("DEYE_INVERTER_LIST_CACHE_TTL_S
 # Persist Huawei PV/grid/load (getDevRealKpi via get_power_flow) to Postgres — UTC 5-minute buckets (same as Deye) for hourly charts.
 HUAWEI_POWER_SNAPSHOT_ENABLED: bool = _env_bool("HUAWEI_POWER_SNAPSHOT_ENABLED", True)
 HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC: int = _env_int(
-    "HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC", 300, 60, 3600
+    "HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC", 600, 60, 3600
 )
 # Max age for Huawei live KPI fallbacks (power-flow RAM/DB, plant-status RAM) on Northbound 407.
-HUAWEI_LIVE_KPI_CACHE_TTL_SEC: int = _env_int("HUAWEI_LIVE_KPI_CACHE_TTL_SEC", 300, 60, 3600)
-# When Northbound is in 407 cooldown, still show last huawei_power_sample up to this age (not 8h).
+HUAWEI_LIVE_KPI_CACHE_TTL_SEC: int = _env_int("HUAWEI_LIVE_KPI_CACHE_TTL_SEC", 600, 60, 3600)
+# UI power-flow: max sample/cache age before showing rate-limit instead of stale watts (default = live TTL).
 HUAWEI_POWER_SAMPLE_STALE_DISPLAY_SEC: int = _env_int(
-    "HUAWEI_POWER_SAMPLE_STALE_DISPLAY_SEC", 86400, 300, 604800
+    "HUAWEI_POWER_SAMPLE_STALE_DISPLAY_SEC", 600, 300, 604800
 )
 # After failCode 407, scheduler skips live Northbound until this cooldown elapses.
 HUAWEI_NORTHBOUND_COOLDOWN_AFTER_407_SEC: int = _env_int(

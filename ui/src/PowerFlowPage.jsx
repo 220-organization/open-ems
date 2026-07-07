@@ -165,7 +165,7 @@ function genOnGridAlwaysOnFromApiData(data) {
 const KIOSK_WIDE_MIN_PX = 992;
 
 /** Huawei Northbound thirdData — strict rate limits (failCode 407 if polled too often). */
-const HUAWEI_NORTHBOUND_POLL_MS = 300_000;
+const HUAWEI_NORTHBOUND_POLL_MS = 600_000;
 /** Ubetter EMS Open API — live summary poll interval. */
 const UBETTER_POLL_MS = 30_000;
 
@@ -683,6 +683,13 @@ function formatLandingKwhCounterText(displayText, t) {
   const s = displayText == null ? '' : String(displayText).trim();
   if (!s || s === '—' || s === '…') return s || '—';
   return `${s} ${t('powerFlowLandingKwhUnit')}`;
+}
+
+/** Huawei power-flow node: rate-limit hint instead of stale kW from cache. */
+function formatHuaweiPowerFlowNodeValue(loading, rateLimited, watts, t, bcp47) {
+  if (loading) return '…';
+  if (rateLimited) return t('huaweiPowerFlowRateLimited');
+  return formatPower(watts, t, bcp47);
 }
 
 /**
@@ -2346,6 +2353,7 @@ export default function PowerFlowPage({
   /** Huawei real power (getDevRealKpi meter + inverter via GET /api/huawei/power-flow). */
   const [huaweiLive, setHuaweiLive] = useState(null);
   const [huaweiLiveLoading, setHuaweiLiveLoading] = useState(false);
+  const [huaweiPowerFlowRateLimited, setHuaweiPowerFlowRateLimited] = useState(false);
   const [huaweiHydratedCode, setHuaweiHydratedCode] = useState('');
   const [ubetterLive, setUbetterLive] = useState(null);
   const [ubetterLiveLoading, setUbetterLiveLoading] = useState(false);
@@ -3216,6 +3224,7 @@ export default function PowerFlowPage({
   useEffect(() => {
     if (!selHuaweiStationCode || !huaweiRows.configured || huaweiRows.error || huaweiRows.authFailed) {
       setHuaweiLive(null);
+      setHuaweiPowerFlowRateLimited(false);
       setHuaweiLiveLoading(false);
       return undefined;
     }
@@ -3227,22 +3236,28 @@ export default function PowerFlowPage({
         const r = await fetch(`${apiUrl('/api/huawei/power-flow')}?${q}`, { cache: 'no-store' });
         const data = await r.json().catch(() => ({}));
         if (cancelled) return;
-        if (r.ok && data.ok && data.configured) {
+        const rateLimited =
+          !!data?.northboundRateLimited ||
+          data?.reason === 'awaiting_fresh_sample' ||
+          data?.reason === 'rate_limit' ||
+          data?.reason === 'rate_limit_cooldown';
+        if (r.ok && data.ok && data.configured && !data.northboundRateLimited) {
           const pvW = data.pvPowerW;
           const gridW = data.gridPowerW;
           const loadW = data.loadPowerW;
+          setHuaweiPowerFlowRateLimited(false);
           setHuaweiLive({
             ok: true,
             pvPowerW: pvW != null && Number.isFinite(Number(pvW)) ? Math.max(0, Number(pvW)) : null,
             gridPowerW: gridW != null && Number.isFinite(Number(gridW)) ? Number(gridW) : null,
             loadPowerW: loadW != null && Number.isFinite(Number(loadW)) ? Math.max(0, Number(loadW)) : null,
-            northboundRateLimited: !!data.northboundRateLimited,
+            northboundRateLimited: false,
           });
-        } else if (
-          !data?.northboundRateLimited &&
-          data?.reason !== 'awaiting_fresh_sample' &&
-          data?.reason !== 'rate_limit_cooldown'
-        ) {
+        } else if (rateLimited) {
+          setHuaweiPowerFlowRateLimited(true);
+          setHuaweiLive(null);
+        } else {
+          setHuaweiPowerFlowRateLimited(false);
           setHuaweiLive(null);
         }
       } catch {
@@ -3882,6 +3897,12 @@ export default function PowerFlowPage({
       ? evPortsDisplayPowerW
       : displayGridW;
   const graphDisplayEssCharging = graphDisplayEssW != null && graphDisplayEssW < 0;
+
+  const showHuaweiPowerFlowRateLimited =
+    Boolean(selHuaweiStationCode) &&
+    !huaweiLiveLoading &&
+    huaweiHydratedCode === selHuaweiStationCode &&
+    huaweiPowerFlowRateLimited;
 
   const loadFlowActive = graphDisplayLoadW != null && graphDisplayLoadW > 0;
   const solarFlowActive = graphDisplaySolarW != null && graphDisplaySolarW > 0;
@@ -5119,8 +5140,23 @@ export default function PowerFlowPage({
                         </div>
                         <span className="pf-node-label">{t('nodeSolar')}</span>
                         <span className="pf-node-value" id="pf-val-solar">
-                          {evOnlyGraphLoading ? '…' : formatPower(graphDisplaySolarW, t, bcp47)}
+                          {selHuaweiStationCode
+                            ? formatHuaweiPowerFlowNodeValue(
+                                huaweiLiveLoading,
+                                showHuaweiPowerFlowRateLimited,
+                                graphDisplaySolarW,
+                                t,
+                                bcp47
+                              )
+                            : evOnlyGraphLoading
+                              ? '…'
+                              : formatPower(graphDisplaySolarW, t, bcp47)}
                         </span>
+                        {showHuaweiPowerFlowRateLimited ? (
+                          <span className="pf-node-sub pf-huawei-rate-hint" title={t('huaweiPowerFlowRateLimitedHint')}>
+                            {t('huaweiPowerFlowRateLimitedHint')}
+                          </span>
+                        ) : null}
                         {selInverterSn ? (
                           <span className="pf-node-sub pf-node-solar-forecast" id="pf-solar-insolation-forecast">
                             {solarForecast.loading ? (
@@ -5167,11 +5203,19 @@ export default function PowerFlowPage({
                           </span>
                           <span className="pf-node-label">{t('nodeGrid')}</span>
                           <span className="pf-node-value" id="pf-val-grid">
-                            {evOnlyGraphLoading
-                              ? '…'
-                              : gridSelling
-                                ? `↓ ${formatPower(Math.abs(graphDisplayGridW), t, bcp47)}`
-                                : formatPower(graphDisplayGridW, t, bcp47)}
+                            {selHuaweiStationCode
+                              ? formatHuaweiPowerFlowNodeValue(
+                                  huaweiLiveLoading,
+                                  showHuaweiPowerFlowRateLimited,
+                                  graphDisplayGridW != null ? Math.abs(graphDisplayGridW) : null,
+                                  t,
+                                  bcp47
+                                )
+                              : evOnlyGraphLoading
+                                ? '…'
+                                : gridSelling
+                                  ? `↓ ${formatPower(Math.abs(graphDisplayGridW), t, bcp47)}`
+                                  : formatPower(graphDisplayGridW, t, bcp47)}
                           </span>
                           <span className="pf-ess-status" id="pf-grid-selling" hidden={!gridSelling}>
                             {t('gridSelling')}
@@ -5215,11 +5259,13 @@ export default function PowerFlowPage({
                                   ? formatPower(displayLoadW, t, bcp47)
                                   : formatPower(null, t, bcp47)
                             : selHuaweiStationCode
-                              ? huaweiLiveLoading
-                                ? '…'
-                                : displayLoadW != null
-                                  ? formatPower(displayLoadW, t, bcp47)
-                                  : formatPower(null, t, bcp47)
+                              ? formatHuaweiPowerFlowNodeValue(
+                                  huaweiLiveLoading,
+                                  showHuaweiPowerFlowRateLimited,
+                                  displayLoadW,
+                                  t,
+                                  bcp47
+                                )
                               : deyeLiveLoading
                                 ? '…'
                                 : displayLoadW != null
@@ -5273,9 +5319,17 @@ export default function PowerFlowPage({
                         </span>
                         <span className="pf-node-label">{t('nodeEss')}</span>
                         <span className="pf-node-value" id="pf-val-ess">
-                          {evOnlyGraphLoading
-                            ? '…'
-                            : formatPower(graphDisplayEssW != null ? Math.abs(graphDisplayEssW) : null, t, bcp47)}
+                          {selHuaweiStationCode
+                            ? formatHuaweiPowerFlowNodeValue(
+                                huaweiLiveLoading,
+                                showHuaweiPowerFlowRateLimited,
+                                graphDisplayEssW != null ? Math.abs(graphDisplayEssW) : null,
+                                t,
+                                bcp47
+                              )
+                            : evOnlyGraphLoading
+                              ? '…'
+                              : formatPower(graphDisplayEssW != null ? Math.abs(graphDisplayEssW) : null, t, bcp47)}
                         </span>
                         {(selInverterSn || selUbetterSn) && essSocPercent != null && Number.isFinite(essSocPercent) ? (
                           <span
