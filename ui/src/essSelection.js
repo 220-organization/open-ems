@@ -1,4 +1,8 @@
+import { OPEN_EMS_SITE_URL } from './seoContent';
+
 /** ESS source prefix in Power flow inverter <select> (localStorage + URL). */
+
+export const ESS_SELECTION_STORAGE_KEY = 'pf-deye-inverter';
 
 export const ESS_PREFIX_DEYE = 'deye:';
 export const ESS_PREFIX_HUAWEI = 'huawei:';
@@ -32,4 +36,18 @@ export function evPortsAcdcFromProvider(provider) {
   if (provider === 'dc-ev') return 'dc';
   if (provider === 'ac-ev') return 'ac';
   return null;
+}
+
+export function clearEssSelectionStorage() {
+  try {
+    localStorage.removeItem(ESS_SELECTION_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Clear persisted ESS/source selection and open power-flow home without query params. */
+export function navigateOpenEmsHomeResetSource() {
+  clearEssSelectionStorage();
+  window.location.assign(`${OPEN_EMS_SITE_URL}/`);
 }

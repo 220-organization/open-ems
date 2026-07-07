@@ -33,6 +33,7 @@ import {
   ESS_PREFIX_HUAWEI,
   ESS_PREFIX_UBETTER,
   evPortsAcdcFromProvider,
+  ESS_SELECTION_STORAGE_KEY,
   normalizeEssSelectionValue,
   parseEssSelection,
 } from './essSelection';
@@ -49,7 +50,6 @@ import './dam-chart.css';
 import './openEmsKiosk.css';
 import { useOpenEmsSeo } from './useOpenEmsSeo';
 
-const INVERTER_STORAGE = 'pf-deye-inverter';
 const PF_GEN_PORT_SETTINGS_OPEN_KEY = 'pf-gen-port-settings-open';
 /** Gen port Smart Load / On Grid toggles — visible in UI but disabled until rollout is complete. */
 const GEN_PORT_SETTINGS_CONTROLS_ENABLED = false;
@@ -2047,7 +2047,7 @@ export default function PowerFlowPage({
     let want = '';
     try {
       want = new URLSearchParams(window.location.search).get('inverter') || '';
-      if (!want) want = localStorage.getItem(INVERTER_STORAGE) || '';
+      if (!want) want = localStorage.getItem(ESS_SELECTION_STORAGE_KEY) || '';
       want = normalizeEssSelectionValue(want);
     } catch {
       /* ignore */
@@ -2077,8 +2077,8 @@ export default function PowerFlowPage({
     setInverterValue(v);
     setStationFilter('');
     try {
-      if (v) localStorage.setItem(INVERTER_STORAGE, v);
-      else localStorage.removeItem(INVERTER_STORAGE);
+      if (v) localStorage.setItem(ESS_SELECTION_STORAGE_KEY, v);
+      else localStorage.removeItem(ESS_SELECTION_STORAGE_KEY);
     } catch {
       /* ignore */
     }

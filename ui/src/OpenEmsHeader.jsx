@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import SharePageModal from './SharePageModal';
 import { buildSharePageModalPayload } from './sharePageQr';
+import { navigateOpenEmsHomeResetSource } from './essSelection';
+import { OPEN_EMS_SITE_URL } from './seoContent';
 import { VYRIY_EMS_LOGO_SRC } from './vyriyEmsLogo';
 import './power-flow.css';
 import './landing.css';
@@ -125,6 +127,11 @@ export default function OpenEmsHeader({
     setShareModalOpen(false);
   }, []);
 
+  const handleBrandClick = useCallback(e => {
+    e.preventDefault();
+    navigateOpenEmsHomeResetSource();
+  }, []);
+
   const shellRef = useRef(null);
 
   useEffect(() => {
@@ -156,7 +163,7 @@ export default function OpenEmsHeader({
     <>
       <div ref={shellRef} className="open-ems-header-shell">
         <header className="landing-header open-ems-header">
-          <a className="landing-header__brand" href="/">
+          <a className="landing-header__brand" href={`${OPEN_EMS_SITE_URL}/`} onClick={handleBrandClick}>
             <img className="landing-header__logo" src={logoSrc} alt="" width={36} height={36} decoding="async" />
             <span className="landing-header__name">{t('appBrandName')}</span>
           </a>
