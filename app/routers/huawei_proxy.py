@@ -1,5 +1,6 @@
 """Huawei FusionSolar Northbound — plant list + status (no secrets in browser)."""
 
+import asyncio
 import logging
 from datetime import datetime
 from typing import Any, Optional
@@ -11,7 +12,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import settings
-from app.db import get_db
+from app.db import get_db, async_session_factory
 from app.deye_inverter_pin import strip_inverter_pin_tokens_anywhere
 from app.huawei_api import (
     HuaweiAuthError,
@@ -119,30 +120,61 @@ async def get_stations():
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+async def _run_power_snapshot_background(only_station: Optional[str]) -> None:
+    try:
+        async with async_session_factory() as session:
+            n, debug = await run_huawei_power_snapshot(session, only_station=only_station)
+            await session.commit()
+        if n:
+            logger.info("Huawei power snapshot background: %s plant row(s) upserted", n)
+        elif debug:
+            logger.info("Huawei power snapshot background: no rows — %s", debug)
+    except Exception:
+        logger.exception("Huawei power snapshot background failed")
+
+
 @router.post("/power-snapshot")
 async def post_power_snapshot(
-    session: AsyncSession = Depends(get_db),
     stationCodes: Optional[str] = Query(
         None,
         max_length=512,
         description="Optional single plant stationCode; default round-robin one plant per call.",
     ),
+    wait: bool = Query(
+        False,
+        description="When true, block until snapshot finishes (may take several minutes).",
+    ),
 ):
     """
     Run one Huawei power DB snapshot (same as the background task): fetch live power for one plant
     and upsert ``huawei_power_sample`` for the current 5-minute bucket.
+
+    Default returns immediately (202) — Northbound spacing can take 2–4 minutes per plant.
     """
     if not huawei_configured():
         return JSONResponse(
             content={"ok": False, "configured": False, "reason": "not_configured"},
             headers=_NO_STORE_CACHE,
         )
+    only = None
+    if stationCodes and str(stationCodes).strip():
+        only = str(stationCodes).split(",")[0].strip()
+    if not wait:
+        asyncio.create_task(_run_power_snapshot_background(only))
+        return JSONResponse(
+            status_code=202,
+            content={
+                "ok": True,
+                "configured": True,
+                "accepted": True,
+                "stationCode": only,
+            },
+            headers=_NO_STORE_CACHE,
+        )
     try:
-        only = None
-        if stationCodes and str(stationCodes).strip():
-            only = str(stationCodes).split(",")[0].strip()
-        n, debug = await run_huawei_power_snapshot(session, only_station=only)
-        await session.commit()
+        async with async_session_factory() as session:
+            n, debug = await run_huawei_power_snapshot(session, only_station=only)
+            await session.commit()
         content: dict[str, Any] = {"ok": True, "configured": True, "plantsUpdated": int(n)}
         if n == 0 and debug:
             content["snapshotDebug"] = debug
@@ -151,7 +183,6 @@ async def post_power_snapshot(
             headers=_NO_STORE_CACHE,
         )
     except HuaweiAuthError as exc:
-        await session.rollback()
         _log_huawei_route_error("POST /api/huawei/power-snapshot", exc)
         return JSONResponse(
             content={
@@ -163,7 +194,6 @@ async def post_power_snapshot(
             headers=_NO_STORE_CACHE,
         )
     except Exception as exc:
-        await session.rollback()
         _log_huawei_route_error("POST /api/huawei/power-snapshot", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
