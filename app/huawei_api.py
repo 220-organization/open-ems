@@ -533,11 +533,17 @@ async def get_plant_status(station_codes: str) -> list[dict[str, Any]]:
             cached = _plant_status_cache.get(codes)
             if cached:
                 age = now - cached[1]
+                if _huawei_live_kpi_cache_fresh(cached[1], now=now):
+                    logger.warning(
+                        "Huawei: getStationRealKpi failCode=407 (rate limit) — returning cached data (age %.0fs)",
+                        age,
+                    )
+                    return cached[0]
                 logger.warning(
-                    "Huawei: getStationRealKpi failCode=407 (rate limit) — returning cached data (age %.0fs)",
+                    "Huawei: getStationRealKpi failCode=407 — cached data expired (age %.0fs > ttl %.0fs)",
                     age,
+                    float(settings.HUAWEI_LIVE_KPI_CACHE_TTL_SEC),
                 )
-                return cached[0]
             logger.warning(
                 "Huawei: getStationRealKpi failCode=407 (ACCESS_FREQUENCY_IS_TOO_HIGH) — no cache yet; "
                 "wait ~5 minutes between calls (UI polls every 300s).",
@@ -601,6 +607,20 @@ async def _write_power_devices_db(station_code: str, quad: tuple[str, int, str, 
 def _power_flow_body_for_storage(body: dict[str, Any]) -> dict[str, Any]:
     """Strip volatile keys before persisting (re-applied on read)."""
     return {k: v for k, v in body.items() if k not in ("northboundRateLimited", "cacheAgeSec")}
+
+
+def _huawei_live_kpi_cache_fresh(saved_at_ts: float, *, now: Optional[float] = None) -> bool:
+    """True when a Northbound 407 fallback snapshot is still within the live KPI TTL (default 5 min)."""
+    ref = now if now is not None else time.time()
+    return (ref - saved_at_ts) <= float(settings.HUAWEI_LIVE_KPI_CACHE_TTL_SEC)
+
+
+def _power_flow_rate_limit_body(body: dict[str, Any], saved_at_ts: float, now: float) -> dict[str, Any]:
+    out = _apply_huawei_power_flow_repairs(dict(body))
+    out["northboundRateLimited"] = True
+    out["cacheAgeSec"] = round(now - saved_at_ts, 1)
+    _ensure_power_flow_export_flags(out)
+    return out
 
 
 async def _read_power_flow_db(station_code: str) -> Optional[tuple[dict[str, Any], float]]:
@@ -1237,20 +1257,25 @@ async def get_power_flow(station_code: str, *, for_storage: bool = False) -> dic
         if exc.fail_code == _FAIL_CODE_RATE_LIMIT:
             cached = _power_flow_cache.get(st)
             if cached:
-                body = _apply_huawei_power_flow_repairs(dict(cached[0]))
-                body["northboundRateLimited"] = True
-                body["cacheAgeSec"] = round(now - cached[1], 1)
-                _ensure_power_flow_export_flags(body)
-                return body
+                snap, saved_at = cached
+                if _huawei_live_kpi_cache_fresh(saved_at, now=now):
+                    return _power_flow_rate_limit_body(snap, saved_at, now)
+                logger.warning(
+                    "Huawei: get_power_flow failCode=407 — RAM cache expired (age %.0fs > ttl %.0fs)",
+                    now - saved_at,
+                    float(settings.HUAWEI_LIVE_KPI_CACHE_TTL_SEC),
+                )
             db_hit = await _read_power_flow_db(st)
             if db_hit:
                 snap, saved_at = db_hit
-                _power_flow_cache[st] = (dict(snap), saved_at)
-                body = _apply_huawei_power_flow_repairs(dict(snap))
-                body["northboundRateLimited"] = True
-                body["cacheAgeSec"] = round(now - saved_at, 1)
-                _ensure_power_flow_export_flags(body)
-                return body
+                if _huawei_live_kpi_cache_fresh(saved_at, now=now):
+                    _power_flow_cache[st] = (dict(snap), saved_at)
+                    return _power_flow_rate_limit_body(snap, saved_at, now)
+                logger.warning(
+                    "Huawei: get_power_flow failCode=407 — DB cache expired (age %.0fs > ttl %.0fs)",
+                    now - saved_at,
+                    float(settings.HUAWEI_LIVE_KPI_CACHE_TTL_SEC),
+                )
             return {
                 "ok": False,
                 "configured": True,

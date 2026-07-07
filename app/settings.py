@@ -284,6 +284,8 @@ HUAWEI_POWER_SNAPSHOT_ENABLED: bool = _env_bool("HUAWEI_POWER_SNAPSHOT_ENABLED",
 HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC: int = _env_int(
     "HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC", 300, 60, 3600
 )
+# Max age for Huawei live KPI fallbacks (power-flow RAM/DB, plant-status RAM) on Northbound 407.
+HUAWEI_LIVE_KPI_CACHE_TTL_SEC: int = _env_int("HUAWEI_LIVE_KPI_CACHE_TTL_SEC", 300, 60, 3600)
 
 # Persist EV port aggregate power (B2B station/all?acdc=dc|ac) to Postgres — UTC 5-minute buckets.
 EV_PORT_POWER_SNAPSHOT_ENABLED: bool = _env_bool("EV_PORT_POWER_SNAPSHOT_ENABLED", True)
