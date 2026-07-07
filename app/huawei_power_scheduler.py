@@ -19,7 +19,7 @@ async def huawei_power_snapshot_loop(stop: asyncio.Event) -> None:
         if huawei_configured():
             try:
                 async with async_session_factory() as session:
-                    n = await run_huawei_power_snapshot(session)
+                    n, _dbg = await run_huawei_power_snapshot(session)
                     await session.commit()
                 if n:
                     logger.info("Huawei power DB snapshot: %s plant row(s) upserted", n)

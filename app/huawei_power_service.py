@@ -173,7 +173,7 @@ async def run_huawei_power_snapshot(
     session: AsyncSession,
     *,
     only_station: Optional[str] = None,
-) -> int:
+) -> tuple[int, dict[str, Any]]:
     """
     Call get_power_flow for one plant (round-robin) or ``only_station``, upsert one 5-minute bucket row.
 
@@ -181,25 +181,28 @@ async def run_huawei_power_snapshot(
     one tick exhausts quota and leaves later plants (e.g. baza 2) without samples.
     """
     if not huawei_configured():
-        return 0
-    try:
-        stations = await list_stations()
-    except HuaweiRateLimitNoCacheError:
-        logger.warning("Huawei power snapshot: station list unavailable (rate limit / no cache)")
-        return 0
-    except Exception:
-        logger.exception("Huawei power snapshot: list_stations failed")
-        return 0
-    if not stations:
-        return 0
+        return 0, {}
 
-    codes = _station_codes_from_rows(stations)
-    global _snapshot_rr_index
-    targets = pick_snapshot_station_codes(
-        codes, rr_index=_snapshot_rr_index, only_station=only_station
-    )
-    if not only_station and targets:
-        _snapshot_rr_index = (_snapshot_rr_index + 1) % max(len(codes), 1)
+    only = (only_station or "").strip()
+    debug: dict[str, Any] = {}
+    if only:
+        targets = [only]
+    else:
+        try:
+            stations = await list_stations()
+        except HuaweiRateLimitNoCacheError:
+            logger.warning("Huawei power snapshot: station list unavailable (rate limit / no cache)")
+            return 0, {"reason": "station_list_rate_limit"}
+        except Exception:
+            logger.exception("Huawei power snapshot: list_stations failed")
+            return 0, {"reason": "station_list_failed"}
+        if not stations:
+            return 0, {"reason": "no_stations"}
+        codes = _station_codes_from_rows(stations)
+        global _snapshot_rr_index
+        targets = pick_snapshot_station_codes(codes, rr_index=_snapshot_rr_index, only_station=None)
+        if targets:
+            _snapshot_rr_index = (_snapshot_rr_index + 1) % max(len(codes), 1)
 
     bucket = floor_to_5min_utc(datetime.now(timezone.utc))
     n = 0
@@ -208,7 +211,15 @@ async def run_huawei_power_snapshot(
             pf = await get_power_flow(code, for_storage=True)
         except Exception:
             logger.debug("Huawei power snapshot: get_power_flow failed for %s", code, exc_info=True)
+            debug["lastStationCode"] = code
+            debug["lastPowerFlow"] = {"ok": False, "reason": "exception"}
             continue
+        debug["lastStationCode"] = code
+        debug["lastPowerFlow"] = {
+            k: pf.get(k)
+            for k in ("ok", "reason", "northboundRateLimited", "stationCode")
+            if k in pf
+        }
         if not pf.get("ok"):
             continue
         pv = pf.get("pvPowerW")
@@ -236,7 +247,7 @@ async def run_huawei_power_snapshot(
             continue
         await upsert_huawei_power_sample(session, code, bucket, pv_v, grid_v, load_v)
         n += 1
-    return n
+    return n, debug
 
 
 def _add_sample_to_hourly(

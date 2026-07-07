@@ -713,7 +713,7 @@ def _parse_dev_list_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
 def _meter_type_fallback_order() -> tuple[int, ...]:
     seen: set[int] = set()
     out: list[int] = []
-    for x in (settings.HUAWEI_METER_DEV_TYPE_ID, 47, 17):
+    for x in (settings.HUAWEI_METER_DEV_TYPE_ID, 47, 17, 62, 63, 18):
         if x not in seen:
             seen.add(x)
             out.append(x)
@@ -825,7 +825,17 @@ async def _get_dev_list_rows_cached(client: httpx.AsyncClient, station: str) -> 
     hit = _dev_list_rows_cache.get(st)
     if hit and (now - hit[1]) <= ttl:
         return hit[0]
-    rows = await _fetch_dev_list_rows(client, st)
+    try:
+        rows = await _fetch_dev_list_rows(client, st)
+    except HuaweiNorthboundError as exc:
+        if exc.fail_code == _FAIL_CODE_RATE_LIMIT and hit:
+            logger.warning(
+                "Huawei: getDevList failCode=407 — returning stale dev list (%s devices, age %.0fs)",
+                len(hit[0]),
+                now - hit[1],
+            )
+            return hit[0]
+        raise
     if rows:
         _dev_list_rows_cache[st] = (rows, now)
     return rows
@@ -972,6 +982,11 @@ async def _resolve_meter_inverter_pairs(
 
     rows = await _get_dev_list_rows_cached(client, station)
     mp, ip = _pick_meter_inverter_from_rows(rows) if rows else (None, None)
+    if quad:
+        if not mp:
+            mp = (quad[0], quad[1])
+        if not ip:
+            ip = (quad[2], quad[3])
     if mid_e:
         mp = (mid_e, settings.HUAWEI_METER_DEV_TYPE_ID)
     if iid_e:
@@ -1204,6 +1219,9 @@ def _parse_huawei_power_flow_from_dims(
     load_w: Optional[float] = None
     if inv_raw is not None and meter_raw is not None:
         load_w = max(0.0, float(inv_raw) - float(meter_raw))
+    elif inv_raw is not None and meter_raw is None:
+        # Plants without a grid meter: approximate load from inverter AC output.
+        load_w = max(0.0, float(inv_raw))
 
     if not for_storage:
         grid_ui = _huawei_zero_grid_import_when_pv_meets_load(pv_w, load_w, grid_ui)
@@ -1397,14 +1415,16 @@ async def get_power_flow(station_code: str, *, for_storage: bool = False) -> dic
         async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
             mp, ip, dev_rows = await _resolve_meter_inverter_pairs(client, st)
             inv_pairs = _inverter_pairs_for_power_flow(ip, dev_rows)
-            if not mp or not inv_pairs:
+            if not inv_pairs:
                 return {
                     "ok": False,
                     "configured": True,
                     "reason": "no_meter_inverter",
                     "stationCode": st,
                 }
-            meter_dim = await _fetch_dev_real_kpi_dim(client, mp[0], mp[1])
+            meter_dim: dict[str, Any] = {}
+            if mp:
+                meter_dim = await _fetch_dev_real_kpi_dim(client, mp[0], mp[1])
             inv_type_id = inv_pairs[0][1]
             inv_ids = [p[0] for p in inv_pairs]
             inv_dims = await _fetch_dev_real_kpi_dims(client, inv_ids, inv_type_id)

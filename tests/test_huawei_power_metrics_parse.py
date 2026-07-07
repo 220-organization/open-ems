@@ -167,3 +167,11 @@ def test_pick_snapshot_station_codes_round_robin():
     assert pick_snapshot_station_codes(codes, rr_index=2) == ["NE=A"]
     assert pick_snapshot_station_codes(codes, rr_index=0, only_station="NE=B") == ["NE=B"]
     assert pick_snapshot_station_codes([], rr_index=0) == []
+
+
+def test_inverter_only_load_without_meter():
+    inv_dim = {"active_power": 25.0, "mppt_power": 24.5}
+    metrics = _parse_huawei_power_flow_from_dims({}, [inv_dim], for_storage=True)
+    assert metrics["pvPowerW"] == 24_500.0
+    assert metrics["gridPowerW"] is None
+    assert metrics["loadPowerW"] == 25_000.0

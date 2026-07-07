@@ -141,10 +141,13 @@ async def post_power_snapshot(
         only = None
         if stationCodes and str(stationCodes).strip():
             only = str(stationCodes).split(",")[0].strip()
-        n = await run_huawei_power_snapshot(session, only_station=only)
+        n, debug = await run_huawei_power_snapshot(session, only_station=only)
         await session.commit()
+        content: dict[str, Any] = {"ok": True, "configured": True, "plantsUpdated": int(n)}
+        if n == 0 and debug:
+            content["snapshotDebug"] = debug
         return JSONResponse(
-            content={"ok": True, "configured": True, "plantsUpdated": int(n)},
+            content=content,
             headers=_NO_STORE_CACHE,
         )
     except HuaweiAuthError as exc:
