@@ -166,6 +166,8 @@ const KIOSK_WIDE_MIN_PX = 992;
 
 /** Huawei Northbound thirdData — strict rate limits (failCode 407 if polled too often). */
 const HUAWEI_NORTHBOUND_POLL_MS = 600_000;
+/** Match backend HUAWEI_LIVE_KPI_CACHE_TTL_SEC — older snapshots are not shown on the graph. */
+const HUAWEI_LIVE_MAX_AGE_SEC = 600;
 /** Ubetter EMS Open API — live summary poll interval. */
 const UBETTER_POLL_MS = 30_000;
 
@@ -685,11 +687,26 @@ function formatLandingKwhCounterText(displayText, t) {
   return `${s} ${t('powerFlowLandingKwhUnit')}`;
 }
 
-/** Huawei power-flow node: rate-limit hint instead of stale kW from cache. */
-function formatHuaweiPowerFlowNodeValue(loading, rateLimited, watts, t, bcp47) {
+/** Huawei power-flow node: never show stale kW — "no data" when missing or older than live TTL. */
+function formatHuaweiPowerFlowNodeValue(loading, noData, watts, t, bcp47) {
   if (loading) return '…';
-  if (rateLimited) return t('huaweiPowerFlowRateLimited');
+  if (noData || watts == null || !Number.isFinite(watts)) return t('huaweiPowerFlowNoData');
   return formatPower(watts, t, bcp47);
+}
+
+function huaweiPowerFlowResponseStale(data) {
+  const age = Number(data?.cacheAgeSec);
+  return Number.isFinite(age) && age > HUAWEI_LIVE_MAX_AGE_SEC;
+}
+
+function huaweiPowerFlowResponseUnavailable(data) {
+  return (
+    !!data?.northboundRateLimited ||
+    data?.reason === 'awaiting_fresh_sample' ||
+    data?.reason === 'rate_limit' ||
+    data?.reason === 'rate_limit_cooldown' ||
+    huaweiPowerFlowResponseStale(data)
+  );
 }
 
 /**
@@ -2262,7 +2279,7 @@ export default function PowerFlowPage({
             const q = new URLSearchParams({ stationCodes: stationCode });
             const r = await fetch(`${apiUrl('/api/huawei/power-flow')}?${q}`, { cache: 'no-store' });
             const data = await r.json().catch(() => ({}));
-            if (!r.ok || !data.ok || data.configured === false) return;
+            if (!r.ok || !data.ok || data.configured === false || huaweiPowerFlowResponseUnavailable(data)) return;
             ok += 1;
             const pvW = data.pvPowerW;
             if (pvW != null && Number.isFinite(Number(pvW))) pv += Math.max(0, Number(pvW));
@@ -2353,7 +2370,7 @@ export default function PowerFlowPage({
   /** Huawei real power (getDevRealKpi meter + inverter via GET /api/huawei/power-flow). */
   const [huaweiLive, setHuaweiLive] = useState(null);
   const [huaweiLiveLoading, setHuaweiLiveLoading] = useState(false);
-  const [huaweiPowerFlowRateLimited, setHuaweiPowerFlowRateLimited] = useState(false);
+  const [huaweiPowerFlowNoData, setHuaweiPowerFlowNoData] = useState(false);
   const [huaweiHydratedCode, setHuaweiHydratedCode] = useState('');
   const [ubetterLive, setUbetterLive] = useState(null);
   const [ubetterLiveLoading, setUbetterLiveLoading] = useState(false);
@@ -3224,7 +3241,7 @@ export default function PowerFlowPage({
   useEffect(() => {
     if (!selHuaweiStationCode || !huaweiRows.configured || huaweiRows.error || huaweiRows.authFailed) {
       setHuaweiLive(null);
-      setHuaweiPowerFlowRateLimited(false);
+      setHuaweiPowerFlowNoData(false);
       setHuaweiLiveLoading(false);
       return undefined;
     }
@@ -3236,16 +3253,12 @@ export default function PowerFlowPage({
         const r = await fetch(`${apiUrl('/api/huawei/power-flow')}?${q}`, { cache: 'no-store' });
         const data = await r.json().catch(() => ({}));
         if (cancelled) return;
-        const rateLimited =
-          !!data?.northboundRateLimited ||
-          data?.reason === 'awaiting_fresh_sample' ||
-          data?.reason === 'rate_limit' ||
-          data?.reason === 'rate_limit_cooldown';
-        if (r.ok && data.ok && data.configured && !data.northboundRateLimited) {
+        const unavailable = huaweiPowerFlowResponseUnavailable(data);
+        if (r.ok && data.ok && data.configured && !unavailable) {
           const pvW = data.pvPowerW;
           const gridW = data.gridPowerW;
           const loadW = data.loadPowerW;
-          setHuaweiPowerFlowRateLimited(false);
+          setHuaweiPowerFlowNoData(false);
           setHuaweiLive({
             ok: true,
             pvPowerW: pvW != null && Number.isFinite(Number(pvW)) ? Math.max(0, Number(pvW)) : null,
@@ -3253,16 +3266,17 @@ export default function PowerFlowPage({
             loadPowerW: loadW != null && Number.isFinite(Number(loadW)) ? Math.max(0, Number(loadW)) : null,
             northboundRateLimited: false,
           });
-        } else if (rateLimited) {
-          setHuaweiPowerFlowRateLimited(true);
+        } else if (unavailable || !data.ok) {
+          setHuaweiPowerFlowNoData(true);
           setHuaweiLive(null);
         } else {
-          setHuaweiPowerFlowRateLimited(false);
+          setHuaweiPowerFlowNoData(false);
           setHuaweiLive(null);
         }
       } catch {
         if (!cancelled) {
-          // Keep last value on transient API/network errors to avoid dropping live power to zero.
+          setHuaweiPowerFlowNoData(true);
+          setHuaweiLive(null);
         }
       } finally {
         if (!cancelled) setHuaweiLiveLoading(false);
@@ -3898,11 +3912,11 @@ export default function PowerFlowPage({
       : displayGridW;
   const graphDisplayEssCharging = graphDisplayEssW != null && graphDisplayEssW < 0;
 
-  const showHuaweiPowerFlowRateLimited =
+  const showHuaweiPowerFlowNoData =
     Boolean(selHuaweiStationCode) &&
     !huaweiLiveLoading &&
     huaweiHydratedCode === selHuaweiStationCode &&
-    huaweiPowerFlowRateLimited;
+    (huaweiPowerFlowNoData || !huaweiLive?.ok);
 
   const loadFlowActive = graphDisplayLoadW != null && graphDisplayLoadW > 0;
   const solarFlowActive = graphDisplaySolarW != null && graphDisplaySolarW > 0;
@@ -5143,7 +5157,7 @@ export default function PowerFlowPage({
                           {selHuaweiStationCode
                             ? formatHuaweiPowerFlowNodeValue(
                                 huaweiLiveLoading,
-                                showHuaweiPowerFlowRateLimited,
+                                showHuaweiPowerFlowNoData,
                                 graphDisplaySolarW,
                                 t,
                                 bcp47
@@ -5152,11 +5166,6 @@ export default function PowerFlowPage({
                               ? '…'
                               : formatPower(graphDisplaySolarW, t, bcp47)}
                         </span>
-                        {showHuaweiPowerFlowRateLimited ? (
-                          <span className="pf-node-sub pf-huawei-rate-hint" title={t('huaweiPowerFlowRateLimitedHint')}>
-                            {t('huaweiPowerFlowRateLimitedHint')}
-                          </span>
-                        ) : null}
                         {selInverterSn ? (
                           <span className="pf-node-sub pf-node-solar-forecast" id="pf-solar-insolation-forecast">
                             {solarForecast.loading ? (
@@ -5206,7 +5215,7 @@ export default function PowerFlowPage({
                             {selHuaweiStationCode
                               ? formatHuaweiPowerFlowNodeValue(
                                   huaweiLiveLoading,
-                                  showHuaweiPowerFlowRateLimited,
+                                  showHuaweiPowerFlowNoData,
                                   graphDisplayGridW != null ? Math.abs(graphDisplayGridW) : null,
                                   t,
                                   bcp47
@@ -5261,7 +5270,7 @@ export default function PowerFlowPage({
                             : selHuaweiStationCode
                               ? formatHuaweiPowerFlowNodeValue(
                                   huaweiLiveLoading,
-                                  showHuaweiPowerFlowRateLimited,
+                                  showHuaweiPowerFlowNoData,
                                   displayLoadW,
                                   t,
                                   bcp47
@@ -5322,7 +5331,7 @@ export default function PowerFlowPage({
                           {selHuaweiStationCode
                             ? formatHuaweiPowerFlowNodeValue(
                                 huaweiLiveLoading,
-                                showHuaweiPowerFlowRateLimited,
+                                showHuaweiPowerFlowNoData,
                                 graphDisplayEssW != null ? Math.abs(graphDisplayEssW) : null,
                                 t,
                                 bcp47
