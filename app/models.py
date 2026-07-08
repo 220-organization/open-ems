@@ -416,3 +416,57 @@ class OreeDamIndex(Base):
     updated_on: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+
+class EvDriverGpsRaw(Base):
+    """Raw driver GPS pings; processed into stays/trips by ev_driver_track_scheduler."""
+
+    __tablename__ = "ev_driver_gps_raw"
+
+    driver_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    recorded_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    lat: Mapped[float] = mapped_column(Double, nullable=False)
+    lon: Mapped[float] = mapped_column(Double, nullable=False)
+    source: Mapped[str] = mapped_column(String(8), nullable=False)
+    accuracy_m: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    processed: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    created_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class EvDriverStay(Base):
+    """Clustered stay: many dots in one place collapsed to centroid + dwell period."""
+
+    __tablename__ = "ev_driver_stay"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    driver_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    lat: Mapped[float] = mapped_column(Double, nullable=False)
+    lon: Mapped[float] = mapped_column(Double, nullable=False)
+    started_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ended_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    point_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    best_source: Mapped[str] = mapped_column(String(8), nullable=False)
+    is_charging_guess: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+
+
+class EvDriverTrip(Base):
+    """Meaningful daily trip between stays (city-to-city corridor)."""
+
+    __tablename__ = "ev_driver_trip"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    driver_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    kyiv_day: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    origin_lat: Mapped[float] = mapped_column(Double, nullable=False)
+    origin_lon: Mapped[float] = mapped_column(Double, nullable=False)
+    dest_lat: Mapped[float] = mapped_column(Double, nullable=False)
+    dest_lon: Mapped[float] = mapped_column(Double, nullable=False)
+    origin_city: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    dest_city: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    distance_km: Mapped[float] = mapped_column(Double, nullable=False)
+    route_points: Mapped[Any] = mapped_column(JSONB, nullable=False)
+    charge_stop_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    started_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ended_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
