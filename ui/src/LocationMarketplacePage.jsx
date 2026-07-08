@@ -104,7 +104,6 @@ export default function LocationMarketplacePage({ t, locale }) {
           <h1 id="marketplace-hero-title" className="landing-hero__title">
             {t('marketplacePageTitle')}
           </h1>
-          <p className="landing-hero__subtitle">{t('marketplaceSubtitle')}</p>
         </section>
 
         <section className="marketplace-section" aria-label={t('marketplacePageTitle')}>
