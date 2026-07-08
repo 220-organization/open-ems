@@ -45,6 +45,8 @@ _power_flow_cache: dict[str, tuple[dict[str, Any], float]] = {}
 _dev_list_rows_cache: dict[str, tuple[list[dict[str, Any]], float]] = {}
 # Monotonic: skip live Northbound power-flow per station until then after 407 (scheduler only).
 _northbound_power_flow_cooldown_until: dict[str, float] = {}
+# UI lazy Northbound refresh when DB/RAM has no fresh sample (debounced per station).
+_lazy_power_flow_northbound_at: dict[str, float] = {}
 _last_third_data_finished_at: float = 0.0
 # Resolved (meterId, meterType, inverterId, inverterType) per stationCode.
 _device_pair_cache: dict[str, tuple[str, int, str, int]] = {}
@@ -1011,6 +1013,53 @@ async def _power_flow_display_body(st: str, now: float) -> Optional[dict[str, An
     )
 
 
+async def _persist_power_flow_sample_row(st: str, out: dict[str, Any]) -> None:
+    """Upsert current 5-minute bucket after a successful Northbound power-flow read."""
+    if out.get("ok") is not True:
+        return
+    try:
+        from app.huawei_power_service import floor_to_5min_utc, upsert_huawei_power_sample
+
+        bucket = floor_to_5min_utc(datetime.now(timezone.utc))
+        async with async_session_factory() as session:
+            await upsert_huawei_power_sample(
+                session,
+                st,
+                bucket,
+                out.get("pvPowerW"),
+                out.get("gridPowerW"),
+                out.get("loadPowerW"),
+            )
+            await session.commit()
+    except Exception as exc:
+        logger.warning("Huawei: power sample persist failed — %s", exc)
+
+
+async def _try_lazy_power_flow_northbound(st: str, now: float) -> Optional[dict[str, Any]]:
+    """
+    When the UI has no fresh scheduler sample, fetch live KPI once (debounced per plant).
+
+    Same Northbound path as the background snapshot task; respects 407 cooldown inside
+  get_power_flow(for_storage=True).
+    """
+    if not settings.HUAWEI_POWER_SNAPSHOT_ENABLED:
+        return None
+    debounce = max(
+        300.0,
+        float(settings.HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC) * 0.9,
+        float(settings.HUAWEI_NORTHBOUND_MIN_INTERVAL_SEC) * 3,
+    )
+    last = _lazy_power_flow_northbound_at.get(st, 0.0)
+    if now - last < debounce:
+        return None
+    _lazy_power_flow_northbound_at[st] = now
+    logger.info("Huawei: lazy Northbound power-flow refresh for %s", st)
+    pf = await get_power_flow(st, for_storage=True)
+    if pf.get("ok"):
+        return dict(pf)
+    return None
+
+
 async def _resolve_meter_inverter_pairs(
     client: httpx.AsyncClient, station: str
 ) -> tuple[Optional[tuple[str, int]], Optional[tuple[str, int]], list[dict[str, Any]]]:
@@ -1451,6 +1500,9 @@ async def get_power_flow(station_code: str, *, for_storage: bool = False) -> dic
         display = await _power_flow_display_body(st, now)
         if display is not None:
             return display
+        lazy = await _try_lazy_power_flow_northbound(st, now)
+        if lazy is not None:
+            return lazy
         return {
             "ok": False,
             "configured": True,
@@ -1517,6 +1569,8 @@ async def get_power_flow(station_code: str, *, for_storage: bool = False) -> dic
             }
             _power_flow_cache[st] = (dict(out), now)
             await _write_power_flow_db(st, out)
+            if for_storage:
+                await _persist_power_flow_sample_row(st, out)
             return dict(out)
     except HuaweiNorthboundError as exc:
         if exc.fail_code == _FAIL_CODE_RATE_LIMIT:
