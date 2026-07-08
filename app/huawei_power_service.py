@@ -178,7 +178,7 @@ async def _station_codes_without_recent_sample(
 ) -> list[str]:
     """Plants with no huawei_power_sample within max_age_sec (prioritize for round-robin)."""
     del session  # samples read via huawei_api helper (own session)
-    now = time.time()
+    now = datetime.now(timezone.utc).timestamp()
     missing: list[str] = []
     for code in codes:
         hit = await _read_power_flow_from_sample(code, now, max_age_sec=max_age_sec)

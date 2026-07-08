@@ -327,7 +327,7 @@ async def _write_station_list_db(cache_key: str, items: list[dict[str, str]]) ->
             )
             stmt = stmt.on_conflict_do_update(
                 index_elements=["cache_key"],
-                set_={"saved_at": stmt.excluded.saved_at, "items": stmt.excluded.items},
+                set_={"saved_at": stmt.excluded.saved_at, "items": stmt.excluded["items"]},
             )
             await session.execute(stmt)
             await session.commit()
