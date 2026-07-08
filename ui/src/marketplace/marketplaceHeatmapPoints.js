@@ -1,6 +1,8 @@
 /** Per-source contribution when aggregating marketplace demand heatmap cells. */
-export const HEATMAP_WEIGHT_GOVMAP = 2;
-export const HEATMAP_WEIGHT_EVUA = 8;
+export const HEATMAP_WEIGHT_GOVMAP = 1;
+export const HEATMAP_WEIGHT_EVUA = 4;
+export const HEATMAP_WEIGHT_DRIVER_GPS = 12;
+export const HEATMAP_DRIVER_GPS_COUNT_CAP = 10;
 
 /** Show half of the heatmap visual strength (opacity + intensity). */
 export const HEATMAP_CONTENT_VISIBLE_FRACTION = 0.5;
@@ -18,8 +20,16 @@ export function precisionForZoom(zoom) {
   return REGION_GROUP_PRECISION;
 }
 
-export function buildHeatmapWeightedPoints(evuaStations, govmapPoints) {
+export function buildHeatmapWeightedPoints(evuaStations, govmapPoints, driverGpsCells) {
   const points = [];
+  (driverGpsCells || []).forEach(cell => {
+    const lat = Number(cell?.lat);
+    const lng = Number(cell?.lng ?? cell?.lon);
+    const count = Number(cell?.count);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const visits = Number.isFinite(count) ? Math.min(HEATMAP_DRIVER_GPS_COUNT_CAP, Math.max(1, count)) : 1;
+    points.push({ lat, lng, pointWeight: HEATMAP_WEIGHT_DRIVER_GPS * visits });
+  });
   (evuaStations || []).forEach(station => {
     const lat = Number(station?.lat);
     const lng = Number(station?.lon);

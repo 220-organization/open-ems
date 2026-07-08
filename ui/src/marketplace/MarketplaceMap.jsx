@@ -25,6 +25,7 @@ import {
 } from './marketplaceHeatmapAccess';
 import { useEvua80KwStations } from './useEvua80KwStations';
 import { useGovmapHeatmapPoints } from './useGovmapHeatmapPoints';
+import { useDriverGpsHeatmapPoints } from './useDriverGpsHeatmapPoints';
 import { aggregateHeatmapPoints, buildHeatmapWeightedPoints, HEATMAP_INTENSITY_SCALE, HEATMAP_LAYER_OPACITY, precisionForZoom } from './marketplaceHeatmapPoints';
 import { downloadContractPhotosAsPdf } from './marketplaceContractPdf';
 import { formatKwLabel } from './marketplaceKw';
@@ -481,9 +482,10 @@ export default function MarketplaceMap({
   const heatmapEnabled = showLookingHeatmap && loadEvuaHeatmap;
   const { stations: evuaStations } = useEvua80KwStations(heatmapEnabled);
   const { points: govmapPoints } = useGovmapHeatmapPoints(heatmapEnabled);
+  const { points: driverGpsPoints } = useDriverGpsHeatmapPoints(heatmapEnabled);
   const heatmapPoints = useMemo(
-    () => buildHeatmapWeightedPoints(evuaStations, govmapPoints),
-    [evuaStations, govmapPoints]
+    () => buildHeatmapWeightedPoints(evuaStations, govmapPoints, driverGpsPoints),
+    [evuaStations, govmapPoints, driverGpsPoints]
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
