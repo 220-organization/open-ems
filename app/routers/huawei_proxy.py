@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from datetime import datetime
 from typing import Any, Optional
 
@@ -33,6 +34,9 @@ logger.setLevel(logging.INFO)
 router = APIRouter(prefix="/api/huawei", tags=["huawei"])
 
 _NO_STORE_CACHE = {"Cache-Control": "no-store, max-age=0, must-revalidate"}
+
+# Debounce lazy snapshot triggers from GET /power-flow (one attempt per plant per interval).
+_lazy_power_snapshot_at: dict[str, float] = {}
 
 
 def _public_huawei_station_rows(rows: list[dict[str, str]]) -> list[dict[str, Any]]:
@@ -131,6 +135,20 @@ async def _run_power_snapshot_background(only_station: Optional[str]) -> None:
             logger.info("Huawei power snapshot background: no rows — %s", debug)
     except Exception:
         logger.exception("Huawei power snapshot background failed")
+
+
+def _maybe_schedule_lazy_power_snapshot(station_code: str) -> None:
+    """When UI has no fresh sample, kick the background snapshot task (debounced per plant)."""
+    st = (station_code or "").strip()
+    if not st or not settings.HUAWEI_POWER_SNAPSHOT_ENABLED:
+        return
+    now = time.time()
+    debounce = max(120.0, float(settings.HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC) * 0.5)
+    last = _lazy_power_snapshot_at.get(st, 0.0)
+    if now - last < debounce:
+        return
+    _lazy_power_snapshot_at[st] = now
+    asyncio.create_task(_run_power_snapshot_background(st))
 
 
 @router.post("/power-snapshot")
@@ -246,6 +264,9 @@ async def get_power_flow_route(
         )
     try:
         body = await get_power_flow(stationCodes)
+        if not body.get("ok") and body.get("reason") == "awaiting_fresh_sample":
+            st = (stationCodes or "").split(",")[0].strip()
+            _maybe_schedule_lazy_power_snapshot(st)
         if not body.get("ok") and body.get("reason") == "rate_limit":
             logger.warning("GET /api/huawei/power-flow — rate limit, no cache")
         return JSONResponse(content=body, headers=_NO_STORE_CACHE)

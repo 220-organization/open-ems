@@ -62,7 +62,7 @@ HUAWEI_BASE_URL: str = os.environ.get(
     "https://eu5.fusionsolar.huawei.com",
 ).rstrip("/")
 HUAWEI_USER_NAME: str = (os.environ.get("HUAWEI_USER_NAME") or "").strip()
-HUAWEI_SYSTEM_CODE: str = os.environ.get("HUAWEI_SYSTEM_CODE") or ""
+HUAWEI_SYSTEM_CODE: str = (os.environ.get("HUAWEI_SYSTEM_CODE") or "").strip()
 # Master switch for Northbound calls (credentials alone are not enough when False).
 # ./run-local.sh sets HUAWEI_ENABLED=0 by default; pass -huawai to use .env credentials.
 HUAWEI_ENABLED: bool = _env_bool("HUAWEI_ENABLED", True)
@@ -288,7 +288,7 @@ HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC: int = _env_int(
 HUAWEI_LIVE_KPI_CACHE_TTL_SEC: int = _env_int("HUAWEI_LIVE_KPI_CACHE_TTL_SEC", 600, 60, 3600)
 # UI power-flow: max sample/cache age before showing rate-limit instead of stale watts (default = live TTL).
 HUAWEI_POWER_SAMPLE_STALE_DISPLAY_SEC: int = _env_int(
-    "HUAWEI_POWER_SAMPLE_STALE_DISPLAY_SEC", 600, 300, 604800
+    "HUAWEI_POWER_SAMPLE_STALE_DISPLAY_SEC", 1800, 300, 604800
 )
 # After failCode 407, scheduler skips live Northbound until this cooldown elapses.
 HUAWEI_NORTHBOUND_COOLDOWN_AFTER_407_SEC: int = _env_int(

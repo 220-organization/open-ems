@@ -166,8 +166,6 @@ const KIOSK_WIDE_MIN_PX = 992;
 
 /** Huawei Northbound thirdData — strict rate limits (failCode 407 if polled too often). */
 const HUAWEI_NORTHBOUND_POLL_MS = 600_000;
-/** Match backend HUAWEI_LIVE_KPI_CACHE_TTL_SEC — older snapshots are not shown on the graph. */
-const HUAWEI_LIVE_MAX_AGE_SEC = 600;
 /** Ubetter EMS Open API — live summary poll interval. */
 const UBETTER_POLL_MS = 30_000;
 
@@ -694,18 +692,13 @@ function formatHuaweiPowerFlowNodeValue(loading, noData, watts, t, bcp47) {
   return formatPower(watts, t, bcp47);
 }
 
-function huaweiPowerFlowResponseStale(data) {
-  const age = Number(data?.cacheAgeSec);
-  return Number.isFinite(age) && age > HUAWEI_LIVE_MAX_AGE_SEC;
-}
-
 function huaweiPowerFlowResponseUnavailable(data) {
   return (
     !!data?.northboundRateLimited ||
     data?.reason === 'awaiting_fresh_sample' ||
     data?.reason === 'rate_limit' ||
     data?.reason === 'rate_limit_cooldown' ||
-    huaweiPowerFlowResponseStale(data)
+    data?.reason === 'huawei_login_failed'
   );
 }
 

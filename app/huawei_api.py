@@ -933,24 +933,39 @@ def _power_flow_fresh_cached_body(st: str, now: float) -> Optional[dict[str, Any
     return body
 
 
+def huawei_power_flow_display_max_age_sec(plant_count: int) -> float:
+    """
+    Max age for scheduler-written samples on the live power-flow graph.
+
+    Background snapshot polls one plant per HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC tick (round-robin),
+    so the worst-case gap for one plant is interval * plant_count (+ spacing buffer).
+    """
+    interval = float(settings.HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC)
+    n = max(1, int(plant_count))
+    floor_ttl = float(settings.HUAWEI_LIVE_KPI_CACHE_TTL_SEC)
+    ceiling = float(settings.HUAWEI_POWER_SAMPLE_STALE_DISPLAY_SEC)
+    rr_ttl = interval * n + 120.0
+    return min(ceiling, max(floor_ttl, rr_ttl))
+
+
 async def _power_flow_rate_limit_fallback(
-    st: str, now: float, *, stale_display: bool = False
+    st: str,
+    now: float,
+    *,
+    stale_display: bool = False,
+    max_age_sec: Optional[float] = None,
 ) -> Optional[dict[str, Any]]:
-    """RAM / DB cache, then power sample — optional stale sample up to 1h when Northbound is in 407."""
-    sample_max = (
-        float(settings.HUAWEI_POWER_SAMPLE_STALE_DISPLAY_SEC)
-        if stale_display
-        else float(settings.HUAWEI_LIVE_KPI_CACHE_TTL_SEC)
-    )
-    cached = _power_flow_cache.get(st)
-    if cached:
-        snap, saved_at = cached
-        max_age = (
+    """RAM / DB cache, then power sample — optional stale sample when Northbound is in 407."""
+    if max_age_sec is None:
+        max_age_sec = (
             float(settings.HUAWEI_POWER_SAMPLE_STALE_DISPLAY_SEC)
             if stale_display
             else float(settings.HUAWEI_LIVE_KPI_CACHE_TTL_SEC)
         )
-        if _huawei_sample_age_ok(saved_at, max_age, now=now):
+    cached = _power_flow_cache.get(st)
+    if cached:
+        snap, saved_at = cached
+        if _huawei_sample_age_ok(saved_at, max_age_sec, now=now):
             stale = stale_display and not _huawei_live_kpi_cache_fresh(saved_at, now=now)
             return _power_flow_cached_response(
                 snap, saved_at, now, northbound_rate_limited=stale
@@ -958,22 +973,17 @@ async def _power_flow_rate_limit_fallback(
     db_hit = await _read_power_flow_db(st)
     if db_hit:
         snap, saved_at = db_hit
-        max_age = (
-            float(settings.HUAWEI_POWER_SAMPLE_STALE_DISPLAY_SEC)
-            if stale_display
-            else float(settings.HUAWEI_LIVE_KPI_CACHE_TTL_SEC)
-        )
-        if _huawei_sample_age_ok(saved_at, max_age, now=now):
+        if _huawei_sample_age_ok(saved_at, max_age_sec, now=now):
             _power_flow_cache[st] = (dict(snap), saved_at)
             stale = stale_display and not _huawei_live_kpi_cache_fresh(saved_at, now=now)
             return _power_flow_cached_response(
                 snap, saved_at, now, northbound_rate_limited=stale
             )
-    sample_hit = await _read_power_flow_from_sample(st, now, max_age_sec=sample_max)
+    sample_hit = await _read_power_flow_from_sample(st, now, max_age_sec=max_age_sec)
     if sample_hit:
         snap, saved_at = sample_hit
         _power_flow_cache[st] = (dict(snap), saved_at)
-        stale = not _huawei_live_kpi_cache_fresh(saved_at, now=now)
+        stale = stale_display and not _huawei_live_kpi_cache_fresh(saved_at, now=now)
         body = _power_flow_cached_response(snap, saved_at, now, northbound_rate_limited=stale)
         body["source"] = "huawei_power_sample"
         return body
@@ -984,13 +994,21 @@ async def _power_flow_display_body(st: str, now: float) -> Optional[dict[str, An
     """
     UI path: never call FusionSolar Northbound — read RAM / DB / samples only.
 
-    Only returns data fresher than HUAWEI_LIVE_KPI_CACHE_TTL_SEC (default 10 min).
-    Older snapshots are withheld so the UI can show a rate-limit hint instead of stale kW.
+    Accepts scheduler samples up to one full round-robin cycle (interval × plant count).
+    Older snapshots are withheld so the UI shows "no data" instead of ancient kW.
     """
     fresh = _power_flow_fresh_cached_body(st, now)
     if fresh is not None:
         return fresh
-    return await _power_flow_rate_limit_fallback(st, now, stale_display=False)
+    try:
+        rows = await list_stations()
+        plant_n = len(rows)
+    except Exception:
+        plant_n = 1
+    max_age = huawei_power_flow_display_max_age_sec(plant_n)
+    return await _power_flow_rate_limit_fallback(
+        st, now, stale_display=False, max_age_sec=max_age
+    )
 
 
 async def _resolve_meter_inverter_pairs(

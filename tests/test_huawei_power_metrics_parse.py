@@ -175,3 +175,11 @@ def test_inverter_only_load_without_meter():
     assert metrics["pvPowerW"] == 24_500.0
     assert metrics["gridPowerW"] is None
     assert metrics["loadPowerW"] == 25_000.0
+
+
+def test_huawei_power_flow_display_max_age_covers_round_robin():
+    from app.huawei_api import huawei_power_flow_display_max_age_sec
+
+    # 2 plants × 600s interval + 120s buffer = 1320s (capped by stale display ceiling).
+    assert huawei_power_flow_display_max_age_sec(2) >= 1320.0
+    assert huawei_power_flow_display_max_age_sec(1) >= 720.0
