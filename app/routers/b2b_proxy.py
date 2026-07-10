@@ -327,7 +327,7 @@ async def charging_ports(
 async def _fetch_ev_ports_power(acdc: str) -> JSONResponse:
     """Sum live EV charger power (W) from GET /api/device/v2/station/all?acdc=…"""
     kind = (acdc or "").strip().lower()
-    if kind not in ("dc", "ac"):
+    if kind not in ("dc", "ac", "bb"):
         return JSONResponse(
             content={"ok": False, "powerW": None, "activeSessions": 0, "detail": "invalid acdc"},
             headers=_NO_STORE_CACHE,
@@ -352,9 +352,14 @@ async def _fetch_ev_ports_power(acdc: str) -> JSONResponse:
 
 @router.get("/ev-ports-power")
 async def ev_ports_power(
-    acdc: str = Query(..., min_length=2, max_length=2, description="ac or dc"),
+    acdc: str = Query(
+        ...,
+        min_length=2,
+        max_length=2,
+        description="ac | dc | bb (Blockbaster ports 625/629/627/628)",
+    ),
 ) -> JSONResponse:
-    """Sum live EV charger power (W) from GET /api/device/v2/station/all?acdc=ac|dc."""
+    """Sum live EV charger power (W) from GET /api/device/v2/station/all?acdc=ac|dc|all."""
     return await _fetch_ev_ports_power(acdc)
 
 
@@ -372,11 +377,16 @@ async def ac_ev_power() -> JSONResponse:
 
 @router.get("/ev-ports-hourly")
 async def ev_ports_hourly(
-    acdc: str = Query(..., min_length=2, max_length=2, description="ac or dc"),
+    acdc: str = Query(
+        ...,
+        min_length=2,
+        max_length=2,
+        description="ac | dc | bb (Blockbaster)",
+    ),
     date: str = Query(..., min_length=10, max_length=10, description="Kyiv calendar day YYYY-MM-DD"),
     session: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    """Hourly grid import kWh for DC or AC EV fleet from ev_port_power_sample (5-min buckets)."""
+    """Hourly grid import kWh for DC/AC/Blockbaster EV fleet from ev_port_power_sample (5-min buckets)."""
     payload = await get_ev_port_hourly_chart_from_db(session, acdc, date)
     status = 400 if payload.get("reason") in ("invalid_acdc", "bad_date") else 200
     return JSONResponse(content=payload, headers=_NO_STORE_CACHE, status_code=status)

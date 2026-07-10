@@ -32,9 +32,13 @@ export function parseEssSelection(value) {
 }
 
 /** acdc query for GET /api/b2b/ev-ports-power when an EV port aggregate source is selected. */
-export function evPortsAcdcFromProvider(provider) {
-  if (provider === 'dc-ev') return 'dc';
+export function evPortsAcdcFromProvider(provider, id = '') {
   if (provider === 'ac-ev') return 'ac';
+  if (provider === 'dc-ev') {
+    const setId = String(id || 'all').trim().toLowerCase();
+    if (setId === 'bb') return 'bb';
+    return 'dc';
+  }
   return null;
 }
 

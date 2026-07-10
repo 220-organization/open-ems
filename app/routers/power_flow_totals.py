@@ -721,7 +721,7 @@ async def _monthly_retail_tariff_bars(
     sn = (device_sn or "").strip()
     hw = (huawei_station_code or "").strip()
     ev = (ev_ports_acdc or "").strip().lower()
-    if ev not in ("dc", "ac"):
+    if ev not in ("dc", "ac", "bb"):
         ev = ""
     device_scope = bool(sn or hw or ev)
     n = max(1, min(int(months), 36))
@@ -854,7 +854,7 @@ async def _finalize_landing_response(
     sn_imp = (deye_device_sn_for_import_mtd or "").strip()
     hw_imp = (huawei_station_code_for_import_mtd or "").strip()
     ev_imp = (ev_ports_acdc_for_import_mtd or "").strip().lower()
-    if ev_imp not in ("dc", "ac"):
+    if ev_imp not in ("dc", "ac", "bb"):
         ev_imp = ""
     if oree_dam_configured():
         if sn_imp:
@@ -1000,8 +1000,8 @@ async def landing_totals(
         alias="evPortsAcdc",
         min_length=2,
         max_length=2,
-        pattern=r"^(dc|ac)$",
-        description="Optional EV fleet (dc|ac) — monthly rates from ev_port_power_sample import.",
+        pattern=r"^(dc|ac|bb)$",
+        description="Optional EV fleet (dc|ac|bb) — monthly rates from ev_port_power_sample import.",
     ),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
@@ -1038,7 +1038,7 @@ async def landing_totals(
     hw = (huawei_station_code or "").strip()
     sn_req = (device_sn or "").strip()
     ev = (ev_ports_acdc or "").strip().lower()
-    if ev not in ("dc", "ac"):
+    if ev not in ("dc", "ac", "bb"):
         ev = ""
     scope_count = sum(1 for x in (hw, sn_req, ev) if x)
     if scope_count > 1:
@@ -1538,8 +1538,8 @@ async def monthly_retail_tariff_bars(
         alias="evPortsAcdc",
         min_length=2,
         max_length=2,
-        pattern=r"^(dc|ac)$",
-        description="EV fleet (dc|ac) — import-weighted DAM per month from ev_port_power_sample.",
+        pattern=r"^(dc|ac|bb)$",
+        description="EV fleet (dc|ac|bb) — import-weighted DAM per month from ev_port_power_sample.",
     ),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
@@ -1552,7 +1552,7 @@ async def monthly_retail_tariff_bars(
     sn = (device_sn or "").strip()
     hw = (huawei_station_code or "").strip()
     ev = (ev_ports_acdc or "").strip().lower()
-    if ev not in ("dc", "ac"):
+    if ev not in ("dc", "ac", "bb"):
         ev = ""
     scope_count = sum(1 for x in (sn, hw, ev) if x)
     if scope_count > 1:

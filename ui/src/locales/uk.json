@@ -16,6 +16,7 @@
   "essUbetter": "Ubetter EMS",
   "essEvPorts": "EV-порти",
   "essEvPortsDc": "Швидкі EV-зарядки",
+  "essEvPortsBlockbaster": "Blockbaster ports: 625, 629, 627, 628",
   "essEvPortsAc": "Повільні EV-зарядки",
   "essEvPortsActiveCount": "{{count}} сесій",
   "huaweiNorthboundRateLimited": "Список станцій тимчасово недоступний (ліміт FusionSolar). Спробуйте за кілька хвилин; не використовуйте Postman чи інші клієнти з тим самим Northbound-користувачем.",
