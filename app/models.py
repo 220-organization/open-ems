@@ -58,8 +58,9 @@ class DeyeSocSample(Base):
 
 class EvPortPowerSample(Base):
     """
-    Aggregate EV charger power (W) per fleet (dc | ac) in 5-minute UTC buckets.
-    Stored power_w is total charging power (= grid import for the EV-ports power-flow view).
+    Aggregate EV charger power (W) per fleet (dc | ac | bb) in 5-minute UTC buckets.
+    ``bb`` = Blockbaster ports 625/629/627/628. Stored power_w is total charging power
+    (= grid import for the EV-ports power-flow view).
     """
 
     __tablename__ = "ev_port_power_sample"

@@ -496,37 +496,24 @@ function preferredLandingExportMetric(offers) {
 /** Query keys for landing export metric (values: peak | manual | total | arbitrage | lost_solar_7d). */
 const LANDING_EXPORT_METRIC_URL_KEYS = ['exportMetric', 'landingExport'];
 
-/** Miner node on power-flow: only monthly_rates + OREE/ES, fleet or Deye SN 2602114844. */
-const MINER_VISIBLE_DEYE_SN = '2602114844';
-
-function isMonthlyRatesMinerUrlContext() {
+/**
+ * Miner node on power-flow: root landing (/) and OREE ES (?market=oree&zone=ES),
+ * any exportMetric / inverter selection (live data from /api/b2b/miner-power).
+ */
+function isMinerUrlContext() {
   try {
     const u = new URLSearchParams(window.location.search);
     const market = (u.get('market') || '').trim().toLowerCase();
     const zone = (u.get('zone') || '').trim().toUpperCase();
-    let exportMetric = '';
-    for (const k of LANDING_EXPORT_METRIC_URL_KEYS) {
-      const v = u.get(k);
-      if (v != null && String(v).trim()) {
-        exportMetric = String(v).trim().toLowerCase();
-        break;
-      }
-    }
-    return market === 'oree' && zone === 'ES' && exportMetric === LANDING_EXPORT_METRIC.MONTHLY_RATES;
+    if (!market && !zone) return true;
+    return market === 'oree' && zone === 'ES';
   } catch {
     return false;
   }
 }
 
-function minerVisibleForInverterSelection(inverterValue) {
-  const inv = normalizeEssSelectionValue(inverterValue);
-  if (!inv) return true;
-  const { provider, id } = parseEssSelection(inv);
-  return provider === 'deye' && String(id || '').trim() === MINER_VISIBLE_DEYE_SN;
-}
-
-function showMinerOnPowerFlow(inverterValue) {
-  return isMonthlyRatesMinerUrlContext() && minerVisibleForInverterSelection(inverterValue);
+function showMinerOnPowerFlow() {
+  return isMinerUrlContext();
 }
 
 /** One preference for the whole UI session — survives inverter / station changes (still normalized for Huawei / fleet). */
@@ -556,7 +543,7 @@ function defaultLandingExportMetric() {
 }
 function normalizeLandingExportMetricForContext(metric, inverterSn, huaweiStationCode, evPortsAcdc) {
   if (!LANDING_EXPORT_METRIC_VALUES.has(metric)) return LANDING_EXPORT_METRIC.GRID_BALANCING;
-  const ev = evPortsAcdc === 'dc' || evPortsAcdc === 'ac' ? evPortsAcdc : '';
+  const ev = evPortsAcdc === 'dc' || evPortsAcdc === 'ac' || evPortsAcdc === 'bb' ? evPortsAcdc : '';
   if (ev) {
     if (metric !== LANDING_EXPORT_METRIC.MONTHLY_RATES) {
       return LANDING_EXPORT_METRIC.MONTHLY_RATES;
@@ -2110,12 +2097,12 @@ export default function PowerFlowPage({
   const selInverterSn = essSel.provider === 'deye' ? essSel.id.trim() : '';
   const selHuaweiStationCode = essSel.provider === 'huawei' ? essSel.id.trim() : '';
   const selUbetterSn = essSel.provider === 'ubetter' ? essSel.id.trim() : '';
-  const selEvPortsAcdc = evPortsAcdcFromProvider(essSel.provider);
+  const selEvPortsAcdc = evPortsAcdcFromProvider(essSel.provider, essSel.id);
   const selEvPortsAggregate = selEvPortsAcdc != null;
   const readOnlyEssSelected = Boolean(selHuaweiStationCode || selUbetterSn);
   const essAnySelected = Boolean(selInverterSn || selHuaweiStationCode || selUbetterSn || selEvPortsAggregate);
 
-  const showMinerNode = useMemo(() => showMinerOnPowerFlow(inverterValue), [inverterValue]);
+  const showMinerNode = showMinerOnPowerFlow();
 
   useEffect(() => {
     if (!showMinerNode) {
@@ -4924,6 +4911,7 @@ export default function PowerFlowPage({
                         ) : null}
                         <optgroup label={t('essEvPorts')}>
                           <option value={`${ESS_PREFIX_DC_EV}all`}>{t('essEvPortsDc')}</option>
+                          <option value={`${ESS_PREFIX_DC_EV}bb`}>{t('essEvPortsBlockbaster')}</option>
                           <option value={`${ESS_PREFIX_AC_EV}all`}>{t('essEvPortsAc')}</option>
                         </optgroup>
                         {huaweiRows.configured && !huaweiRows.loading && !huaweiRows.error && huaweiRows.authFailed ? (
@@ -5429,7 +5417,13 @@ export default function PowerFlowPage({
                               target="_blank"
                               rel="noopener noreferrer"
                               data-active={evFlowActive ? 'true' : 'false'}
-                              title={selEvPortsAcdc === 'ac' ? t('essEvPortsAc') : t('essEvPortsDc')}
+                              title={
+                                selEvPortsAcdc === 'ac'
+                                  ? t('essEvPortsAc')
+                                  : selEvPortsAcdc === 'bb'
+                                    ? t('essEvPortsBlockbaster')
+                                    : t('essEvPortsDc')
+                              }
                               onClick={e =>
                                 openNodePopup(e, {
                                   title: t('nodeEv'),

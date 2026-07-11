@@ -22,7 +22,11 @@ logger = logging.getLogger(__name__)
 
 _DEVICE_STATION_ALL_PATH = "/api/device/v2/station/all"
 _KWH_PER_BUCKET_DIVISOR = 12000.0
-_EV_ACDC_VALUES = ("dc", "ac")
+# dc | ac = full AC/DC fleets; bb = Blockbaster DC ports (625, 629, 627, 628)
+_EV_ACDC_VALUES = ("dc", "ac", "bb")
+BLOCKBASTER_STATION_NUMBERS = frozenset({"625", "629", "627", "628"})
+# Stored in ev_port_power_sample.acdc (String(2))
+EV_PORTS_ACDC_BLOCKBASTER = "bb"
 
 
 def normalize_ev_ports_acdc(acdc: str) -> Optional[str]:
@@ -30,8 +34,28 @@ def normalize_ev_ports_acdc(acdc: str) -> Optional[str]:
     return kind if kind in _EV_ACDC_VALUES else None
 
 
-def sum_ev_power_w_from_station_rows(raw: Any) -> tuple[float, int]:
-    """Sum job.powerWt for stations with a non-null job (skip idle ports)."""
+def _station_number_from_row(row: dict[str, Any]) -> str:
+    n = row.get("number")
+    if n is not None and str(n).strip():
+        return str(n).strip()
+    job = row.get("job")
+    if isinstance(job, dict):
+        sn = job.get("stationNumber")
+        if sn is not None and str(sn).strip():
+            return str(sn).strip()
+    return ""
+
+
+def sum_ev_power_w_from_station_rows(
+    raw: Any,
+    *,
+    station_numbers: Optional[frozenset[str]] = None,
+) -> tuple[float, int]:
+    """Sum job.powerWt for stations with a non-null job (skip idle ports).
+
+    When ``station_numbers`` is set, only those station ``number`` values are included
+    (Blockbaster set uses one ``acdc=all`` fetch then filters).
+    """
     if not isinstance(raw, list):
         return (0.0, 0)
     total = 0.0
@@ -39,6 +63,9 @@ def sum_ev_power_w_from_station_rows(raw: Any) -> tuple[float, int]:
     for row in raw:
         if not isinstance(row, dict):
             continue
+        if station_numbers is not None:
+            if _station_number_from_row(row) not in station_numbers:
+                continue
         job = row.get("job")
         if job is None:
             continue
@@ -121,14 +148,22 @@ async def ev_port_import_weighted_dam_kyiv(
 
 
 async def fetch_ev_ports_power_w(acdc: str) -> tuple[Optional[float], int]:
-    """Fetch live aggregate EV power (W) and active session count from B2B station/all."""
+    """Fetch live aggregate EV power (W) and active session count from B2B station/all.
+
+    ``dc`` / ``ac`` → ``?acdc=dc|ac`` and sum all active jobs.
+    ``bb`` (Blockbaster) → one ``?acdc=all`` call, filter ports 625/629/627/628, sum powerWt.
+    """
     kind = _normalize_acdc(acdc)
     if kind is None:
         return (None, 0)
     url = f"{B2B_API_BASE_URL}{_DEVICE_STATION_ALL_PATH}"
+    query_acdc = "all" if kind == EV_PORTS_ACDC_BLOCKBASTER else kind
+    station_filter = (
+        BLOCKBASTER_STATION_NUMBERS if kind == EV_PORTS_ACDC_BLOCKBASTER else None
+    )
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(url, params={"acdc": kind})
+            response = await client.get(url, params={"acdc": query_acdc})
     except httpx.RequestError as exc:
         logger.warning("EV port power snapshot (%s): transport error: %s", kind, exc)
         return (None, 0)
@@ -144,7 +179,7 @@ async def fetch_ev_ports_power_w(acdc: str) -> tuple[Optional[float], int]:
         raw = response.json()
     except ValueError:
         raw = None
-    power_w, sessions = sum_ev_power_w_from_station_rows(raw)
+    power_w, sessions = sum_ev_power_w_from_station_rows(raw, station_numbers=station_filter)
     return (power_w, sessions)
 
 
@@ -175,7 +210,7 @@ async def upsert_ev_port_power_sample(
 
 
 async def run_ev_port_power_snapshot(session: AsyncSession) -> int:
-    """Fetch DC and AC fleet power and upsert both into the current 5-minute UTC bucket."""
+    """Fetch DC, AC, and Blockbaster fleet power into the current 5-minute UTC bucket."""
     bucket = floor_to_5min_utc(datetime.now(timezone.utc))
     n = 0
     for kind in _EV_ACDC_VALUES:
