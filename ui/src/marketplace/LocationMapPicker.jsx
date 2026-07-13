@@ -13,9 +13,13 @@ import styles from './LocationMapPicker.module.css';
 const MAPTILER_API_KEY = '1Lk2s9HJjoiXBR1oqw5a';
 const UKRAINE_CENTER = [31.223, 49.454];
 const DEFAULT_ZOOM = 6;
+const MARKERS_SOURCE_ID = 'b2b-location-markers';
+const MARKERS_LAYER_ID = 'b2b-location-markers-layer';
 const REGION_SOURCE_ID = 'b2b-location-region';
 const REGION_FILL_LAYER_ID = 'b2b-location-region-fill';
 const REGION_OUTLINE_LAYER_ID = 'b2b-location-region-outline';
+const REGION_CENTER_SOURCE_ID = 'b2b-location-region-center';
+const REGION_CENTER_LAYER_ID = 'b2b-location-region-center-layer';
 
 function buildHybridStyle(apiKey) {
   return {
@@ -42,16 +46,15 @@ function buildHybridStyle(apiKey) {
   };
 }
 
-function createPickerMarkerElement(className) {
-  const el = document.createElement('div');
-  el.className = className;
-  el.setAttribute('role', 'presentation');
-  return el;
-}
-
-function removePickerMarkers(markersRef) {
-  (markersRef.current || []).forEach(marker => marker.remove());
-  markersRef.current = [];
+function locationsToGeoJson(locations) {
+  return {
+    type: 'FeatureCollection',
+    features: (locations || []).map(loc => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [loc.lng, loc.lat] },
+      properties: { id: loc.id },
+    })),
+  };
 }
 
 /** Square envelope around a circle — useful for bbox storage and heatmap grouping. */
@@ -111,6 +114,23 @@ function regionToGeoJson(locations) {
       {
         type: 'Feature',
         geometry: circleToPolygon(region.lng, region.lat, radiusKm),
+        properties: { id: region.id },
+      },
+    ],
+  };
+}
+
+function regionCenterToGeoJson(locations) {
+  const region = locations?.[0];
+  if (!region || typeof region.lat !== 'number' || typeof region.lng !== 'number') {
+    return { type: 'FeatureCollection', features: [] };
+  }
+  return {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [region.lng, region.lat] },
         properties: { id: region.id },
       },
     ],
@@ -223,12 +243,8 @@ export default function LocationMapPicker({ t, locale = 'uk', locations, onChang
   const onChangeRef = useRef(onChange);
   const selectionModeRef = useRef(selectionMode);
   const regionRadiusKmRef = useRef(REGION_RADIUS_KM_DEFAULT);
-  const htmlMarkersRef = useRef([]);
-  const suppressMapClickRef = useRef(false);
   const searchDebounceRef = useRef(null);
   const searchRequestIdRef = useRef(0);
-  const movePointLocationRef = useRef(null);
-  const moveRegionLocationRef = useRef(null);
   const [resolving, setResolving] = useState(false);
   const [regionRadiusKm, setRegionRadiusKm] = useState(REGION_RADIUS_KM_DEFAULT);
   const [searchQuery, setSearchQuery] = useState('');
@@ -243,82 +259,27 @@ export default function LocationMapPicker({ t, locale = 'uk', locations, onChang
   selectionModeRef.current = selectionMode;
   regionRadiusKmRef.current = regionRadiusKm;
 
-  const syncRegionCircle = useCallback(nextLocations => {
-    const map = mapRef.current;
-    if (!map?.getSource) return;
-    const regionSource = map.getSource(REGION_SOURCE_ID);
-    if (regionSource) {
-      regionSource.setData(regionToGeoJson(selectionModeRef.current === 'region' ? nextLocations : []));
-    }
-  }, []);
-
-  const syncHtmlMarkers = useCallback(
-    nextLocations => {
-      const map = mapRef.current;
-      if (!map) return;
-
-      removePickerMarkers(htmlMarkersRef);
-
-      if (selectionModeRef.current === 'region') {
-        const region = nextLocations?.[0];
-        if (!region || typeof region.lat !== 'number' || typeof region.lng !== 'number') return;
-
-        const el = createPickerMarkerElement(styles.regionCenterMarker);
-        el.addEventListener('click', event => event.stopPropagation());
-        const marker = new maptilersdk.Marker({ element: el, draggable: true, anchor: 'center' })
-          .setLngLat([region.lng, region.lat])
-          .addTo(map);
-
-        marker.on('dragstart', () => {
-          suppressMapClickRef.current = true;
-        });
-        marker.on('drag', () => {
-          const { lng, lat } = marker.getLngLat();
-          syncRegionCircle([{ ...region, lng, lat }]);
-        });
-        marker.on('dragend', () => {
-          const { lng, lat } = marker.getLngLat();
-          moveRegionLocationRef.current?.(lng, lat);
-          window.setTimeout(() => {
-            suppressMapClickRef.current = false;
-          }, 50);
-        });
-
-        htmlMarkersRef.current.push(marker);
-        return;
-      }
-
-      (nextLocations || []).forEach(loc => {
-        if (typeof loc.lat !== 'number' || typeof loc.lng !== 'number') return;
-        const el = createPickerMarkerElement(styles.pointMarker);
-        el.addEventListener('click', event => event.stopPropagation());
-        const marker = new maptilersdk.Marker({ element: el, draggable: true, anchor: 'center' })
-          .setLngLat([loc.lng, loc.lat])
-          .addTo(map);
-
-        marker.on('dragstart', () => {
-          suppressMapClickRef.current = true;
-        });
-        marker.on('dragend', () => {
-          const { lng, lat } = marker.getLngLat();
-          movePointLocationRef.current?.(loc.id, lng, lat);
-          window.setTimeout(() => {
-            suppressMapClickRef.current = false;
-          }, 50);
-        });
-
-        htmlMarkersRef.current.push(marker);
-      });
-    },
-    [syncRegionCircle]
-  );
-
   const syncMapLayers = useCallback(
     nextLocations => {
-      syncRegionCircle(isRegionMode ? nextLocations : []);
-      syncHtmlMarkers(nextLocations);
+      const map = mapRef.current;
+      if (!map?.getSource) return;
+
+      const markerSource = map.getSource(MARKERS_SOURCE_ID);
+      if (markerSource) {
+        markerSource.setData(locationsToGeoJson(isRegionMode ? [] : nextLocations));
+      }
+
+      const regionSource = map.getSource(REGION_SOURCE_ID);
+      if (regionSource) {
+        regionSource.setData(regionToGeoJson(isRegionMode ? nextLocations : []));
+      }
+
+      const centerSource = map.getSource(REGION_CENTER_SOURCE_ID);
+      if (centerSource) {
+        centerSource.setData(regionCenterToGeoJson(isRegionMode ? nextLocations : []));
+      }
     },
-    [isRegionMode, syncHtmlMarkers, syncRegionCircle]
+    [isRegionMode]
   );
 
   const addRegionLocation = useCallback(
@@ -344,43 +305,6 @@ export default function LocationMapPicker({ t, locale = 'uk', locations, onChang
     },
     [locale, syncMapLayers]
   );
-
-  const movePointLocation = useCallback(
-    async (id, lng, lat) => {
-      setResolving(true);
-      const label = await reverseGeocodePoint(lng, lat, resolveGeocodeLanguage(locale));
-      const next = locationsRef.current.map(loc => (loc.id === id ? { ...loc, lng, lat, label } : loc));
-      onChangeRef.current(next);
-      syncMapLayers(next);
-      setResolving(false);
-    },
-    [locale, syncMapLayers]
-  );
-
-  const moveRegionLocation = useCallback(
-    async (lng, lat) => {
-      setResolving(true);
-      const region = await reverseGeocodeRegion(lng, lat, resolveGeocodeLanguage(locale));
-      const prev = locationsRef.current[0];
-      const next = [
-        {
-          id: prev?.id || uuidv4(),
-          lng,
-          lat,
-          label: region.label,
-          radius_km: regionRadiusKmRef.current,
-          bbox: bboxFromRadiusKm(lng, lat, regionRadiusKmRef.current),
-        },
-      ];
-      onChangeRef.current(next);
-      syncMapLayers(next);
-      setResolving(false);
-    },
-    [locale, syncMapLayers]
-  );
-
-  movePointLocationRef.current = movePointLocation;
-  moveRegionLocationRef.current = moveRegionLocation;
 
   const handleRegionRadiusChange = nextRadiusKm => {
     setRegionRadiusKm(nextRadiusKm);
@@ -410,6 +334,22 @@ export default function LocationMapPicker({ t, locale = 'uk', locations, onChang
     mapRef.current = map;
 
     map.on('load', () => {
+      map.addSource(MARKERS_SOURCE_ID, {
+        type: 'geojson',
+        data: locationsToGeoJson([]),
+      });
+      map.addLayer({
+        id: MARKERS_LAYER_ID,
+        type: 'circle',
+        source: MARKERS_SOURCE_ID,
+        paint: {
+          'circle-radius': 8,
+          'circle-color': '#f94caf',
+          'circle-stroke-width': 2,
+          'circle-stroke-color': '#ffffff',
+        },
+      });
+
       map.addSource(REGION_SOURCE_ID, {
         type: 'geojson',
         data: regionToGeoJson([]),
@@ -433,11 +373,26 @@ export default function LocationMapPicker({ t, locale = 'uk', locations, onChang
         },
       });
 
+      map.addSource(REGION_CENTER_SOURCE_ID, {
+        type: 'geojson',
+        data: regionCenterToGeoJson([]),
+      });
+      map.addLayer({
+        id: REGION_CENTER_LAYER_ID,
+        type: 'circle',
+        source: REGION_CENTER_SOURCE_ID,
+        paint: {
+          'circle-radius': 7,
+          'circle-color': '#ffffff',
+          'circle-stroke-width': 3,
+          'circle-stroke-color': '#f94caf',
+        },
+      });
+
       syncMapLayers(locationsRef.current);
     });
 
     map.on('click', e => {
-      if (suppressMapClickRef.current) return;
       if (selectionModeRef.current === 'region') {
         addRegionLocation(e.lngLat.lng, e.lngLat.lat);
       } else {
@@ -446,7 +401,6 @@ export default function LocationMapPicker({ t, locale = 'uk', locations, onChang
     });
 
     return () => {
-      removePickerMarkers(htmlMarkersRef);
       map.remove();
       mapRef.current = null;
     };

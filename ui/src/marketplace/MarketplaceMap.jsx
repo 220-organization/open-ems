@@ -32,7 +32,6 @@ import { formatKwLabel } from './marketplaceKw';
 import { buildMarketplacePayRedirectBase } from './marketplacePayRedirect';
 import { infoPaymentAmountUah } from './marketplacePaymentAmounts';
 import MarketplaceModal from './MarketplaceModal';
-import ShareButton from './ShareButton';
 import styles from './MarketplaceMap.module.css';
 
 const MAPTILER_API_KEY = '1Lk2s9HJjoiXBR1oqw5a';
@@ -312,38 +311,6 @@ function formatMarketplacePublicationRelative(isoDate, language) {
   return rtf.format(-Math.max(1, diffMinutes), 'minute');
 }
 
-function syncMarketplaceLocationInUrl(locationId) {
-  if (typeof window === 'undefined') return;
-  try {
-    const url = new URL(window.location.href);
-    if (locationId) {
-      url.searchParams.set('marketplaceLocation', String(locationId));
-    } else if (!url.searchParams.get('marketplacePayment')) {
-      url.searchParams.delete('marketplaceLocation');
-    }
-    window.history.replaceState({}, '', url);
-  } catch {
-    /* ignore */
-  }
-}
-
-function flyMapToItem(map, item) {
-  const loc = item?.locations?.[0];
-  if (!map || loc == null || typeof loc.lng !== 'number' || typeof loc.lat !== 'number') return;
-  map.flyTo({ center: [loc.lng, loc.lat], zoom: Math.max(map.getZoom?.() || 0, 14), duration: 1200 });
-}
-
-function MarketplacePhotoThumb({ url, className }) {
-  const [failed, setFailed] = useState(false);
-  const src = resolveMarketplaceAssetUrl(url);
-  if (!src || failed) return null;
-  return (
-    <a href={src} target="_blank" rel="noopener noreferrer">
-      <img src={src} alt="" className={className} onError={() => setFailed(true)} />
-    </a>
-  );
-}
-
 function MarketplaceDetailsBody({ item, t, variant = 'full', language = 'ua' }) {
   const photoSections =
     variant === 'map'
@@ -435,7 +402,9 @@ function MarketplaceDetailsBody({ item, t, variant = 'full', language = 'ua' }) 
               <span className={styles.photoGroupLabel}>{section.label}</span>
               <div className={styles.photoRow}>
                 {section.photos.map(url => (
-                  <MarketplacePhotoThumb key={url} url={url} className={styles.photoThumb} />
+                  <a key={url} href={resolveMarketplaceAssetUrl(url)} target="_blank" rel="noopener noreferrer">
+                    <img src={resolveMarketplaceAssetUrl(url)} alt="" className={styles.photoThumb} />
+                  </a>
                 ))}
               </div>
             </div>
@@ -468,7 +437,9 @@ function OwnerInfoBody({ ownerInfo, t }) {
           <span className={styles.photoGroupLabel}>{t('marketplaceDistributionContractPhotosLabel')}</span>
           <div className={styles.photoRow}>
             {contractPhotos.map(url => (
-              <MarketplacePhotoThumb key={url} url={url} className={styles.photoThumbLarge} />
+              <a key={url} href={resolveMarketplaceAssetUrl(url)} target="_blank" rel="noopener noreferrer">
+                <img src={resolveMarketplaceAssetUrl(url)} alt="" className={styles.photoThumbLarge} />
+              </a>
             ))}
           </div>
         </div>
@@ -627,15 +598,7 @@ export default function MarketplaceMap({
 
   const handleMarkerSelect = useCallback(point => {
     const item = itemsRef.current.find(row => String(row.id) === String(point.itemId));
-    if (!item) return;
-    setSelectedItem(item);
-    syncMarketplaceLocationInUrl(item.id);
-    flyMapToItem(mapRef.current, item);
-  }, []);
-
-  const closeSelectedItem = useCallback(() => {
-    setSelectedItem(null);
-    syncMarketplaceLocationInUrl(null);
+    if (item) setSelectedItem(item);
   }, []);
 
   const requestHeatmapSync = useCallback(
@@ -871,24 +834,22 @@ export default function MarketplaceMap({
     if (!map || !selectedItem) return undefined;
 
     const onMapClick = () => {
-      closeSelectedItem();
+      setSelectedItem(null);
     };
 
     map.on('click', onMapClick);
     return () => {
       map.off('click', onMapClick);
     };
-  }, [selectedItem, closeSelectedItem]);
+  }, [selectedItem]);
 
   useEffect(() => {
     if (!paymentReturnLocationId || (items.length === 0 && lookingItems.length === 0)) return;
     const item =
       items.find(row => String(row.id) === String(paymentReturnLocationId)) ||
       lookingItems.find(row => String(row.id) === String(paymentReturnLocationId));
-    if (!item) return;
-    setSelectedItem(item);
-    flyMapToItem(mapRef.current, item);
-  }, [paymentReturnLocationId, items, lookingItems, mapReady]);
+    if (item) setSelectedItem(item);
+  }, [paymentReturnLocationId, items, lookingItems]);
 
   useEffect(() => {
     if (!paymentReturnId || !isMarketplaceApiConfigured()) return undefined;
@@ -1084,17 +1045,14 @@ export default function MarketplaceMap({
           >
             <div className={styles.detailHeader}>
               <h3 className={styles.detailTitle}>{t('marketplaceDetailTitle')}</h3>
-              <div className={styles.detailHeaderActions}>
-                <ShareButton t={t} locationId={selectedItem.id} compact className={styles.detailShareBtn} />
-                <button
-                  type="button"
-                  className={styles.detailCloseBtn}
-                  onClick={closeSelectedItem}
-                  aria-label={t('marketplaceClose')}
-                >
-                  ×
-                </button>
-              </div>
+              <button
+                type="button"
+                className={styles.detailCloseBtn}
+                onClick={() => setSelectedItem(null)}
+                aria-label={t('marketplaceClose')}
+              >
+                ×
+              </button>
             </div>
 
             <MarketplaceDetailsBody item={selectedItem} t={t} language={locale} variant="map" />

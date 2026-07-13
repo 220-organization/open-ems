@@ -9,28 +9,12 @@ export function isMarketplaceApiConfigured() {
   return Boolean(apiBase());
 }
 
-/** Prefer /marketplace-files/... paths so the client can resolve against the API base. */
-export function toMarketplaceAssetPath(pathOrUrl) {
-  if (!pathOrUrl) return pathOrUrl;
-  if (/^https?:\/\//i.test(pathOrUrl)) {
-    try {
-      const { pathname } = new URL(pathOrUrl);
-      if (pathname.startsWith('/marketplace-files/')) return pathname;
-    } catch {
-      /* keep absolute URL */
-    }
-    return pathOrUrl;
-  }
-  return pathOrUrl.startsWith('/') ? pathOrUrl : `/${pathOrUrl}`;
-}
-
 export function resolveMarketplaceAssetUrl(pathOrUrl) {
   if (!pathOrUrl) return pathOrUrl;
-  const normalized = toMarketplaceAssetPath(pathOrUrl);
-  if (/^https?:\/\//i.test(normalized)) return normalized;
+  if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
   const base = apiBase();
-  if (!base) return normalized;
-  return `${base}${normalized.startsWith('/') ? normalized : `/${normalized}`}`;
+  if (!base) return pathOrUrl;
+  return `${base}${pathOrUrl.startsWith('/') ? pathOrUrl : `/${pathOrUrl}`}`;
 }
 
 export async function uploadMarketplaceFile(file) {
@@ -50,8 +34,7 @@ export async function uploadMarketplaceFile(file) {
   }
 
   const data = await response.json();
-  // Store relative path in DB payloads; resolve absolute only when rendering.
-  return toMarketplaceAssetPath(data.url);
+  return resolveMarketplaceAssetUrl(data.url);
 }
 
 export async function submitMarketplaceLocation(payload) {
