@@ -127,10 +127,24 @@ export default function OpenEmsHeader({
     setShareModalOpen(false);
   }, []);
 
-  const handleBrandClick = useCallback(e => {
-    e.preventDefault();
-    navigateOpenEmsHomeResetSource();
-  }, []);
+  const handleBrandClick = useCallback(
+    e => {
+      e.preventDefault();
+      if (activePage === 'power') {
+        window.dispatchEvent(new CustomEvent('open-ems-open-monthly-rates-chart'));
+        return;
+      }
+      try {
+        const u = new URL('/', window.location.origin);
+        u.searchParams.set('exportMetric', 'monthly_rates');
+        u.searchParams.set('openTariffChart', '1');
+        window.location.assign(u.toString());
+      } catch {
+        navigateOpenEmsHomeResetSource();
+      }
+    },
+    [activePage]
+  );
 
   const shellRef = useRef(null);
 

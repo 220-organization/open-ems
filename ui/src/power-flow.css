@@ -338,6 +338,41 @@ body {
   gap: 4px 6px;
 }
 
+.pf-landing-totals__monthly-rates-trigger {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: inherit;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.pf-landing-totals__export-value--monthly-rates > .pf-landing-totals__monthly-rates-trigger {
+  gap: 8px 14px;
+}
+.pf-landing-totals__export-value--with-monthly-rates-mom > .pf-landing-totals__monthly-rates-trigger {
+  gap: 4px 6px;
+}
+.pf-landing-totals__monthly-rates-trigger--static {
+  cursor: default;
+}
+.pf-landing-totals__monthly-rates-trigger:not(.pf-landing-totals__monthly-rates-trigger--static):focus-visible {
+  outline: 2px solid var(--pf-accent-focus, #f94caf);
+  outline-offset: 4px;
+  border-radius: 10px;
+}
+.pf-landing-totals__monthly-rates-trigger:not(.pf-landing-totals__monthly-rates-trigger--static):hover
+  .pf-landing-totals__counter-wrap--monthly-rates {
+  filter: brightness(1.08);
+}
+
 .pf-landing-totals__monthly-rates-month {
   flex: 0 0 auto;
   font-family: var(--pf-font-mono);
@@ -3636,6 +3671,27 @@ a.pf-node { cursor: pointer; }
 .pf-landing-totals__tariff--grid-balancing-supplement,
 .pf-landing-totals__tariff--monthly-rates-supplement {
   opacity: 0.88;
+}
+
+.pf-landing-totals__tariff--hint-button {
+  display: block;
+  width: fit-content;
+  max-width: min(100%, 36rem);
+  margin-left: auto;
+  margin-right: auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+.pf-landing-totals__tariff--hint-button:hover,
+.pf-landing-totals__tariff--hint-button:focus-visible {
+  color: var(--pf-accent, #f94caf);
+  text-decoration: underline;
+  outline: none;
 }
 
 .pf-landing-totals__monthly-rates-vs-ukraine-pct {
