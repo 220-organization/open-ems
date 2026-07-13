@@ -120,6 +120,34 @@
   cursor: pointer;
 }
 
+.pointMarker,
+.regionCenterMarker {
+  box-sizing: border-box;
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  cursor: grab;
+  touch-action: none;
+}
+
+.pointMarker {
+  width: 16px;
+  height: 16px;
+  background: #f94caf;
+  border: 2px solid #ffffff;
+}
+
+.regionCenterMarker {
+  width: 14px;
+  height: 14px;
+  background: #ffffff;
+  border: 3px solid #f94caf;
+}
+
+.pointMarker:active,
+.regionCenterMarker:active {
+  cursor: grabbing;
+}
+
 .geolocateBtn {
   flex-shrink: 0;
   padding: 8px 12px;
