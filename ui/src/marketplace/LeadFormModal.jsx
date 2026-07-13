@@ -12,6 +12,7 @@ import {
 import {
   isMarketplaceApiConfigured,
   submitMarketplaceLocation,
+  resolveMarketplaceAssetUrl,
   uploadMarketplaceFile,
 } from './marketplaceApi';
 import { KW_OPTIONS, formatKwLabel } from './marketplaceKw';
@@ -107,14 +108,20 @@ export default function LeadFormModal({
         lines.push(`${t(locationsLabelKey)}:\n${locationLines.join('\n')}`);
       }
       if (leadParkingPhotos.length) {
-        lines.push(`${t('marketplaceLeadFormParkingPhotosLabel')}:\n${leadParkingPhotos.join('\n')}`);
+        lines.push(
+          `${t('marketplaceLeadFormParkingPhotosLabel')}:\n${leadParkingPhotos.map(resolveMarketplaceAssetUrl).join('\n')}`
+        );
       }
       if (leadConnectionPhotos.length) {
-        lines.push(`${t('marketplaceLeadFormConnectionPhotosLabel')}:\n${leadConnectionPhotos.join('\n')}`);
+        lines.push(
+          `${t('marketplaceLeadFormConnectionPhotosLabel')}:\n${leadConnectionPhotos.map(resolveMarketplaceAssetUrl).join('\n')}`
+        );
       }
       if (leadDistributionContractPhotos.length) {
         lines.push(
-          `${t('marketplaceLeadFormDistributionContractPhotosLabel')}:\n${leadDistributionContractPhotos.join('\n')}`
+          `${t('marketplaceLeadFormDistributionContractPhotosLabel')}:\n${leadDistributionContractPhotos
+            .map(resolveMarketplaceAssetUrl)
+            .join('\n')}`
         );
       }
       if (leadDistanceMeters) {
@@ -446,7 +453,7 @@ export default function LeadFormModal({
                       <div className="marketplace-lead-photo-row">
                         {leadParkingPhotos.map(url => (
                           <div key={url} className="marketplace-lead-photo-item">
-                            <img src={url} alt="" className="marketplace-lead-photo-img" />
+                            <img src={resolveMarketplaceAssetUrl(url)} alt="" className="marketplace-lead-photo-img" />
                             <button
                               type="button"
                               className="marketplace-lead-photo-remove"
@@ -479,7 +486,7 @@ export default function LeadFormModal({
                       <div className="marketplace-lead-photo-row">
                         {leadConnectionPhotos.map(url => (
                           <div key={url} className="marketplace-lead-photo-item">
-                            <img src={url} alt="" className="marketplace-lead-photo-img" />
+                            <img src={resolveMarketplaceAssetUrl(url)} alt="" className="marketplace-lead-photo-img" />
                             <button
                               type="button"
                               className="marketplace-lead-photo-remove"
@@ -512,7 +519,7 @@ export default function LeadFormModal({
                       <div className="marketplace-lead-photo-row">
                         {leadDistributionContractPhotos.map(url => (
                           <div key={url} className="marketplace-lead-photo-item">
-                            <img src={url} alt="" className="marketplace-lead-photo-img" />
+                            <img src={resolveMarketplaceAssetUrl(url)} alt="" className="marketplace-lead-photo-img" />
                             <button
                               type="button"
                               className="marketplace-lead-photo-remove"
