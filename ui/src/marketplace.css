@@ -118,15 +118,6 @@
   color: var(--mp-accent-dim);
 }
 
-.marketplace-share-btn--compact {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-}
-
 .marketplace-action-buttons {
   display: grid;
   gap: 0.75rem;
