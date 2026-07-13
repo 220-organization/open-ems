@@ -988,7 +988,7 @@ function formatLandingMonthlyRatesMetric(landingTotals, bcp47, t) {
   };
 }
 
-/** Month label + neon pill (rate ₴) + unit suffix + optional MoM outside the pill. */
+/** Month label + neon pill (rate ₴) + unit suffix + optional MoM — one click opens chart. */
 function LandingMonthlyRatesDisplay({ display, t, asButton, chartAria, onChartOpen }) {
   const rateText = t('powerFlowLandingMonthlyRatesCounterInBox', {
     rate: display.rateInBox ?? '—',
@@ -1006,19 +1006,9 @@ function LandingMonthlyRatesDisplay({ display, t, asButton, chartAria, onChartOp
       </PfScrollNumber>
     </div>
   );
-  const wrapClass = asButton
-    ? `${display.wrapClass} pf-landing-totals__counter-wrap--export-chart-trigger`
-    : display.wrapClass;
-  const aria = display.counterAria || display.title || undefined;
-  const box = asButton ? (
-    <button type="button" className={wrapClass} aria-label={chartAria || aria} onClick={onChartOpen}>
-      {inBox}
-    </button>
-  ) : (
-    <div className={wrapClass} aria-label={aria}>
-      {inBox}
-    </div>
-  );
+  const boxClass = display.wrapClass;
+  const aria = chartAria || display.counterAria || display.title || undefined;
+
   function monthlyRatesMomBadge(mom, labelKey, labelParams) {
     if (mom == null) return null;
     return (
@@ -1039,13 +1029,34 @@ function LandingMonthlyRatesDisplay({ display, t, asButton, chartAria, onChartOp
     delta: display.monthlyRatesMom?.deltaStr,
     prevMonth: display.monthlyRatesMom?.prevMonthLabel,
   });
-  return (
+
+  const body = (
     <>
       {display.monthLabel ? <span className="pf-landing-totals__monthly-rates-month">{display.monthLabel}</span> : null}
-      {box}
+      <div className={boxClass}>{inBox}</div>
       <span className="pf-landing-totals__monthly-rates-unit">{display.unitSuffix}</span>
       {mom}
     </>
+  );
+
+  if (asButton) {
+    return (
+      <button
+        type="button"
+        className="pf-landing-totals__monthly-rates-trigger"
+        aria-label={aria}
+        title={display.title || undefined}
+        onClick={onChartOpen}
+      >
+        {body}
+      </button>
+    );
+  }
+
+  return (
+    <div className="pf-landing-totals__monthly-rates-trigger pf-landing-totals__monthly-rates-trigger--static" aria-label={aria}>
+      {body}
+    </div>
   );
 }
 
@@ -2552,6 +2563,31 @@ export default function PowerFlowPage({
   const [exportHourlyChartOpen, setExportHourlyChartOpen] = useState(false);
   const [monthlyRatesChartOpen, setMonthlyRatesChartOpen] = useState(false);
   const [gridBalancingChartOpen, setGridBalancingChartOpen] = useState(false);
+
+  const openMonthlyRatesChart = useCallback(() => {
+    setLandingExportMetric(LANDING_EXPORT_METRIC.MONTHLY_RATES);
+    writeStoredLandingExportMetric(selInverterSn, selHuaweiStationCode, LANDING_EXPORT_METRIC.MONTHLY_RATES);
+    setMonthlyRatesChartOpen(true);
+  }, [selInverterSn, selHuaweiStationCode]);
+
+  useEffect(() => {
+    const onOpen = () => openMonthlyRatesChart();
+    window.addEventListener('open-ems-open-monthly-rates-chart', onOpen);
+    return () => window.removeEventListener('open-ems-open-monthly-rates-chart', onOpen);
+  }, [openMonthlyRatesChart]);
+
+  useEffect(() => {
+    try {
+      const u = new URL(window.location.href);
+      if (u.searchParams.get('openTariffChart') !== '1') return;
+      openMonthlyRatesChart();
+      u.searchParams.delete('openTariffChart');
+      window.history.replaceState({}, '', u);
+    } catch {
+      /* ignore */
+    }
+  }, [openMonthlyRatesChart]);
+
   const exportHourlyScope = useMemo(() => {
     if (landingExportMetric === LANDING_EXPORT_METRIC.PEAK) return 'peak';
     if (landingExportMetric === LANDING_EXPORT_METRIC.MANUAL) return 'manual';
@@ -5802,11 +5838,7 @@ export default function PowerFlowPage({
                                   <LandingMonthlyRatesDisplay
                                     display={inverterMetricDisplay}
                                     t={t}
-                                    asButton={
-                                      !(readOnlyEssSelected || landingEvPortsEss) ||
-                                      showMonthlyRatesChart ||
-                                      showExportHourlyChart
-                                    }
+                                    asButton
                                     chartAria={t('powerFlowMonthlyRatesChartOpenAria')}
                                     onChartOpen={() => setMonthlyRatesChartOpen(true)}
                                   />
@@ -5853,6 +5885,16 @@ export default function PowerFlowPage({
                                 {t('powerFlowLandingGridBalancingClickHint')}
                               </p>
                             ) : null}
+                            {landingExportMetricUi === LANDING_EXPORT_METRIC.MONTHLY_RATES ? (
+                              <button
+                                type="button"
+                                className="pf-landing-totals__tariff pf-landing-totals__tariff--monthly-rates-hint pf-landing-totals__tariff--hint-button"
+                                onClick={() => setMonthlyRatesChartOpen(true)}
+                                aria-label={t('powerFlowMonthlyRatesChartOpenAria')}
+                              >
+                                {t('powerFlowLandingMonthlyRatesHint')}
+                              </button>
+                            ) : null}
                             {gridBalancingSupplement ? (
                               <p className="pf-landing-totals__tariff pf-landing-totals__tariff--grid-balancing-supplement">
                                 {t('powerFlowLandingGridBalancingSupplementBefore')}
@@ -5872,7 +5914,16 @@ export default function PowerFlowPage({
                           <p className="pf-landing-totals__tariff pf-landing-totals__tariff--monthly-rates-hint">
                             {t('powerFlowLandingGridBalancingClickHint')}
                           </p>
-                        ) : landingExportMetricUi === LANDING_EXPORT_METRIC.MONTHLY_RATES ? null : (
+                        ) : landingExportMetricUi === LANDING_EXPORT_METRIC.MONTHLY_RATES ? (
+                          <button
+                            type="button"
+                            className="pf-landing-totals__tariff pf-landing-totals__tariff--monthly-rates-hint pf-landing-totals__tariff--hint-button"
+                            onClick={() => setMonthlyRatesChartOpen(true)}
+                            aria-label={t('powerFlowMonthlyRatesChartOpenAria')}
+                          >
+                            {t('powerFlowLandingMonthlyRatesHint')}
+                          </button>
+                        ) : (
                           <>
                             <p className="pf-landing-totals__tariff">
                               {ltd?.tariffCompare ? (
