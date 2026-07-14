@@ -67,7 +67,7 @@ services:
       HUAWEI_STATION_LIST_COOLDOWN_AFTER_407_SEC: ${HUAWEI_STATION_LIST_COOLDOWN_AFTER_407_SEC:-300}
       HUAWEI_POWER_SNAPSHOT_ENABLED: ${HUAWEI_POWER_SNAPSHOT_ENABLED:-true}
       HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC: ${HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC:-300}
-      # Ubetter EMS Open API — password only; other UBETTER_* defaults are in app/settings.py
+      # Ubetter EMS Open API — UBETTER_PASSWORD required; username/tenant default to 220km in settings.py
       UBETTER_PASSWORD: ${UBETTER_PASSWORD:-}
     depends_on:
       migrate:
