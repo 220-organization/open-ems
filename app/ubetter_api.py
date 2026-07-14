@@ -1,10 +1,16 @@
-"""Ubetter EMS Open API — token auth, device list, realtime summary (read-only)."""
+"""Ubetter EMS Open API — multi-tenant auth, device list, power-flow, manual control.
+
+Supports parallel tenants:
+  - default (cabinettest) via UBETTER_PASSWORD
+  - dedicated 220km via UBETTER_220KM_PASSWORD
+"""
 
 from __future__ import annotations
 
 import asyncio
 import logging
 import time
+from dataclasses import dataclass
 from typing import Any, Optional
 
 import httpx
@@ -14,16 +20,15 @@ from app import settings
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-_session_lock = asyncio.Lock()
-_access_token: Optional[str] = None
-_tenant_id: Optional[str] = None
-_token_expires_at: float = 0.0
+_CODE_SUCCESS = 0
+_CODE_TOKEN_INVALID = 40101
 
 _device_list_cache: dict[str, tuple[list[dict[str, Any]], float]] = {}
 _power_flow_cache: dict[str, tuple[dict[str, Any], float]] = {}
-
-_CODE_SUCCESS = 0
-_CODE_TOKEN_INVALID = 40101
+# sn → account key (updated on successful list_devices)
+_sn_account: dict[str, str] = {}
+_sessions: dict[str, "UbetterSession"] = {}
+_sessions_lock = asyncio.Lock()
 
 
 class UbetterAuthError(RuntimeError):
@@ -60,19 +65,57 @@ class UbetterUpstreamHttpError(RuntimeError):
         super().__init__(msg)
 
 
+@dataclass(frozen=True)
+class UbetterAccountConfig:
+    key: str
+    username: str
+    password: str
+    tenant_username: str
+    base_url: str
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.password and self.username and self.tenant_username and self.base_url)
+
+
+def configured_ubetter_accounts() -> list[UbetterAccountConfig]:
+    """Return enabled accounts that have a password (order: default, then 220km)."""
+    if not settings.UBETTER_ENABLED:
+        return []
+    base = settings.UBETTER_BASE_URL.rstrip("/")
+    out: list[UbetterAccountConfig] = []
+    default = UbetterAccountConfig(
+        key="default",
+        username=settings.UBETTER_USERNAME,
+        password=settings.UBETTER_PASSWORD,
+        tenant_username=settings.UBETTER_TENANT_USERNAME,
+        base_url=base,
+    )
+    if default.configured:
+        out.append(default)
+    km = UbetterAccountConfig(
+        key="220km",
+        username=settings.UBETTER_220KM_USERNAME,
+        password=settings.UBETTER_220KM_PASSWORD,
+        tenant_username=settings.UBETTER_220KM_TENANT_USERNAME,
+        base_url=base,
+    )
+    if km.configured:
+        out.append(km)
+    return out
+
+
 def ubetter_missing_env_names() -> list[str]:
+    if configured_ubetter_accounts():
+        return []
     missing: list[str] = []
-    if not settings.UBETTER_PASSWORD:
-        missing.append("UBETTER_PASSWORD")
+    if not settings.UBETTER_PASSWORD and not settings.UBETTER_220KM_PASSWORD:
+        missing.append("UBETTER_PASSWORD or UBETTER_220KM_PASSWORD")
     return missing
 
 
 def ubetter_configured() -> bool:
-    return bool(settings.UBETTER_ENABLED and settings.UBETTER_PASSWORD)
-
-
-def _base_url() -> str:
-    return settings.UBETTER_BASE_URL.rstrip("/")
+    return bool(configured_ubetter_accounts())
 
 
 def _float_or_none(value: Any) -> Optional[float]:
@@ -94,69 +137,128 @@ def _int_or_none(value: Any) -> Optional[int]:
     return int(f) if f == int(f) else int(round(f))
 
 
-async def _clear_session_unlocked() -> None:
-    global _access_token, _tenant_id, _token_expires_at
-    _access_token = None
-    _tenant_id = None
-    _token_expires_at = 0.0
+class UbetterSession:
+    """Per-tenant HTTP session (token + X-Tenant-Id)."""
 
+    __slots__ = ("account", "_lock", "_access_token", "_tenant_id", "_token_expires_at")
 
-async def _login_unlocked(client: httpx.AsyncClient) -> None:
-    global _access_token, _tenant_id, _token_expires_at
-    url = f"{_base_url()}/v1/auth/token"
-    body = {
-        "username": settings.UBETTER_USERNAME,
-        "password": settings.UBETTER_PASSWORD,
-        "tenantUsername": settings.UBETTER_TENANT_USERNAME,
-    }
-    logger.info("Ubetter: POST %s (auth token)", url)
-    r = await client.post(url, json=body, headers={"Content-Type": "application/json"})
-    try:
-        payload = r.json()
-    except Exception:
-        payload = None
-    if r.status_code >= 400:
-        if isinstance(payload, dict):
-            code = payload.get("code")
-            msg = str(payload.get("message") or r.reason_phrase or "login failed")
+    def __init__(self, account: UbetterAccountConfig):
+        self.account = account
+        self._lock = asyncio.Lock()
+        self._access_token: Optional[str] = None
+        self._tenant_id: Optional[str] = None
+        self._token_expires_at: float = 0.0
+
+    async def _clear_unlocked(self) -> None:
+        self._access_token = None
+        self._tenant_id = None
+        self._token_expires_at = 0.0
+
+    async def _login_unlocked(self, client: httpx.AsyncClient) -> None:
+        url = f"{self.account.base_url}/v1/auth/token"
+        body = {
+            "username": self.account.username,
+            "password": self.account.password,
+            "tenantUsername": self.account.tenant_username,
+        }
+        logger.info("Ubetter[%s]: POST %s (auth token)", self.account.key, url)
+        r = await client.post(url, json=body, headers={"Content-Type": "application/json"})
+        try:
+            payload = r.json()
+        except Exception:
+            payload = None
+        if r.status_code >= 400:
+            if isinstance(payload, dict):
+                code = payload.get("code")
+                msg = str(payload.get("message") or r.reason_phrase or "login failed")
+                if code in (40102, 40303, 40304, 40305, 40306, 40001):
+                    raise UbetterAuthError(msg)
+                raise UbetterApiError("/v1/auth/token", code, msg)
+            snippet = (r.text or "").replace("\n", " ").strip()[:400]
+            raise UbetterUpstreamHttpError("auth/token", int(r.status_code), snippet)
+        if not isinstance(payload, dict):
+            raise UbetterAuthError("invalid login response (not object)")
+        code = payload.get("code")
+        if code != _CODE_SUCCESS:
+            msg = str(payload.get("message") or "login failed")
             if code in (40102, 40303, 40304, 40305, 40306, 40001):
                 raise UbetterAuthError(msg)
             raise UbetterApiError("/v1/auth/token", code, msg)
-        snippet = (r.text or "").replace("\n", " ").strip()[:400]
-        raise UbetterUpstreamHttpError("auth/token", int(r.status_code), snippet)
-    if not isinstance(payload, dict):
-        raise UbetterAuthError("invalid login response (not object)")
-    code = payload.get("code")
-    if code != _CODE_SUCCESS:
-        msg = str(payload.get("message") or "login failed")
-        if code in (40102, 40303, 40304, 40305, 40306, 40001):
-            raise UbetterAuthError(msg)
-        raise UbetterApiError("/v1/auth/token", code, msg)
-    data = payload.get("data")
-    if not isinstance(data, dict):
-        raise UbetterAuthError("login response missing data")
-    token = str(data.get("accessToken") or "").strip()
-    tenant = str(data.get("tenantId") or "").strip()
-    expires_in = _int_or_none(data.get("expiresIn")) or 3600
-    if not token or not tenant:
-        raise UbetterAuthError("login response missing accessToken or tenantId")
-    _access_token = token
-    _tenant_id = tenant
-    # Refresh slightly before upstream expiry.
-    _token_expires_at = time.time() + max(60, expires_in - 60)
-    logger.info("Ubetter: session OK (tenantId=%s, ttl=%ss)", tenant, expires_in)
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            raise UbetterAuthError("login response missing data")
+        token = str(data.get("accessToken") or "").strip()
+        tenant = str(data.get("tenantId") or "").strip()
+        expires_in = _int_or_none(data.get("expiresIn")) or 3600
+        if not token or not tenant:
+            raise UbetterAuthError("login response missing accessToken or tenantId")
+        self._access_token = token
+        self._tenant_id = tenant
+        self._token_expires_at = time.time() + max(60, expires_in - 60)
+        logger.info(
+            "Ubetter[%s]: session OK (tenantId=%s, ttl=%ss)",
+            self.account.key,
+            tenant,
+            expires_in,
+        )
 
+    async def ensure_token(self, client: httpx.AsyncClient, *, force: bool = False) -> tuple[str, str]:
+        async with self._lock:
+            now = time.time()
+            if not force and self._access_token and self._tenant_id and now < self._token_expires_at:
+                return self._access_token, self._tenant_id
+            await self._login_unlocked(client)
+            if not self._access_token or not self._tenant_id:
+                raise UbetterAuthError("failed to obtain access token")
+            return self._access_token, self._tenant_id
 
-async def _ensure_token(client: httpx.AsyncClient, *, force: bool = False) -> tuple[str, str]:
-    global _access_token, _tenant_id
-    async with _session_lock:
-        now = time.time()
-        if not force and _access_token and _tenant_id and now < _token_expires_at:
-            return _access_token, _tenant_id
-        await _login_unlocked(client)
-        if not _access_token or not _tenant_id:
-            raise UbetterAuthError("failed to obtain access token")
-        return _access_token, _tenant_id
+    async def request(
+        self,
+        client: httpx.AsyncClient,
+        method: str,
+        path: str,
+        *,
+        params: Optional[dict[str, Any]] = None,
+        json_body: Optional[dict[str, Any]] = None,
+        retry_on_token_expired: bool = True,
+    ) -> Any:
+        token, tenant_id = await self.ensure_token(client)
+        url = f"{self.account.base_url}{path}"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "X-Tenant-Id": tenant_id,
+        }
+        if json_body is not None:
+            headers["Content-Type"] = "application/json"
+        r = await client.request(method, url, params=params, json=json_body, headers=headers)
+        if r.status_code >= 400:
+            snippet = (r.text or "").replace("\n", " ").strip()[:500]
+            short = path.rstrip("/").split("/")[-1] or path.replace("/", "_")
+            raise UbetterUpstreamHttpError(short, int(r.status_code), snippet)
+        try:
+            payload = r.json()
+        except Exception:
+            raise RuntimeError(f"Ubetter {path}: invalid JSON") from None
+        try:
+            return _unwrap_api_payload(path, payload)
+        except UbetterApiError as exc:
+            if exc.code == _CODE_TOKEN_INVALID and retry_on_token_expired:
+                logger.info(
+                    "Ubetter[%s]: code=40101 — re-login and retry once (%s)",
+                    self.account.key,
+                    path,
+                )
+                async with self._lock:
+                    await self._clear_unlocked()
+                return await self.request(
+                    client,
+                    method,
+                    path,
+                    params=params,
+                    json_body=json_body,
+                    retry_on_token_expired=False,
+                )
+            raise
 
 
 def _unwrap_api_payload(path: str, payload: Any) -> Any:
@@ -169,51 +271,54 @@ def _unwrap_api_payload(path: str, payload: Any) -> Any:
     return payload.get("data")
 
 
-async def _request(
-    client: httpx.AsyncClient,
-    method: str,
-    path: str,
+async def _get_or_create_session(account: UbetterAccountConfig) -> UbetterSession:
+    async with _sessions_lock:
+        sess = _sessions.get(account.key)
+        if sess is None or sess.account != account:
+            sess = UbetterSession(account)
+            _sessions[account.key] = sess
+        return sess
+
+
+async def _sessions_for_configured() -> list[UbetterSession]:
+    return [await _get_or_create_session(a) for a in configured_ubetter_accounts()]
+
+
+async def _session_for_sn(sn: str) -> UbetterSession:
+    """Resolve which tenant owns ``sn`` (from prior list, or probe all accounts)."""
+    device_sn = (sn or "").strip()
+    key = _sn_account.get(device_sn)
+    accounts = {a.key: a for a in configured_ubetter_accounts()}
+    if key and key in accounts:
+        return await _get_or_create_session(accounts[key])
+    sessions = await _sessions_for_configured()
+    if not sessions:
+        raise UbetterAuthError("no Ubetter account configured")
+    if len(sessions) == 1:
+        return sessions[0]
+
+    async def _probe(session: UbetterSession) -> Optional[UbetterSession]:
+        try:
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+                await session.request(client, "GET", f"/v1/devices/{device_sn}")
+            _sn_account[device_sn] = session.account.key
+            return session
+        except Exception:
+            return None
+
+    results = await asyncio.gather(*[_probe(s) for s in sessions])
+    for hit in results:
+        if hit is not None:
+            return hit
+    # Fallback: first configured (caller surfaces upstream error)
+    return sessions[0]
+
+
+def _normalize_device_rows(
+    data: Any,
     *,
-    params: Optional[dict[str, Any]] = None,
-    json_body: Optional[dict[str, Any]] = None,
-    retry_on_token_expired: bool = True,
-) -> Any:
-    token, tenant_id = await _ensure_token(client)
-    url = f"{_base_url()}{path}"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "X-Tenant-Id": tenant_id,
-    }
-    if json_body is not None:
-        headers["Content-Type"] = "application/json"
-    r = await client.request(method, url, params=params, json=json_body, headers=headers)
-    if r.status_code >= 400:
-        snippet = (r.text or "").replace("\n", " ").strip()[:500]
-        short = path.rstrip("/").split("/")[-1] or path.replace("/", "_")
-        raise UbetterUpstreamHttpError(short, int(r.status_code), snippet)
-    try:
-        payload = r.json()
-    except Exception:
-        raise RuntimeError(f"Ubetter {path}: invalid JSON") from None
-    try:
-        return _unwrap_api_payload(path, payload)
-    except UbetterApiError as exc:
-        if exc.code == _CODE_TOKEN_INVALID and retry_on_token_expired:
-            logger.info("Ubetter: code=40101 — re-login and retry once (%s)", path)
-            async with _session_lock:
-                await _clear_session_unlocked()
-            return await _request(
-                client,
-                method,
-                path,
-                params=params,
-                json_body=json_body,
-                retry_on_token_expired=False,
-            )
-        raise
-
-
-def _normalize_device_rows(data: Any) -> list[dict[str, Any]]:
+    account_key: str,
+) -> list[dict[str, Any]]:
     items: list[Any] = []
     if isinstance(data, dict):
         raw = data.get("items")
@@ -232,31 +337,91 @@ def _normalize_device_rows(data: Any) -> list[dict[str, Any]]:
         seen.add(sn)
         name = str(row.get("name") or "").strip() or sn
         online = bool(row.get("online")) if row.get("online") is not None else False
-        out.append({"sn": sn, "name": name, "online": online})
-    out.sort(key=lambda x: (not x["online"], x["name"].lower()))
+        out.append({"sn": sn, "name": name, "online": online, "accountKey": account_key})
+        _sn_account[sn] = account_key
     return out
 
 
-async def list_devices(page: int = 1, size: int = 50) -> list[dict[str, Any]]:
-    if not ubetter_configured():
-        return []
-    cache_key = f"{int(page)}:{int(size)}"
-    now = time.time()
-    ttl = float(settings.UBETTER_DEVICE_LIST_CACHE_TTL_SEC)
-    cached = _device_list_cache.get(cache_key)
-    if cached and (now - cached[1]) <= ttl:
-        return cached[0]
+async def _list_devices_one(
+    session: UbetterSession,
+    page: int,
+    size: int,
+) -> list[dict[str, Any]]:
     async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-        data = await _request(
+        data = await session.request(
             client,
             "GET",
             "/v1/devices",
             params={"page": int(page), "size": min(int(size), 50)},
         )
-    out = _normalize_device_rows(data)
-    _device_list_cache[cache_key] = (out, now)
-    logger.info("Ubetter: list_devices — %s device(s)", len(out))
-    return out
+    return _normalize_device_rows(data, account_key=session.account.key)
+
+
+async def list_devices(page: int = 1, size: int = 50) -> list[dict[str, Any]]:
+    """Merge device lists from all configured tenants (both accounts stay active).
+
+    Account fetches run sequentially — concurrent logins under the same Open API
+    tenantId can drop one account's device list. Both tenants remain configured
+    and serve power-flow/control in parallel via per-SN session routing.
+    """
+    sessions = await _sessions_for_configured()
+    if not sessions:
+        return []
+    cache_key = f"{int(page)}:{int(size)}:{','.join(s.account.key for s in sessions)}"
+    now = time.time()
+    ttl = float(settings.UBETTER_DEVICE_LIST_CACHE_TTL_SEC)
+    cached = _device_list_cache.get(cache_key)
+    if cached and (now - cached[1]) <= ttl:
+        return cached[0]
+
+    async def _one(session: UbetterSession) -> tuple[list[dict[str, Any]], bool]:
+        try:
+            rows = await _list_devices_one(session, page, size)
+            logger.info(
+                "Ubetter[%s]: list_devices — %s device(s)",
+                session.account.key,
+                len(rows),
+            )
+            return rows, True
+        except UbetterAuthError as exc:
+            logger.warning(
+                "Ubetter[%s]: list_devices login failed: %s",
+                session.account.key,
+                exc,
+            )
+            return [], False
+        except Exception:
+            logger.exception("Ubetter[%s]: list_devices failed", session.account.key)
+            return [], False
+
+    # Sequential: avoids concurrent /v1/auth/token races on shared tenantId.
+    parts: list[list[dict[str, Any]]] = []
+    all_ok = True
+    for session in sessions:
+        rows, ok = await _one(session)
+        parts.append(rows)
+        all_ok = all_ok and ok
+
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for part in parts:
+        for row in part:
+            sn = row["sn"]
+            if sn in seen:
+                continue
+            seen.add(sn)
+            merged.append(row)
+    merged.sort(key=lambda x: (not x["online"], x["name"].lower()))
+    # Only cache complete merges so a single-account failure is not sticky for TTL.
+    if all_ok:
+        _device_list_cache[cache_key] = (merged, now)
+    logger.info(
+        "Ubetter: list_devices merged — %s device(s) from %s account(s) (all_ok=%s)",
+        len(merged),
+        len(sessions),
+        all_ok,
+    )
+    return merged
 
 
 def _kw_to_w(kw: Optional[float]) -> Optional[float]:
@@ -375,11 +540,12 @@ async def get_device_summary(sn: str) -> dict[str, Any]:
         return {"ok": False, "configured": bool(ubetter_configured()), "reason": "missing_sn"}
     if not ubetter_configured():
         return {"ok": False, "configured": False, "reason": "not_configured"}
+    session = await _session_for_sn(device_sn)
     async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
         detail_summary: Optional[dict[str, Any]] = None
         summary_data: Optional[dict[str, Any]] = None
         try:
-            detail_raw = await _request(
+            detail_raw = await session.request(
                 client,
                 "GET",
                 f"/v1/devices/{device_sn}/detail",
@@ -389,7 +555,7 @@ async def get_device_summary(sn: str) -> dict[str, Any]:
         except Exception as exc:
             logger.warning("Ubetter: detail fetch failed for %s: %s", device_sn, exc)
         try:
-            summary_raw = await _request(client, "GET", f"/v1/devices/{device_sn}")
+            summary_raw = await session.request(client, "GET", f"/v1/devices/{device_sn}")
             if isinstance(summary_raw, dict):
                 summary_data = summary_raw
         except Exception as exc:
@@ -436,8 +602,11 @@ async def get_energy(
         params["year"] = str(year).strip()
     if month:
         params["month"] = str(month).strip()
+    session = await _session_for_sn(device_sn)
     async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-        data = await _request(client, "GET", f"/v1/devices/{device_sn}/energy", params=params or None)
+        data = await session.request(
+            client, "GET", f"/v1/devices/{device_sn}/energy", params=params or None
+        )
     rows: list[dict[str, Any]] = []
     if isinstance(data, list):
         for item in data:
@@ -505,8 +674,9 @@ async def get_run_strategy(sn: str) -> dict[str, Any]:
         return {"ok": False, "configured": bool(ubetter_configured()), "reason": "missing_sn"}
     if not ubetter_configured():
         return {"ok": False, "configured": False, "reason": "not_configured"}
+    session = await _session_for_sn(device_sn)
     async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-        data = await _request(client, "GET", f"/v1/devices/{device_sn}/run-strategy")
+        data = await session.request(client, "GET", f"/v1/devices/{device_sn}/run-strategy")
     return {"ok": True, "configured": True, "sn": device_sn, "strategy": data}
 
 
@@ -516,8 +686,11 @@ async def update_run_strategy(sn: str, body: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "configured": bool(ubetter_configured()), "reason": "missing_sn"}
     if not ubetter_configured():
         return {"ok": False, "configured": False, "reason": "not_configured"}
+    session = await _session_for_sn(device_sn)
     async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-        data = await _request(client, "PUT", f"/v1/devices/{device_sn}/run-strategy", json_body=body)
+        data = await session.request(
+            client, "PUT", f"/v1/devices/{device_sn}/run-strategy", json_body=body
+        )
     _invalidate_power_flow_cache(device_sn)
     return {"ok": True, "configured": True, "sn": device_sn, "strategy": data}
 
