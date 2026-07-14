@@ -5,8 +5,11 @@
 #   ./scripts/debug-ubetter-cloud.sh              # default SN prefix UBT_160
 #   ./scripts/debug-ubetter-cloud.sh UBT_160kWh_test
 #
-# Requires UBETTER_PASSWORD in open-ems/.env (or exported). Optional overrides:
-#   UBETTER_BASE_URL, UBETTER_USERNAME, UBETTER_TENANT_USERNAME
+# Password: UBETTER_PASSWORD (cabinettest) and/or UBETTER_220KM_PASSWORD (220km).
+# Dedicated 220km account:
+#   ACCOUNT=220km ./scripts/debug-ubetter-cloud.sh
+# Optional overrides: UBETTER_BASE_URL, UBETTER_USERNAME, UBETTER_TENANT_USERNAME,
+#   UBETTER_220KM_USERNAME, UBETTER_220KM_TENANT_USERNAME
 #
 # Docs: docs/postman/ubetter-api.postman_collection.json
 
@@ -22,17 +25,28 @@ fi
 
 BASE_URL="${UBETTER_BASE_URL:-https://eur.ubetter.com.cn/ems-open-api}"
 BASE_URL="${BASE_URL%/}"
-USERNAME="${UBETTER_USERNAME:-cabinettest}"
-TENANT_USERNAME="${UBETTER_TENANT_USERNAME:-cabinettest}"
-DEVICE_FILTER="${1:-UBT_160}"
+ACCOUNT="${ACCOUNT:-default}"
+if [[ "${ACCOUNT}" == "220km" ]]; then
+  USERNAME="${UBETTER_220KM_USERNAME:-220km}"
+  TENANT_USERNAME="${UBETTER_220KM_TENANT_USERNAME:-220km}"
+  PASSWORD="${UBETTER_220KM_PASSWORD:-}"
+  DEVICE_FILTER="${1:-UBT042}"
+  PASS_ENV_NAME=UBETTER_220KM_PASSWORD
+else
+  USERNAME="${UBETTER_USERNAME:-cabinettest}"
+  TENANT_USERNAME="${UBETTER_TENANT_USERNAME:-cabinettest}"
+  PASSWORD="${UBETTER_PASSWORD:-}"
+  DEVICE_FILTER="${1:-UBT_160}"
+  PASS_ENV_NAME=UBETTER_PASSWORD
+fi
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "ERROR: jq is required (brew install jq / apt install jq)" >&2
   exit 1
 fi
 
-if [[ -z "${UBETTER_PASSWORD:-}" ]]; then
-  echo "ERROR: UBETTER_PASSWORD is not set. Add it to open-ems/.env or export it." >&2
+if [[ -z "${PASSWORD}" ]]; then
+  echo "ERROR: ${PASS_ENV_NAME} is not set. Add it to open-ems/.env or export it." >&2
   exit 1
 fi
 
@@ -93,7 +107,7 @@ AUTH_JSON=$(curl -sS -X POST "${BASE_URL}/v1/auth/token" \
   -H 'Content-Type: application/json' \
   -d "$(jq -nc \
     --arg u "${USERNAME}" \
-    --arg p "${UBETTER_PASSWORD}" \
+    --arg p "${PASSWORD}" \
     --arg t "${TENANT_USERNAME}" \
     '{username: $u, password: $p, tenantUsername: $t}')")
 print_api_meta "Auth" "${AUTH_JSON}"
@@ -111,7 +125,7 @@ echo "${AUTH_JSON}" | jq '{
 
 AUTH_CODE=$(echo "${AUTH_JSON}" | jq -r '.code // empty')
 if [[ "${AUTH_CODE}" != "0" ]]; then
-  echo "Auth failed — check UBETTER_PASSWORD and Open API access (IP whitelist, etc.)" >&2
+  echo "Auth failed — check ${PASS_ENV_NAME} and Open API access (IP whitelist, etc.)" >&2
   exit 1
 fi
 

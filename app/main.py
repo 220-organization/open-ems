@@ -29,7 +29,7 @@ from app.schemas import NoteCreate, NoteRead
 from app import settings
 from app.deye_api import deye_configured, deye_missing_env_names
 from app.huawei_api import huawei_configured, huawei_missing_env_names
-from app.ubetter_api import ubetter_configured, ubetter_missing_env_names
+from app.ubetter_api import configured_ubetter_accounts, ubetter_configured, ubetter_missing_env_names
 from app.entsoe_dam_scheduler import entsoe_dam_daily_sync_loop
 from app.entsoe_dam_service import entsoe_dam_configured
 from app.oree_dam_scheduler import dam_daily_sync_loop
@@ -91,12 +91,17 @@ async def lifespan(app: FastAPI):
     if not settings.UBETTER_ENABLED:
         logger.info("Ubetter EMS Open API: disabled (UBETTER_ENABLED=0)")
     elif ubetter_configured():
-        logger.info("Ubetter EMS Open API: configured (base: %s)", settings.UBETTER_BASE_URL)
+        keys = ", ".join(a.key for a in configured_ubetter_accounts())
+        logger.info(
+            "Ubetter EMS Open API: configured accounts=[%s] (base: %s)",
+            keys,
+            settings.UBETTER_BASE_URL,
+        )
     else:
         um = ubetter_missing_env_names()
         logger.warning(
             "Ubetter EMS Open API: not configured — set env: %s",
-            ", ".join(um) if um else "UBETTER_PASSWORD",
+            ", ".join(um) if um else "UBETTER_PASSWORD or UBETTER_220KM_PASSWORD",
         )
 
     if settings.RATE_LIMIT_ENABLED:

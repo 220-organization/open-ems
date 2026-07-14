@@ -67,13 +67,24 @@ HUAWEI_SYSTEM_CODE: str = (os.environ.get("HUAWEI_SYSTEM_CODE") or "").strip()
 # ./run-local.sh sets HUAWEI_ENABLED=0 by default; pass -huawai to use .env credentials.
 HUAWEI_ENABLED: bool = _env_bool("HUAWEI_ENABLED", True)
 
-# Ubetter EMS Open API (third-party REST — device list + realtime summary; read-only in Open EMS).
-# Docs: Third-Party API Integration Guide (ems-open-api v1). Only UBETTER_PASSWORD is read from env.
-UBETTER_ENABLED: bool = True
-UBETTER_BASE_URL: str = "https://eur.ubetter.com.cn/ems-open-api"
-UBETTER_USERNAME: str = "cabinettest"
+# Ubetter EMS Open API (third-party REST — device list + power-flow + manual charge/discharge).
+# Docs: https://eur.ubetter.com.cn/ems-open-api/swagger-ui/index.html (ems-open-api v1).
+# Two tenants run in parallel when both passwords are set:
+#   UBETTER_PASSWORD       → cabinettest (lab / vendor share)
+#   UBETTER_220KM_PASSWORD → dedicated 220km (prod UBT-241K Ukraine-CD01-005)
+UBETTER_ENABLED: bool = _env_bool("UBETTER_ENABLED", True)
+UBETTER_BASE_URL: str = (
+    os.environ.get("UBETTER_BASE_URL") or "https://eur.ubetter.com.cn/ems-open-api"
+).rstrip("/")
+UBETTER_USERNAME: str = (os.environ.get("UBETTER_USERNAME") or "cabinettest").strip()
 UBETTER_PASSWORD: str = os.environ.get("UBETTER_PASSWORD") or ""
-UBETTER_TENANT_USERNAME: str = "cabinettest"
+UBETTER_TENANT_USERNAME: str = (os.environ.get("UBETTER_TENANT_USERNAME") or "cabinettest").strip()
+# Dedicated production tenant (runs alongside cabinettest when password is set).
+UBETTER_220KM_USERNAME: str = (os.environ.get("UBETTER_220KM_USERNAME") or "220km").strip()
+UBETTER_220KM_PASSWORD: str = os.environ.get("UBETTER_220KM_PASSWORD") or ""
+UBETTER_220KM_TENANT_USERNAME: str = (
+    os.environ.get("UBETTER_220KM_TENANT_USERNAME") or "220km"
+).strip()
 
 # OREE / DAM API (same as Java OreeDamPriceSyncService — api.oree.com.ua).
 OREE_API_BASE_URL: str = os.environ.get(
