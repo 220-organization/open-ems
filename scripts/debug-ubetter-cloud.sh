@@ -2,13 +2,14 @@
 # Debug Ubetter EMS cloud (Open API v1): auth token + device list + summary/detail.
 #
 # Usage:
-#   ./scripts/debug-ubetter-cloud.sh              # default SN prefix UBT_160
-#   ./scripts/debug-ubetter-cloud.sh UBT_160kWh_test
+#   ./scripts/debug-ubetter-cloud.sh              # default SN prefix UBT042 (prod 241kWh)
+#   ./scripts/debug-ubetter-cloud.sh UBT0420215200730007
 #
 # Requires UBETTER_PASSWORD in open-ems/.env (or exported). Optional overrides:
 #   UBETTER_BASE_URL, UBETTER_USERNAME, UBETTER_TENANT_USERNAME
 #
 # Docs: docs/postman/ubetter-api.postman_collection.json
+# Swagger: https://eur.ubetter.com.cn/ems-open-api/swagger-ui/index.html
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -22,9 +23,9 @@ fi
 
 BASE_URL="${UBETTER_BASE_URL:-https://eur.ubetter.com.cn/ems-open-api}"
 BASE_URL="${BASE_URL%/}"
-USERNAME="${UBETTER_USERNAME:-cabinettest}"
-TENANT_USERNAME="${UBETTER_TENANT_USERNAME:-cabinettest}"
-DEVICE_FILTER="${1:-UBT_160}"
+USERNAME="${UBETTER_USERNAME:-220km}"
+TENANT_USERNAME="${UBETTER_TENANT_USERNAME:-220km}"
+DEVICE_FILTER="${1:-UBT042}"
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "ERROR: jq is required (brew install jq / apt install jq)" >&2
