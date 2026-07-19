@@ -170,7 +170,7 @@ const HUAWEI_NORTHBOUND_POLL_MS = 600_000;
 const UBETTER_POLL_MS = 30_000;
 
 /** Aside QR wraps this URL (B12 uncrewed systems unit). */
-const QR_SUPPORT_URL = 'https://b12.army/';
+const QR_SUPPORT_URL = 'https://b12.army/#support';
 
 /** Open EMS repository (open source). */
 const OPEN_EMS_GITHUB_URL = 'https://github.com/220-organization/open-ems';
