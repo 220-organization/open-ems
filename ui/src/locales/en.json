@@ -146,7 +146,7 @@
   "powerFlowLandingManualDischargeSubtitleHit": "Target SoC reached",
   "powerFlowLandingManualDischargeSubtitleMiss": "Stopped before target SoC (time limit or flat cloud SoC)",
   "powerFlowLandingExportMetricGridBalancing": "Grid Balancing",
-  "powerFlowLandingExportMetricMonthlyRates": "Monthly rates",
+  "powerFlowLandingExportMetricMonthlyRates": "DAM tariff",
   "powerFlowLandingExportMetricPeak": "Peak export",
   "powerFlowLandingExportMetricManual": "Manual export",
   "powerFlowLandingExportMetricTotal": "Total export",

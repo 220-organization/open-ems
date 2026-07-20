@@ -442,7 +442,7 @@ const UK_MONTH_SHORT = Object.freeze([
 const LANDING_TARIFF_DISTRIBUTION_UAH_PER_KWH = 3.5;
 const LANDING_TARIFF_VAT_MULTIPLIER = 1.2;
 
-/** Landing export block: metric dropdown + counter (fleet or one inverter; default: total export). */
+/** Landing export block: metric dropdown + counter (fleet or one inverter; default: DAM / RDN tariff). */
 const LANDING_EXPORT_METRIC = Object.freeze({
   GRID_BALANCING: 'grid_balancing',
   MONTHLY_RATES: 'monthly_rates',
@@ -488,8 +488,7 @@ function landingExportMetricHasPositiveValue(landingTotals, metric) {
   }
 }
 
-function preferredLandingExportMetric(offers) {
-  if (offers?.gridBalancing) return LANDING_EXPORT_METRIC.GRID_BALANCING;
+function preferredLandingExportMetric(_offers) {
   return LANDING_EXPORT_METRIC.MONTHLY_RATES;
 }
 
@@ -523,7 +522,7 @@ const LANDING_EXPORT_METRIC_STORAGE_LEGACY_KEYS = [
   'pf-landing-export-metric-v3-global',
 ];
 
-/** Only these metrics are restored from storage; grid balancing is always the default. */
+/** Only these metrics are restored from storage; DAM / RDN tariff (monthly_rates) is always the default. */
 const PERSISTED_LANDING_EXPORT_METRICS = new Set([
   LANDING_EXPORT_METRIC.PEAK,
   LANDING_EXPORT_METRIC.MANUAL,
@@ -532,17 +531,17 @@ const PERSISTED_LANDING_EXPORT_METRICS = new Set([
   LANDING_EXPORT_METRIC.LOST_SOLAR_7D,
 ]);
 
-/** Grid balancing is the product default; do not restore monthly_rates from storage. */
+/** DAM / RDN tariff is the product default; do not restore grid_balancing from storage. */
 function landingExportMetricFromStoredRaw(raw) {
-  if (raw === LANDING_EXPORT_METRIC.MONTHLY_RATES) return LANDING_EXPORT_METRIC.GRID_BALANCING;
+  if (raw === LANDING_EXPORT_METRIC.GRID_BALANCING) return LANDING_EXPORT_METRIC.MONTHLY_RATES;
   return raw;
 }
 
 function defaultLandingExportMetric() {
-  return LANDING_EXPORT_METRIC.GRID_BALANCING;
+  return LANDING_EXPORT_METRIC.MONTHLY_RATES;
 }
 function normalizeLandingExportMetricForContext(metric, inverterSn, huaweiStationCode, evPortsAcdc) {
-  if (!LANDING_EXPORT_METRIC_VALUES.has(metric)) return LANDING_EXPORT_METRIC.GRID_BALANCING;
+  if (!LANDING_EXPORT_METRIC_VALUES.has(metric)) return LANDING_EXPORT_METRIC.MONTHLY_RATES;
   const ev = evPortsAcdc === 'dc' || evPortsAcdc === 'ac' || evPortsAcdc === 'bb' ? evPortsAcdc : '';
   if (ev) {
     if (metric !== LANDING_EXPORT_METRIC.MONTHLY_RATES) {
@@ -558,11 +557,11 @@ function normalizeLandingExportMetricForContext(metric, inverterSn, huaweiStatio
       metric === LANDING_EXPORT_METRIC.ARBITRAGE ||
       metric === LANDING_EXPORT_METRIC.LOST_SOLAR_7D)
   ) {
-    return LANDING_EXPORT_METRIC.GRID_BALANCING;
+    return LANDING_EXPORT_METRIC.MONTHLY_RATES;
   }
   const s = String(inverterSn || '').trim();
   if (!s && !h && metric === LANDING_EXPORT_METRIC.LOST_SOLAR_7D) {
-    return LANDING_EXPORT_METRIC.GRID_BALANCING;
+    return LANDING_EXPORT_METRIC.MONTHLY_RATES;
   }
   return metric;
 }
@@ -589,7 +588,7 @@ function replaceLandingExportMetricInUrl(metric) {
   try {
     const u = new URL(window.location.href);
     u.searchParams.delete('landingExport');
-    if (metric === LANDING_EXPORT_METRIC.TOTAL || metric === LANDING_EXPORT_METRIC.GRID_BALANCING) {
+    if (metric === LANDING_EXPORT_METRIC.TOTAL || metric === LANDING_EXPORT_METRIC.MONTHLY_RATES) {
       u.searchParams.delete('exportMetric');
     } else {
       u.searchParams.set('exportMetric', metric);
@@ -2372,9 +2371,7 @@ export default function PowerFlowPage({
   const dischargeHoverTipTimerRef = useRef(null);
   /** After first load, inverter/station changes keep ``landingExportMetric`` unless URL overrides or context forbids it. */
   const landingExportMetricHydratedRef = useRef(false);
-  /** One-shot: after landing totals load, promote legacy monthly_rates selection to grid balancing. */
-  const landingExportMetricDefaultedRef = useRef(false);
-  /** Previous Deye ``selInverterSn`` (Huawei mode uses empty SN); used to reset metric to total export on inverter change. */
+  /** Previous Deye ``selInverterSn`` (Huawei mode uses empty SN); used to reset metric to DAM / RDN tariff on inverter change. */
   const prevSelInverterSnForMetricRef = useRef(null);
   const [peakDamDischargeEnabled, setPeakDamDischargeEnabled] = useState(false);
   const [dischargeSocDeltaPct, setDischargeSocDeltaPct] = useState(80);
@@ -2390,7 +2387,7 @@ export default function PowerFlowPage({
   /** Fleet or per-inverter totals from GET /api/power-flow/landing-totals. */
   const [landingTotals, setLandingTotals] = useState(null);
   const [landingTotalsLoading, setLandingTotalsLoading] = useState(false);
-  const [landingExportMetric, setLandingExportMetric] = useState(LANDING_EXPORT_METRIC.GRID_BALANCING);
+  const [landingExportMetric, setLandingExportMetric] = useState(LANDING_EXPORT_METRIC.MONTHLY_RATES);
 
   /** Self-consumption hint / aria: reference LCOE + same till-SoC label as the discharge dropdown. */
   const selfConsumptionHintWithLcoe = useMemo(() => {
@@ -2528,25 +2525,6 @@ export default function PowerFlowPage({
     selHuaweiStationCode,
     landingTotalsLoading,
     landingTotals,
-  ]);
-
-  useEffect(() => {
-    if (landingExportMetricDefaultedRef.current) return;
-    if (landingTotalsLoading || !landingTotals?.ok) return;
-    landingExportMetricDefaultedRef.current = true;
-    if (readLandingExportMetricFromUrl(selInverterSn, selHuaweiStationCode, selEvPortsAcdc) != null) return;
-    if (!landingExportMetricOffers.gridBalancing) return;
-    if (landingExportMetric !== LANDING_EXPORT_METRIC.MONTHLY_RATES) return;
-    setLandingExportMetric(LANDING_EXPORT_METRIC.GRID_BALANCING);
-    writeStoredLandingExportMetric(selInverterSn, selHuaweiStationCode, LANDING_EXPORT_METRIC.GRID_BALANCING);
-  }, [
-    landingTotalsLoading,
-    landingTotals,
-    landingExportMetricOffers.gridBalancing,
-    landingExportMetric,
-    selInverterSn,
-    selHuaweiStationCode,
-    selEvPortsAcdc,
   ]);
 
   const [exportHourlyChartOpen, setExportHourlyChartOpen] = useState(false);
@@ -5740,14 +5718,14 @@ export default function PowerFlowPage({
                                 writeStoredLandingExportMetric(selInverterSn, selHuaweiStationCode, v);
                               }}
                             >
+                              <option value={LANDING_EXPORT_METRIC.MONTHLY_RATES}>
+                                {t('powerFlowLandingExportMetricMonthlyRates')}
+                              </option>
                               {landingExportMetricOffers.gridBalancing ? (
                                 <option value={LANDING_EXPORT_METRIC.GRID_BALANCING}>
                                   {t('powerFlowLandingExportMetricGridBalancing')}
                                 </option>
                               ) : null}
-                              <option value={LANDING_EXPORT_METRIC.MONTHLY_RATES}>
-                                {t('powerFlowLandingExportMetricMonthlyRates')}
-                              </option>
                               {readOnlyEssSelected || landingEvPortsEss || !landingExportMetricOffers.peak ? null : (
                                 <option value={LANDING_EXPORT_METRIC.PEAK}>
                                   {t('powerFlowLandingExportMetricPeak')}
