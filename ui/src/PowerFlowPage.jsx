@@ -6668,6 +6668,7 @@ export default function PowerFlowPage({
 
               <aside className="pf-ukraine-qr" aria-label={t('qrAsideAria')}>
                 <a className="pf-ukraine-qr-link" href={QR_SUPPORT_URL} target="_blank" rel="noopener noreferrer">
+                  <span className="pf-ukraine-qr-donate">{t('qrDonateLabel')}</span>
                   <img
                     className="pf-ukraine-qr-img"
                     src={`${qrBase}/static/power-flow/protect-ukraine-qr.png`}

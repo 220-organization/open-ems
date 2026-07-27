@@ -46,10 +46,93 @@
   text-align: center;
 }
 
+.rdn-callback-card__mode {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.rdn-callback-card__mode-btn {
+  flex: 1 1 0;
+  min-height: 40px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid var(--pf-border, rgba(255, 255, 255, 0.14));
+  background: rgba(0, 0, 0, 0.28);
+  color: var(--pf-text-secondary, rgba(245, 230, 255, 0.78));
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.rdn-callback-card__mode-btn.is-active {
+  border-color: rgba(252, 1, 155, 0.55);
+  background: rgba(252, 1, 155, 0.18);
+  color: var(--pf-label, #f5e6ff);
+}
+
 .rdn-callback-card__fields {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.rdn-callback-card__amounts {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
+}
+
+.rdn-callback-card__amounts-legend {
+  padding: 0;
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--pf-text-secondary, rgba(245, 230, 255, 0.78));
+}
+
+.rdn-callback-card__amount-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rdn-callback-card__amount-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 120px;
+  min-height: 42px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--pf-border, rgba(255, 255, 255, 0.14));
+  background: rgba(0, 0, 0, 0.28);
+  color: var(--pf-text, #fff);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.rdn-callback-card__amount-option input {
+  accent-color: #fc019b;
+}
+
+.rdn-callback-card__paid-summary,
+.rdn-callback-card__status {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: #9dffc0;
+  text-align: center;
+}
+
+.rdn-callback-card__error {
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: #ff8f9f;
+  text-align: center;
 }
 
 .rdn-callback-card__label {
@@ -126,6 +209,29 @@
 .rdn-callback-card__btn--whatsapp {
   background: linear-gradient(145deg, #3fe27c 0%, #25d366 55%, #128c7e 100%);
   border-color: #1da851;
+}
+
+.rdn-callback-card__btn--pay {
+  background: linear-gradient(145deg, #fc019b 0%, #b0006e 100%);
+  border-color: #9a0060;
+}
+
+.rdn-callback-card__actions--pay {
+  flex-direction: column;
+}
+
+.rdn-callback-card__btn--pay-test {
+  background: transparent;
+  border-color: var(--pf-border, rgba(255, 255, 255, 0.22));
+  color: var(--pf-text-secondary, rgba(245, 230, 255, 0.78));
+  font-weight: 500;
+  font-size: 0.85rem;
+  min-height: 40px;
+}
+
+[data-theme="light"] .rdn-callback-card__btn--pay-test {
+  color: rgba(40, 10, 55, 0.72);
+  border-color: rgba(193, 0, 185, 0.22);
 }
 
 .dam-embedded-head {
@@ -1347,6 +1453,23 @@ a.dam-oree-embed-external:hover {
 
 [data-theme="light"] .rdn-callback-card__input::placeholder {
   color: rgba(20, 5, 30, 0.36);
+}
+
+[data-theme="light"] .rdn-callback-card__mode-btn {
+  background: rgba(255, 255, 255, 0.9);
+  color: rgba(40, 10, 55, 0.72);
+  border-color: rgba(193, 0, 185, 0.18);
+}
+
+[data-theme="light"] .rdn-callback-card__mode-btn.is-active {
+  background: rgba(252, 1, 155, 0.12);
+  color: #3a1048;
+}
+
+[data-theme="light"] .rdn-callback-card__amount-option {
+  background: #ffffff;
+  color: #2a0a38;
+  border-color: rgba(193, 0, 185, 0.18);
 }
 
 @media (prefers-color-scheme: light) {

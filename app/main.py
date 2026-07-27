@@ -22,6 +22,7 @@ from app.routers import (
     huawei_proxy,
     nbu_fx,
     power_flow_totals,
+    rdn_consultation,
     server_metrics,
     ubetter_proxy,
 )
@@ -397,6 +398,7 @@ app.include_router(nbu_fx.router)
 app.include_router(server_metrics.router)
 app.include_router(power_flow_totals.router)
 app.include_router(ev_driver_tracker.router)
+app.include_router(rdn_consultation.router)
 
 # Production / `npm run build`: serve CRA output only (no legacy static HTML).
 # Local dev: OPEN_EMS_SERVE_SPA=0 — API only; UI from `npm start`.

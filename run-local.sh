@@ -85,6 +85,8 @@ OPENEMS_OPEN_SWAGGER="${OPENEMS_OPEN_SWAGGER:-0}"
 
 # API process does not serve legacy / built HTML; UI is only from the CRA dev server.
 export OPEN_EMS_SERVE_SPA=0
+# Skip Monobank for RDN consultation pay on localhost (UI shows “Skip payment”)
+export RDN_CONSULTATION_ALLOW_TEST_PAYMENT="${RDN_CONSULTATION_ALLOW_TEST_PAYMENT:-1}"
 
 if [[ "${USE_HUAWEI_API}" -eq 0 ]]; then
   export HUAWEI_ENABLED=0
