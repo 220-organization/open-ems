@@ -3392,8 +3392,8 @@ export default function PowerFlowPage({
       return undefined;
     }
     let cancelled = false;
-    const loadGridlab = async () => {
-      setGridlabLiveLoading(true);
+    const loadGridlab = async ({ silent = false } = {}) => {
+      if (!silent) setGridlabLiveLoading(true);
       try {
         const q = new URLSearchParams({ deviceId: selGridlabDeviceId });
         const r = await fetch(`${apiUrl('/api/gridlab/power-flow')}?${q}`, { cache: 'no-store' });
@@ -3420,11 +3420,11 @@ export default function PowerFlowPage({
       } catch {
         /* keep last value on transient errors */
       } finally {
-        if (!cancelled) setGridlabLiveLoading(false);
+        if (!cancelled && !silent) setGridlabLiveLoading(false);
       }
     };
-    void loadGridlab();
-    const id = setInterval(() => void loadGridlab(), GRIDLAB_POLL_MS);
+    void loadGridlab({ silent: false });
+    const id = setInterval(() => void loadGridlab({ silent: true }), GRIDLAB_POLL_MS);
     return () => {
       cancelled = true;
       clearInterval(id);
@@ -4953,7 +4953,7 @@ export default function PowerFlowPage({
     (Boolean(selGridlabDeviceId) &&
       gridlabListReady &&
       !gridlabRows.error &&
-      (gridlabHydratedId !== selGridlabDeviceId || gridlabLiveLoading));
+      gridlabHydratedId !== selGridlabDeviceId);
 
   const noEssListYet =
     (inverterRows.loading || huaweiRows.loading || ubetterRows.loading || gridlabRows.loading) &&
