@@ -173,3 +173,4 @@ git checkout main && git pull --ff-only origin main
 ## Related skill
 
 - [build-before-push](../build-before-push/SKILL.md) — API startup + UI build; must run before commit/push
+- [wire-integration-secrets](../wire-integration-secrets/SKILL.md) — when adding a new external API secret, wire docker-compose + deploy.yml or production stays `configured: false`
