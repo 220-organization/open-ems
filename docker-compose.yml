@@ -80,6 +80,8 @@ services:
       # Ubetter EMS Open API — parallel tenants: cabinettest (UBETTER_PASSWORD) + 220km (UBETTER_220KM_PASSWORD)
       UBETTER_PASSWORD: ${UBETTER_PASSWORD:-}
       UBETTER_220KM_PASSWORD: ${UBETTER_220KM_PASSWORD:-}
+      # GridLab External BESS API — only password is env-configurable (rest hardcoded in settings.py)
+      GRIDLAB_PASSWORD: ${GRIDLAB_PASSWORD:-}
     depends_on:
       migrate:
         condition: service_completed_successfully
