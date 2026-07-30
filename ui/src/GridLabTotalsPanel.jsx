@@ -39,16 +39,25 @@ export default function GridLabTotalsPanel({ deviceId, apiUrl, t, getBcp47Locale
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const abortRef = useRef(null);
+  const hasLiveRef = useRef(false);
   const bcp47 = typeof getBcp47Locale === 'function' ? getBcp47Locale() : 'en-GB';
   const fmtKw = kwFmt(bcp47);
   const fmtKwh = kwhFmt(bcp47);
+
+  useEffect(() => {
+    hasLiveRef.current = false;
+    setLive(null);
+    setMeters([]);
+    setError(null);
+  }, [deviceId]);
 
   const fetchAll = useCallback(async () => {
     if (!deviceId) return;
     if (abortRef.current) abortRef.current.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
-    setLoading(true);
+    // Silent background refresh after the first payload (avoid panel/page flash).
+    if (!hasLiveRef.current) setLoading(true);
     setError(null);
     try {
       const q = new URLSearchParams({ deviceId: String(deviceId) });
@@ -65,17 +74,20 @@ export default function GridLabTotalsPanel({ deviceId, apiUrl, t, getBcp47Locale
         else setError('error');
         setLive(null);
         setMeters([]);
+        hasLiveRef.current = false;
       } else {
         setLive(pf);
         setError(null);
         const list = Array.isArray(md.meters) ? md.meters.filter(m => !m.isVirtual) : [];
         setMeters(list);
+        hasLiveRef.current = true;
       }
     } catch (e) {
       if (e.name === 'AbortError') return;
       setError('error');
       setLive(null);
       setMeters([]);
+      hasLiveRef.current = false;
     } finally {
       if (!ctrl.signal.aborted) setLoading(false);
     }
