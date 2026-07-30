@@ -108,6 +108,8 @@ Only the password is configurable. Device, username, meters, and intervals are h
 GRIDLAB_PASSWORD=          # secret — required for GridLab integration
 ```
 
+On production deploy, set repository secret **`GRIDLAB_PASSWORD`** (Actions → Secrets). The deploy workflow writes it into the server `.env` and `docker-compose.yml` passes it into the `api` container. Without this secret, `GET /api/gridlab/devices` returns `configured: false` and the UI omits GridLab.
+
 Hardcoded defaults (device 16):
 
 | Setting | Value |

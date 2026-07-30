@@ -141,6 +141,7 @@ jobs:
           HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC: ${{ secrets.HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC }}
           UBETTER_PASSWORD: ${{ secrets.UBETTER_PASSWORD }}
           UBETTER_220KM_PASSWORD: ${{ secrets.UBETTER_220KM_PASSWORD }}
+          GRIDLAB_PASSWORD: ${{ secrets.GRIDLAB_PASSWORD }}
         run: |
           set -e
           umask 077
@@ -173,6 +174,7 @@ jobs:
             printf '%s\n' "HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC=${HUAWEI_POWER_SNAPSHOT_INTERVAL_SEC:-300}"
             printf '%s\n' "UBETTER_PASSWORD=${UBETTER_PASSWORD:-}"
             printf '%s\n' "UBETTER_220KM_PASSWORD=${UBETTER_220KM_PASSWORD:-}"
+            printf '%s\n' "GRIDLAB_PASSWORD=${GRIDLAB_PASSWORD:-}"
           } > /tmp/open-ems-deploy.env
           test -s /tmp/open-ems-deploy.env
       # appleboy/scp-action often creates a *directory* named like the target and nests the file
