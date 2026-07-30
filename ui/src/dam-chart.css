@@ -1492,3 +1492,56 @@ a.dam-oree-embed-external:hover {
     color: rgba(20, 5, 30, 0.36);
   }
 }
+
+/* GridLab BESS live totals + meters table */
+.gl-totals__stale {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #fbbf24;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.gl-totals__age {
+  font-size: 0.75rem;
+  opacity: 0.7;
+}
+
+.gl-totals__meters {
+  margin-top: 1rem;
+  overflow-x: auto;
+}
+
+.gl-totals__meters-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.gl-totals__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.gl-totals__table th,
+.gl-totals__table td {
+  text-align: left;
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid rgba(252, 1, 155, 0.12);
+  vertical-align: top;
+}
+
+.gl-totals__table th {
+  opacity: 0.75;
+  font-weight: 600;
+}
+
+.gl-totals__row--stale td {
+  color: #fbbf24;
+}
+
+.gl-totals__selected {
+  opacity: 0.65;
+  font-size: 0.75rem;
+}

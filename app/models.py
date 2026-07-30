@@ -99,6 +99,107 @@ class UbetterPowerSample(Base):
     )
 
 
+class GridLabPowerSample(Base):
+    """
+    GridLab BESS live metrics in 5-minute UTC buckets.
+    grid_power_w > 0 = import, < 0 = export; battery_power_w > 0 = discharge.
+    """
+
+    __tablename__ = "gridlab_power_sample"
+
+    device_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    bucket_start: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), primary_key=True
+    )
+    soc_percent: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    battery_power_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    grid_power_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    pv_power_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    load_power_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    ev_power_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    is_online: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    created_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class GridLabMeterReading(Base):
+    """Cumulative meter registers snapshot at 5-minute UTC buckets."""
+
+    __tablename__ = "gridlab_meter_reading"
+
+    device_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    meter_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    bucket_start: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), primary_key=True
+    )
+    power_kw: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    kwh_import: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    kwh_export: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    created_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class GridLabHourlyMeter(Base):
+    """Hourly meter energy deltas from GridLab /history/meter (Kyiv calendar day/hour)."""
+
+    __tablename__ = "gridlab_hourly_meter"
+
+    device_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    meter_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    target_date: Mapped[datetime.date] = mapped_column(Date, primary_key=True)
+    hour: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    energy_import_kwh: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    energy_export_kwh: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    avg_power_kw: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    samples: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class GridLabHourlySoc(Base):
+    """Hourly SoC at hour boundary from GridLab /history/soc (Kyiv calendar)."""
+
+    __tablename__ = "gridlab_hourly_soc"
+
+    device_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    target_date: Mapped[datetime.date] = mapped_column(Date, primary_key=True)
+    hour: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    soc_percent: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    sample_ts: Mapped[Optional[datetime.datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class GridLabHourlyFlow(Base):
+    """Hourly energy flows from GridLab /history/flows (may be empty upstream)."""
+
+    __tablename__ = "gridlab_hourly_flow"
+
+    device_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    target_date: Mapped[datetime.date] = mapped_column(Date, primary_key=True)
+    hour: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    pv_total: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    pv_to_bess: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    pv_to_grid: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    grid_to_bess: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    bess_to_grid: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    bess_to_load: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    grid_to_load: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    load: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    losses: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    fiscal_grid_import: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    fiscal_grid_export: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    created_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class HuaweiPowerSample(Base):
     """
     Huawei plant power in 5-minute UTC buckets (aligned with Deye snapshot cadence).
