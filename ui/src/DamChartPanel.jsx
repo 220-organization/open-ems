@@ -17,6 +17,7 @@ import './dam-chart.css';
 import { DEYE_FLOW_BALANCE_PV_FACTOR, usesDeyeFlowBalance } from './deyeFlowBalanceSites';
 import HuaweiTotalsPanel from './HuaweiTotalsPanel';
 import UbetterTotalsPanel from './UbetterTotalsPanel';
+import GridLabTotalsPanel from './GridLabTotalsPanel';
 import DeyeTotalsPanel from './DeyeTotalsPanel';
 import KwhDisplay from './KwhDisplay';
 import { useKwhCalibration } from './KwhCalibrationContext';
@@ -640,6 +641,7 @@ function kyivHourIndexNowForDate(tradeDayIso) {
  * @param {string} [inverterSn] — Deye serial; when set, overlays mean SoC % per hour (from DB) on the chart.
  * @param {string} [huaweiStationCode] — FusionSolar plant code; grid/PV/load bars from DB (`/api/huawei/station-hourly`). Mutually exclusive with Deye bar data in practice.
  * @param {string} [ubetterDeviceSn] — Ubetter EMS device SN; energy totals from `/api/ubetter/energy`.
+ * @param {string} [gridlabDeviceId] — GridLab BESS device id; SoC history from `/api/gridlab/soc-history-day`.
  * @param {'dc' | 'ac'} [evPortsAcdc] — EV fleet (fast/slow chargers); grid import bars from DB (`/api/b2b/ev-ports-hourly`).
  * @param {number} [liveEvPortsPowerW] — live aggregate EV power (W) for current-hour overlay when DB samples are sparse.
  */
@@ -655,6 +657,7 @@ export default function DamChartPanel({
   inverterSn: inverterSnProp,
   huaweiStationCode: huaweiStationCodeProp,
   ubetterDeviceSn: ubetterDeviceSnProp,
+  gridlabDeviceId: gridlabDeviceIdProp,
   evPortsAcdc: evPortsAcdcProp,
   liveEvPortsPowerW,
 }) {
@@ -768,14 +771,23 @@ export default function DamChartPanel({
   ).trim();
   const effectiveHuaweiStation = (huaweiStationCodeProp && String(huaweiStationCodeProp).trim()) || '';
   const effectiveUbetterDevice = (ubetterDeviceSnProp && String(ubetterDeviceSnProp).trim()) || '';
+  const effectiveGridlabDevice = (gridlabDeviceIdProp && String(gridlabDeviceIdProp).trim()) || '';
   const effectiveEvPortsAcdc =
     evPortsAcdcProp === 'dc' || evPortsAcdcProp === 'ac' ? evPortsAcdcProp : '';
   const deyeNoExportMode = Boolean(effectiveInverterSn) && DEYE_NO_EXPORT_DEVICE_SNS.has(effectiveInverterSn);
   const showEnergyBars = Boolean(
-    effectiveInverterSn || effectiveHuaweiStation || effectiveEvPortsAcdc || effectiveUbetterDevice
+    effectiveInverterSn ||
+      effectiveHuaweiStation ||
+      effectiveEvPortsAcdc ||
+      effectiveUbetterDevice ||
+      effectiveGridlabDevice
   );
-  const showPvLoadBars = Boolean(effectiveInverterSn || effectiveHuaweiStation || effectiveUbetterDevice);
-  const showDeyeExtras = Boolean((effectiveInverterSn || effectiveUbetterDevice) && !effectiveHuaweiStation);
+  const showPvLoadBars = Boolean(
+    effectiveInverterSn || effectiveHuaweiStation || effectiveUbetterDevice || effectiveGridlabDevice
+  );
+  const showDeyeExtras = Boolean(
+    (effectiveInverterSn || effectiveUbetterDevice || effectiveGridlabDevice) && !effectiveHuaweiStation
+  );
 
   const damChartMobile = useDamChartMobileLayout();
 
@@ -995,7 +1007,10 @@ export default function DamChartPanel({
   }, [load]);
 
   useEffect(() => {
-    if (effectiveHuaweiStation || (!effectiveInverterSn && !effectiveUbetterDevice)) {
+    if (
+      effectiveHuaweiStation ||
+      (!effectiveInverterSn && !effectiveUbetterDevice && !effectiveGridlabDevice)
+    ) {
       setSocPayload(null);
       setSocError('');
       setSocLoading(false);
@@ -1006,10 +1021,18 @@ export default function DamChartPanel({
       setSocLoading(true);
       setSocError('');
       try {
-        const q = effectiveUbetterDevice
-          ? new URLSearchParams({ sn: effectiveUbetterDevice, date: tradeDay })
-          : new URLSearchParams({ deviceSn: effectiveInverterSn, date: tradeDay });
-        const path = effectiveUbetterDevice ? '/api/ubetter/soc-history-day' : '/api/deye/soc-history-day';
+        let path;
+        let q;
+        if (effectiveGridlabDevice) {
+          path = '/api/gridlab/soc-history-day';
+          q = new URLSearchParams({ deviceId: effectiveGridlabDevice, date: tradeDay });
+        } else if (effectiveUbetterDevice) {
+          path = '/api/ubetter/soc-history-day';
+          q = new URLSearchParams({ sn: effectiveUbetterDevice, date: tradeDay });
+        } else {
+          path = '/api/deye/soc-history-day';
+          q = new URLSearchParams({ deviceSn: effectiveInverterSn, date: tradeDay });
+        }
         const r = await fetch(apiUrl(`${path}?${q}`), { cache: 'no-store' });
         if (!r.ok) throw new Error((await r.text()) || r.statusText);
         const data = await r.json();
@@ -1025,7 +1048,7 @@ export default function DamChartPanel({
     return () => {
       cancelled = true;
     };
-  }, [tradeDay, effectiveInverterSn, effectiveUbetterDevice, effectiveHuaweiStation]);
+  }, [tradeDay, effectiveInverterSn, effectiveUbetterDevice, effectiveGridlabDevice, effectiveHuaweiStation]);
 
   useEffect(() => {
     if (!effectiveInverterSn || effectiveHuaweiStation) {
@@ -2697,6 +2720,14 @@ export default function DamChartPanel({
             getBcp47Locale={getBcp47Locale}
           />
         ) : null}
+        {effectiveGridlabDevice ? (
+          <GridLabTotalsPanel
+            deviceId={effectiveGridlabDevice}
+            apiUrl={apiUrl}
+            t={t}
+            getBcp47Locale={getBcp47Locale}
+          />
+        ) : null}
         {effectiveUbetterDevice ? (
           <UbetterTotalsPanel
             deviceSn={effectiveUbetterDevice}
@@ -2706,7 +2737,10 @@ export default function DamChartPanel({
             getBcp47Locale={getBcp47Locale}
           />
         ) : null}
-        {effectiveInverterSn && !effectiveHuaweiStation && !effectiveUbetterDevice ? (
+        {effectiveInverterSn &&
+        !effectiveHuaweiStation &&
+        !effectiveUbetterDevice &&
+        !effectiveGridlabDevice ? (
           <DeyeTotalsPanel
             tradeDay={tradeDay}
             inverterSn={effectiveInverterSn}

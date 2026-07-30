@@ -86,6 +86,14 @@ UBETTER_220KM_TENANT_USERNAME: str = (
     os.environ.get("UBETTER_220KM_TENANT_USERNAME") or "220km"
 ).strip()
 
+# GridLab External BESS API (read-only JWT) — https://gridlab.com.ua/docs
+# Device 16 (BESS 500/1075); meters selected by explicit IDs (roles overlap — do not sum by role).
+# Only GRIDLAB_PASSWORD is configurable via env; everything else is hardcoded for this site.
+GRIDLAB_ENABLED: bool = True
+GRIDLAB_BASE_URL: str = "https://gridlab.com.ua"
+GRIDLAB_USERNAME: str = "api_220km"
+GRIDLAB_PASSWORD: str = os.environ.get("GRIDLAB_PASSWORD") or ""
+
 # OREE / DAM API (same as Java OreeDamPriceSyncService — api.oree.com.ua).
 OREE_API_BASE_URL: str = os.environ.get(
     "OREE_API_BASE_URL",
@@ -155,6 +163,22 @@ UBETTER_POWER_SNAPSHOT_ENABLED: bool = _env_bool("UBETTER_POWER_SNAPSHOT_ENABLED
 UBETTER_POWER_SNAPSHOT_INTERVAL_SEC: int = _env_int("UBETTER_POWER_SNAPSHOT_INTERVAL_SEC", 300, 60, 3600)
 # Manual charge/discharge (Open API strategy=0): default PCS power cap in kW when upstream omits power.
 UBETTER_MANUAL_POWER_KW: float = _env_float("UBETTER_MANUAL_POWER_KW", 50.0, 1.0, 500.0)
+
+# GridLab BESS — device 16 topology (hardcoded; do not sum all meters of a role).
+GRIDLAB_DEVICE_ID: int = 16
+GRIDLAB_PCC_METER_ID: int = 21
+GRIDLAB_PV_METER_ID: int = 23
+GRIDLAB_LOAD_METER_ID: int = 22
+GRIDLAB_EV_METER_IDS: tuple[int, ...] = (27, 28)
+GRIDLAB_STATUS_CACHE_TTL_SEC: int = 10
+GRIDLAB_METERS_CACHE_TTL_SEC: int = 15
+GRIDLAB_STALE_MAX_AGE_SEC: int = 60
+GRIDLAB_POWER_SNAPSHOT_ENABLED: bool = True
+GRIDLAB_POWER_SNAPSHOT_INTERVAL_SEC: int = 300
+GRIDLAB_HISTORY_SYNC_ENABLED: bool = True
+GRIDLAB_HISTORY_SYNC_HOUR_KYIV: int = 1
+GRIDLAB_HISTORY_BACKFILL_DAYS: int = 7
+
 
 def _parse_oree_sync_hours_kyiv() -> tuple[int, ...]:
     """

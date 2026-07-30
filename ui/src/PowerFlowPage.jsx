@@ -32,6 +32,7 @@ import {
   ESS_PREFIX_DC_EV,
   ESS_PREFIX_HUAWEI,
   ESS_PREFIX_UBETTER,
+  ESS_PREFIX_GRIDLAB,
   evPortsAcdcFromProvider,
   ESS_SELECTION_STORAGE_KEY,
   normalizeEssSelectionValue,
@@ -168,6 +169,8 @@ const KIOSK_WIDE_MIN_PX = 992;
 const HUAWEI_NORTHBOUND_POLL_MS = 600_000;
 /** Ubetter EMS Open API — live summary poll interval. */
 const UBETTER_POLL_MS = 30_000;
+/** GridLab External BESS API — live status/meters poll interval. */
+const GRIDLAB_POLL_MS = 30_000;
 
 /** Aside QR wraps this URL (B12 uncrewed systems unit). */
 const QR_SUPPORT_URL = 'https://b12.army/#support';
@@ -1625,6 +1628,13 @@ export default function PowerFlowPage({
     error: false,
     authFailed: false,
   });
+  const [gridlabRows, setGridlabRows] = useState({
+    loading: true,
+    configured: false,
+    items: [],
+    error: false,
+    authFailed: false,
+  });
   const [chargingPorts, setChargingPorts] = useState({
     loading: true,
     ok: true,
@@ -2008,6 +2018,44 @@ export default function PowerFlowPage({
     return () => clearInterval(id);
   }, [loadUbetterDevices]);
 
+  const loadGridlabDevices = useCallback(async () => {
+    try {
+      const r = await fetch(apiUrl('/api/gridlab/devices'), { cache: 'no-store' });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setGridlabRows({
+          loading: false,
+          configured: false,
+          items: [],
+          error: true,
+          authFailed: false,
+        });
+      } else {
+        setGridlabRows({
+          loading: false,
+          configured: !!data.configured,
+          items: data.items || [],
+          error: false,
+          authFailed: !!data.gridlabAuthFailed,
+        });
+      }
+    } catch {
+      setGridlabRows({
+        loading: false,
+        configured: false,
+        items: [],
+        error: true,
+        authFailed: false,
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadGridlabDevices();
+    const id = setInterval(() => void loadGridlabDevices(), 60_000);
+    return () => clearInterval(id);
+  }, [loadGridlabDevices]);
+
   const [inverterValue, setInverterValue] = useState('');
   const deyeCombinedItems = useMemo(() => {
     const byKey = new Map();
@@ -2046,7 +2094,7 @@ export default function PowerFlowPage({
   }, [deyeCombinedItems]);
 
   useEffect(() => {
-    if (inverterRows.loading || huaweiRows.loading || ubetterRows.loading) return;
+    if (inverterRows.loading || huaweiRows.loading || ubetterRows.loading || gridlabRows.loading) return;
     let want = '';
     try {
       want = new URLSearchParams(window.location.search).get('inverter') || '';
@@ -2070,10 +2118,14 @@ export default function PowerFlowPage({
       if (ubetterRows.items.some(r => r.sn === parsed.id)) {
         setInverterValue(want);
       }
+    } else if (parsed.provider === 'gridlab' && gridlabRows.configured && !gridlabRows.error) {
+      if (gridlabRows.items.some(r => String(r.deviceId) === String(parsed.id))) {
+        setInverterValue(want);
+      }
     } else if (parsed.provider === 'dc-ev' || parsed.provider === 'ac-ev') {
       setInverterValue(`${parsed.provider === 'ac-ev' ? ESS_PREFIX_AC_EV : ESS_PREFIX_DC_EV}${parsed.id || 'all'}`);
     }
-  }, [inverterRows, huaweiRows, ubetterRows, deyeCombinedItems, deyeSnToRepresentative]);
+  }, [inverterRows, huaweiRows, ubetterRows, gridlabRows, deyeCombinedItems, deyeSnToRepresentative]);
 
   const onInverterChange = useCallback(e => {
     const v = normalizeEssSelectionValue(e.target.value);
@@ -2096,10 +2148,13 @@ export default function PowerFlowPage({
   const selInverterSn = essSel.provider === 'deye' ? essSel.id.trim() : '';
   const selHuaweiStationCode = essSel.provider === 'huawei' ? essSel.id.trim() : '';
   const selUbetterSn = essSel.provider === 'ubetter' ? essSel.id.trim() : '';
+  const selGridlabDeviceId = essSel.provider === 'gridlab' ? essSel.id.trim() : '';
   const selEvPortsAcdc = evPortsAcdcFromProvider(essSel.provider, essSel.id);
   const selEvPortsAggregate = selEvPortsAcdc != null;
-  const readOnlyEssSelected = Boolean(selHuaweiStationCode || selUbetterSn);
-  const essAnySelected = Boolean(selInverterSn || selHuaweiStationCode || selUbetterSn || selEvPortsAggregate);
+  const readOnlyEssSelected = Boolean(selHuaweiStationCode || selUbetterSn || selGridlabDeviceId);
+  const essAnySelected = Boolean(
+    selInverterSn || selHuaweiStationCode || selUbetterSn || selGridlabDeviceId || selEvPortsAggregate
+  );
 
   const showMinerNode = showMinerOnPowerFlow();
 
@@ -2354,6 +2409,9 @@ export default function PowerFlowPage({
   const [ubetterLive, setUbetterLive] = useState(null);
   const [ubetterLiveLoading, setUbetterLiveLoading] = useState(false);
   const [ubetterHydratedSn, setUbetterHydratedSn] = useState('');
+  const [gridlabLive, setGridlabLive] = useState(null);
+  const [gridlabLiveLoading, setGridlabLiveLoading] = useState(false);
+  const [gridlabHydratedId, setGridlabHydratedId] = useState('');
   /** Today/tomorrow insolation % + today cloud icon hint (coordinates never exposed to browser). */
   const [solarForecast, setSolarForecast] = useState({
     loading: false,
@@ -2441,7 +2499,7 @@ export default function PowerFlowPage({
     setLandingExportMetric(prev =>
       normalizeLandingExportMetricForContext(prev, selInverterSn, selHuaweiStationCode, selEvPortsAcdc)
     );
-  }, [selInverterSn, selHuaweiStationCode, selUbetterSn, selEvPortsAcdc]);
+  }, [selInverterSn, selHuaweiStationCode, selUbetterSn, selGridlabDeviceId, selEvPortsAcdc]);
 
   /** When user selects another Deye inverter, default the landing counter to total export (unless URL sets ``exportMetric``). */
   useEffect(() => {
@@ -3328,6 +3386,69 @@ export default function PowerFlowPage({
   }, [selUbetterSn, ubetterLiveLoading, ubetterRows.configured, ubetterRows.error, ubetterRows.authFailed]);
 
   useEffect(() => {
+    if (!selGridlabDeviceId || !gridlabRows.configured || gridlabRows.error || gridlabRows.authFailed) {
+      setGridlabLive(null);
+      setGridlabLiveLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    const loadGridlab = async () => {
+      setGridlabLiveLoading(true);
+      try {
+        const q = new URLSearchParams({ deviceId: selGridlabDeviceId });
+        const r = await fetch(`${apiUrl('/api/gridlab/power-flow')}?${q}`, { cache: 'no-store' });
+        const data = await r.json().catch(() => ({}));
+        if (cancelled) return;
+        if (r.ok && data.ok && data.configured) {
+          const pvW = data.pvPowerW;
+          const gridW = data.gridPowerW;
+          const loadW = data.loadPowerW;
+          const batW = data.batteryPowerW;
+          const soc = data.socPercent;
+          setGridlabLive({
+            ok: true,
+            pvPowerW: pvW != null && Number.isFinite(Number(pvW)) ? Math.max(0, Number(pvW)) : null,
+            gridPowerW: gridW != null && Number.isFinite(Number(gridW)) ? Number(gridW) : null,
+            loadPowerW: loadW != null && Number.isFinite(Number(loadW)) ? Math.max(0, Number(loadW)) : null,
+            batteryPowerW: batW != null && Number.isFinite(Number(batW)) ? Number(batW) : null,
+            socPercent: soc != null && Number.isFinite(Number(soc)) ? Number(soc) : null,
+            stale: !!data.stale,
+          });
+        } else if (!data?.gridlabAuthFailed && data?.reason !== 'gridlab_login_failed') {
+          setGridlabLive(null);
+        }
+      } catch {
+        /* keep last value on transient errors */
+      } finally {
+        if (!cancelled) setGridlabLiveLoading(false);
+      }
+    };
+    void loadGridlab();
+    const id = setInterval(() => void loadGridlab(), GRIDLAB_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [selGridlabDeviceId, gridlabRows.configured, gridlabRows.error, gridlabRows.authFailed]);
+
+  useLayoutEffect(() => {
+    setGridlabHydratedId('');
+    if (selGridlabDeviceId && gridlabRows.configured && !gridlabRows.error && !gridlabRows.authFailed) {
+      setGridlabLiveLoading(true);
+    }
+  }, [selGridlabDeviceId, gridlabRows.configured, gridlabRows.error, gridlabRows.authFailed]);
+
+  useEffect(() => {
+    if (!selGridlabDeviceId || !gridlabRows.configured || gridlabRows.error || gridlabRows.authFailed) {
+      setGridlabHydratedId('');
+      return;
+    }
+    if (!gridlabLiveLoading) {
+      setGridlabHydratedId(selGridlabDeviceId);
+    }
+  }, [selGridlabDeviceId, gridlabLiveLoading, gridlabRows.configured, gridlabRows.error, gridlabRows.authFailed]);
+
+  useEffect(() => {
     if (!selEvPortsAcdc) {
       setEvPortsLive({ loading: false, powerW: null, activeSessions: 0, acdc: null });
       return undefined;
@@ -3756,14 +3877,18 @@ export default function PowerFlowPage({
     Boolean(selHuaweiStationCode) && huaweiLive?.pvPowerW != null && Number.isFinite(huaweiLive.pvPowerW);
   const useLivePvUbetter =
     Boolean(selUbetterSn) && ubetterLive?.pvPowerW != null && Number.isFinite(ubetterLive.pvPowerW);
-  const useLivePv = useLivePvDeye || useLivePvHuawei || useLivePvUbetter;
+  const useLivePvGridlab =
+    Boolean(selGridlabDeviceId) && gridlabLive?.pvPowerW != null && Number.isFinite(gridlabLive.pvPowerW);
+  const useLivePv = useLivePvDeye || useLivePvHuawei || useLivePvUbetter || useLivePvGridlab;
   const rawPvW = useLivePvDeye
     ? Math.max(0, deyeLive.pvPowerW)
     : useLivePvHuawei
       ? Math.max(0, huaweiLive.pvPowerW)
       : useLivePvUbetter
         ? Math.max(0, ubetterLive.pvPowerW)
-        : null;
+        : useLivePvGridlab
+          ? Math.max(0, gridlabLive.pvPowerW)
+          : null;
   const rawDisplaySolarW = essAnySelected
     ? useLivePv
       ? rawPvW
@@ -3783,26 +3908,34 @@ export default function PowerFlowPage({
     Boolean(selHuaweiStationCode) && huaweiLive?.gridPowerW != null && Number.isFinite(huaweiLive.gridPowerW);
   const useLiveGridUbetter =
     Boolean(selUbetterSn) && ubetterLive?.gridPowerW != null && Number.isFinite(ubetterLive.gridPowerW);
+  const useLiveGridGridlab =
+    Boolean(selGridlabDeviceId) && gridlabLive?.gridPowerW != null && Number.isFinite(gridlabLive.gridPowerW);
   /** No fleet ESS selected: do not sum inverter grid — hub grid is derived from balance below. */
   const effectiveGridW = essAnySelected
-    ? useLiveGridUbetter
-      ? ubetterLive.gridPowerW
-      : useLiveGridHuawei
-        ? huaweiLive.gridPowerW
-        : useLiveGridDeye
-          ? deyeLive.gridPowerW
-          : null
+    ? useLiveGridGridlab
+      ? gridlabLive.gridPowerW
+      : useLiveGridUbetter
+        ? ubetterLive.gridPowerW
+        : useLiveGridHuawei
+          ? huaweiLive.gridPowerW
+          : useLiveGridDeye
+            ? deyeLive.gridPowerW
+            : null
     : gridW;
   const useLiveEssDeye =
     Boolean(selInverterSn) && deyeLive?.batteryPowerW != null && Number.isFinite(deyeLive.batteryPowerW);
   const useLiveEssUbetter =
     Boolean(selUbetterSn) && ubetterLive?.batteryPowerW != null && Number.isFinite(ubetterLive.batteryPowerW);
+  const useLiveEssGridlab =
+    Boolean(selGridlabDeviceId) && gridlabLive?.batteryPowerW != null && Number.isFinite(gridlabLive.batteryPowerW);
   const displayEssW = essAnySelected
-    ? useLiveEssUbetter
-      ? ubetterLive.batteryPowerW
-      : useLiveEssDeye
-        ? deyeLive.batteryPowerW
-        : null
+    ? useLiveEssGridlab
+      ? gridlabLive.batteryPowerW
+      : useLiveEssUbetter
+        ? ubetterLive.batteryPowerW
+        : useLiveEssDeye
+          ? deyeLive.batteryPowerW
+          : null
     : fleetBatteryTelemetryActive
       ? fleetBatteryW
       : essW;
@@ -3811,13 +3944,15 @@ export default function PowerFlowPage({
   const minerFlowW = showMinerNode ? liveMinerW ?? 0 : 0;
   const displayLoadW = fleetLoadTelemetryActive
     ? fleetLoadW
-    : Boolean(selUbetterSn) && ubetterLive?.loadPowerW != null && Number.isFinite(ubetterLive.loadPowerW)
-      ? Math.max(0, ubetterLive.loadPowerW)
-      : Boolean(selHuaweiStationCode) && huaweiLive?.loadPowerW != null && Number.isFinite(huaweiLive.loadPowerW)
-        ? Math.max(0, huaweiLive.loadPowerW)
-        : Boolean(selInverterSn) && deyeLive?.loadPowerW != null && Number.isFinite(deyeLive.loadPowerW)
-          ? Math.max(0, deyeLive.loadPowerW)
-          : null;
+    : Boolean(selGridlabDeviceId) && gridlabLive?.loadPowerW != null && Number.isFinite(gridlabLive.loadPowerW)
+      ? Math.max(0, gridlabLive.loadPowerW)
+      : Boolean(selUbetterSn) && ubetterLive?.loadPowerW != null && Number.isFinite(ubetterLive.loadPowerW)
+        ? Math.max(0, ubetterLive.loadPowerW)
+        : Boolean(selHuaweiStationCode) && huaweiLive?.loadPowerW != null && Number.isFinite(huaweiLive.loadPowerW)
+          ? Math.max(0, huaweiLive.loadPowerW)
+          : Boolean(selInverterSn) && deyeLive?.loadPowerW != null && Number.isFinite(deyeLive.loadPowerW)
+            ? Math.max(0, deyeLive.loadPowerW)
+            : null;
   const useSpecialGridBalance =
     usesDeyeFlowBalance(selInverterSn) && displaySolarW != null && displayEssW != null && displayLoadW != null;
   /**
@@ -3972,6 +4107,11 @@ export default function PowerFlowPage({
   const qrBase = process.env.PUBLIC_URL || '';
 
   const essSocPercent = useMemo(() => {
+    const glId = selGridlabDeviceId.trim();
+    if (glId) {
+      const v = gridlabLive?.socPercent;
+      return v != null && Number.isFinite(Number(v)) ? Number(v) : undefined;
+    }
     const ubSn = selUbetterSn.trim();
     if (ubSn) {
       const v = ubetterLive?.socPercent;
@@ -3994,11 +4134,20 @@ export default function PowerFlowPage({
       if (v != null && Number.isFinite(Number(v))) return Number(v);
     }
     return undefined;
-  }, [selInverterSn, selUbetterSn, ubetterLive?.socPercent, deyeCombinedItems, socBySn]);
+  }, [
+    selInverterSn,
+    selUbetterSn,
+    selGridlabDeviceId,
+    ubetterLive?.socPercent,
+    gridlabLive?.socPercent,
+    deyeCombinedItems,
+    socBySn,
+  ]);
   const essSocHasKey = essSocPercent != null && Number.isFinite(essSocPercent);
   const essSocPending = Boolean(
     (selInverterSn.trim() && essSocPercent == null && socListLoading) ||
-      (selUbetterSn.trim() && essSocPercent == null && ubetterLiveLoading)
+      (selUbetterSn.trim() && essSocPercent == null && ubetterLiveLoading) ||
+      (selGridlabDeviceId.trim() && essSocPercent == null && gridlabLiveLoading)
   );
 
   /** Same rule as ``requestDischarge2Pct``: no headroom to discharge toward the selected floor. */
@@ -4700,11 +4849,13 @@ export default function PowerFlowPage({
   const deyeListReady = inverterRows.configured && !inverterRows.loading && !inverterRows.error;
   const huaweiListReady = huaweiRows.configured && !huaweiRows.loading && !huaweiRows.error && !huaweiRows.authFailed;
   const ubetterListReady = ubetterRows.configured && !ubetterRows.loading && !ubetterRows.error && !ubetterRows.authFailed;
-  const inverterListReady = deyeListReady || huaweiListReady || ubetterListReady;
+  const gridlabListReady =
+    gridlabRows.configured && !gridlabRows.loading && !gridlabRows.error && !gridlabRows.authFailed;
+  const inverterListReady = deyeListReady || huaweiListReady || ubetterListReady || gridlabListReady;
 
   useEffect(() => {
     setLandingTotals(null);
-  }, [selInverterSn, selHuaweiStationCode, selUbetterSn, selEvPortsAcdc]);
+  }, [selInverterSn, selHuaweiStationCode, selUbetterSn, selGridlabDeviceId, selEvPortsAcdc]);
 
   useEffect(() => {
     if (!inverterListReady) {
@@ -4766,13 +4917,15 @@ export default function PowerFlowPage({
   const showPowerFlowSections =
     (!inverterRows.error && (inverterRows.loading || inverterRows.configured)) ||
     (!huaweiRows.error && (huaweiRows.loading || huaweiRows.configured)) ||
-    (!ubetterRows.error && (ubetterRows.loading || ubetterRows.configured));
+    (!ubetterRows.error && (ubetterRows.loading || ubetterRows.configured)) ||
+    (!gridlabRows.error && (gridlabRows.loading || gridlabRows.configured));
   const dischargeFeedbackText = discharge2Feedback;
   /** Blur below the power-flow graph until initial REST payloads are ready — site header and flow stay visible. */
   const pageRestHydrationPending =
     inverterRows.loading ||
     huaweiRows.loading ||
     ubetterRows.loading ||
+    gridlabRows.loading ||
     chargingPorts.loading ||
     (realtimePower === null &&
       loadError === '' &&
@@ -4796,13 +4949,18 @@ export default function PowerFlowPage({
     (Boolean(selUbetterSn) &&
       ubetterListReady &&
       !ubetterRows.error &&
-      (ubetterHydratedSn !== selUbetterSn || ubetterLiveLoading));
+      (ubetterHydratedSn !== selUbetterSn || ubetterLiveLoading)) ||
+    (Boolean(selGridlabDeviceId) &&
+      gridlabListReady &&
+      !gridlabRows.error &&
+      (gridlabHydratedId !== selGridlabDeviceId || gridlabLiveLoading));
 
   const noEssListYet =
-    (inverterRows.loading || huaweiRows.loading || ubetterRows.loading) &&
+    (inverterRows.loading || huaweiRows.loading || ubetterRows.loading || gridlabRows.loading) &&
     !deyeListReady &&
     !huaweiListReady &&
-    !ubetterListReady;
+    !ubetterListReady &&
+    !gridlabListReady;
 
   const evPortPicker = (
     <EvPortPicker
@@ -4839,13 +4997,47 @@ export default function PowerFlowPage({
                       <option value="" disabled>
                         …
                       </option>
-                    ) : inverterRows.error && huaweiRows.error && ubetterRows.error && !inverterRows.configured && !huaweiRows.configured && !ubetterRows.configured ? (
+                    ) : inverterRows.error &&
+                      huaweiRows.error &&
+                      ubetterRows.error &&
+                      gridlabRows.error &&
+                      !inverterRows.configured &&
+                      !huaweiRows.configured &&
+                      !ubetterRows.configured &&
+                      !gridlabRows.configured ? (
                       <option value="" disabled>
                         {t('inverterLoadError')}
                       </option>
                     ) : (
                       <>
                         <option value="">{t('inverterSelectLabel')}</option>
+                        {gridlabRows.configured &&
+                        !gridlabRows.loading &&
+                        !gridlabRows.error &&
+                        gridlabRows.authFailed ? (
+                          <optgroup label={t('essGridLab')}>
+                            <option value="" disabled>
+                              {t('gridlabAuthFailedHint')}
+                            </option>
+                          </optgroup>
+                        ) : gridlabListReady && gridlabRows.items.length > 0 ? (
+                          <optgroup label={t('essGridLab')}>
+                            {gridlabRows.items.map(row => {
+                              const id = String(row.deviceId);
+                              const shortLabel = inverterSelectShortLabel(row.name, id);
+                              const onlineSuffix = row.isOnline === false ? ` · ${t('gridlabOffline')}` : '';
+                              const soc =
+                                row.socPercent != null && Number.isFinite(Number(row.socPercent))
+                                  ? ` · ${inverterSocFmt.format(Number(row.socPercent))}%`
+                                  : '';
+                              return (
+                                <option key={`gridlab-${id}`} value={`${ESS_PREFIX_GRIDLAB}${id}`}>
+                                  {shortLabel + soc + onlineSuffix}
+                                </option>
+                              );
+                            })}
+                          </optgroup>
+                        ) : null}
                         {ubetterRows.configured && !ubetterRows.loading && !ubetterRows.error && ubetterRows.authFailed ? (
                           <optgroup label={t('essUbetter')}>
                             <option value="" disabled>
@@ -5220,6 +5412,12 @@ export default function PowerFlowPage({
                                 : fleetLoadTelemetryActive
                                   ? formatPower(displayLoadW, t, bcp47)
                                   : formatPower(null, t, bcp47)
+                            : selGridlabDeviceId
+                              ? gridlabLiveLoading
+                                ? '…'
+                                : displayLoadW != null
+                                  ? formatPower(displayLoadW, t, bcp47)
+                                  : formatPower(null, t, bcp47)
                             : selUbetterSn
                               ? ubetterLiveLoading
                                 ? '…'
@@ -5299,7 +5497,7 @@ export default function PowerFlowPage({
                               ? '…'
                               : formatPower(graphDisplayEssW != null ? Math.abs(graphDisplayEssW) : null, t, bcp47)}
                         </span>
-                        {(selInverterSn || selUbetterSn) && essSocPercent != null && Number.isFinite(essSocPercent) ? (
+                        {(selInverterSn || selUbetterSn || selGridlabDeviceId) && essSocPercent != null && Number.isFinite(essSocPercent) ? (
                           <span
                             className={`pf-node-sub pf-ess-soc ${essSocBandClassName(essSocPercent)}`.trim()}
                             id="pf-ess-soc"
@@ -5577,7 +5775,9 @@ export default function PowerFlowPage({
                       landingExportMetricUi === LANDING_EXPORT_METRIC.ARBITRAGE ||
                       landingExportMetricUi === LANDING_EXPORT_METRIC.LOST_SOLAR_7D);
 
-                  const sourceSelected = Boolean(selInverterSn || selHuaweiStationCode || selUbetterSn || selEvPortsAcdc);
+                  const sourceSelected = Boolean(
+                    selInverterSn || selHuaweiStationCode || selUbetterSn || selGridlabDeviceId || selEvPortsAcdc
+                  );
                   const showMonthlyRatesInverterSupplements =
                     sourceSelected &&
                     inverterListReady &&
@@ -5903,6 +6103,11 @@ export default function PowerFlowPage({
                       ? selUbetterSn || undefined
                       : undefined
                   }
+                  gridlabDeviceId={
+                    essSel.provider === 'gridlab' && gridlabListReady && !gridlabRows.error
+                      ? selGridlabDeviceId || undefined
+                      : undefined
+                  }
                   evPortsAcdc={selEvPortsAcdc || undefined}
                   liveEvPortsPowerW={
                     selEvPortsAcdc && evPortsLive.powerW != null ? Number(evPortsLive.powerW) : undefined
@@ -5940,7 +6145,7 @@ export default function PowerFlowPage({
                     </div>
                   ) : (
                     <>
-                      {selHuaweiStationCode || selEvPortsAggregate ? null : selUbetterSn &&
+                      {selHuaweiStationCode || selEvPortsAggregate || selGridlabDeviceId ? null : selUbetterSn &&
                         ubetterListReady &&
                         !ubetterRows.error &&
                         !ubetterRows.authFailed ? (
@@ -6007,7 +6212,7 @@ export default function PowerFlowPage({
                             </div>
                           </div>
                         </div>
-                      ) : selHuaweiStationCode || selUbetterSn || selEvPortsAggregate ? null : (
+                      ) : selHuaweiStationCode || selUbetterSn || selGridlabDeviceId || selEvPortsAggregate ? null : (
                         <div className="pf-header-discharge-row">
                           <div className="pf-discharge-toolbar pf-discharge-toolbar--combined">
                             <div className="pf-deye-command-stack">

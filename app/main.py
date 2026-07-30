@@ -19,6 +19,7 @@ from app.routers import (
     deye_proxy,
     entsoe_dam,
     ev_driver_tracker,
+    gridlab_proxy,
     huawei_proxy,
     nbu_fx,
     power_flow_totals,
@@ -31,6 +32,7 @@ from app import settings
 from app.deye_api import deye_configured, deye_missing_env_names
 from app.huawei_api import huawei_configured, huawei_missing_env_names
 from app.ubetter_api import configured_ubetter_accounts, ubetter_configured, ubetter_missing_env_names
+from app.gridlab_api import gridlab_configured, gridlab_missing_env_names
 from app.entsoe_dam_scheduler import entsoe_dam_daily_sync_loop
 from app.entsoe_dam_service import entsoe_dam_configured
 from app.oree_dam_scheduler import dam_daily_sync_loop
@@ -38,6 +40,8 @@ from app.oree_dam_service import oree_dam_configured
 from app.deye_soc_scheduler import deye_soc_snapshot_loop
 from app.ev_port_power_scheduler import ev_port_power_snapshot_loop
 from app.ubetter_power_scheduler import ubetter_power_snapshot_loop
+from app.gridlab_power_scheduler import gridlab_power_snapshot_loop
+from app.gridlab_history_scheduler import gridlab_history_sync_loop
 from app.huawei_power_scheduler import huawei_power_snapshot_loop
 from app.huawei_station_energy_scheduler import huawei_station_energy_loop
 from app.deye_low_dam_charge_scheduler import deye_low_dam_charge_loop
@@ -105,6 +109,21 @@ async def lifespan(app: FastAPI):
             ", ".join(um) if um else "UBETTER_PASSWORD or UBETTER_220KM_PASSWORD",
         )
 
+    if not settings.GRIDLAB_ENABLED:
+        logger.info("GridLab External BESS API: disabled (GRIDLAB_ENABLED=0)")
+    elif gridlab_configured():
+        logger.info(
+            "GridLab External BESS API: configured device=%s (base: %s)",
+            settings.GRIDLAB_DEVICE_ID,
+            settings.GRIDLAB_BASE_URL,
+        )
+    else:
+        gm = gridlab_missing_env_names()
+        logger.warning(
+            "GridLab External BESS API: not configured — set env: %s",
+            ", ".join(gm) if gm else "GRIDLAB_PASSWORD",
+        )
+
     if settings.RATE_LIMIT_ENABLED:
         logger.info(
             "HTTP rate limit: %s requests / 60s per IP (RATE_LIMIT_*; /health and /static/ excluded)",
@@ -151,6 +170,26 @@ async def lifespan(app: FastAPI):
         logger.info(
             "Ubetter power: snapshot to DB every %ss (UBETTER_POWER_SNAPSHOT_*)",
             settings.UBETTER_POWER_SNAPSHOT_INTERVAL_SEC,
+        )
+
+    stop_gridlab_power: Optional[asyncio.Event] = None
+    gridlab_power_task: Optional[asyncio.Task[None]] = None
+    if settings.GRIDLAB_POWER_SNAPSHOT_ENABLED and gridlab_configured():
+        stop_gridlab_power = asyncio.Event()
+        gridlab_power_task = asyncio.create_task(gridlab_power_snapshot_loop(stop_gridlab_power))
+        logger.info(
+            "GridLab power: snapshot to DB every %ss (GRIDLAB_POWER_SNAPSHOT_*)",
+            settings.GRIDLAB_POWER_SNAPSHOT_INTERVAL_SEC,
+        )
+
+    stop_gridlab_history: Optional[asyncio.Event] = None
+    gridlab_history_task: Optional[asyncio.Task[None]] = None
+    if settings.GRIDLAB_HISTORY_SYNC_ENABLED and gridlab_configured():
+        stop_gridlab_history = asyncio.Event()
+        gridlab_history_task = asyncio.create_task(gridlab_history_sync_loop(stop_gridlab_history))
+        logger.info(
+            "GridLab history: daily sync at Kyiv hour %02d:00 + startup backfill (GRIDLAB_HISTORY_*)",
+            settings.GRIDLAB_HISTORY_SYNC_HOUR_KYIV,
         )
 
     stop_huawei_power: Optional[asyncio.Event] = None
@@ -286,6 +325,20 @@ async def lifespan(app: FastAPI):
             await ubetter_power_task
         except asyncio.CancelledError:
             pass
+    if gridlab_power_task is not None and stop_gridlab_power is not None:
+        stop_gridlab_power.set()
+        gridlab_power_task.cancel()
+        try:
+            await gridlab_power_task
+        except asyncio.CancelledError:
+            pass
+    if gridlab_history_task is not None and stop_gridlab_history is not None:
+        stop_gridlab_history.set()
+        gridlab_history_task.cancel()
+        try:
+            await gridlab_history_task
+        except asyncio.CancelledError:
+            pass
     if huawei_power_task is not None and stop_huawei_power is not None:
         stop_huawei_power.set()
         huawei_power_task.cancel()
@@ -392,6 +445,7 @@ app.include_router(b2b_proxy.router)
 app.include_router(deye_proxy.router)
 app.include_router(huawei_proxy.router)
 app.include_router(ubetter_proxy.router)
+app.include_router(gridlab_proxy.router)
 app.include_router(dam.router)
 app.include_router(entsoe_dam.router)
 app.include_router(nbu_fx.router)
