@@ -88,6 +88,8 @@ Overlapping physical meters (do **not** add with preferred IDs):
 ### Local REST surface
 
 - `GET /api/gridlab/devices`
+- `GET /api/gridlab/soc?deviceId=16` — live SoC for admin-portal SOC dynamic pricing (same `ok` / `socPercent` shape as `/api/deye/soc`)
+- `GET /api/gridlab/solar-insolation?lat=&lon=` — today/tomorrow insolation % via Open-Meteo (EV port GPS; GridLab has no plant coordinates)
 - `GET /api/gridlab/power-flow?deviceId=16`
 - `GET /api/gridlab/meters`
 - `GET /api/gridlab/soc-history-day?deviceId=16&date=YYYY-MM-DD`
@@ -109,6 +111,16 @@ GRIDLAB_PASSWORD=          # secret — required for GridLab integration
 ```
 
 On production deploy, set repository secret **`GRIDLAB_PASSWORD`** (Actions → Secrets). The deploy workflow writes it into the server `.env` and `docker-compose.yml` passes it into the `api` container. Without this secret, `GET /api/gridlab/devices` returns `configured: false` and the UI omits GridLab.
+
+### Station binding (driver app + SOC dynamic price)
+
+Bind a port to GridLab BESS via `station.name`:
+
+```text
+trackGridlab:16 bat1075kwh
+```
+
+Do **not** reuse `trackInverter:` — GridLab device id `16` is indistinguishable from a Deye serial. Admin-portal Ports CRUD and Dynamic Price pickers write this marker; the driver StartPage shows solar/battery cards from `/api/gridlab/power-flow` and insolation from `/api/gridlab/solar-insolation` using the EV port GPS.
 
 Hardcoded defaults (device 16):
 

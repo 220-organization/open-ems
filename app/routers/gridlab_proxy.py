@@ -107,6 +107,107 @@ async def get_devices_route():
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+@router.get("/soc")
+async def get_soc_route(
+    deviceId: int = Query(
+        ...,
+        ge=1,
+        description="GridLab device id (from GET /api/gridlab/devices)",
+    ),
+):
+    """Live SoC percent for SOC dynamic pricing (same contract shape as GET /api/deye/soc)."""
+    if not gridlab_configured():
+        return JSONResponse(
+            content={"ok": False, "configured": False, "socPercent": None},
+            headers=_NO_STORE_CACHE,
+        )
+    if int(deviceId) != int(settings.GRIDLAB_DEVICE_ID):
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": True,
+                "reason": "device_not_allowed",
+                "deviceId": deviceId,
+                "socPercent": None,
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    try:
+        status = await get_status(use_cache=True)
+        soc_raw = status.get("soc_percent")
+        soc_percent = None
+        if soc_raw is not None:
+            try:
+                soc_f = float(soc_raw)
+                if 0.0 <= soc_f <= 100.0:
+                    soc_percent = int(round(soc_f))
+            except (TypeError, ValueError):
+                soc_percent = None
+        return JSONResponse(
+            content={
+                "ok": True,
+                "configured": True,
+                "deviceId": int(status.get("device_id") or settings.GRIDLAB_DEVICE_ID),
+                "socPercent": soc_percent,
+                "stale": bool(status.get("stale")),
+                "dataAgeSeconds": status.get("data_age_seconds"),
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    except GridLabAuthError as exc:
+        _log_gridlab_route_error("GET /api/gridlab/soc", exc)
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": True,
+                "reason": "gridlab_login_failed",
+                "detail": str(exc)[:400],
+                "deviceId": deviceId,
+                "socPercent": None,
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    except Exception as exc:
+        _log_gridlab_route_error("GET /api/gridlab/soc", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/solar-insolation")
+async def get_solar_insolation_route(
+    lat: float = Query(..., ge=-90, le=90, description="EV port latitude (WGS84)"),
+    lon: float = Query(..., ge=-180, le=180, description="EV port longitude (WGS84)"),
+):
+    """
+    Today + tomorrow insolation (0–100 %) from Open-Meteo for the given coordinates.
+
+    GridLab has no plant GPS in the upstream API, so the driver app passes the EV port
+    latitude/longitude (already public on the station map).
+    """
+    from app.solar_forecast_open_meteo import fetch_today_tomorrow_insolation_forecast
+
+    if not gridlab_configured():
+        return JSONResponse(
+            content={"ok": False, "configured": False, "today": None, "tomorrow": None},
+            headers=_NO_STORE_CACHE,
+        )
+    payload = await fetch_today_tomorrow_insolation_forecast(float(lat), float(lon))
+    if payload is None:
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": True,
+                "today": None,
+                "tomorrow": None,
+                "detail": "forecast_unavailable",
+            },
+            headers=_NO_STORE_CACHE,
+        )
+    return JSONResponse(
+        content={"ok": True, "configured": True, **payload},
+        headers=_NO_STORE_CACHE,
+    )
+
+
 @router.get("/power-flow")
 async def get_power_flow_route(
     deviceId: int = Query(
