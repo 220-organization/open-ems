@@ -30,9 +30,10 @@ function apiUrl(path) {
   return `${base}${path}`;
 }
 
-const DAM_GRID_BARS_OPEN_KEY = 'pf-dam-grid-bars-open';
-const DAM_PV_LOAD_BARS_OPEN_KEY = 'pf-dam-pv-load-bars-open';
+const DAM_GRID_BARS_OPEN_KEY = 'pf-dam-grid-bars-open-v2';
+const DAM_PV_LOAD_BARS_OPEN_KEY = 'pf-dam-pv-load-bars-open-v2';
 
+/** Persist expand/collapse; default open so Мережа / Gen·Cons charts are visible. */
 function readDamEnergySectionOpen(storageKey) {
   try {
     const v = localStorage.getItem(storageKey);
@@ -41,7 +42,7 @@ function readDamEnergySectionOpen(storageKey) {
   } catch {
     /* ignore */
   }
-  return false;
+  return true;
 }
 
 function writeDamEnergySectionOpen(storageKey, open) {
@@ -642,7 +643,7 @@ function kyivHourIndexNowForDate(tradeDayIso) {
  * @param {string} [huaweiStationCode] — FusionSolar plant code; grid/PV/load bars from DB (`/api/huawei/station-hourly`). Mutually exclusive with Deye bar data in practice.
  * @param {string} [ubetterDeviceSn] — Ubetter EMS device SN; energy totals from `/api/ubetter/energy`.
  * @param {string} [gridlabDeviceId] — GridLab BESS device id; SoC history from `/api/gridlab/soc-history-day`.
- * @param {'dc' | 'ac'} [evPortsAcdc] — EV fleet (fast/slow chargers); grid import bars from DB (`/api/b2b/ev-ports-hourly`).
+ * @param {'dc' | 'ac' | 'bb'} [evPortsAcdc] — EV fleet (fast/slow/BB chargers); grid import bars from DB (`/api/b2b/ev-ports-hourly`).
  * @param {number} [liveEvPortsPowerW] — live aggregate EV power (W) for current-hour overlay when DB samples are sparse.
  */
 export default function DamChartPanel({
@@ -662,7 +663,7 @@ export default function DamChartPanel({
   liveEvPortsPowerW,
 }) {
   const { theme, cycleTheme, isDark } = useTheme();
-  const { kwhHidden, formatEnergyKwh } = useKwhCalibration();
+  const { isApproximate, formatEnergyKwh } = useKwhCalibration();
 
   // Chart color palette — adapts to resolved light/dark theme.
   const CHART = useMemo(() => isDark ? {
@@ -773,7 +774,7 @@ export default function DamChartPanel({
   const effectiveUbetterDevice = (ubetterDeviceSnProp && String(ubetterDeviceSnProp).trim()) || '';
   const effectiveGridlabDevice = (gridlabDeviceIdProp && String(gridlabDeviceIdProp).trim()) || '';
   const effectiveEvPortsAcdc =
-    evPortsAcdcProp === 'dc' || evPortsAcdcProp === 'ac' ? evPortsAcdcProp : '';
+    evPortsAcdcProp === 'dc' || evPortsAcdcProp === 'ac' || evPortsAcdcProp === 'bb' ? evPortsAcdcProp : '';
   const deyeNoExportMode = Boolean(effectiveInverterSn) && DEYE_NO_EXPORT_DEVICE_SNS.has(effectiveInverterSn);
   const showEnergyBars = Boolean(
     effectiveInverterSn ||
@@ -2422,8 +2423,11 @@ export default function DamChartPanel({
                     if (raw != null && raw !== '') {
                       const kw = Number(raw);
                       if (Number.isFinite(kw)) {
-                        if (kwhHidden) {
-                          valueLine = `— ${unit}`;
+                        if (isApproximate) {
+                          valueLine =
+                            kw < 0
+                              ? `~- ${fmt1.format(Math.abs(kw))} ${unit}`
+                              : `~${fmt1.format(kw)} ${unit}`;
                         } else {
                           valueLine =
                             kw < 0
@@ -2574,7 +2578,7 @@ export default function DamChartPanel({
                   hide={damChartMobile}
                   tick={{ fill: CHART.axisTextMuted, fontSize: 10 }}
                   tickLine={false}
-                  tickFormatter={v => (kwhHidden ? '—' : fmtKwhTick.format(v))}
+                  tickFormatter={v => (isApproximate ? `~${fmtKwhTick.format(v)}` : fmtKwhTick.format(v))}
                   label={{
                     value: t('damPvLoadEnergyAxis'),
                     angle: -90,
@@ -2737,13 +2741,20 @@ export default function DamChartPanel({
             getBcp47Locale={getBcp47Locale}
           />
         ) : null}
-        {effectiveInverterSn &&
-        !effectiveHuaweiStation &&
-        !effectiveUbetterDevice &&
-        !effectiveGridlabDevice ? (
+        {((effectiveInverterSn &&
+          !effectiveHuaweiStation &&
+          !effectiveUbetterDevice &&
+          !effectiveGridlabDevice &&
+          !effectiveEvPortsAcdc) ||
+          effectiveGridlabDevice ||
+          effectiveEvPortsAcdc) ? (
           <DeyeTotalsPanel
             tradeDay={tradeDay}
-            inverterSn={effectiveInverterSn}
+            inverterSn={
+              effectiveGridlabDevice || effectiveEvPortsAcdc ? undefined : effectiveInverterSn
+            }
+            gridlabDeviceId={effectiveGridlabDevice || undefined}
+            evPortsAcdc={effectiveEvPortsAcdc || undefined}
             apiUrl={apiUrl}
             t={t}
             getBcp47Locale={getBcp47Locale}

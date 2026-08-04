@@ -699,6 +699,64 @@ async def _huawei_import_weighted_dam_kyiv(
     return import_kwh, cost_uah / import_kwh
 
 
+async def _gridlab_import_weighted_dam_kyiv(
+    session: AsyncSession, device_id: int, d0: date, d1: date
+) -> tuple[float, Optional[float]]:
+    """Same as ``_deye_import_weighted_dam_kyiv`` for ``gridlab_power_sample`` (grid_power_w > 0)."""
+    if device_id <= 0:
+        return 0.0, None
+    zone = settings.OREE_COMPARE_ZONE_EIC
+    sql = """
+        SELECT
+            COALESCE(SUM(
+                CASE WHEN s.grid_power_w > 0 THEN s.grid_power_w::double precision / 12000.0 ELSE 0 END
+            ), 0)::double precision AS import_kwh,
+            COALESCE(SUM(
+                (CASE WHEN s.grid_power_w > 0 THEN s.grid_power_w::double precision / 12000.0 ELSE 0 END)
+                * (p.price_uah_mwh / 1000.0)
+            ), 0)::double precision AS cost_uah
+        FROM gridlab_power_sample s
+        INNER JOIN oree_dam_price p ON p.trade_day = ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date)
+            AND p.zone_eic = :zone
+            AND p.period = (EXTRACT(HOUR FROM (s.bucket_start AT TIME ZONE 'Europe/Kiev'))::int + 1)
+        WHERE s.device_id = :device_id
+          AND s.grid_power_w IS NOT NULL
+          AND s.grid_power_w > 0
+          AND ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date) >= :d0
+          AND ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date) <= :d1
+    """
+    r = await session.execute(
+        text(sql), {"device_id": int(device_id), "zone": zone, "d0": d0, "d1": d1}
+    )
+    row = r.one()
+    import_kwh = float(row[0] or 0.0)
+    cost_uah = float(row[1] or 0.0)
+    if import_kwh <= 1e-12:
+        return import_kwh, None
+    return import_kwh, cost_uah / import_kwh
+
+
+async def _gridlab_import_weighted_dam_mtd_kyiv(
+    session: AsyncSession, device_id: int
+) -> tuple[float, Optional[float]]:
+    """Kyiv MTD import-weighted DAM for one GridLab BESS device."""
+    today = _kyiv_today()
+    return await _gridlab_import_weighted_dam_kyiv(
+        session, device_id, _month_first(today), today
+    )
+
+
+def _parse_gridlab_device_id(raw: Optional[str]) -> Optional[int]:
+    s = (raw or "").strip()
+    if not s or not s.isdigit():
+        return None
+    try:
+        n = int(s)
+    except ValueError:
+        return None
+    return n if n > 0 else None
+
+
 async def _monthly_retail_tariff_bars(
     session: AsyncSession,
     months: int = 12,
@@ -706,6 +764,7 @@ async def _monthly_retail_tariff_bars(
     device_sn: Optional[str] = None,
     huawei_station_code: Optional[str] = None,
     ev_ports_acdc: Optional[str] = None,
+    gridlab_device_id: Optional[int] = None,
 ) -> list[dict[str, Any]]:
     """
     One bar per Kyiv calendar month: retail incl. distribution + VAT.
@@ -723,7 +782,8 @@ async def _monthly_retail_tariff_bars(
     ev = (ev_ports_acdc or "").strip().lower()
     if ev not in ("dc", "ac", "bb"):
         ev = ""
-    device_scope = bool(sn or hw or ev)
+    gl = int(gridlab_device_id) if gridlab_device_id and int(gridlab_device_id) > 0 else 0
+    device_scope = bool(sn or hw or ev or gl)
     n = max(1, min(int(months), 36))
     raw_bars: list[dict[str, Any]] = []
     y, m = today.year, today.month
@@ -745,6 +805,8 @@ async def _monthly_retail_tariff_bars(
                 import_kwh, dam_avg = await _deye_import_weighted_dam_kyiv(session, sn, first, end)
             elif hw:
                 import_kwh, dam_avg = await _huawei_import_weighted_dam_kyiv(session, hw, first, end)
+            elif gl:
+                import_kwh, dam_avg = await _gridlab_import_weighted_dam_kyiv(session, gl, first, end)
             else:
                 import_kwh, dam_avg = await ev_port_import_weighted_dam_kyiv(session, ev, first, end)
         else:
@@ -813,8 +875,9 @@ async def _finalize_landing_response(
     deye_device_sn_for_import_mtd: Optional[str] = None,
     huawei_station_code_for_import_mtd: Optional[str] = None,
     ev_ports_acdc_for_import_mtd: Optional[str] = None,
+    gridlab_device_id_for_import_mtd: Optional[int] = None,
 ) -> JSONResponse:
-    """Attach Kyiv DAM month comparison and optional per-device import-weighted DAM MTD (Deye or Huawei)."""
+    """Attach Kyiv DAM month comparison and optional per-device import-weighted DAM MTD (Deye/Huawei/GridLab/EV)."""
     today = _kyiv_today()
     zone = settings.OREE_COMPARE_ZONE_EIC
     dam: dict[str, Any] = {
@@ -856,6 +919,11 @@ async def _finalize_landing_response(
     ev_imp = (ev_ports_acdc_for_import_mtd or "").strip().lower()
     if ev_imp not in ("dc", "ac", "bb"):
         ev_imp = ""
+    gl_imp = (
+        int(gridlab_device_id_for_import_mtd)
+        if gridlab_device_id_for_import_mtd and int(gridlab_device_id_for_import_mtd) > 0
+        else 0
+    )
     if oree_dam_configured():
         if sn_imp:
             try:
@@ -887,6 +955,21 @@ async def _finalize_landing_response(
                 dam["currentMonthDeviceGridImportKwhMtd"] = None
                 dam["currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd"] = None
                 dam["deviceImportDamDetail"] = "huawei_station_import_dam_failed"
+        elif gl_imp:
+            try:
+                imp_kwh, wavg = await _gridlab_import_weighted_dam_mtd_kyiv(session, gl_imp)
+                dam["currentMonthDeviceGridImportKwhMtd"] = imp_kwh
+                dam["currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd"] = wavg
+                prev_imp, prev_wavg = await _gridlab_import_weighted_dam_kyiv(
+                    session, gl_imp, prev_start, prev_end
+                )
+                dam["prevMonthDeviceGridImportKwh"] = prev_imp
+                dam["prevMonthDeviceImportWeightedAvgDamUahPerKwh"] = prev_wavg
+            except Exception as exc:
+                logger.exception("landing-totals GridLab import weighted DAM: %s", exc)
+                dam["currentMonthDeviceGridImportKwhMtd"] = None
+                dam["currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd"] = None
+                dam["deviceImportDamDetail"] = "gridlab_import_dam_failed"
         elif ev_imp:
             try:
                 imp_kwh, wavg = await ev_port_import_weighted_dam_mtd_kyiv(session, ev_imp)
@@ -1003,6 +1086,14 @@ async def landing_totals(
         pattern=r"^(dc|ac|bb)$",
         description="Optional EV fleet (dc|ac|bb) — monthly rates from ev_port_power_sample import.",
     ),
+    gridlab_device_id: Optional[str] = Query(
+        default=None,
+        alias="gridlabDeviceId",
+        min_length=1,
+        max_length=16,
+        pattern=r"^[0-9]+$",
+        description="Optional GridLab BESS device id — import-weighted DAM from gridlab_power_sample.",
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """
@@ -1034,13 +1125,17 @@ async def landing_totals(
     plant; peak/manual session fields are omitted. ``dam.currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd`` uses
     the same import-weighted hourly DAM join over ``huawei_power_sample`` (``grid_power_w > 0``) Kyiv MTD as for
     Deye. ``deviceSn`` must not be sent together with ``huaweiStationCode``.
+
+    When ``gridlabDeviceId`` is set, ``dam.currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd`` uses the same
+    import-weighted hourly DAM join over ``gridlab_power_sample`` (``grid_power_w > 0``) as for Deye.
     """
     hw = (huawei_station_code or "").strip()
     sn_req = (device_sn or "").strip()
     ev = (ev_ports_acdc or "").strip().lower()
     if ev not in ("dc", "ac", "bb"):
         ev = ""
-    scope_count = sum(1 for x in (hw, sn_req, ev) if x)
+    gl = _parse_gridlab_device_id(gridlab_device_id)
+    scope_count = sum(1 for x in (hw, sn_req, ev, gl) if x)
     if scope_count > 1:
         return JSONResponse(
             status_code=400,
@@ -1054,6 +1149,14 @@ async def landing_totals(
             db,
             payload_ev,
             ev_ports_acdc_for_import_mtd=ev,
+        )
+
+    if gl:
+        payload_gl: dict[str, Any] = {"ok": True, "exportScope": "gridlab", "gridlabDeviceId": gl}
+        return await _finalize_landing_response(
+            db,
+            payload_gl,
+            gridlab_device_id_for_import_mtd=gl,
         )
 
     if hw:
@@ -1541,20 +1644,30 @@ async def monthly_retail_tariff_bars(
         pattern=r"^(dc|ac|bb)$",
         description="EV fleet (dc|ac|bb) — import-weighted DAM per month from ev_port_power_sample.",
     ),
+    gridlab_device_id: Optional[str] = Query(
+        default=None,
+        alias="gridlabDeviceId",
+        min_length=1,
+        max_length=16,
+        pattern=r"^[0-9]+$",
+        description="GridLab BESS device id — import-weighted DAM per month from gridlab_power_sample.",
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """
     Monthly retail tariff (DAM + distribution + VAT) for the landing «Monthly rates» bar chart.
 
-    Without deviceSn/huaweiStationCode: fleet average DAM per month.
+    Without deviceSn/huaweiStationCode/gridlabDeviceId: fleet average DAM per month.
     With device: volume-weighted DAM from that inverter's grid import × hourly DAM.
+    Each device-scoped bar also includes ``fleetAvgRetailUahPerKwh`` (Ukraine calendar DAM + dist + VAT).
     """
     sn = (device_sn or "").strip()
     hw = (huawei_station_code or "").strip()
     ev = (ev_ports_acdc or "").strip().lower()
     if ev not in ("dc", "ac", "bb"):
         ev = ""
-    scope_count = sum(1 for x in (sn, hw, ev) if x)
+    gl = _parse_gridlab_device_id(gridlab_device_id)
+    scope_count = sum(1 for x in (sn, hw, ev, gl) if x)
     if scope_count > 1:
         return JSONResponse(
             status_code=400,
@@ -1579,6 +1692,7 @@ async def monthly_retail_tariff_bars(
             device_sn=sn or None,
             huawei_station_code=hw or None,
             ev_ports_acdc=ev or None,
+            gridlab_device_id=gl,
         )
         return JSONResponse(
             content={
@@ -1586,10 +1700,11 @@ async def monthly_retail_tariff_bars(
                 "configured": True,
                 "zoneEic": settings.OREE_COMPARE_ZONE_EIC,
                 "months": len(bars),
-                "scope": "import_weighted_dam" if (sn or hw or ev) else "fleet_dam_avg",
+                "scope": "import_weighted_dam" if (sn or hw or ev or gl) else "fleet_dam_avg",
                 "deviceSn": sn or None,
                 "huaweiStationCode": hw or None,
                 "evPortsAcdc": ev or None,
+                "gridlabDeviceId": gl,
                 "bars": bars,
             },
             headers=_NO_STORE,

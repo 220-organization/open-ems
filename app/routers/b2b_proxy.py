@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.ev_port_power_service import (
     fetch_ev_ports_power_w,
+    get_ev_port_energy_totals,
     get_ev_port_hourly_chart_from_db,
     run_ev_port_power_snapshot,
 )
@@ -381,13 +382,34 @@ async def ev_ports_hourly(
         ...,
         min_length=2,
         max_length=2,
-        description="ac | dc | bb (Blockbaster)",
+        description="ac | dc | bb (BB ports)",
     ),
     date: str = Query(..., min_length=10, max_length=10, description="Kyiv calendar day YYYY-MM-DD"),
     session: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    """Hourly grid import kWh for DC/AC/Blockbaster EV fleet from ev_port_power_sample (5-min buckets)."""
+    """Hourly grid import kWh for DC/AC/BB EV fleet from ev_port_power_sample (5-min buckets)."""
     payload = await get_ev_port_hourly_chart_from_db(session, acdc, date)
+    status = 400 if payload.get("reason") in ("invalid_acdc", "bad_date") else 200
+    return JSONResponse(content=payload, headers=_NO_STORE_CACHE, status_code=status)
+
+
+@router.get("/ev-ports-totals")
+async def ev_ports_totals(
+    acdc: str = Query(
+        ...,
+        min_length=2,
+        max_length=2,
+        description="ac | dc | bb (BB ports)",
+    ),
+    period: str = Query(
+        "day",
+        description="Aggregation period: day, month, or year (Kyiv calendar boundaries).",
+    ),
+    date: str = Query(..., min_length=10, max_length=10, description="Anchor Kyiv day YYYY-MM-DD"),
+    session: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Day/month/year energy totals for an EV fleet (same shape as Deye soc-history-totals)."""
+    payload = await get_ev_port_energy_totals(session, acdc, period, date)
     status = 400 if payload.get("reason") in ("invalid_acdc", "bad_date") else 200
     return JSONResponse(content=payload, headers=_NO_STORE_CACHE, status_code=status)
 

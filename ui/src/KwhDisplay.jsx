@@ -1,29 +1,15 @@
 import { useKwhCalibration } from './KwhCalibrationContext';
 
 /**
- * Renders an energy kWh value; when calibration is pending, shows a clickable placeholder.
+ * Renders an energy kWh value. Uncalibrated Deye inverters get a ``~`` prefix.
  */
 export default function KwhDisplay({ value, fmt, unit = 'kWh', className, title }) {
-  const { kwhHidden, requestReveal, formatEnergyKwh } = useKwhCalibration();
+  const { formatEnergyKwh } = useKwhCalibration();
   const text = formatEnergyKwh(value, fmt, unit);
 
-  if (!kwhHidden) {
-    return (
-      <span className={className} title={title}>
-        {text}
-      </span>
-    );
-  }
-
   return (
-    <button
-      type="button"
-      className={`kwh-display--masked${className ? ` ${className}` : ''}`}
-      title={title}
-      aria-label={title}
-      onClick={requestReveal}
-    >
+    <span className={className} title={title}>
       {text}
-    </button>
+    </span>
   );
 }

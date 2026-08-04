@@ -111,13 +111,33 @@ function MetricRow({ label, value, unit, color, percent, fmt, isBase = false }) 
   );
 }
 
-export default function DeyeTotalsPanel({ tradeDay, inverterSn, apiUrl, t, getBcp47Locale, onTradeDayChange }) {
+export default function DeyeTotalsPanel({
+  tradeDay,
+  inverterSn,
+  gridlabDeviceId,
+  evPortsAcdc,
+  apiUrl,
+  t,
+  getBcp47Locale,
+  onTradeDayChange,
+}) {
   const [activeTab, setActiveTab] = useState('day');
   const [selectedDate, setSelectedDate] = useState(tradeDay);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const abortRef = useRef(null);
+  const glId = String(gridlabDeviceId || '').trim();
+  const deyeSn = String(inverterSn || '').trim();
+  const evAcdc =
+    evPortsAcdc === 'dc' || evPortsAcdc === 'ac' || evPortsAcdc === 'bb' ? evPortsAcdc : '';
+  const deviceKey = glId
+    ? `gridlab:${glId}`
+    : evAcdc
+      ? `ev:${evAcdc}`
+      : deyeSn
+        ? `deye:${deyeSn}`
+        : '';
 
   useEffect(() => {
     setSelectedDate(tradeDay);
@@ -134,19 +154,38 @@ export default function DeyeTotalsPanel({ tradeDay, inverterSn, apiUrl, t, getBc
 
   const fetchTotals = useCallback(
     async (tab, dateIso) => {
-      if (!inverterSn) return;
+      if (!deviceKey) return;
       if (abortRef.current) abortRef.current.abort();
       const ctrl = new AbortController();
       abortRef.current = ctrl;
       setLoading(true);
       setError(null);
       try {
-        const q = new URLSearchParams({
-          deviceSn: inverterSn,
-          period: getApiPeriod(tab),
-          date: dateIso,
-        });
-        const r = await fetch(apiUrl(`/api/deye/soc-history-totals?${q}`), {
+        let path;
+        let q;
+        if (glId) {
+          path = '/api/gridlab/soc-history-totals';
+          q = new URLSearchParams({
+            deviceId: glId,
+            period: getApiPeriod(tab),
+            date: dateIso,
+          });
+        } else if (evAcdc) {
+          path = '/api/b2b/ev-ports-totals';
+          q = new URLSearchParams({
+            acdc: evAcdc,
+            period: getApiPeriod(tab),
+            date: dateIso,
+          });
+        } else {
+          path = '/api/deye/soc-history-totals';
+          q = new URLSearchParams({
+            deviceSn: deyeSn,
+            period: getApiPeriod(tab),
+            date: dateIso,
+          });
+        }
+        const r = await fetch(apiUrl(`${path}?${q}`), {
           cache: 'no-store',
           signal: ctrl.signal,
         });
@@ -178,7 +217,7 @@ export default function DeyeTotalsPanel({ tradeDay, inverterSn, apiUrl, t, getBc
         setLoading(false);
       }
     },
-    [apiUrl, inverterSn]
+    [apiUrl, deviceKey, deyeSn, glId, evAcdc]
   );
 
   useEffect(() => {
@@ -210,8 +249,26 @@ export default function DeyeTotalsPanel({ tradeDay, inverterSn, apiUrl, t, getBc
     [consumptionBase, pvKwh, gridKwh]
   );
 
-  const titleRaw = String(t('deyeTotalsTitle') || '').trim();
-  const title = !titleRaw || titleRaw === 'deyeTotalsTitle' ? 'Deye Energy' : titleRaw;
+  const titleKey = glId
+    ? 'gridlabEnergyTotalsTitle'
+    : evAcdc === 'bb'
+      ? 'evPortsEnergyTotalsTitleBb'
+      : evAcdc === 'ac'
+        ? 'evPortsEnergyTotalsTitleAc'
+        : evAcdc === 'dc'
+          ? 'evPortsEnergyTotalsTitleDc'
+          : 'deyeTotalsTitle';
+  const titleFallback = glId
+    ? 'GridLab Energy'
+    : evAcdc === 'bb'
+      ? 'BB Energy'
+      : evAcdc === 'ac'
+        ? 'AC EV Energy'
+        : evAcdc === 'dc'
+          ? 'DC EV Energy'
+          : 'Deye Energy';
+  const titleRaw = String(t(titleKey) || '').trim();
+  const title = !titleRaw || titleRaw === titleKey ? titleFallback : titleRaw;
 
   const dateInputType = activeTab === 'day' ? 'date' : activeTab === 'month' ? 'month' : 'number';
   const dateInputValue =
