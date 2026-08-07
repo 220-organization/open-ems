@@ -295,6 +295,80 @@ async def get_ev_port_hourly_chart_from_db(
     return out
 
 
+async def get_ev_port_energy_totals(
+    session: AsyncSession,
+    acdc: str,
+    period: str,
+    date_iso: str,
+) -> dict[str, Any]:
+    """
+    Sum grid-import kWh for EV fleet over a Kyiv day / month / year.
+    Same response fields as Deye ``soc-history-totals`` (consumption ≈ import for chargers).
+    """
+    kind = _normalize_acdc(acdc)
+    d = _parse_date_iso(date_iso)
+    if kind is None:
+        return {"ok": False, "configured": True, "reason": "invalid_acdc"}
+    if d is None:
+        return {"ok": False, "configured": True, "reason": "bad_date"}
+
+    period_key = (period or "day").strip().lower()
+    if period_key not in ("day", "month", "year"):
+        period_key = "day"
+
+    today_kyiv = datetime.now(KYIV).date()
+    if period_key == "day":
+        period_days = [d] if d <= today_kyiv else []
+    elif period_key == "month":
+        cursor = d.replace(day=1)
+        period_days = []
+        while cursor.month == d.month and cursor.year == d.year:
+            if cursor > today_kyiv:
+                break
+            period_days.append(cursor)
+            cursor += timedelta(days=1)
+    else:
+        cursor = d.replace(month=1, day=1)
+        period_days = []
+        while cursor.year == d.year:
+            if cursor > today_kyiv:
+                break
+            period_days.append(cursor)
+            cursor += timedelta(days=1)
+
+    sum_import = 0.0
+    days_with_data = 0
+    for day in period_days:
+        day_payload = await get_ev_port_hourly_chart_from_db(session, kind, day.isoformat())
+        if not day_payload.get("ok"):
+            continue
+        totals = day_payload.get("totals") or {}
+        imp = totals.get("gridImportKwh")
+        if imp is None or not math.isfinite(float(imp)):
+            continue
+        v = float(imp)
+        if v > 0 or not day_payload.get("empty"):
+            # Count days that have any sample rows even if import rounds to 0.
+            if not day_payload.get("empty"):
+                days_with_data += 1
+            sum_import += max(0.0, v)
+
+    has_any = days_with_data > 0 or sum_import > 0
+    return {
+        "ok": True,
+        "configured": True,
+        "acdc": kind,
+        "period": period_key,
+        "date": date_iso,
+        # Chargers: load ≈ grid import; no on-site PV generation.
+        "consumptionKwh": round(sum_import, 4) if has_any else None,
+        "generationKwh": 0.0 if has_any else None,
+        "importKwh": round(sum_import, 4) if has_any else None,
+        "daysRequested": len(period_days),
+        "daysWithData": days_with_data,
+    }
+
+
 async def ev_port_import_weighted_dam_kyiv(
     session: AsyncSession,
     acdc: str,

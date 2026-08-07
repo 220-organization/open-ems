@@ -499,12 +499,14 @@ function preferredLandingExportMetric(_offers) {
 const LANDING_EXPORT_METRIC_URL_KEYS = ['exportMetric', 'landingExport'];
 
 /**
- * Miner node on power-flow: root landing (/) and OREE ES (?market=oree&zone=ES),
- * any exportMetric / inverter selection (live data from /api/b2b/miner-power).
+ * Miner node on power-flow: fleet / main landing only
+ * (``/`` or ``?market=oree&zone=ES`` without an ``inverter`` selection).
+ * Live data from /api/b2b/miner-power.
  */
 function isMinerUrlContext() {
   try {
     const u = new URLSearchParams(window.location.search);
+    if ((u.get('inverter') || '').trim()) return false;
     const market = (u.get('market') || '').trim().toLowerCase();
     const zone = (u.get('zone') || '').trim().toUpperCase();
     if (!market && !zone) return true;
@@ -779,7 +781,8 @@ function landingMonthlyRatesRetailFromTotals(landingTotals) {
   const isDeviceScope =
     landingTotals.exportScope === 'device' ||
     landingTotals.exportScope === 'huawei' ||
-    landingTotals.exportScope === 'ev_ports';
+    landingTotals.exportScope === 'ev_ports' ||
+    landingTotals.exportScope === 'gridlab';
   let damAvg = dam.currentAvgUahPerKwh;
   const personal = dam.currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd;
   if (isDeviceScope && personal != null && Number.isFinite(Number(personal))) {
@@ -959,7 +962,8 @@ function formatLandingMonthlyRatesMetric(landingTotals, bcp47, t) {
   const isDeviceScope =
     landingTotals.exportScope === 'device' ||
     landingTotals.exportScope === 'huawei' ||
-    landingTotals.exportScope === 'ev_ports';
+    landingTotals.exportScope === 'ev_ports' ||
+    landingTotals.exportScope === 'gridlab';
   let damAvg = dam.currentAvgUahPerKwh;
   const personal = dam.currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd;
   if (isDeviceScope && personal != null && Number.isFinite(Number(personal))) {
@@ -1337,7 +1341,8 @@ function formatLandingTotalsDisplay(landingTotals, bcp47, t) {
     const isDeviceScope =
       landingTotals.exportScope === 'device' ||
       landingTotals.exportScope === 'huawei' ||
-      landingTotals.exportScope === 'ev_ports';
+      landingTotals.exportScope === 'ev_ports' ||
+      landingTotals.exportScope === 'gridlab';
     const personalDamWavg = dam.currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd;
     let damTariffLine = null;
     if (isDeviceScope && personalDamWavg != null && Number.isFinite(Number(personalDamWavg))) {
@@ -1506,11 +1511,12 @@ function LandingExportMetricCounter({
   onOpenMonthlyRates,
   onOpenExportChart,
 }) {
-  const { kwhHidden, requestReveal } = useKwhCalibration();
-  const masked = !display.valueIsCurrency && kwhHidden;
-  const counterText = masked
-    ? `— ${t('powerFlowLandingKwhUnit')}`
-    : formatLandingMetricCounterText(display.text, t, display.valueIsCurrency);
+  const { isApproximate } = useKwhCalibration();
+  const counterText = formatLandingMetricCounterText(display.text, t, display.valueIsCurrency);
+  const displayCounterText =
+    !display.valueIsCurrency && isApproximate && counterText && !String(counterText).startsWith('—')
+      ? `~${counterText}`
+      : counterText;
 
   const counterInner = (
     <div className="pf-landing-totals__counter-scroll">
@@ -1521,23 +1527,10 @@ function LandingExportMetricCounter({
         className={display.counterClass}
         numberStyle={{ letterSpacing: '0.05em' }}
       >
-        {counterText}
+        {displayCounterText}
       </PfScrollNumber>
     </div>
   );
-
-  if (masked) {
-    return (
-      <button
-        type="button"
-        className={`${display.wrapClass} pf-landing-totals__counter-wrap--kwh-calibration`}
-        aria-label={t('kwhCalibrationMessage')}
-        onClick={requestReveal}
-      >
-        {counterInner}
-      </button>
-    );
-  }
 
   if (landingReadOnlyEss && !showMonthlyRatesChart && !showExportHourlyChart) {
     return (
@@ -2157,7 +2150,7 @@ export default function PowerFlowPage({
     selInverterSn || selHuaweiStationCode || selUbetterSn || selGridlabDeviceId || selEvPortsAggregate
   );
 
-  const showMinerNode = showMinerOnPowerFlow();
+  const showMinerNode = showMinerOnPowerFlow() && !essAnySelected;
 
   useEffect(() => {
     if (!showMinerNode) {
@@ -2615,11 +2608,13 @@ export default function PowerFlowPage({
     const q = new URLSearchParams({ months: '12' });
     const sn = selInverterSn?.trim();
     const hw = selHuaweiStationCode?.trim();
+    const gl = selGridlabDeviceId?.trim();
     if (selEvPortsAcdc) q.set('evPortsAcdc', selEvPortsAcdc);
     else if (sn) q.set('deviceSn', sn);
     else if (hw) q.set('huaweiStationCode', hw);
+    else if (gl) q.set('gridlabDeviceId', gl);
     return apiUrl(`/api/power-flow/monthly-retail-tariff-bars?${q}`);
-  }, [selInverterSn, selHuaweiStationCode, selEvPortsAcdc]);
+  }, [selInverterSn, selHuaweiStationCode, selGridlabDeviceId, selEvPortsAcdc]);
   const gridBalancingChartFetchUrl = useMemo(() => {
     const q = new URLSearchParams({ months: '12' });
     const sn = selInverterSn?.trim();
@@ -4874,6 +4869,11 @@ export default function PowerFlowPage({
         const q = new URLSearchParams({ huaweiStationCode: hw });
         return apiUrl(`/api/power-flow/landing-totals?${q}`);
       }
+      const gl = selGridlabDeviceId.trim();
+      if (gl) {
+        const q = new URLSearchParams({ gridlabDeviceId: gl });
+        return apiUrl(`/api/power-flow/landing-totals?${q}`);
+      }
       const sn = selInverterSn.trim();
       const q = sn ? `?deviceSn=${encodeURIComponent(sn)}` : '';
       return apiUrl(`/api/power-flow/landing-totals${q}`);
@@ -4908,7 +4908,7 @@ export default function PowerFlowPage({
       cancelled = true;
       clearInterval(id);
     };
-  }, [selInverterSn, selHuaweiStationCode, selEvPortsAcdc, inverterListReady]);
+  }, [selInverterSn, selHuaweiStationCode, selGridlabDeviceId, selEvPortsAcdc, inverterListReady]);
 
   const flowTariffVsUkraineSupplement = useMemo(
     () => landingMonthlyRatesTariffVsUkraineSupplement(landingTotals, bcp47),
