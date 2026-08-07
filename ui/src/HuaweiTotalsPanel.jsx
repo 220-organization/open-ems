@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import KwhDisplay from './KwhDisplay';
 
 /**
  * Displays Day / Month / Year energy totals from Huawei FusionSolar.
@@ -45,7 +46,6 @@ function ProgressBar({ percent, color }) {
 }
 
 function MetricRow({ label, value, unit, color, percent, fmt, isBase = false }) {
-  const display = value != null ? `${fmt.format(value)} ${unit}` : '—';
   let percentText = '';
   if (percent != null && Number.isFinite(Number(percent))) {
     const raw = Number(percent);
@@ -58,7 +58,7 @@ function MetricRow({ label, value, unit, color, percent, fmt, isBase = false }) 
         <span className="hw-totals__swatch" style={{ background: color }} aria-hidden="true" />
         <span className="hw-totals__label">{label}</span>
         <span className="hw-totals__value">
-          {display}
+          <KwhDisplay value={value} fmt={fmt} unit={unit} />
           {percentText ? ` ${percentText}` : ''}
         </span>
       </div>
@@ -366,6 +366,9 @@ export default function HuaweiTotalsPanel({ stationCode, tradeDay, apiUrl, t, ge
                 fmt={fmt}
               />
             )}
+            <p className="hw-totals__approx-note">
+              <span aria-hidden="true">*</span> {t('kwhCalibrationPrecisionNote')}
+            </p>
           </div>
         )}
       </div>

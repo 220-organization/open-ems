@@ -6,18 +6,21 @@ const KwhCalibrationContext = createContext(null);
 const NOOP = {
   kwhHidden: false,
   needsCalibration: false,
-  isApproximate: false,
+  isApproximate: true,
+  approximateNote: '',
   requestReveal: () => {},
-  formatEnergyKwh: (value, fmt, unit) => formatEnergyKwhText(value, fmt, unit, false),
+  formatEnergyKwh: (value, fmt, unit) => formatEnergyKwhText(value, fmt, unit, true),
 };
 
 /**
- * Energy display context for Deye: uncalibrated inverters show approximate ``~kWh``
- * immediately (no precision popup).
+ * Energy display context for the control panel: all kWh values are approximate (``~``)
+ * with a shared footnote explaining precision limits.
  */
-export function KwhCalibrationProvider({ inverterSn, t: _t, children }) {
+export function KwhCalibrationProvider({ inverterSn, t, children }) {
   const needsCalibration = inverterNeedsKwhCalibration(inverterSn);
-  const isApproximate = needsCalibration;
+  /** Main page always shows approximate kWh (tilted values + footnote). */
+  const isApproximate = true;
+  const approximateNote = String(t?.('kwhCalibrationPrecisionNote') || '').trim();
   /** Kept for callers; values are never hidden anymore. */
   const kwhHidden = false;
 
@@ -33,10 +36,11 @@ export function KwhCalibrationProvider({ inverterSn, t: _t, children }) {
       kwhHidden,
       needsCalibration,
       isApproximate,
+      approximateNote,
       requestReveal,
       formatEnergyKwh,
     }),
-    [kwhHidden, needsCalibration, isApproximate, requestReveal, formatEnergyKwh],
+    [kwhHidden, needsCalibration, isApproximate, approximateNote, requestReveal, formatEnergyKwh],
   );
 
   return <KwhCalibrationContext.Provider value={value}>{children}</KwhCalibrationContext.Provider>;

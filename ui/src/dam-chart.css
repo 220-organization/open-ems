@@ -1402,6 +1402,22 @@ a.dam-oree-embed-external:hover {
   transition: width 0.3s ease;
 }
 
+.hw-totals__approx-note {
+  margin: 10px 0 0;
+  padding: 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--pf-text-muted, rgba(15, 23, 42, 0.55));
+}
+
+.kwh-approx-mark {
+  font-size: 0.75em;
+  line-height: 0;
+  margin-left: 1px;
+  font-weight: 600;
+  color: var(--pf-text-muted, rgba(15, 23, 42, 0.55));
+}
+
 @media (max-width: 560px) {
   .hw-totals__header {
     align-items: flex-start;

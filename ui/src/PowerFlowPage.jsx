@@ -1511,12 +1511,14 @@ function LandingExportMetricCounter({
   onOpenMonthlyRates,
   onOpenExportChart,
 }) {
-  const { isApproximate } = useKwhCalibration();
+  const { approximateNote } = useKwhCalibration();
   const counterText = formatLandingMetricCounterText(display.text, t, display.valueIsCurrency);
-  const displayCounterText =
-    !display.valueIsCurrency && isApproximate && counterText && !String(counterText).startsWith('—')
-      ? `~${counterText}`
-      : counterText;
+  const showStar =
+    !display.valueIsCurrency &&
+    counterText &&
+    !String(counterText).startsWith('—') &&
+    !String(counterText).startsWith('…') &&
+    Boolean(approximateNote);
 
   const counterInner = (
     <div className="pf-landing-totals__counter-scroll">
@@ -1527,8 +1529,13 @@ function LandingExportMetricCounter({
         className={display.counterClass}
         numberStyle={{ letterSpacing: '0.05em' }}
       >
-        {displayCounterText}
+        {counterText}
       </PfScrollNumber>
+      {showStar ? (
+        <sup className="kwh-approx-mark" aria-label={approximateNote}>
+          *
+        </sup>
+      ) : null}
     </div>
   );
 
@@ -6025,6 +6032,11 @@ export default function PowerFlowPage({
                             )}
                           </div>
                         </div>
+                        {inverterMetricDisplay && !inverterMetricDisplay.valueIsCurrency ? (
+                          <p className="pf-landing-totals__approx-note">
+                            <span aria-hidden="true">*</span> {t('kwhCalibrationPrecisionNote')}
+                          </p>
+                        ) : null}
                         {sourceSelected ? (
                           <>
                             {landingExportMetricUi === LANDING_EXPORT_METRIC.GRID_BALANCING ? (

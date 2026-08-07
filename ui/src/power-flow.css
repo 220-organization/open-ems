@@ -552,7 +552,7 @@ body {
 
 .pf-landing-totals__counter-scroll {
   display: inline-flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   min-width: min(100%, max(10ch, max-content));
   min-height: 1.25em;
@@ -561,6 +561,7 @@ body {
   overflow: visible;
   flex: 0 0 auto;
   flex-shrink: 0;
+  gap: 0;
 }
 
 .pf-landing-totals__counter-wrap--loading { opacity: 0.7; }
@@ -590,6 +591,25 @@ body {
   word-break: break-word;
   hyphens: auto;
   -webkit-hyphens: auto;
+}
+
+.pf-landing-totals__approx-note {
+  margin: 6px 0 0;
+  padding: 0 8px;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  font-weight: 400;
+  color: var(--pf-text-muted);
+  text-align: center;
+  max-width: 100%;
+}
+
+.kwh-approx-mark {
+  font-size: 0.75em;
+  line-height: 0;
+  margin-left: 1px;
+  font-weight: 600;
+  color: var(--pf-text-muted);
 }
 
 .pf-landing-totals__tariff--dam { margin-top: 0.35em; opacity: 0.8; }

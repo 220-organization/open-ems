@@ -82,6 +82,13 @@ services:
       UBETTER_220KM_PASSWORD: ${UBETTER_220KM_PASSWORD:-}
       # GridLab External BESS API — only password is env-configurable (rest hardcoded in settings.py)
       GRIDLAB_PASSWORD: ${GRIDLAB_PASSWORD:-}
+      # Order BESS — BIOM sheet CSV export URLs (GitHub secrets / host .env; never commit)
+      BESS_PROMO_SHEET_URL: ${BESS_PROMO_SHEET_URL:-}
+      BESS_INSTALL_SHEET_URL: ${BESS_INSTALL_SHEET_URL:-}
+      BESS_PRICE_CACHE_TTL_SEC: ${BESS_PRICE_CACHE_TTL_SEC:-600}
+      TELEGRAM_API_TOKEN: ${TELEGRAM_API_TOKEN:-}
+      TELEGRAM_SUPPORT_CHAT_ID: ${TELEGRAM_SUPPORT_CHAT_ID:-}
+      TELEGRAM_BESS_CHAT_ID: ${TELEGRAM_BESS_CHAT_ID:-}
     depends_on:
       migrate:
         condition: service_completed_successfully
