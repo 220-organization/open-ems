@@ -411,6 +411,17 @@ export function computeBiomSavings({
 export function unitPriceUsd(item, businessType) {
   if (!item) return null;
   const brand = item.brand || 'other';
+
+  // Biom: always promo sheet — «Промокод» (FOP) / «Промокод (з ПДВ)» (VAT). Never installer cash markup.
+  if (brand === 'biom') {
+    if (businessType === 'vat') {
+      const base = item.promoVatUsd;
+      return base == null ? null : Math.round(base * 0.998 * 100) / 100;
+    }
+    const base = item.promoUsd;
+    return base == null ? null : Math.round(base * 0.998 * 100) / 100;
+  }
+
   if (businessType === 'fop') {
     const base = item.promoUsd;
     return base == null ? null : Math.round(base * 0.998 * 100) / 100;
@@ -419,10 +430,10 @@ export function unitPriceUsd(item, businessType) {
     const base = item.promoVatUsd;
     return base == null ? null : Math.round(base * 0.998 * 100) / 100;
   }
-  // cash — installer + brand markup
+  // cash — installer + brand markup (Deye / other)
   const base = item.installerUsd;
   if (base == null) return null;
-  const mult = brand === 'deye' ? 1.02 : brand === 'biom' ? 1.05 : 1.0;
+  const mult = brand === 'deye' ? 1.02 : 1.0;
   return Math.round(base * mult * 100) / 100;
 }
 
