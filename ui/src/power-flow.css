@@ -2459,12 +2459,13 @@ a.pf-node { cursor: pointer; }
   .pf-lang-port-bar {
     margin-top: 10px;
     margin-bottom: 0;
-    --pf-side: min(calc(100vw - 20px), calc(100vh - 240px), 920px);
+    /* Keep a usable graph floor on short landscape viewports (dvh−240 can collapse ~150px). */
+    --pf-side: min(calc(100vw - 20px), max(320px, calc(100vh - 240px)), 920px);
   }
 
   @supports (height: 100dvh) {
     .pf-lang-port-bar {
-      --pf-side: min(calc(100vw - 20px), calc(100dvh - 240px), 920px);
+      --pf-side: min(calc(100vw - 20px), max(320px, calc(100dvh - 240px)), 920px);
     }
   }
 
@@ -2570,13 +2571,13 @@ a.pf-node { cursor: pointer; }
   }
 
   .pf-graph {
-    --pf-side: min(calc(100vw - 20px), calc(100vh - 240px), 920px);
+    --pf-side: min(calc(100vw - 20px), max(320px, calc(100vh - 240px)), 920px);
     --pf-graph-anchor-pct: 5.5%;
   }
 
   @supports (height: 100dvh) {
     .pf-graph {
-      --pf-side: min(calc(100vw - 20px), calc(100dvh - 240px), 920px);
+      --pf-side: min(calc(100vw - 20px), max(320px, calc(100dvh - 240px)), 920px);
     }
   }
 
@@ -2660,11 +2661,11 @@ a.pf-node { cursor: pointer; }
 
 @media (max-width: 380px) {
   .pf-graph {
-    --pf-side: min(calc(100vw - 16px), calc(100vh - 200px), 920px);
+    --pf-side: min(calc(100vw - 16px), max(280px, calc(100vh - 200px)), 920px);
   }
   @supports (height: 100dvh) {
     .pf-graph {
-      --pf-side: min(calc(100vw - 16px), calc(100dvh - 200px), 920px);
+      --pf-side: min(calc(100vw - 16px), max(280px, calc(100dvh - 200px)), 920px);
     }
   }
 
