@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  BIOM_PAYMENT_DETAILS,
   BUSINESS_TYPES,
   CUSTOM_PRESET_ID,
   DISCOUNT_UNITS,
@@ -13,7 +12,7 @@ import {
   kwhRangeLabel,
   unitPriceUsd,
 } from './orderBess/presets';
-import { downloadOrderBessOfferPdf } from './orderBess/offerPdf';
+import { downloadOrderBessOfferPng } from './orderBess/offerPdf';
 import { buildB2bTelegramUrl, buildB2bWhatsAppUrl } from './messengerContactUrls';
 import SharePageModal from './SharePageModal';
 import { buildSharePageModalPayload } from './sharePageQr';
@@ -305,6 +304,9 @@ export default function OrderBessPage({ t }) {
     () => ({
       kw: activeBom.kw,
       kwh: activeBom.kwh,
+      ...(presetId === CUSTOM_PRESET_ID
+        ? { inv: customInv, bat: customBat, inverter: customInv, battery: customBat }
+        : {}),
       lines: pricedLines.map(l => ({
         article: l.article,
         qty: l.qty,
@@ -312,8 +314,17 @@ export default function OrderBessPage({ t }) {
         lineTotal: l.lineTotal,
       })),
     }),
-    [activeBom, pricedLines]
+    [activeBom, pricedLines, presetId, customInv, customBat]
   );
+
+  const orderBessPageUrl = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    try {
+      return window.location.href;
+    } catch {
+      return '';
+    }
+  }, [businessType, presetId, customInv, customBat, customKwh, discountUnits]);
 
   const trimmedName = contactName.trim();
   const trimmedPhone = contactPhone.trim();
@@ -321,6 +332,8 @@ export default function OrderBessPage({ t }) {
 
   const buildContactMessage = intent => {
     const isDiscount = intent === 'discount';
+    const pageLink =
+      typeof window !== 'undefined' ? window.location.href : orderBessPageUrl;
     const lines = [
       t(isDiscount ? 'orderBessContactMessageDiscountIntro' : 'orderBessContactMessageOfferIntro'),
       `${t('orderBessContactName')}: ${trimmedName}`,
@@ -332,6 +345,7 @@ export default function OrderBessPage({ t }) {
           ? `${t('orderBessSummaryTotal')}: $${fmtUsd(totalUsd)} × ${discountUnits} = $${fmtUsd(totalUsd * discountUnits)} (${priceColLabel})`
           : `${t('orderBessSummaryTotal')}: $${fmtUsd(totalUsd)} (${priceColLabel})`,
       isDiscount ? `${t('orderBessDiscountUnits')}: ${discountUnits}` : null,
+      pageLink || null,
       '',
       isDiscount ? BESS_DISCOUNT_HASHTAG : BESS_OFFER_HASHTAG,
     ].filter(Boolean);
@@ -363,6 +377,7 @@ export default function OrderBessPage({ t }) {
             phone: trimmedPhone,
             contact: `${trimmedName} / ${trimmedPhone}`,
             kit: kitPayload,
+            page_url: typeof window !== 'undefined' ? window.location.href : orderBessPageUrl,
           }),
         });
       } catch {
@@ -397,6 +412,7 @@ export default function OrderBessPage({ t }) {
           phone: trimmedPhone,
           contact: `${trimmedName} / ${trimmedPhone}`,
           kit: kitPayload,
+          page_url: typeof window !== 'undefined' ? window.location.href : orderBessPageUrl,
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -408,11 +424,11 @@ export default function OrderBessPage({ t }) {
     }
   };
 
-  const downloadPdf = async () => {
+  const downloadPng = async () => {
     if (totalUsd == null || pdfBusy) return;
     setPdfBusy(true);
     try {
-      await downloadOrderBessOfferPdf({
+      await downloadOrderBessOfferPng({
         kw: activeBom.kw,
         kwh: activeBom.kwh,
         lines: pricedLines,
@@ -420,12 +436,10 @@ export default function OrderBessPage({ t }) {
         totalUah,
         fxRate: fx,
         priceLabel: priceColLabel,
-        businessType,
-        payment: businessType === 'vat' ? BIOM_PAYMENT_DETAILS : null,
       });
     } catch (e) {
       // eslint-disable-next-line no-console
-      console.error('Order BESS PDF failed', e);
+      console.error('Order BESS PNG failed', e);
     } finally {
       setPdfBusy(false);
     }
@@ -655,9 +669,9 @@ export default function OrderBessPage({ t }) {
                 type="button"
                 className="order-bess-primary"
                 disabled={pdfBusy || totalUsd == null}
-                onClick={() => void downloadPdf()}
+                onClick={() => void downloadPng()}
               >
-                {pdfBusy ? t('orderBessPdfBusy') : t('orderBessDownloadPdf')}
+                {pdfBusy ? t('orderBessPngBusy') : t('orderBessDownloadPng')}
               </button>
             </div>
           </div>
@@ -723,44 +737,6 @@ export default function OrderBessPage({ t }) {
               </button>
             </div>
           </div>
-
-          {businessType === 'vat' ? (
-            <div className="order-bess-pay">
-              <h3 className="order-bess-pay__title">{t('orderBessPaymentDetails')}</h3>
-              <dl className="order-bess-pay__dl">
-                <div>
-                  <dt>{t('orderBessPayRecipient')}</dt>
-                  <dd>{BIOM_PAYMENT_DETAILS.recipient}</dd>
-                </div>
-                <div>
-                  <dt>ЄДРПОУ</dt>
-                  <dd>{BIOM_PAYMENT_DETAILS.edrpou}</dd>
-                </div>
-                <div>
-                  <dt>ІПН</dt>
-                  <dd>{BIOM_PAYMENT_DETAILS.ipn}</dd>
-                </div>
-                <div>
-                  <dt>IBAN</dt>
-                  <dd className="order-bess-mono">{BIOM_PAYMENT_DETAILS.iban}</dd>
-                </div>
-                <div>
-                  <dt>{t('orderBessPayBank')}</dt>
-                  <dd>
-                    {BIOM_PAYMENT_DETAILS.bank}, МФО {BIOM_PAYMENT_DETAILS.mfo}
-                  </dd>
-                </div>
-                <div>
-                  <dt>{t('orderBessPayAddress')}</dt>
-                  <dd>{BIOM_PAYMENT_DETAILS.address}</dd>
-                </div>
-                <div>
-                  <dt>{t('orderBessPayPhone')}</dt>
-                  <dd>{BIOM_PAYMENT_DETAILS.phone}</dd>
-                </div>
-              </dl>
-            </div>
-          ) : null}
         </section>
 
         <section className="order-bess-card" aria-labelledby="order-bess-discount">

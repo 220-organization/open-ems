@@ -59,12 +59,13 @@ def format_bess_lead_message(
     name: Optional[str] = None,
     phone: Optional[str] = None,
     kit: Optional[dict[str, Any]] = None,
+    page_url: Optional[str] = None,
 ) -> str:
     """Build Ukrainian HTML alert for Order BESS contact / discount lead."""
     biz_labels = {
         "fop": "ФОП (без ПДВ)",
         "vat": "Платник ПДВ",
-        "cash": "За готівку",
+        "cash": "За готівку для інсталяторів",
     }
     channel_labels = {
         "telegram": "Telegram",
@@ -118,5 +119,53 @@ def format_bess_lead_message(
         lines.append(f"Сума за 1 комплект: <b>${float(total_usd):,.2f}</b>".replace(",", " "))
     if lines_count is not None:
         lines.append(f"Позицій у BOM: {lines_count}")
-    lines.extend(["", hashtag, "https://ems.220-km.com/order-bess"])
+
+    link = build_order_bess_page_url(
+        page_url=page_url,
+        preset_id=preset_id,
+        business_type=business_type,
+        units=units,
+        kit=kit,
+    )
+    # Keep URL unescaped so Telegram auto-link keeps query params (&).
+    lines.extend(["", hashtag, link])
     return "\n".join(lines)
+
+
+ORDER_BESS_PUBLIC_PATH = "https://ems.220-km.com/order-bess"
+
+
+def build_order_bess_page_url(
+    *,
+    page_url: Optional[str] = None,
+    preset_id: Optional[str] = None,
+    business_type: Optional[str] = None,
+    units: Optional[int] = None,
+    kit: Optional[dict[str, Any]] = None,
+) -> str:
+    """Prefer client page_url (full deep link); otherwise build from lead fields."""
+    raw = (page_url or "").strip()
+    if raw.startswith("http://") or raw.startswith("https://"):
+        return raw
+
+    q: dict[str, str] = {}
+    if business_type:
+        q["biz"] = str(business_type)
+    if preset_id:
+        q["preset"] = str(preset_id)
+    if units is not None:
+        q["units"] = str(int(units))
+    if isinstance(kit, dict) and str(preset_id or "") == "custom":
+        inv = kit.get("inv") or kit.get("inverter")
+        bat = kit.get("bat") or kit.get("battery")
+        kwh = kit.get("kwh")
+        if inv:
+            q["inv"] = str(inv)
+        if bat:
+            q["bat"] = str(bat)
+        if kwh is not None:
+            q["kwh"] = str(kwh)
+    if not q:
+        return ORDER_BESS_PUBLIC_PATH
+    return f"{ORDER_BESS_PUBLIC_PATH}?{urlencode(q)}"
+

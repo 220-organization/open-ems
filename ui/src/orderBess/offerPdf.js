@@ -170,21 +170,23 @@ function drawFooter(ctx, pageIndex, pageCount) {
   ctx.fillText(label, PAGE_W - MARGIN - w, PAGE_H - 44);
 }
 
-/**
- * @param {object} offer
- * @param {number} offer.kw
- * @param {number} offer.kwh
- * @param {Array<{name, article, code, qty, unit, lineTotal, note, availability}>} offer.lines
- * @param {number|null} offer.totalUsd
- * @param {number|null} offer.totalUah
- * @param {number} offer.fxRate
- * @param {string} offer.priceLabel — e.g. "USD з ПДВ"
- * @param {string} offer.businessType — fop|vat|cash
- * @param {object|null} offer.payment — BIOM_PAYMENT_DETAILS when vat
- */
-export async function downloadOrderBessOfferPdf(offer) {
-  if (typeof window === 'undefined') return;
+function canvasToPngBlob(canvas) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      blob => {
+        if (blob) resolve(blob);
+        else reject(new Error('canvas.toBlob returned null'));
+      },
+      'image/png',
+    );
+  });
+}
 
+/**
+ * Render offer pages onto canvases (shared by PDF / PNG export).
+ * @returns {Promise<{ num: string, pages: HTMLCanvasElement[] }>}
+ */
+async function renderOrderBessOfferCanvases(offer) {
   const {
     kw,
     kwh,
@@ -193,8 +195,6 @@ export async function downloadOrderBessOfferPdf(offer) {
     totalUah,
     fxRate,
     priceLabel,
-    businessType,
-    payment,
   } = offer;
 
   const num = offerNumber(kw, kwh);
@@ -323,36 +323,6 @@ export async function downloadOrderBessOfferPdf(offer) {
   page.ctx.fillText(`Орієнтовно: ${fmtMoney(totalUah)} грн (курс ${fxRate})`, MARGIN, page.y);
   page.y += 40;
 
-  if (businessType === 'vat' && payment) {
-    ensureSpace(220);
-    page.ctx.font = 'bold 24px "Segoe UI", "Helvetica Neue", Arial, sans-serif';
-    page.ctx.fillStyle = '#111827';
-    page.ctx.fillText('Реквізити для оплати', MARGIN, page.y);
-    page.y += 34;
-    page.ctx.font = '18px "Segoe UI", "Helvetica Neue", Arial, sans-serif';
-    const payRows = [
-      ['Одержувач', payment.recipient],
-      ['ЄДРПОУ', payment.edrpou],
-      ['ІПН', payment.ipn],
-      ['IBAN', payment.iban],
-      ['Банк', `${payment.bank}, МФО ${payment.mfo}`],
-      ['Адреса', payment.address],
-      ['Тел.', payment.phone],
-    ];
-    payRows.forEach(([k, v]) => {
-      ensureSpace(48);
-      page.ctx.fillStyle = '#6b7280';
-      page.ctx.fillText(k, MARGIN, page.y);
-      page.ctx.fillStyle = '#111827';
-      const wrapped = wrapText(page.ctx, v || '', CONTENT_W - 200);
-      wrapped.forEach((wl, i) => {
-        page.ctx.fillText(wl, MARGIN + 200, page.y + i * 22);
-      });
-      page.y += Math.max(28, wrapped.length * 22 + 6);
-    });
-    page.y += 12;
-  }
-
   ensureSpace(200);
   page.ctx.font = 'bold 24px "Segoe UI", "Helvetica Neue", Arial, sans-serif';
   page.ctx.fillStyle = '#111827';
@@ -388,12 +358,57 @@ export async function downloadOrderBessOfferPdf(offer) {
   const pageCount = pagesCanvases.length;
   pagesCanvases.forEach((p, i) => drawFooter(p.ctx, i, pageCount));
 
+  return { num, pages: pagesCanvases.map(p => p.canvas) };
+}
+
+function stitchCanvasesVertically(canvases) {
+  const width = Math.max(...canvases.map(c => c.width));
+  const height = canvases.reduce((s, c) => s + c.height, 0);
+  const out = document.createElement('canvas');
+  out.width = width;
+  out.height = height;
+  const ctx = out.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, width, height);
+  let y = 0;
+  canvases.forEach(c => {
+    ctx.drawImage(c, 0, y);
+    y += c.height;
+  });
+  return out;
+}
+
+/**
+ * @param {object} offer
+ * @param {number} offer.kw
+ * @param {number} offer.kwh
+ * @param {Array<{name, article, code, qty, unit, lineTotal, note, availability}>} offer.lines
+ * @param {number|null} offer.totalUsd
+ * @param {number|null} offer.totalUah
+ * @param {number} offer.fxRate
+ * @param {string} offer.priceLabel — e.g. "USD з ПДВ"
+ * @param {string} offer.businessType — fop|vat|cash
+ */
+export async function downloadOrderBessOfferPdf(offer) {
+  if (typeof window === 'undefined') return;
+
+  const { num, pages } = await renderOrderBessOfferCanvases(offer);
   const jpegPages = [];
-  for (const p of pagesCanvases) {
+  for (const canvas of pages) {
     // eslint-disable-next-line no-await-in-loop
-    jpegPages.push(await canvasToJpegPage(p.canvas));
+    jpegPages.push(await canvasToJpegPage(canvas));
   }
 
   const pdfBlob = buildPdfFromJpegPages(jpegPages);
   triggerBlobDownload(pdfBlob, `${sanitizeFilenamePart(num)}.pdf`);
+}
+
+/** Same commercial offer as PNG (pages stacked vertically when multi-page). */
+export async function downloadOrderBessOfferPng(offer) {
+  if (typeof window === 'undefined') return;
+
+  const { num, pages } = await renderOrderBessOfferCanvases(offer);
+  const canvas = pages.length === 1 ? pages[0] : stitchCanvasesVertically(pages);
+  const blob = await canvasToPngBlob(canvas);
+  triggerBlobDownload(blob, `${sanitizeFilenamePart(num)}.png`);
 }

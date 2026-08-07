@@ -412,8 +412,12 @@ export function unitPriceUsd(item, businessType) {
   if (!item) return null;
   const brand = item.brand || 'other';
 
-  // Biom: always promo sheet — «Промокод» (FOP) / «Промокод (з ПДВ)» (VAT). Never installer cash markup.
+  // Biom — FOP/VAT from promo sheet; cash (installers) from install sheet «Інсталятор» + 5%.
   if (brand === 'biom') {
+    if (businessType === 'cash') {
+      const base = item.installerUsd;
+      return base == null ? null : Math.round(base * 1.05 * 100) / 100;
+    }
     if (businessType === 'vat') {
       const base = item.promoVatUsd;
       return base == null ? null : Math.round(base * 0.998 * 100) / 100;
@@ -436,14 +440,3 @@ export function unitPriceUsd(item, businessType) {
   const mult = brand === 'deye' ? 1.02 : 1.0;
   return Math.round(base * mult * 100) / 100;
 }
-
-export const BIOM_PAYMENT_DETAILS = {
-  recipient: 'ТОВ "БІОМ УКРАЇНА"',
-  edrpou: '42631519',
-  ipn: '426315120',
-  iban: 'UA143052990000026007005912058',
-  bank: 'АТ КБ "ПРИВАТБАНК"',
-  mfo: '305299',
-  address: 'вул. Клочківська, буд. 111А, м. Харків, Україна, 61145',
-  phone: '(050) 403 25 81',
-};

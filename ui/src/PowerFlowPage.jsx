@@ -51,29 +51,6 @@ import './dam-chart.css';
 import './openEmsKiosk.css';
 import { useOpenEmsSeo } from './useOpenEmsSeo';
 
-const PF_GEN_PORT_SETTINGS_OPEN_KEY = 'pf-gen-port-settings-open';
-/** Gen port Smart Load / On Grid toggles — visible in UI but disabled until rollout is complete. */
-const GEN_PORT_SETTINGS_CONTROLS_ENABLED = false;
-
-function readGenPortSettingsOpen() {
-  try {
-    const v = localStorage.getItem(PF_GEN_PORT_SETTINGS_OPEN_KEY);
-    if (v === '1') return true;
-    if (v === '0') return false;
-  } catch {
-    /* ignore */
-  }
-  return false;
-}
-
-function writeGenPortSettingsOpen(open) {
-  try {
-    localStorage.setItem(PF_GEN_PORT_SETTINGS_OPEN_KEY, open ? '1' : '0');
-  } catch {
-    /* ignore */
-  }
-}
-
 function formatGenPortDeyeFeedback(data) {
   if (!data?.deye) return '';
   try {
@@ -2441,7 +2418,6 @@ export default function PowerFlowPage({
   const [smartLoadEnabled, setSmartLoadEnabled] = useState(false);
   const [genOnGridAlwaysOn, setGenOnGridAlwaysOn] = useState(false);
   const [genOnGridAlwaysOnLoading, setGenOnGridAlwaysOnLoading] = useState(false);
-  const [genPortSettingsOpen, setGenPortSettingsOpen] = useState(() => readGenPortSettingsOpen());
   const [toolbarPrefsLoading, setToolbarPrefsLoading] = useState(false);
   /** Fleet or per-inverter totals from GET /api/power-flow/landing-totals. */
   const [landingTotals, setLandingTotals] = useState(null);
@@ -6707,168 +6683,6 @@ export default function PowerFlowPage({
                                   </span>
                                 </label>
                               </div>
-                              <details
-                                className={`pf-gen-port-settings-details${GEN_PORT_SETTINGS_CONTROLS_ENABLED ? '' : ' pf-gen-port-settings-details--to-be-supported'}`}
-                                open={genPortSettingsOpen}
-                                onToggle={e => {
-                                  const open = e.currentTarget.open;
-                                  setGenPortSettingsOpen(open);
-                                  writeGenPortSettingsOpen(open);
-                                }}
-                              >
-                                <summary className="pf-gen-port-settings-summary">
-                                  <span
-                                    className={
-                                      GEN_PORT_SETTINGS_CONTROLS_ENABLED
-                                        ? 'pf-gen-port-settings-summary-label'
-                                        : 'pf-roi-stack-seg-title pf-gen-port-settings-summary-title'
-                                    }
-                                  >
-                                    {t('genPortSettingsSection')}
-                                  </span>
-                                  {!GEN_PORT_SETTINGS_CONTROLS_ENABLED ? (
-                                    <span className="pf-roi-stack-seg-sub pf-gen-port-settings-status">
-                                      {t('roiUnderDevelopment')}
-                                    </span>
-                                  ) : null}
-                                </summary>
-                                <div className="pf-gen-port-settings-body">
-                                  <DelayedHintTooltip
-                                    hintText={
-                                      GEN_PORT_SETTINGS_CONTROLS_ENABLED
-                                        ? t('smartLoadToggleHint')
-                                        : t('genPortSettingsUnderDevelopmentHint')
-                                    }
-                                  >
-                                    <label className="pf-peak-dam-toggle pf-peak-dam-toggle--header">
-                                      <input
-                                        type="checkbox"
-                                        checked={smartLoadEnabled}
-                                        disabled={!GEN_PORT_SETTINGS_CONTROLS_ENABLED || deyeWritesHardBlocked}
-                                        onChange={async e => {
-                                          if (!GEN_PORT_SETTINGS_CONTROLS_ENABLED) return;
-                                          if (!remoteWriteConfigured) {
-                                            setRemoteWriteNeedsPinOpen(true);
-                                            return;
-                                          }
-                                          const v = e.target.checked;
-                                          const sn = selInverterSn?.trim();
-                                          if (!sn) return;
-                                          const prev = smartLoadEnabled;
-                                          const cached = readCachedInverterPin(sn);
-                                          if (cached) {
-                                            setSmartLoadEnabled(v);
-                                            setDischarge2Feedback('');
-                                            try {
-                                              const data = await saveSmartLoadPref(v, cached);
-                                              if (data && typeof data.smartLoadEnabled === 'boolean') {
-                                                setSmartLoadEnabled(data.smartLoadEnabled);
-                                              } else if (data && typeof data.enabled === 'boolean') {
-                                                setSmartLoadEnabled(data.enabled);
-                                              }
-                                            } catch (err) {
-                                              setSmartLoadEnabled(prev);
-                                              const m = err instanceof Error ? err.message : String(err);
-                                              setDischarge2Feedback(`${t('smartLoadSaveError')}: ${m}`);
-                                            }
-                                            return;
-                                          }
-                                          if (selInverterEvportBound) {
-                                            setSmartLoadEnabled(v);
-                                            setDischarge2Feedback('');
-                                            try {
-                                              const data = await saveSmartLoadPref(v, '');
-                                              if (data && typeof data.smartLoadEnabled === 'boolean') {
-                                                setSmartLoadEnabled(data.smartLoadEnabled);
-                                              } else if (data && typeof data.enabled === 'boolean') {
-                                                setSmartLoadEnabled(data.enabled);
-                                              }
-                                            } catch (err) {
-                                              setSmartLoadEnabled(prev);
-                                              const m = err instanceof Error ? err.message : String(err);
-                                              setDischarge2Feedback(`${t('smartLoadSaveError')}: ${m}`);
-                                            }
-                                            return;
-                                          }
-                                          setWritePinGate({ kind: 'smartLoad', nextEnabled: v });
-                                        }}
-                                        aria-label={
-                                          GEN_PORT_SETTINGS_CONTROLS_ENABLED
-                                            ? t('smartLoadToggleAria')
-                                            : t('genPortSettingsUnderDevelopmentHint')
-                                        }
-                                      />
-                                      <span className="pf-peak-dam-toggle-label">{t('smartLoadToggle')}</span>
-                                    </label>
-                                  </DelayedHintTooltip>
-                                  <DelayedHintTooltip
-                                    hintText={
-                                      GEN_PORT_SETTINGS_CONTROLS_ENABLED
-                                        ? t('genOnGridAlwaysOnToggleHint')
-                                        : t('genPortSettingsUnderDevelopmentHint')
-                                    }
-                                  >
-                                    <label
-                                      className={`pf-peak-dam-toggle pf-peak-dam-toggle--header pf-peak-dam-toggle--debug${genOnGridAlwaysOnLoading ? ' pf-peak-dam-toggle--loading' : ''}`}
-                                      aria-busy={genOnGridAlwaysOnLoading ? 'true' : undefined}
-                                    >
-                                      <input
-                                        type="checkbox"
-                                        checked={genOnGridAlwaysOn}
-                                        disabled={
-                                          !GEN_PORT_SETTINGS_CONTROLS_ENABLED ||
-                                          deyeWritesHardBlocked ||
-                                          genOnGridAlwaysOnLoading
-                                        }
-                                        onChange={async e => {
-                                          if (!GEN_PORT_SETTINGS_CONTROLS_ENABLED) return;
-                                          if (genOnGridAlwaysOnLoading) return;
-                                          if (!remoteWriteConfigured) {
-                                            setRemoteWriteNeedsPinOpen(true);
-                                            return;
-                                          }
-                                          const v = e.target.checked;
-                                          const sn = selInverterSn?.trim();
-                                          if (!sn) return;
-                                          const cached = readCachedInverterPin(sn);
-                                          if (cached) {
-                                            setDischarge2Feedback('');
-                                            try {
-                                              await runGenOnGridAlwaysOnSave(v, cached);
-                                            } catch (err) {
-                                              const m = err instanceof Error ? err.message : String(err);
-                                              setDischarge2Feedback(`${t('genOnGridAlwaysOnSaveError')}: ${m}`);
-                                            }
-                                            return;
-                                          }
-                                          if (selInverterEvportBound) {
-                                            setDischarge2Feedback('');
-                                            try {
-                                              await runGenOnGridAlwaysOnSave(v, '');
-                                            } catch (err) {
-                                              const m = err instanceof Error ? err.message : String(err);
-                                              setDischarge2Feedback(`${t('genOnGridAlwaysOnSaveError')}: ${m}`);
-                                            }
-                                            return;
-                                          }
-                                          setWritePinGate({ kind: 'genOnGrid', nextEnabled: v });
-                                        }}
-                                        aria-label={
-                                          !GEN_PORT_SETTINGS_CONTROLS_ENABLED
-                                            ? t('genPortSettingsUnderDevelopmentHint')
-                                            : genOnGridAlwaysOnLoading
-                                              ? t('genOnGridAlwaysOnToggleLoading')
-                                              : t('genOnGridAlwaysOnToggleAria')
-                                        }
-                                      />
-                                      <span className="pf-peak-dam-toggle-label">{t('genOnGridAlwaysOnToggle')}</span>
-                                      {genOnGridAlwaysOnLoading ? (
-                                        <span className="pf-gen-port-toggle-spinner" aria-hidden="true" />
-                                      ) : null}
-                                    </label>
-                                  </DelayedHintTooltip>
-                                </div>
-                              </details>
                             </div>
                           </div>
                         </div>

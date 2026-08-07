@@ -403,6 +403,7 @@ class DiscountRequestBody(BaseModel):
     phone: Optional[str] = Field(None, max_length=40)
     contact: Optional[str] = Field(None, max_length=200)
     kit: Optional[dict[str, Any]] = None
+    page_url: Optional[str] = Field(None, max_length=2000)
 
 
 class DiscountRequestResponse(BaseModel):
@@ -422,6 +423,7 @@ class ContactRequestBody(BaseModel):
     phone: Optional[str] = Field(None, max_length=40)
     contact: Optional[str] = Field(None, max_length=200)
     kit: Optional[dict[str, Any]] = None
+    page_url: Optional[str] = Field(None, max_length=2000)
 
 
 class ContactRequestResponse(BaseModel):
@@ -463,6 +465,7 @@ async def create_contact_request(payload: ContactRequestBody) -> ContactRequestR
         name=name,
         phone=phone,
         kit=payload.kit,
+        page_url=payload.page_url,
     )
     notified = await send_telegram_message(msg)
     logger.info(
@@ -543,6 +546,7 @@ async def create_discount_request(
         name=name,
         phone=phone,
         kit=payload.kit,
+        page_url=payload.page_url,
     )
     notified = await send_telegram_message(msg)
     return DiscountRequestResponse(id=lead_id, ok=True, notified=notified)
