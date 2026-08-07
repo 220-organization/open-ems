@@ -572,3 +572,20 @@ class EvDriverTrip(Base):
     charge_stop_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     started_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     ended_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class BessDiscountRequest(Base):
+    """Lead: customer requested volume discount on Order BESS page."""
+
+    __tablename__ = "bess_discount_request"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    preset_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    business_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    units: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_usd: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    contact: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    kit_json: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
+    created_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

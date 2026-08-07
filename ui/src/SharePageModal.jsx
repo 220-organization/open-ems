@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import PortStickerQrImage from './PortStickerQrImage';
 import RoundedQrImage from './RoundedQrImage';
+import { buildTelegramShareUrl, buildWhatsAppShareUrl } from './messengerContactUrls';
 
 export default function SharePageModal({
   open,
@@ -13,6 +14,7 @@ export default function SharePageModal({
   qrSize = 256,
   qrVariant = 'rounded',
   showCopyStatus = true,
+  shareText = '',
 }) {
   useEffect(() => {
     if (!open) return undefined;
@@ -24,6 +26,10 @@ export default function SharePageModal({
   }, [open, onClose]);
 
   if (!open || !url) return null;
+
+  const text = shareText || t('sharePageMessengerText') || '';
+  const telegramHref = buildTelegramShareUrl(url, text);
+  const whatsappHref = buildWhatsAppShareUrl(url, text);
 
   return createPortal(
     <div className="pf-messenger-scrim" role="presentation" onClick={onClose}>
@@ -55,6 +61,24 @@ export default function SharePageModal({
             />
           )}
           <p className="pf-share-modal-url">{url}</p>
+          <div className="pf-share-modal-messengers" role="group" aria-label={t('sharePageMessengersAria')}>
+            <a
+              className="pf-share-modal-msg-btn pf-share-modal-msg-btn--telegram"
+              href={telegramHref}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {t('sharePageTelegram')}
+            </a>
+            <a
+              className="pf-share-modal-msg-btn pf-share-modal-msg-btn--whatsapp"
+              href={whatsappHref}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {t('sharePageWhatsApp')}
+            </a>
+          </div>
           <div className="pf-roi-modal-actions pf-share-modal-actions">
             <button type="button" className="pf-roi-modal-btn pf-roi-modal-btn--primary" onClick={onClose}>
               {t('sharePageModalClose')}

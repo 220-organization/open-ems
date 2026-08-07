@@ -1011,6 +1011,46 @@ body {
   color: var(--pf-text-muted);
 }
 
+.pf-share-modal-messengers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  width: 100%;
+}
+
+.pf-share-modal-msg-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 120px;
+  min-height: 44px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  color: #fff;
+  font-weight: 650;
+  font-size: 0.95rem;
+  text-decoration: none;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.pf-share-modal-msg-btn--telegram {
+  background: linear-gradient(145deg, #2aabee 0%, #0088cc 100%);
+  border-color: #0077b5;
+}
+
+.pf-share-modal-msg-btn--whatsapp {
+  background: linear-gradient(145deg, #3fe27c 0%, #25d366 55%, #128c7e 100%);
+  border-color: #1da851;
+}
+
+.pf-share-modal-msg-btn:hover {
+  filter: brightness(1.05);
+}
+
 .pf-share-modal-actions {
   width: 100%;
   justify-content: center;
@@ -3246,13 +3286,23 @@ a.pf-node { cursor: pointer; }
 }
 
 .pf-kwh-calibration-message {
-  margin: 0 0 1rem;
+  margin: 0 0 0.75rem;
   line-height: 1.45;
   color: rgba(255, 248, 252, 0.88);
 }
 
+.pf-kwh-calibration-message--note {
+  margin-bottom: 1rem;
+  font-size: 0.92em;
+  color: rgba(255, 248, 252, 0.68);
+}
+
 [data-theme='light'] .pf-kwh-calibration-message {
   color: rgba(20, 5, 30, 0.82);
+}
+
+[data-theme='light'] .pf-kwh-calibration-message--note {
+  color: rgba(20, 5, 30, 0.58);
 }
 
 /* ─────────────────────────────────────────────────────────────

@@ -28,8 +28,9 @@ export function KwhCalibrationProvider({ inverterSn, t, children }) {
     const choice = readKwhCalibrationChoice(inverterSn);
     setOptIn(choice === 'confirm');
     setSnoozedToday(choice === 'decline');
-    setModalOpen(false);
-  }, [inverterSn]);
+    // Open start info popup when calibration is needed and user has not chosen yet today
+    setModalOpen(needsCalibration && choice == null && Boolean(String(inverterSn || '').trim()));
+  }, [inverterSn, needsCalibration]);
 
   const kwhHidden = needsCalibration && !optIn;
 

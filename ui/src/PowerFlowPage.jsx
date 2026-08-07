@@ -667,11 +667,12 @@ function firstFiniteSocForDeyeRow(row, socBySn) {
   return null;
 }
 
-/** Append localized unit for landing export counters (skip placeholders). */
+/** Append localized unit for landing export counters (skip placeholders). Approximate (~). */
 function formatLandingKwhCounterText(displayText, t) {
   const s = displayText == null ? '' : String(displayText).trim();
   if (!s || s === '—' || s === '…') return s || '—';
-  return `${s} ${t('powerFlowLandingKwhUnit')}`;
+  if (s.startsWith('~')) return `${s} ${t('powerFlowLandingKwhUnit')}`;
+  return `~ ${s} ${t('powerFlowLandingKwhUnit')}`;
 }
 
 /** Huawei power-flow node: never show stale kW — "no data" when missing or older than live TTL. */

@@ -27,6 +27,9 @@ export default function KwhCalibrationModal({ open, onConfirm, onDecline, t }) {
             {t('kwhCalibrationTitle')}
           </h2>
           <p className="pf-kwh-calibration-message">{t('kwhCalibrationMessage')}</p>
+          <p className="pf-kwh-calibration-message pf-kwh-calibration-message--note">
+            {t('kwhCalibrationPrecisionNote')}
+          </p>
           <div className="pf-roi-modal-actions">
             <button type="button" className="pf-roi-modal-btn pf-roi-modal-btn--primary" onClick={onConfirm}>
               {t('kwhCalibrationConfirm')}

@@ -15,6 +15,7 @@ from app.db import get_db
 from app.models import Note
 from app.routers import (
     b2b_proxy,
+    bess_order,
     dam,
     deye_proxy,
     entsoe_dam,
@@ -453,6 +454,7 @@ app.include_router(server_metrics.router)
 app.include_router(power_flow_totals.router)
 app.include_router(ev_driver_tracker.router)
 app.include_router(rdn_consultation.router)
+app.include_router(bess_order.router)
 
 # Production / `npm run build`: serve CRA output only (no legacy static HTML).
 # Local dev: OPEN_EMS_SERVE_SPA=0 — API only; UI from `npm start`.
@@ -480,6 +482,18 @@ if settings.OPEN_EMS_SERVE_SPA:
 
     @app.get("/about", include_in_schema=False)
     async def about_page() -> FileResponse:
+        return _react_spa_index()
+
+    @app.get("/marketplace", include_in_schema=False)
+    async def marketplace_page() -> FileResponse:
+        return _react_spa_index()
+
+    @app.get("/ev-tv", include_in_schema=False)
+    async def ev_tv_page() -> FileResponse:
+        return _react_spa_index()
+
+    @app.get("/order-bess", include_in_schema=False)
+    async def order_bess_page() -> FileResponse:
         return _react_spa_index()
 
     @app.get("/dam-chart", include_in_schema=False)
