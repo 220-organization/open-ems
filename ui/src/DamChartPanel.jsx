@@ -2427,7 +2427,7 @@ export default function DamChartPanel({
                           valueLine =
                             kw < 0
                               ? `~- ${fmt1.format(Math.abs(kw))} ${unit}`
-                              : `~${fmt1.format(kw)} ${unit}`;
+                              : `~ ${fmt1.format(kw)} ${unit}`;
                         } else {
                           valueLine =
                             kw < 0
@@ -2578,7 +2578,7 @@ export default function DamChartPanel({
                   hide={damChartMobile}
                   tick={{ fill: CHART.axisTextMuted, fontSize: 10 }}
                   tickLine={false}
-                  tickFormatter={v => (isApproximate ? `~${fmtKwhTick.format(v)}` : fmtKwhTick.format(v))}
+                  tickFormatter={v => (isApproximate ? `~ ${fmtKwhTick.format(v)}` : fmtKwhTick.format(v))}
                   label={{
                     value: t('damPvLoadEnergyAxis'),
                     angle: -90,

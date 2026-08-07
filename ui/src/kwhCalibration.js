@@ -20,5 +20,5 @@ export function formatEnergyKwhText(value, fmt, unit, approximate = false) {
     return `— ${u}`;
   }
   const num = fmt.format(Number(value));
-  return approximate ? `~${num} ${u}` : `${num} ${u}`;
+  return approximate ? `~ ${num} ${u}` : `${num} ${u}`;
 }

@@ -463,3 +463,18 @@ POWER_FLOW_PV_LIFE_YEARS: int = _env_int("POWER_FLOW_PV_LIFE_YEARS", 20, 5, 40)
 POWER_FLOW_PV_YIELD_KWH_PER_KW_YEAR: float = _env_float(
     "POWER_FLOW_PV_YIELD_KWH_PER_KW_YEAR", 900.0, 700.0, 2000.0
 )
+
+# Order BESS — BIOM Google Sheets (promo + installer price lists).
+# Prefer /export?format=csv&gid=… links; edit URLs are converted to CSV export in the router.
+# Set via env / GitHub Actions secrets — never commit real sheet URLs.
+BESS_PROMO_SHEET_URL: str = (os.environ.get("BESS_PROMO_SHEET_URL") or "").strip()
+BESS_INSTALL_SHEET_URL: str = (os.environ.get("BESS_INSTALL_SHEET_URL") or "").strip()
+BESS_PRICE_CACHE_TTL_SEC: int = _env_int("BESS_PRICE_CACHE_TTL_SEC", 600, 60, 86_400)
+
+# Telegram — Order BESS contact / discount leads → support 220 chat
+TELEGRAM_API_TOKEN: str = (os.environ.get("TELEGRAM_API_TOKEN") or "").strip()
+TELEGRAM_SUPPORT_CHAT_ID: str = (
+    (os.environ.get("TELEGRAM_SUPPORT_CHAT_ID") or "").strip()
+    or (os.environ.get("TELEGRAM_BESS_CHAT_ID") or "").strip()
+    or "-1002241228588"
+)

@@ -399,6 +399,9 @@ export default function DeyeTotalsPanel({
                 fmt={fmt}
               />
             ) : null}
+            <p className="hw-totals__approx-note">
+              <span aria-hidden="true">*</span> {t('kwhCalibrationPrecisionNote')}
+            </p>
           </div>
         ) : null}
       </div>
