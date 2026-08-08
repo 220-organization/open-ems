@@ -2415,9 +2415,9 @@ export default function PowerFlowPage({
   const [chargeSocDeltaPct, setChargeSocDeltaPct] = useState(10);
   const [selfConsumptionEnabled, setSelfConsumptionEnabled] = useState(false);
   const [nightChargeEnabled, setNightChargeEnabled] = useState(false);
-  const [smartLoadEnabled, setSmartLoadEnabled] = useState(false);
-  const [genOnGridAlwaysOn, setGenOnGridAlwaysOn] = useState(false);
-  const [genOnGridAlwaysOnLoading, setGenOnGridAlwaysOnLoading] = useState(false);
+  const [, setSmartLoadEnabled] = useState(false);
+  const [, setGenOnGridAlwaysOn] = useState(false);
+  const [, setGenOnGridAlwaysOnLoading] = useState(false);
   const [toolbarPrefsLoading, setToolbarPrefsLoading] = useState(false);
   /** Fleet or per-inverter totals from GET /api/power-flow/landing-totals. */
   const [landingTotals, setLandingTotals] = useState(null);

@@ -322,7 +322,7 @@ export default function OrderBessPage({ t }) {
     } catch {
       return '';
     }
-  }, [businessType, presetId, customInv, customBat, customKwh, discountUnits]);
+  }, []);
 
   const trimmedName = contactName.trim();
   const trimmedPhone = contactPhone.trim();
