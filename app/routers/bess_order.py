@@ -36,11 +36,15 @@ _SHEET_ID_RE = re.compile(r"/spreadsheets/d/([a-zA-Z0-9-_]+)")
 
 
 def _to_csv_export_url(url: str) -> str:
-    """Accept edit or export Google Sheets URL; return CSV export URL."""
+    """Accept edit or export Google Sheets URL; return CSV export URL.
+
+    Prefer the gviz CSV endpoint — ``/export?format=csv&gid=0`` often 400s when
+    the first tab is not gid=0. Only pass ``gid`` when the source URL has one.
+    """
     raw = (url or "").strip()
     if not raw:
         return raw
-    if "export?format=csv" in raw or "/export?" in raw:
+    if "export?format=csv" in raw or "/export?" in raw or "tqx=out:csv" in raw:
         return raw
     m = _SHEET_ID_RE.search(raw)
     if not m:
@@ -48,11 +52,80 @@ def _to_csv_export_url(url: str) -> str:
     sheet_id = m.group(1)
     parsed = urlparse(raw)
     qs = parse_qs(parsed.query)
-    gid = (qs.get("gid") or ["0"])[0]
+    # Also support hash fragments like #gid=123
+    frag = parse_qs((parsed.fragment or "").replace("?", "&"))
+    gid = (qs.get("gid") or frag.get("gid") or [None])[0]
+    params: dict[str, str] = {"tqx": "out:csv"}
+    if gid is not None and str(gid).strip() != "":
+        params["gid"] = str(gid).strip()
     return (
-        f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?"
-        + urlencode({"format": "csv", "gid": gid})
+        f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?"
+        + urlencode(params)
     )
+
+
+def _csv_export_fallback_urls(url: str) -> list[str]:
+    """Build ordered list of CSV URLs to try for a sheet link."""
+    primary = _to_csv_export_url(url)
+    out = [primary]
+    m = _SHEET_ID_RE.search(url or "")
+    if not m:
+        return out
+    sheet_id = m.group(1)
+    parsed = urlparse(url)
+    qs = parse_qs(parsed.query)
+    frag = parse_qs((parsed.fragment or "").replace("?", "&"))
+    gid = (qs.get("gid") or frag.get("gid") or [None])[0]
+    candidates = [
+        f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv",
+        f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv",
+    ]
+    if gid is not None and str(gid).strip() != "":
+        g = str(gid).strip()
+        candidates.extend(
+            [
+                f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?"
+                + urlencode({"tqx": "out:csv", "gid": g}),
+                f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?"
+                + urlencode({"format": "csv", "gid": g}),
+            ]
+        )
+    for c in candidates:
+        if c not in out:
+            out.append(c)
+    return out
+
+
+async def _fetch_csv(url: str) -> str:
+    last_exc: Optional[Exception] = None
+    headers = {
+        "User-Agent": "OpenEMS-BESS/1.0 (+https://220-km.com; price-list fetch)",
+        "Accept": "text/csv,text/plain,*/*",
+    }
+    async with httpx.AsyncClient(follow_redirects=True, timeout=45.0, headers=headers) as client:
+        for export in _csv_export_fallback_urls(url):
+            try:
+                resp = await client.get(export)
+                if resp.status_code >= 400:
+                    last_exc = httpx.HTTPStatusError(
+                        f"{resp.status_code} for {export}",
+                        request=resp.request,
+                        response=resp,
+                    )
+                    logger.warning("BESS sheet fetch HTTP %s for %s", resp.status_code, export)
+                    continue
+                text = resp.content.decode("utf-8-sig", errors="replace")
+                # Google may return an HTML login / error page with 200
+                if "<html" in text[:200].lower():
+                    last_exc = RuntimeError(f"HTML response for {export}")
+                    logger.warning("BESS sheet fetch got HTML for %s", export)
+                    continue
+                return text
+            except Exception as exc:
+                last_exc = exc
+                logger.warning("BESS sheet fetch failed for %s: %s", export, exc)
+    assert last_exc is not None
+    raise last_exc
 
 
 def _parse_number(raw: Any) -> Optional[float]:
@@ -128,7 +201,8 @@ def _parse_sheet_csv(text: str, *, kind: str) -> tuple[float, dict[str, dict[str
     """
     Parse BIOM price CSV.
     kind: 'promo' → promoUsd / promoVatUsd / availability
-          'install' → installerUsd / availabilityInstaller
+          'install' → installerUsd / installerCheapestUsd / retailUsd / retailVatUsd /
+                      availabilityInstaller
     Returns (fx_rate, items_by_code_or_article).
     """
     fx = 45.3
@@ -261,7 +335,7 @@ def _parse_sheet_csv(text: str, *, kind: str) -> tuple[float, dict[str, dict[str
             if availability:
                 entry["availability"] = availability
         else:
-            # Installer sheet — prefer «Інсталятор» without VAT
+            # Installer sheet — «Інсталятор» without VAT + cheapest among price columns
             norms = [_norm_header(h) for h in headers]
             inst_i = None
             for i, h in enumerate(norms):
@@ -275,8 +349,60 @@ def _parse_sheet_csv(text: str, *, kind: str) -> tuple[float, dict[str, dict[str
                         break
             if inst_i is not None and inst_i < len(row):
                 entry["installerUsd"] = _parse_number(row[inst_i])
+
+            # Retail columns — FOP = «Роздріб», VAT = «Роздріб(з ПДВ)»
+            retail_i = None
+            retail_vat_i = None
+            for i, h in enumerate(norms):
+                if h == "роздріб" or (h.startswith("роздріб") and "пдв" not in h and len(h) < 40):
+                    retail_i = i
+                    break
+            for i, h in enumerate(norms):
+                if "роздріб" in h and "пдв" in h and len(h) < 40:
+                    retail_vat_i = i
+                    break
+            # Deye «АКЦІЯ» rows sometimes insert an extra price without an «АКЦІЇ» header.
+            has_action_header = any(h == "акції" or h.startswith("акці") for h in norms if len(h) < 40)
+            row_has_action = any("акці" in _norm_header(str(c or "")) for c in row)
+            shift = 1 if row_has_action and not has_action_header else 0
+
+            if retail_i is not None:
+                ri = retail_i + shift
+                if ri < len(row):
+                    entry["retailUsd"] = _parse_number(row[ri])
+            if retail_vat_i is not None:
+                rvi = retail_vat_i + shift
+                if rvi < len(row):
+                    entry["retailVatUsd"] = _parse_number(row[rvi])
+
+            # Cheapest among price columns only (start at «Інсталятор», not policy text that
+            # mentions «інсталятор» in a merged header cell from Google gviz export).
+            price_start = inst_i
+            price_end = avail_i if avail_i is not None else len(row)
+            if price_start is None:
+                price_start = 0
+            if shift and avail_i is not None:
+                price_end = min(len(row), avail_i + shift)
+            candidates: list[float] = []
+            if price_start is not None:
+                for i in range(price_start, min(price_end, len(row))):
+                    val = _parse_number(row[i])
+                    if val is not None and val > 0:
+                        candidates.append(val)
+            if candidates:
+                entry["installerCheapestUsd"] = min(candidates)
+            elif entry.get("installerUsd") is not None:
+                entry["installerCheapestUsd"] = entry["installerUsd"]
+
             if availability:
                 entry["availabilityInstaller"] = availability
+            # When АКЦІЯ shifts columns, true availability is usually one cell after header index.
+            if shift and avail_i is not None:
+                ai = avail_i + shift
+                if ai < len(row):
+                    avail_shifted = str(row[ai] or "").strip()
+                    if avail_shifted and _parse_number(avail_shifted) is None:
+                        entry["availabilityInstaller"] = avail_shifted
 
         items[key] = entry
 
@@ -287,13 +413,6 @@ def _parse_sheet_csv(text: str, *, kind: str) -> tuple[float, dict[str, dict[str
     return fx, items
 
 
-async def _fetch_csv(url: str) -> str:
-    export = _to_csv_export_url(url)
-    async with httpx.AsyncClient(follow_redirects=True, timeout=45.0) as client:
-        resp = await client.get(export)
-        resp.raise_for_status()
-        # Google may return UTF-8 with BOM
-        return resp.content.decode("utf-8-sig", errors="replace")
 
 
 async def _load_price_list(*, force: bool = False) -> dict[str, Any]:
@@ -304,19 +423,22 @@ async def _load_price_list(*, force: bool = False) -> dict[str, Any]:
 
     promo_url = settings.BESS_PROMO_SHEET_URL
     install_url = settings.BESS_INSTALL_SHEET_URL
-    if not promo_url or not install_url:
+    if not install_url and not promo_url:
         raise HTTPException(status_code=503, detail="BESS sheet URLs not configured")
 
     try:
-        promo_text, install_text = await _fetch_csv(promo_url), await _fetch_csv(install_url)
+        promo_text = await _fetch_csv(promo_url) if promo_url else ""
+        install_text = await _fetch_csv(install_url) if install_url else ""
     except Exception as exc:
         logger.exception("Failed to fetch BESS price sheets")
         if _CACHE["payload"] is not None:
             return _CACHE["payload"]
         raise HTTPException(status_code=502, detail=f"Failed to fetch price sheets: {exc}") from exc
 
-    fx_promo, promo_items = _parse_sheet_csv(promo_text, kind="promo")
-    fx_inst, install_items = _parse_sheet_csv(install_text, kind="install")
+    fx_promo, promo_items = _parse_sheet_csv(promo_text, kind="promo") if promo_text else (None, {})
+    fx_inst, install_items = (
+        _parse_sheet_csv(install_text, kind="install") if install_text else (None, {})
+    )
     fx = fx_promo or fx_inst or 45.3
 
     # Merge: start from promo, overlay installer fields
@@ -345,10 +467,15 @@ async def _load_price_list(*, force: bool = False) -> dict[str, Any]:
         if existing is None:
             merged[list_key] = dict(row)
         else:
-            if row.get("installerUsd") is not None:
-                existing["installerUsd"] = row["installerUsd"]
-            if row.get("availabilityInstaller"):
-                existing["availabilityInstaller"] = row["availabilityInstaller"]
+            for f in (
+                "installerUsd",
+                "installerCheapestUsd",
+                "retailUsd",
+                "retailVatUsd",
+                "availabilityInstaller",
+            ):
+                if row.get(f) is not None:
+                    existing[f] = row[f]
             if not existing.get("brand") or existing.get("brand") == "other":
                 existing["brand"] = row.get("brand") or existing.get("brand")
 
@@ -362,7 +489,16 @@ async def _load_price_list(*, force: bool = False) -> dict[str, Any]:
         if art_key in by_article:
             # Merge missing fields
             cur = by_article[art_key]
-            for f in ("promoUsd", "promoVatUsd", "installerUsd", "availability", "availabilityInstaller"):
+            for f in (
+                "promoUsd",
+                "promoVatUsd",
+                "installerUsd",
+                "installerCheapestUsd",
+                "retailUsd",
+                "retailVatUsd",
+                "availability",
+                "availabilityInstaller",
+            ):
                 if cur.get(f) is None and row.get(f) is not None:
                     cur[f] = row[f]
             continue
@@ -374,6 +510,9 @@ async def _load_price_list(*, force: bool = False) -> dict[str, Any]:
             "promoUsd": row.get("promoUsd"),
             "promoVatUsd": row.get("promoVatUsd"),
             "installerUsd": row.get("installerUsd"),
+            "installerCheapestUsd": row.get("installerCheapestUsd"),
+            "retailUsd": row.get("retailUsd"),
+            "retailVatUsd": row.get("retailVatUsd"),
             "availability": row.get("availability") or "",
             "availabilityInstaller": row.get("availabilityInstaller") or "",
         }

@@ -407,36 +407,24 @@ export function computeBiomSavings({
   };
 }
 
-/** Price unit USD for one item given business type + brand. */
+/** Price unit USD for one item given business type (all from BESS_INSTALL_SHEET_URL). */
 export function unitPriceUsd(item, businessType) {
   if (!item) return null;
-  const brand = item.brand || 'other';
 
-  // Biom — FOP/VAT from promo sheet; cash (installers) from install sheet «Інсталятор» + 5%.
-  if (brand === 'biom') {
-    if (businessType === 'cash') {
-      const base = item.installerUsd;
-      return base == null ? null : Math.round(base * 1.05 * 100) / 100;
-    }
-    if (businessType === 'vat') {
-      const base = item.promoVatUsd;
-      return base == null ? null : Math.round(base * 0.998 * 100) / 100;
-    }
-    const base = item.promoUsd;
-    return base == null ? null : Math.round(base * 0.998 * 100) / 100;
+  // Cash / installer 220-km.com — cheapest among install-sheet price columns.
+  if (businessType === 'cash') {
+    const base = item.installerCheapestUsd ?? item.installerUsd;
+    return base == null ? null : Math.round(Number(base) * 100) / 100;
   }
 
+  // FOP — install sheet «Роздріб»; VAT — «Роздріб(з ПДВ)» (all brands, no markup).
   if (businessType === 'fop') {
-    const base = item.promoUsd;
-    return base == null ? null : Math.round(base * 0.998 * 100) / 100;
+    const base = item.retailUsd;
+    return base == null ? null : Math.round(Number(base) * 100) / 100;
   }
   if (businessType === 'vat') {
-    const base = item.promoVatUsd;
-    return base == null ? null : Math.round(base * 0.998 * 100) / 100;
+    const base = item.retailVatUsd;
+    return base == null ? null : Math.round(Number(base) * 100) / 100;
   }
-  // cash — installer + brand markup (Deye / other)
-  const base = item.installerUsd;
-  if (base == null) return null;
-  const mult = brand === 'deye' ? 1.02 : 1.0;
-  return Math.round(base * mult * 100) / 100;
+  return null;
 }

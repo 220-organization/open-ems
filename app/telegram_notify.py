@@ -65,7 +65,7 @@ def format_bess_lead_message(
     biz_labels = {
         "fop": "ФОП (без ПДВ)",
         "vat": "Платник ПДВ",
-        "cash": "За готівку для інсталяторів",
+        "cash": "Для Вирій інсталяторів",
     }
     channel_labels = {
         "telegram": "Telegram",
