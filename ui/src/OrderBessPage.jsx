@@ -255,9 +255,7 @@ export default function OrderBessPage({ t }) {
       const unit = unitPriceUsd(item, businessType);
       const lineTotal = unit == null ? null : Math.round(unit * l.qty * 100) / 100;
       const availability =
-        businessType === 'cash'
-          ? item?.availabilityInstaller || item?.availability || ''
-          : item?.availability || item?.availabilityInstaller || '';
+        item?.availabilityInstaller || item?.availability || '';
       return {
         ...l,
         name: item?.name || l.article,
