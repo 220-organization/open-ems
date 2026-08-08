@@ -16,8 +16,9 @@
     "yaml": "^2.4.2"
   },
   "scripts": {
-    "start": "DISABLE_ESLINT_PLUGIN=true react-scripts start",
-    "build": "DISABLE_ESLINT_PLUGIN=true react-scripts build",
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "lint": "eslint \"src/**/*.{js,jsx}\" --max-warnings 0",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },
