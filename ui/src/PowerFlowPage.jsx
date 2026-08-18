@@ -2574,9 +2574,11 @@ export default function PowerFlowPage({
   const exportHourlyBarsUrl = useMemo(() => {
     const q = new URLSearchParams({ days: '7', hourlyScope: exportHourlyScope });
     const sn = selInverterSn?.trim();
+    const gl = selGridlabDeviceId?.trim();
     if (sn) q.set('deviceSn', sn);
+    else if (gl) q.set('gridlabDeviceId', gl);
     return apiUrl(`/api/power-flow/export-hourly-bars?${q}`);
-  }, [selInverterSn, exportHourlyScope]);
+  }, [selInverterSn, selGridlabDeviceId, exportHourlyScope]);
   const lostSolarHourlyBarsUrl = useMemo(() => {
     const q = new URLSearchParams({ days: '7' });
     const sn = selInverterSn?.trim();
@@ -5752,12 +5754,13 @@ export default function PowerFlowPage({
                   const showExportHourlyChart =
                     !showGridBalancingChart &&
                     !showMonthlyRatesChart &&
-                    !readOnlyEssSelected &&
-                    (landingExportMetricUi === LANDING_EXPORT_METRIC.PEAK ||
-                      landingExportMetricUi === LANDING_EXPORT_METRIC.MANUAL ||
-                      landingExportMetricUi === LANDING_EXPORT_METRIC.TOTAL ||
-                      landingExportMetricUi === LANDING_EXPORT_METRIC.ARBITRAGE ||
-                      landingExportMetricUi === LANDING_EXPORT_METRIC.LOST_SOLAR_7D);
+                    ((!readOnlyEssSelected &&
+                      (landingExportMetricUi === LANDING_EXPORT_METRIC.PEAK ||
+                        landingExportMetricUi === LANDING_EXPORT_METRIC.MANUAL ||
+                        landingExportMetricUi === LANDING_EXPORT_METRIC.TOTAL ||
+                        landingExportMetricUi === LANDING_EXPORT_METRIC.ARBITRAGE ||
+                        landingExportMetricUi === LANDING_EXPORT_METRIC.LOST_SOLAR_7D)) ||
+                      (Boolean(selGridlabDeviceId) && landingExportMetricUi === LANDING_EXPORT_METRIC.TOTAL));
 
                   const sourceSelected = Boolean(
                     selInverterSn || selHuaweiStationCode || selUbetterSn || selGridlabDeviceId || selEvPortsAcdc

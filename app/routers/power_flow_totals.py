@@ -105,6 +105,51 @@ async def _sum_export_kwh(session: AsyncSession, device_sn: Optional[str] = None
     return float(v or 0.0)
 
 
+async def _sum_gridlab_export_kwh(session: AsyncSession, device_id: int) -> float:
+    """
+    Grid export (kWh) for one GridLab BESS: prefer PCC hourly meter (``energy_export_kwh``),
+    fill hours without meter rows from 5‑min ``gridlab_power_sample`` (``grid_power_w < 0``).
+    """
+    if device_id <= 0:
+        return 0.0
+    pcc = int(settings.GRIDLAB_PCC_METER_ID)
+    r = await session.execute(
+        text(
+            """
+            WITH meter AS (
+                SELECT
+                    m.target_date AS kyiv_day,
+                    m.hour AS kyiv_hour,
+                    m.energy_export_kwh::double precision AS export_kwh
+                FROM gridlab_hourly_meter m
+                WHERE m.device_id = :did
+                  AND m.meter_id = :pcc
+                  AND m.energy_export_kwh IS NOT NULL
+            ),
+            samples AS (
+                SELECT
+                    ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date) AS kyiv_day,
+                    (EXTRACT(HOUR FROM (s.bucket_start AT TIME ZONE 'Europe/Kiev'))::int) AS kyiv_hour,
+                    SUM(
+                        CASE WHEN s.grid_power_w < 0
+                        THEN ABS(s.grid_power_w)::double precision / 12000.0
+                        ELSE 0 END
+                    ) AS export_kwh
+                FROM gridlab_power_sample s
+                WHERE s.device_id = :did
+                GROUP BY 1, 2
+            )
+            SELECT COALESCE(SUM(COALESCE(m.export_kwh, s.export_kwh)), 0)::double precision
+            FROM meter m
+            FULL OUTER JOIN samples s
+                ON m.kyiv_day = s.kyiv_day AND m.kyiv_hour = s.kyiv_hour
+            """
+        ),
+        {"did": int(device_id), "pcc": pcc},
+    )
+    return float(r.scalar_one() or 0.0)
+
+
 async def _sum_huawei_export_kwh(session: AsyncSession, station_code: str) -> float:
     """
     Grid export (kWh) from 5‑min ``huawei_power_sample`` rows where ``grid_power_w < 0``,
@@ -1126,8 +1171,9 @@ async def landing_totals(
     the same import-weighted hourly DAM join over ``huawei_power_sample`` (``grid_power_w > 0``) Kyiv MTD as for
     Deye. ``deviceSn`` must not be sent together with ``huaweiStationCode``.
 
-    When ``gridlabDeviceId`` is set, ``dam.currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd`` uses the same
-    import-weighted hourly DAM join over ``gridlab_power_sample`` (``grid_power_w > 0``) as for Deye.
+    When ``gridlabDeviceId`` is set, ``totalExportKwh`` is PCC hourly-meter export (filled from
+    ``gridlab_power_sample`` where meter hours are missing). ``dam.currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd``
+    uses the same import-weighted hourly DAM join over ``gridlab_power_sample`` (``grid_power_w > 0``) as for Deye.
     """
     hw = (huawei_station_code or "").strip()
     sn_req = (device_sn or "").strip()
@@ -1153,6 +1199,12 @@ async def landing_totals(
 
     if gl:
         payload_gl: dict[str, Any] = {"ok": True, "exportScope": "gridlab", "gridlabDeviceId": gl}
+        try:
+            payload_gl["totalExportKwh"] = await _sum_gridlab_export_kwh(db, gl)
+        except Exception as exc:
+            logger.exception("landing-totals GridLab export sum: %s", exc)
+            payload_gl["totalExportKwh"] = None
+            payload_gl["exportError"] = "export_sum_failed"
         return await _finalize_landing_response(
             db,
             payload_gl,
@@ -1447,6 +1499,113 @@ async def _hourly_export_bars_kyiv(
     }
 
 
+async def _hourly_export_bars_kyiv_gridlab(
+    session: AsyncSession,
+    *,
+    device_id: int,
+    days: int,
+    hourly_scope: str,
+) -> dict[str, Any]:
+    """
+    Per Kyiv calendar hour: GridLab PCC ``energy_export_kwh``, with 5‑min sample fallback.
+
+    Peak / manual session scopes do not apply (read-only BESS) — returns empty bars.
+    """
+    today = _kyiv_today()
+    d_end = today
+    d_start = today - timedelta(days=max(1, days) - 1)
+    zone = settings.OREE_COMPARE_ZONE_EIC
+    payload: dict[str, Any] = {
+        "exportScope": "gridlab",
+        "gridlabDeviceId": int(device_id),
+        "zoneEic": zone,
+        "kyivDayStart": d_start.isoformat(),
+        "kyivDayEnd": d_end.isoformat(),
+        "days": max(1, days),
+        "hourlyScope": hourly_scope,
+        "bars": [],
+    }
+    if hourly_scope in ("peak", "manual") or device_id <= 0:
+        return payload
+
+    pcc = int(settings.GRIDLAB_PCC_METER_ID)
+    sql = """
+        WITH meter AS (
+            SELECT
+                m.target_date AS kyiv_day,
+                m.hour AS kyiv_hour,
+                m.energy_export_kwh::double precision AS export_kwh
+            FROM gridlab_hourly_meter m
+            WHERE m.device_id = :did
+              AND m.meter_id = :pcc
+              AND m.target_date >= :d_start
+              AND m.target_date <= :d_end
+              AND m.energy_export_kwh IS NOT NULL
+        ),
+        samples AS (
+            SELECT
+                ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date) AS kyiv_day,
+                (EXTRACT(HOUR FROM (s.bucket_start AT TIME ZONE 'Europe/Kiev'))::int) AS kyiv_hour,
+                SUM(
+                    CASE WHEN s.grid_power_w < 0
+                    THEN ABS(s.grid_power_w)::double precision / 12000.0
+                    ELSE 0 END
+                ) AS export_kwh
+            FROM gridlab_power_sample s
+            WHERE s.device_id = :did
+              AND ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date) >= :d_start
+              AND ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date) <= :d_end
+            GROUP BY 1, 2
+        ),
+        hourly AS (
+            SELECT
+                COALESCE(m.kyiv_day, s.kyiv_day) AS kyiv_day,
+                COALESCE(m.kyiv_hour, s.kyiv_hour) AS kyiv_hour,
+                COALESCE(m.export_kwh, s.export_kwh) AS export_kwh
+            FROM meter m
+            FULL OUTER JOIN samples s
+                ON m.kyiv_day = s.kyiv_day AND m.kyiv_hour = s.kyiv_hour
+        )
+        SELECT
+            h.kyiv_day,
+            h.kyiv_hour,
+            h.export_kwh,
+            (p.price_uah_mwh / 1000.0) AS dam_uah_per_kwh
+        FROM hourly h
+        LEFT JOIN oree_dam_price p ON p.trade_day = h.kyiv_day
+            AND p.zone_eic = :zone
+            AND p.period = h.kyiv_hour + 1
+        WHERE h.export_kwh > 1e-9
+        ORDER BY h.kyiv_day, h.kyiv_hour
+    """
+    r = await session.execute(
+        text(sql),
+        {
+            "did": int(device_id),
+            "pcc": pcc,
+            "d_start": d_start,
+            "d_end": d_end,
+            "zone": zone,
+        },
+    )
+    bars: list[dict[str, Any]] = []
+    for row in r.mappings().all():
+        kd = row["kyiv_day"]
+        kh = int(row["kyiv_hour"])
+        ek = float(row["export_kwh"] or 0.0)
+        dam = row["dam_uah_per_kwh"]
+        bars.append(
+            {
+                "dayIso": kd.isoformat() if hasattr(kd, "isoformat") else str(kd),
+                "hour": kh,
+                "exportKwh": ek,
+                "damUahPerKwh": float(dam) if dam is not None else None,
+            }
+        )
+    payload["bars"] = bars
+    return payload
+
+
 async def _lost_solar_hourly_bars_kyiv(
     session: AsyncSession,
     *,
@@ -1728,6 +1887,14 @@ async def export_hourly_bars(
         pattern=r"^[0-9]+$",
         description="Deye inverter serial — omit for fleet-wide hourly export.",
     ),
+    gridlab_device_id: Optional[str] = Query(
+        default=None,
+        alias="gridlabDeviceId",
+        min_length=1,
+        max_length=16,
+        pattern=r"^[0-9]+$",
+        description="GridLab BESS device id — PCC hourly export (not combined with deviceSn).",
+    ),
     days: int = Query(
         default=7,
         ge=1,
@@ -1747,15 +1914,33 @@ async def export_hourly_bars(
 
     ``hourlyScope`` selects which ``deye_soc_sample`` buckets to sum: all export, only peak-DAM
     auto-discharge sessions, or only manual discharge sessions.
+    When ``gridlabDeviceId`` is set, bars come from PCC ``gridlab_hourly_meter`` (5‑min sample fallback);
+    peak/manual scopes return no bars.
     DAM UAH/kWh when present in ``oree_dam_price``.
     """
-    try:
-        payload = await _hourly_export_bars_kyiv(
-            db,
-            device_sn=device_sn,
-            days=days,
-            hourly_scope=hourly_scope,
+    gl = _parse_gridlab_device_id(gridlab_device_id)
+    sn = (device_sn or "").strip()
+    if gl and sn:
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "export_hourly_scope_mutually_exclusive"},
+            headers=_NO_STORE,
         )
+    try:
+        if gl:
+            payload = await _hourly_export_bars_kyiv_gridlab(
+                db,
+                device_id=gl,
+                days=days,
+                hourly_scope=hourly_scope,
+            )
+        else:
+            payload = await _hourly_export_bars_kyiv(
+                db,
+                device_sn=device_sn,
+                days=days,
+                hourly_scope=hourly_scope,
+            )
         payload["ok"] = True
         return JSONResponse(content=payload, headers=_NO_STORE)
     except Exception as exc:
