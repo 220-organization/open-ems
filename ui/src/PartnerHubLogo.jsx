@@ -1,13 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { HUB_PARTNER_FLIP_MS, HUB_PARTNER_PROMOTIONS } from './partnerPromotions';
+import {
+  HUB_PARTNER_FLIP_MS,
+  HUB_PARTNER_PROMOTIONS,
+  readPinnedHubLogoIndexFromUrl,
+  replaceUrlHubLogo,
+} from './partnerPromotions';
 
 const DOUBLE_CLICK_MS = 280;
 
+function reducedMotionPrefersPauseOff() {
+  if (typeof window === 'undefined' || !window.matchMedia) return true;
+  return !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
 export default function PartnerHubLogo({ t, flowEndsHere = false }) {
-  const [index, setIndex] = useState(0);
+  const [index, setIndex] = useState(() => {
+    const pinned = typeof window !== 'undefined' ? readPinnedHubLogoIndexFromUrl() : -1;
+    return pinned >= 0 ? pinned : 0;
+  });
   const [flipping, setFlipping] = useState(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return true;
-    return !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (typeof window !== 'undefined' && readPinnedHubLogoIndexFromUrl() >= 0) return false;
+    return reducedMotionPrefersPauseOff();
   });
   const [logoTick, setLogoTick] = useState(0);
   const clickTimerRef = useRef(null);
@@ -15,6 +28,20 @@ export default function PartnerHubLogo({ t, flowEndsHere = false }) {
   const partner = HUB_PARTNER_PROMOTIONS[index] ?? HUB_PARTNER_PROMOTIONS[0];
   const hubLabel = partner.hubLabelKey ? t(partner.hubLabelKey) : partner.name;
   const logoWide = Boolean(partner.logoWide);
+
+  const applyLogoFromUrl = useCallback(() => {
+    const pinned = readPinnedHubLogoIndexFromUrl();
+    if (pinned >= 0) {
+      setIndex(pinned);
+      setFlipping(false);
+      setLogoTick(tick => tick + 1);
+      return;
+    }
+    setFlipping(f => {
+      if (!f && reducedMotionPrefersPauseOff()) return true;
+      return f;
+    });
+  }, []);
 
   useEffect(() => {
     if (!flipping) return undefined;
@@ -24,6 +51,13 @@ export default function PartnerHubLogo({ t, flowEndsHere = false }) {
     }, HUB_PARTNER_FLIP_MS);
     return () => window.clearInterval(id);
   }, [flipping]);
+
+  useEffect(() => {
+    window.addEventListener('popstate', applyLogoFromUrl);
+    return () => {
+      window.removeEventListener('popstate', applyLogoFromUrl);
+    };
+  }, [applyLogoFromUrl]);
 
   useEffect(
     () => () => {
@@ -43,11 +77,20 @@ export default function PartnerHubLogo({ t, flowEndsHere = false }) {
       openPartnerSite();
       return;
     }
+    if (flipping) {
+      setFlipping(false);
+      replaceUrlHubLogo(partner.id);
+      clickTimerRef.current = window.setTimeout(() => {
+        clickTimerRef.current = null;
+      }, DOUBLE_CLICK_MS);
+      return;
+    }
     clickTimerRef.current = window.setTimeout(() => {
       clickTimerRef.current = null;
-      setFlipping(f => !f);
+      setFlipping(true);
+      replaceUrlHubLogo(null);
     }, DOUBLE_CLICK_MS);
-  }, [openPartnerSite]);
+  }, [flipping, openPartnerSite, partner.id]);
 
   const handleKeyDown = useCallback(
     e => {
