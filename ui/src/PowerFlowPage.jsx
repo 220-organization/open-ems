@@ -43,7 +43,7 @@ import RoundedQrImage from './RoundedQrImage';
 import SharePageModal from './SharePageModal';
 import KioskFleetGenConsChart from './KioskFleetGenConsChart';
 import { openEmsUrlWithoutKiosk, openEmsUrlWithKiosk } from './openEmsKiosk';
-import { buildSharePageModalPayload, pageShareUrlFromWindow } from './sharePageQr';
+import { buildSharePageModalPayload, usePageShareUrl } from './sharePageQr';
 import { useMinWidth } from './useMinWidth';
 import { useScreenWakeLock } from './useScreenWakeLock';
 import './power-flow.css';
@@ -3612,7 +3612,7 @@ export default function PowerFlowPage({
     };
   }, [kioskMode]);
 
-  const pageShareUrl = useMemo(() => pageShareUrlFromWindow(), []);
+  const pageShareUrl = usePageShareUrl();
 
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [shareModalUrl, setShareModalUrl] = useState('');
