@@ -135,6 +135,14 @@
   text-align: center;
 }
 
+.rdn-callback-card__form-hint {
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: #ffb454;
+  text-align: center;
+}
+
 .rdn-callback-card__label {
   display: flex;
   flex-direction: column;
@@ -162,6 +170,74 @@
 .rdn-callback-card__input:focus {
   outline: 2px solid rgba(252, 1, 155, 0.55);
   outline-offset: 1px;
+}
+
+.rdn-callback-card__input--needs-fill {
+  border-color: rgba(255, 180, 84, 0.95);
+  box-shadow: 0 0 0 2px rgba(255, 180, 84, 0.35);
+}
+
+.rdn-callback-card__amount-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rdn-callback-card__amount-slider-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+}
+
+.rdn-callback-card__amount-slider-range {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--pf-text-hint, rgba(255, 255, 255, 0.52));
+}
+
+.rdn-callback-card__amount-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  margin: 4px 0 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(252, 1, 155, 0.35), rgba(124, 58, 237, 0.55));
+  outline: none;
+  cursor: pointer;
+}
+
+.rdn-callback-card__amount-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fc019b;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+
+.rdn-callback-card__amount-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fc019b;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+
+[data-theme="light"] .rdn-callback-card__amount-slider {
+  background: linear-gradient(90deg, rgba(252, 1, 155, 0.28), rgba(124, 58, 237, 0.4));
+}
+
+[data-theme="light"] .rdn-callback-card__amount-slider-range {
+  color: rgba(60, 40, 80, 0.55);
 }
 
 .rdn-callback-card__hint {

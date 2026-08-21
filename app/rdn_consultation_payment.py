@@ -23,9 +23,22 @@ MONOBANK_INVOICE_PAYMENT_INFO_URL = (
 # Same merchant token default as marketplace (220-km Monobank acquiring).
 DEFAULT_PAYMENT_TOKEN = "m3T8ApHvapXSmUL1yLZHYlw"
 
-ALLOWED_AMOUNTS_UAH = frozenset({2200, 4400, 8800})
+# Amount must be an integer multiple of 100 within [MIN, MAX].
+MIN_AMOUNT_UAH = 200
+MAX_AMOUNT_UAH = 20_000
+AMOUNT_STEP_UAH = 100
 
 PAYMENT_DESCRIPTION = "Консультація з налаштування Open EMS (Вирій ЕМС)"
+
+
+def is_valid_amount_uah(amount_uah: int) -> bool:
+    try:
+        value = int(amount_uah)
+    except (TypeError, ValueError):
+        return False
+    if value < MIN_AMOUNT_UAH or value > MAX_AMOUNT_UAH:
+        return False
+    return value % AMOUNT_STEP_UAH == 0
 
 
 def payment_token() -> str:
@@ -105,8 +118,11 @@ def create_consultation_invoice(
     reference: str,
     webhook_url: Optional[str] = None,
 ) -> Dict[str, Any]:
-    if amount_uah not in ALLOWED_AMOUNTS_UAH:
-        raise ValueError(f"Unsupported amount_uah: {amount_uah}")
+    if not is_valid_amount_uah(amount_uah):
+        raise ValueError(
+            f"Unsupported amount_uah: {amount_uah} "
+            f"(allowed {MIN_AMOUNT_UAH}–{MAX_AMOUNT_UAH})"
+        )
     amount_cents = amount_uah_to_cents(amount_uah)
     payload: Dict[str, Any] = {
         "amount": amount_cents,
