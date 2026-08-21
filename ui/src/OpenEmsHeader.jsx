@@ -7,8 +7,6 @@ import { VYRIY_EMS_LOGO_SRC } from './vyriyEmsLogo';
 import './power-flow.css';
 import './landing.css';
 
-const OPEN_EMS_GITHUB_URL = 'https://github.com/220-organization/open-ems';
-
 function themeToggleLabels(theme) {
   if (theme === 'dark') {
     return {
@@ -182,9 +180,6 @@ export default function OpenEmsHeader({
             </a>
             <a className={navLinkClass('evTv')} href="/ev-tv">
               {t('evTvNavLabel')}
-            </a>
-            <a className="landing-nav__link" href={OPEN_EMS_GITHUB_URL} target="_blank" rel="noopener noreferrer">
-              {t('landingNavGithub')}
             </a>
           </nav>
           <div className="landing-header__actions">

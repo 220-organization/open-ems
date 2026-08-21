@@ -8,20 +8,12 @@ import {
 
 const DOUBLE_CLICK_MS = 280;
 
-function reducedMotionPrefersPauseOff() {
-  if (typeof window === 'undefined' || !window.matchMedia) return true;
-  return !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-}
-
 export default function PartnerHubLogo({ t, flowEndsHere = false }) {
   const [index, setIndex] = useState(() => {
     const pinned = typeof window !== 'undefined' ? readPinnedHubLogoIndexFromUrl() : -1;
     return pinned >= 0 ? pinned : 0;
   });
-  const [flipping, setFlipping] = useState(() => {
-    if (typeof window !== 'undefined' && readPinnedHubLogoIndexFromUrl() >= 0) return false;
-    return reducedMotionPrefersPauseOff();
-  });
+  const [flipping, setFlipping] = useState(false);
   const [logoTick, setLogoTick] = useState(0);
   const clickTimerRef = useRef(null);
 
@@ -31,16 +23,9 @@ export default function PartnerHubLogo({ t, flowEndsHere = false }) {
 
   const applyLogoFromUrl = useCallback(() => {
     const pinned = readPinnedHubLogoIndexFromUrl();
-    if (pinned >= 0) {
-      setIndex(pinned);
-      setFlipping(false);
-      setLogoTick(tick => tick + 1);
-      return;
-    }
-    setFlipping(f => {
-      if (!f && reducedMotionPrefersPauseOff()) return true;
-      return f;
-    });
+    setFlipping(false);
+    setIndex(pinned >= 0 ? pinned : 0);
+    setLogoTick(tick => tick + 1);
   }, []);
 
   useEffect(() => {
@@ -87,6 +72,8 @@ export default function PartnerHubLogo({ t, flowEndsHere = false }) {
     }
     clickTimerRef.current = window.setTimeout(() => {
       clickTimerRef.current = null;
+      setIndex(i => (i + 1) % HUB_PARTNER_PROMOTIONS.length);
+      setLogoTick(tick => tick + 1);
       setFlipping(true);
       replaceUrlHubLogo(null);
     }, DOUBLE_CLICK_MS);
@@ -105,7 +92,8 @@ export default function PartnerHubLogo({ t, flowEndsHere = false }) {
   const brandClass = flowEndsHere
     ? 'pf-hub-brand pf-hub-brand--flow-ends-here pf-hub-brand--partner-carousel'
     : 'pf-hub-brand pf-hub-brand--partner-carousel';
-  const pausedClass = flipping ? '' : ' pf-hub-brand--partner-paused';
+  const pausedClass =
+    flipping || readPinnedHubLogoIndexFromUrl() < 0 ? '' : ' pf-hub-brand--partner-paused';
 
   return (
     <>

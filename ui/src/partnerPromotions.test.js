@@ -19,4 +19,9 @@ describe('hub logo URL pin', () => {
     expect(readPinnedHubLogoIndexFromUrl('market=oree&logo=ecu')).toBe(hubPartnerIndexById('ecu'));
     expect(readPinnedHubLogoIndexFromUrl('?market=oree&zone=ES')).toBe(-1);
   });
+
+  it('defaults to 220-km when logo is absent', () => {
+    expect(readPinnedHubLogoIndexFromUrl('?market=oree&zone=ES')).toBe(-1);
+    expect(hubPartnerIndexById('vyriy')).toBe(0);
+  });
 });

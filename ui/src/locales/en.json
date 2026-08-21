@@ -266,7 +266,7 @@
   "hubLabel": "EMS+VPP",
   "hubBrandLinkAria": "220 km — official site (opens in new tab)",
   "hubPartnerCarouselAria": "{name} — partner promotion. Click to pin this logo in the page link, click again to resume rotation, double-click to open website.",
-  "hubPartnerPausedAria": "{name} — logo pinned in the URL. Click to resume rotation, double-click to open website.",
+  "hubPartnerPausedAria": "{name} — click to rotate partner logos, double-click to open website.",
   "hubRefreshAria": "Reload page",
   "openSourceLabel": "Open source",
   "nodeEss": "Battery",
