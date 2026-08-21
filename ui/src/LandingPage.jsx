@@ -9,7 +9,6 @@ function apiUrl(path) {
   return `${base}${path}`;
 }
 
-const OPEN_EMS_GITHUB_URL = 'https://github.com/220-organization/open-ems';
 const SITE_220KM = 'https://220-km.com';
 
 const MODULE_KEYS = [
@@ -294,9 +293,6 @@ export default function LandingPage({ t, locale }) {
       <footer className="landing-footer">
         <div className="landing-footer__links">
           <a href="/">{t('landingNavDemo')}</a>
-          <a href={OPEN_EMS_GITHUB_URL} target="_blank" rel="noopener noreferrer">
-            GitHub
-          </a>
           <a href={SITE_220KM} target="_blank" rel="noopener noreferrer">
             220-km.com
           </a>

@@ -3,7 +3,7 @@ import { notifyOpenEmsSearchChange } from './sharePageQr';
 
 const staticBase = `${process.env.PUBLIC_URL || ''}/static/partners`;
 
-/** Hub carousel: Open EMS + EV charging partners (3 s per slide). */
+/** Hub carousel: simple Open EMS logo by default; partners rotate after click (3 s per slide). */
 export const HUB_PARTNER_PROMOTIONS = [
   {
     id: 'vyriy',
