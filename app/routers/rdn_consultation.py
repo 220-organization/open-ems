@@ -10,10 +10,12 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.rdn_consultation_payment import (
-    ALLOWED_AMOUNTS_UAH,
+    MAX_AMOUNT_UAH,
+    MIN_AMOUNT_UAH,
     create_consultation_invoice,
     fetch_invoice_status,
     is_test_payment_enabled,
+    is_valid_amount_uah,
     with_query,
 )
 
@@ -27,7 +29,10 @@ _PENDING: dict[str, dict] = {}
 
 
 class PayCreateRequest(BaseModel):
-    amount_uah: int = Field(..., description="One of 2200, 4400, 8800")
+    amount_uah: int = Field(
+        ...,
+        description=f"Consultation amount in UAH ({MIN_AMOUNT_UAH}–{MAX_AMOUNT_UAH})",
+    )
     redirect_url: str = Field(..., min_length=8, max_length=2000)
     name: Optional[str] = Field(None, max_length=200)
     phone: Optional[str] = Field(None, max_length=40)
@@ -50,17 +55,20 @@ class PayStatusResponse(BaseModel):
 
 
 class PayTestRequest(BaseModel):
-    amount_uah: int = Field(..., description="One of 2200, 4400, 8800")
+    amount_uah: int = Field(
+        ...,
+        description=f"Consultation amount in UAH ({MIN_AMOUNT_UAH}–{MAX_AMOUNT_UAH})",
+    )
     name: Optional[str] = Field(None, max_length=200)
     phone: Optional[str] = Field(None, max_length=40)
 
 
 @router.post("/pay", response_model=PayCreateResponse)
 def create_pay(payload: PayCreateRequest) -> PayCreateResponse:
-    if payload.amount_uah not in ALLOWED_AMOUNTS_UAH:
+    if not is_valid_amount_uah(payload.amount_uah):
         raise HTTPException(
             status_code=400,
-            detail=f"amount_uah must be one of {sorted(ALLOWED_AMOUNTS_UAH)}",
+            detail=f"amount_uah must be between {MIN_AMOUNT_UAH} and {MAX_AMOUNT_UAH}",
         )
     payment_id = str(uuid.uuid4())
     redirect_url = with_query(payload.redirect_url, rdnConsultPayment=payment_id)
@@ -119,7 +127,10 @@ def get_payment_status(payment_id: str) -> PayStatusResponse:
 
 class InvoiceStatusRequest(BaseModel):
     invoice_id: str = Field(..., min_length=4, max_length=120)
-    amount_uah: int = Field(..., description="One of 2200, 4400, 8800")
+    amount_uah: int = Field(
+        ...,
+        description=f"Consultation amount in UAH ({MIN_AMOUNT_UAH}–{MAX_AMOUNT_UAH})",
+    )
     name: Optional[str] = Field(None, max_length=200)
     phone: Optional[str] = Field(None, max_length=40)
 
@@ -127,10 +138,10 @@ class InvoiceStatusRequest(BaseModel):
 @router.post("/invoice-status", response_model=PayStatusResponse)
 def post_invoice_status(payload: InvoiceStatusRequest) -> PayStatusResponse:
     """Fallback when in-memory payment map was lost after redirect (multi-restart)."""
-    if payload.amount_uah not in ALLOWED_AMOUNTS_UAH:
+    if not is_valid_amount_uah(payload.amount_uah):
         raise HTTPException(
             status_code=400,
-            detail=f"amount_uah must be one of {sorted(ALLOWED_AMOUNTS_UAH)}",
+            detail=f"amount_uah must be between {MIN_AMOUNT_UAH} and {MAX_AMOUNT_UAH}",
         )
     remote = fetch_invoice_status(payload.invoice_id.strip())
     if not remote:
@@ -150,10 +161,10 @@ def create_test_pay(payload: PayTestRequest) -> PayStatusResponse:
     """Local/dev only: mark payment SUCCESS without Monobank."""
     if not is_test_payment_enabled():
         raise HTTPException(status_code=404, detail="Not found")
-    if payload.amount_uah not in ALLOWED_AMOUNTS_UAH:
+    if not is_valid_amount_uah(payload.amount_uah):
         raise HTTPException(
             status_code=400,
-            detail=f"amount_uah must be one of {sorted(ALLOWED_AMOUNTS_UAH)}",
+            detail=f"amount_uah must be between {MIN_AMOUNT_UAH} and {MAX_AMOUNT_UAH}",
         )
     payment_id = str(uuid.uuid4())
     invoice_id = f"local-test-{payment_id}"

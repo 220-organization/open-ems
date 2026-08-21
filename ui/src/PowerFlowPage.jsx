@@ -630,17 +630,29 @@ function writeStoredLandingExportMetric(inverterSn, huaweiStationCode, value) {
   }
 }
 
-/** First known SoC for a merged Deye row (representative, then other cluster serials). */
-function firstFiniteSocForDeyeRow(row, socBySn) {
+/** Average known SoC across a merged Deye row (all cluster serials with a finite reading). */
+function averageFiniteSocForDeyeRow(row, socBySn) {
   if (!row || !socBySn) return null;
   const rep = String(row.representativeSn || '').trim();
-  const sns = Array.isArray(row.clusterSns) ? row.clusterSns.map(s => String(s || '').trim()).filter(Boolean) : [];
-  const order = rep ? [rep, ...sns.filter(s => s !== rep)] : sns;
+  const sns = Array.isArray(row.clusterSns)
+    ? row.clusterSns.map(s => String(s || '').trim()).filter(Boolean)
+    : [];
+  const order = [...new Set(rep ? [rep, ...sns] : sns)];
+  let sum = 0;
+  let n = 0;
   for (const s of order) {
     const v = socBySn[s];
-    if (v != null && Number.isFinite(Number(v))) return Number(v);
+    if (v != null && Number.isFinite(Number(v))) {
+      sum += Number(v);
+      n += 1;
+    }
   }
-  return null;
+  return n > 0 ? sum / n : null;
+}
+
+/** @deprecated Prefer averageFiniteSocForDeyeRow — kept name used by older call sites. */
+function firstFiniteSocForDeyeRow(row, socBySn) {
+  return averageFiniteSocForDeyeRow(row, socBySn);
 }
 
 /** Append localized unit for landing export counters (skip placeholders). Approximate (~). */
@@ -4098,20 +4110,12 @@ export default function PowerFlowPage({
     const sn = selInverterSn.trim();
     if (!sn) return undefined;
     const row = deyeCombinedItems.find(r => r.representativeSn === sn);
-    const order = row
-      ? [
-          sn,
-          ...row.clusterSns
-            .map(x => String(x || '').trim())
-            .filter(Boolean)
-            .filter(x => x !== sn),
-        ]
-      : [sn];
-    for (const s of order) {
-      const v = socBySn[s];
-      if (v != null && Number.isFinite(Number(v))) return Number(v);
+    if (row) {
+      const avg = averageFiniteSocForDeyeRow(row, socBySn);
+      return avg != null ? avg : undefined;
     }
-    return undefined;
+    const v = socBySn[sn];
+    return v != null && Number.isFinite(Number(v)) ? Number(v) : undefined;
   }, [
     selInverterSn,
     selUbetterSn,
