@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import html
 import logging
+from datetime import datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -45,6 +47,58 @@ async def send_telegram_message(text_msg: str, *, chat_id: Optional[str] = None)
     except Exception:
         logger.exception("Telegram send failed")
         return False
+
+
+def format_rdn_consultation_paid_message(
+    *,
+    name: str,
+    phone: str,
+    amount_uah: int,
+    paid_at: Optional[datetime] = None,
+) -> str:
+    """Ukrainian HTML alert for a paid RDN consultation."""
+    kyiv = ZoneInfo("Europe/Kyiv")
+    when = paid_at.astimezone(kyiv) if paid_at else datetime.now(tz=kyiv)
+    time_str = when.strftime("%d.%m.%Y, %H:%M:%S")
+    safe_name = html.escape((name or "").strip() or "—")
+    safe_phone = html.escape((phone or "").strip() or "—")
+    return "\n".join(
+        [
+            "<b>Оплатив консультацію по РДН.</b>",
+            "",
+            f"Ім'я: {safe_name}",
+            f"Телефон: {safe_phone}",
+            f"Сума: <b>{int(amount_uah)} грн</b>",
+            f"Час оплати: {html.escape(time_str)}",
+            "",
+            "#ОплатаКонсультаціїПоРДН",
+        ]
+    )
+
+
+def format_rdn_consultation_callback_message(
+    *,
+    name: str,
+    phone: str,
+    requested_at: Optional[datetime] = None,
+) -> str:
+    """Ukrainian HTML alert for an RDN consultation callback request."""
+    kyiv = ZoneInfo("Europe/Kyiv")
+    when = requested_at.astimezone(kyiv) if requested_at else datetime.now(tz=kyiv)
+    time_str = when.strftime("%d.%m.%Y, %H:%M:%S")
+    safe_name = html.escape((name or "").strip() or "—")
+    safe_phone = html.escape((phone or "").strip() or "—")
+    return "\n".join(
+        [
+            "<b>Замовив консультацію по РДН.</b>",
+            "",
+            f"Ім'я: {safe_name}",
+            f"Телефон: {safe_phone}",
+            f"Час заявки: {html.escape(time_str)}",
+            "",
+            "#ЗамовитиКонсультаціюПоРДН",
+        ]
+    )
 
 
 def format_bess_lead_message(

@@ -90,7 +90,7 @@ function ThemeToggleIcon({ theme }) {
 
 /**
  * Site-wide sticky header (brand, nav, language).
- * @param {'power' | 'landing' | 'evTv' | 'marketplace' | 'orderBess'} activePage
+ * @param {'power' | 'landing' | 'evTv' | 'marketplace' | 'orderBess' | 'rdnConsultation'} activePage
  */
 export default function OpenEmsHeader({
   t,
@@ -177,6 +177,9 @@ export default function OpenEmsHeader({
             </a>
             <a className={navLinkClass('orderBess')} href="/order-bess">
               {t('orderBessNavLabel')}
+            </a>
+            <a className={navLinkClass('rdnConsultation')} href="/rdn-consultation">
+              {t('rdnConsultationNavLabel')}
             </a>
             <a className={navLinkClass('evTv')} href="/ev-tv">
               {t('evTvNavLabel')}
