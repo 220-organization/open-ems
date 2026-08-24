@@ -4,6 +4,7 @@ import LandingPage from './LandingPage';
 import EvTvPage from './EvTvPage';
 import LocationMarketplacePage from './LocationMarketplacePage';
 import OrderBessPage from './OrderBessPage';
+import RdnConsultationPage from './RdnConsultationPage';
 import OpenEmsHeader from './OpenEmsHeader';
 import PowerFlowPage from './PowerFlowPage';
 import ServerMetricsBar from './ServerMetricsBar';
@@ -78,6 +79,8 @@ export default function App() {
           <LocationMarketplacePage {...i18n} />
         ) : page === 'orderBess' ? (
           <OrderBessPage {...i18n} />
+        ) : page === 'rdnConsultation' ? (
+          <RdnConsultationPage {...i18n} />
         ) : (
           <PowerFlowPage {...i18n} isDark={isDark} kioskMode={showKiosk} />
         )}

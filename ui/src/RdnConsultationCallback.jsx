@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { buildB2bTelegramUrl, buildB2bWhatsAppUrl } from './messengerContactUrls';
+import { OPEN_EMS_ROUTES } from './openEmsRoutes';
 import './dam-chart.css';
 
-const RDN_CONTACT_HASHTAG = '#ЗамовитиКонсультаціюПоРДН';
-const RDN_PAY_HASHTAG = '#ОплатаКонсультаціїПоРДН';
 const MIN_AMOUNT_UAH = 200;
 const MAX_AMOUNT_UAH = 20_000;
 const AMOUNT_STEP_UAH = 100;
@@ -74,8 +72,7 @@ function takePaymentIdFromUrl() {
 }
 
 function buildRedirectUrl() {
-  const url = new URL(window.location.href);
-  url.searchParams.delete(PAYMENT_QUERY_KEY);
+  const url = new URL(OPEN_EMS_ROUTES.rdnConsultation, window.location.origin);
   return url.toString();
 }
 
@@ -106,7 +103,12 @@ function isValidAmountUah(amount) {
   );
 }
 
-export default function RdnConsultationCallback({ t, htmlIdPrefix = '', rootClassName = '' }) {
+export default function RdnConsultationCallback({
+  t,
+  htmlIdPrefix = '',
+  rootClassName = '',
+  payOnly = false,
+}) {
   const [mode, setMode] = useState('pay'); // 'callback' | 'pay'
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -118,7 +120,8 @@ export default function RdnConsultationCallback({ t, htmlIdPrefix = '', rootClas
   const [formHint, setFormHint] = useState('');
   const [statusNote, setStatusNote] = useState('');
   const [highlightContact, setHighlightContact] = useState(false);
-  const autoOpenedRef = useRef(false);
+  const [callbackSent, setCallbackSent] = useState(false);
+  const [callbackBusy, setCallbackBusy] = useState(false);
   const nameInputRef = useRef(null);
   const phoneInputRef = useRef(null);
   const amountInputRef = useRef(null);
@@ -127,6 +130,7 @@ export default function RdnConsultationCallback({ t, htmlIdPrefix = '', rootClas
   const phoneId = `${htmlIdPrefix}rdn-callback-phone`;
   const amountId = `${htmlIdPrefix}rdn-callback-amount`;
   const rootClass = ['rdn-callback-card', rootClassName].filter(Boolean).join(' ');
+  const effectiveMode = payOnly ? 'pay' : mode;
 
   const trimmedName = name.trim();
   const trimmedPhone = phone.trim();
@@ -163,32 +167,31 @@ export default function RdnConsultationCallback({ t, htmlIdPrefix = '', rootClas
     });
   };
 
-  const buildMessage = () => {
-    if (isPaid) {
-      const body = t('rdnCallbackPaidMessageBody', {
-        name: trimmedName,
-        phone: trimmedPhone,
-        amount: paidAmountUah,
-        paymentTime,
-      });
-      return `${body}\n\n${RDN_PAY_HASHTAG}`;
-    }
-    const body = t('rdnCallbackMessageBody', { name: trimmedName, phone: trimmedPhone });
-    return `${body}\n\n${RDN_CONTACT_HASHTAG}`;
-  };
-
-  const openMessenger = (channel) => {
+  const submitCallback = async () => {
+    if (callbackBusy || callbackSent) return;
     if (!canSend) {
       focusFieldsToFill();
       return;
     }
-    if (mode === 'pay' && !isPaid) return;
     setFormHint('');
     setHighlightContact(false);
-    const msg = buildMessage();
-    const url =
-      channel === 'telegram' ? buildB2bTelegramUrl(msg) : buildB2bWhatsAppUrl(msg);
-    window.open(url, '_blank', 'noopener,noreferrer');
+    setPayError('');
+    setCallbackBusy(true);
+    try {
+      const res = await fetch(apiUrl('/api/rdn-consultation/callback'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmedName, phone: trimmedPhone }),
+      });
+      if (!res.ok) {
+        throw new Error(`callback ${res.status}`);
+      }
+      setCallbackSent(true);
+    } catch {
+      setPayError(t('rdnCallbackSubmitFailed'));
+    } finally {
+      setCallbackBusy(false);
+    }
   };
 
   useEffect(() => {
@@ -215,18 +218,8 @@ export default function RdnConsultationCallback({ t, htmlIdPrefix = '', rootClas
       setPaymentTime(paidAt);
       if (nameValue) setName(nameValue);
       if (phoneValue) setPhone(phoneValue);
-      setStatusNote(t('rdnCallbackPaySuccess'));
+      setStatusNote('');
       clearDraft();
-      if (!autoOpenedRef.current) {
-        autoOpenedRef.current = true;
-        const msg = `${t('rdnCallbackPaidMessageBody', {
-          name: (nameValue || draft?.name || '').trim(),
-          phone: (phoneValue || draft?.phone || '').trim(),
-          amount,
-          paymentTime: paidAt,
-        })}\n\n${RDN_PAY_HASHTAG}`;
-        window.open(buildB2bTelegramUrl(msg), '_blank', 'noopener,noreferrer');
-      }
     };
 
     const poll = async () => {
@@ -300,18 +293,8 @@ export default function RdnConsultationCallback({ t, htmlIdPrefix = '', rootClas
     setPaymentTime(paidAt);
     if (finalName) setName(finalName);
     if (finalPhone) setPhone(finalPhone);
-    setStatusNote(t('rdnCallbackPaySuccess'));
+    setStatusNote('');
     clearDraft();
-    if (!autoOpenedRef.current) {
-      autoOpenedRef.current = true;
-      const msg = `${t('rdnCallbackPaidMessageBody', {
-        name: finalName,
-        phone: finalPhone,
-        amount,
-        paymentTime: paidAt,
-      })}\n\n${RDN_PAY_HASHTAG}`;
-      window.open(buildB2bTelegramUrl(msg), '_blank', 'noopener,noreferrer');
-    }
   };
 
   const startPayment = async () => {
@@ -412,44 +395,45 @@ export default function RdnConsultationCallback({ t, htmlIdPrefix = '', rootClas
     }
   };
 
-  const messengerEnabled = canSend && (mode === 'callback' || isPaid);
-  const showLocalTestSkip = isLocalhostDev() && mode === 'pay' && !isPaid;
-  /** Allow click when fields empty so we can show the fill-name/phone hint. */
-  const messengerDisabled = mode === 'pay' && !isPaid ? true : messengerEnabled ? false : canSend;
+  const showLocalTestSkip = isLocalhostDev() && effectiveMode === 'pay' && !isPaid;
 
   return (
     <div className={rootClass}>
-      <h3 className="rdn-callback-card__title">{t('rdnCallbackFormTitle')}</h3>
+      <h3 className="rdn-callback-card__title">
+        {payOnly ? t('rdnCallbackPageLead').replace(/\.$/, '') : t('rdnCallbackFormTitle')}
+      </h3>
 
-      <div className="rdn-callback-card__mode" role="group" aria-label={t('rdnCallbackModeAria')}>
-        <button
-          type="button"
-          className={`rdn-callback-card__mode-btn${mode === 'callback' ? ' is-active' : ''}`}
-          aria-pressed={mode === 'callback'}
-          onClick={() => {
-            setMode('callback');
-            setPayError('');
-            setStatusNote('');
-            setFormHint('');
-            setHighlightContact(false);
-          }}
-        >
-          {t('rdnCallbackModeCallback')}
-        </button>
-        <button
-          type="button"
-          className={`rdn-callback-card__mode-btn${mode === 'pay' ? ' is-active' : ''}`}
-          aria-pressed={mode === 'pay'}
-          onClick={() => {
-            setMode('pay');
-            setPayError('');
-            setFormHint('');
-            setHighlightContact(false);
-          }}
-        >
-          {t('rdnCallbackModePay')}
-        </button>
-      </div>
+      {payOnly ? null : (
+        <div className="rdn-callback-card__mode" role="group" aria-label={t('rdnCallbackModeAria')}>
+          <button
+            type="button"
+            className={`rdn-callback-card__mode-btn${mode === 'callback' ? ' is-active' : ''}`}
+            aria-pressed={mode === 'callback'}
+            onClick={() => {
+              setMode('callback');
+              setPayError('');
+              setStatusNote('');
+              setFormHint('');
+              setHighlightContact(false);
+            }}
+          >
+            {t('rdnCallbackModeCallback')}
+          </button>
+          <button
+            type="button"
+            className={`rdn-callback-card__mode-btn${mode === 'pay' ? ' is-active' : ''}`}
+            aria-pressed={mode === 'pay'}
+            onClick={() => {
+              setMode('pay');
+              setPayError('');
+              setFormHint('');
+              setHighlightContact(false);
+            }}
+          >
+            {t('rdnCallbackModePay')}
+          </button>
+        </div>
+      )}
 
       <div className="rdn-callback-card__fields">
         <label className="rdn-callback-card__label" htmlFor={nameId}>
@@ -500,7 +484,7 @@ export default function RdnConsultationCallback({ t, htmlIdPrefix = '', rootClas
           />
         </label>
 
-        {mode === 'pay' && !isPaid ? (
+        {effectiveMode === 'pay' && !isPaid ? (
           <div className="rdn-callback-card__amount-block">
             <label className="rdn-callback-card__label" htmlFor={amountId}>
               {t('rdnCallbackCustomAmountLabel')}
@@ -562,15 +546,20 @@ export default function RdnConsultationCallback({ t, htmlIdPrefix = '', rootClas
 
         {isPaid ? (
           <p className="rdn-callback-card__paid-summary" role="status">
-            {t('rdnCallbackPaidSummary', { amount: paidAmountUah, paymentTime })}
+            {t('rdnCallbackPaidSummary')}
+          </p>
+        ) : null}
+        {callbackSent && effectiveMode === 'callback' && !isPaid ? (
+          <p className="rdn-callback-card__paid-summary" role="status">
+            {t('rdnCallbackSubmitSuccess')}
           </p>
         ) : null}
       </div>
 
-      {mode === 'callback' ? (
-        <p className="rdn-callback-card__hint">{t('rdnCallbackMessengerHint')}</p>
-      ) : isPaid ? (
-        <p className="rdn-callback-card__hint">{t('rdnCallbackPayMessengerHint')}</p>
+      {isPaid ? null : effectiveMode === 'callback' ? (
+        callbackSent ? null : (
+          <p className="rdn-callback-card__hint">{t('rdnCallbackSubmitHint')}</p>
+        )
       ) : (
         <p className="rdn-callback-card__hint">{t('rdnCallbackPayHint')}</p>
       )}
@@ -591,7 +580,7 @@ export default function RdnConsultationCallback({ t, htmlIdPrefix = '', rootClas
         </p>
       ) : null}
 
-      {mode === 'pay' && !isPaid ? (
+      {isPaid ? null : effectiveMode === 'pay' ? (
         <div className="rdn-callback-card__actions rdn-callback-card__actions--pay">
           <button
             type="button"
@@ -621,28 +610,19 @@ export default function RdnConsultationCallback({ t, htmlIdPrefix = '', rootClas
             </button>
           ) : null}
         </div>
-      ) : (
-        <div className="rdn-callback-card__actions">
+      ) : effectiveMode === 'callback' && !callbackSent ? (
+        <div className="rdn-callback-card__actions rdn-callback-card__actions--pay">
           <button
             type="button"
-            className="rdn-callback-card__btn rdn-callback-card__btn--telegram"
-            disabled={messengerDisabled}
-            aria-label={t('rdnCallbackTelegramAria')}
-            onClick={() => openMessenger('telegram')}
+            className="rdn-callback-card__btn rdn-callback-card__btn--pay"
+            disabled={callbackBusy}
+            aria-label={t('rdnCallbackSubmitAria')}
+            onClick={submitCallback}
           >
-            {t('rdnCallbackTelegramBtn')}
-          </button>
-          <button
-            type="button"
-            className="rdn-callback-card__btn rdn-callback-card__btn--whatsapp"
-            disabled={messengerDisabled}
-            aria-label={t('rdnCallbackWhatsAppAria')}
-            onClick={() => openMessenger('whatsapp')}
-          >
-            {t('rdnCallbackWhatsAppBtn')}
+            {callbackBusy ? t('rdnCallbackSubmitBusy') : t('rdnCallbackSubmitBtn')}
           </button>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

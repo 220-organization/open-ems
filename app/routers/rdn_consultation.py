@@ -1,12 +1,12 @@
-"""Paid RDN consultation — Monobank checkout + status poll."""
+"""Paid RDN consultation — Monobank checkout + status poll + support Telegram notify."""
 
 from __future__ import annotations
 
 import logging
 import uuid
-from typing import Optional
+from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.rdn_consultation_payment import (
@@ -17,6 +17,11 @@ from app.rdn_consultation_payment import (
     is_test_payment_enabled,
     is_valid_amount_uah,
     with_query,
+)
+from app.telegram_notify import (
+    format_rdn_consultation_callback_message,
+    format_rdn_consultation_paid_message,
+    send_telegram_message,
 )
 
 logger = logging.getLogger(__name__)
@@ -63,8 +68,47 @@ class PayTestRequest(BaseModel):
     phone: Optional[str] = Field(None, max_length=40)
 
 
+def _public_webhook_url(request: Request) -> Optional[str]:
+    host = (request.headers.get("x-forwarded-host") or request.url.hostname or "").split(",")[0].strip()
+    if not host or host in {"localhost", "127.0.0.1"}:
+        return None
+    proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "https").split(",")[0].strip()
+    return f"{proto}://{host}/api/rdn-consultation/webhook"
+
+
+def _status_response(payment_id: str, row: dict) -> PayStatusResponse:
+    return PayStatusResponse(
+        payment_id=payment_id,
+        invoice_id=row["invoice_id"],
+        status=str(row.get("status") or "created"),
+        amount_uah=int(row["amount_uah"]),
+        name=row.get("name"),
+        phone=row.get("phone"),
+    )
+
+
+async def _notify_rdn_paid(row: dict) -> None:
+    if str(row.get("status") or "").upper() not in SUCCESS_STATUSES:
+        return
+    if row.get("tg_notified") or row.get("tg_notify_started"):
+        return
+    row["tg_notify_started"] = True
+    msg = format_rdn_consultation_paid_message(
+        name=row.get("name") or "",
+        phone=row.get("phone") or "",
+        amount_uah=int(row.get("amount_uah") or 0),
+    )
+    ok = await send_telegram_message(msg)
+    if ok:
+        row["tg_notified"] = True
+        logger.info("RDN consultation payment notified invoice=%s", row.get("invoice_id"))
+    else:
+        row["tg_notify_started"] = False
+        logger.warning("RDN consultation TG notify failed invoice=%s", row.get("invoice_id"))
+
+
 @router.post("/pay", response_model=PayCreateResponse)
-def create_pay(payload: PayCreateRequest) -> PayCreateResponse:
+async def create_pay(payload: PayCreateRequest, request: Request) -> PayCreateResponse:
     if not is_valid_amount_uah(payload.amount_uah):
         raise HTTPException(
             status_code=400,
@@ -77,6 +121,7 @@ def create_pay(payload: PayCreateRequest) -> PayCreateResponse:
             amount_uah=payload.amount_uah,
             redirect_url=redirect_url,
             reference=payment_id,
+            webhook_url=_public_webhook_url(request),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -105,7 +150,7 @@ def create_pay(payload: PayCreateRequest) -> PayCreateResponse:
 
 
 @router.get("/payments/{payment_id}", response_model=PayStatusResponse)
-def get_payment_status(payment_id: str) -> PayStatusResponse:
+async def get_payment_status(payment_id: str) -> PayStatusResponse:
     row = _PENDING.get(payment_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Payment not found")
@@ -115,14 +160,9 @@ def get_payment_status(payment_id: str) -> PayStatusResponse:
         if remote:
             status = remote
             row["status"] = status
-    return PayStatusResponse(
-        payment_id=payment_id,
-        invoice_id=row["invoice_id"],
-        status=status,
-        amount_uah=int(row["amount_uah"]),
-        name=row.get("name"),
-        phone=row.get("phone"),
-    )
+    if status in SUCCESS_STATUSES:
+        await _notify_rdn_paid(row)
+    return _status_response(payment_id, row)
 
 
 class InvoiceStatusRequest(BaseModel):
@@ -136,28 +176,70 @@ class InvoiceStatusRequest(BaseModel):
 
 
 @router.post("/invoice-status", response_model=PayStatusResponse)
-def post_invoice_status(payload: InvoiceStatusRequest) -> PayStatusResponse:
+async def post_invoice_status(payload: InvoiceStatusRequest) -> PayStatusResponse:
     """Fallback when in-memory payment map was lost after redirect (multi-restart)."""
     if not is_valid_amount_uah(payload.amount_uah):
         raise HTTPException(
             status_code=400,
             detail=f"amount_uah must be between {MIN_AMOUNT_UAH} and {MAX_AMOUNT_UAH}",
         )
-    remote = fetch_invoice_status(payload.invoice_id.strip())
+    invoice_id = payload.invoice_id.strip()
+    remote = fetch_invoice_status(invoice_id)
     if not remote:
         raise HTTPException(status_code=502, detail="Unable to fetch invoice status")
+    row = next((r for r in _PENDING.values() if r.get("invoice_id") == invoice_id), None)
+    if row is None:
+        row = {
+            "invoice_id": invoice_id,
+            "amount_uah": payload.amount_uah,
+            "name": (payload.name or "").strip() or None,
+            "phone": (payload.phone or "").strip() or None,
+            "status": remote,
+        }
+        _PENDING[f"invoice:{invoice_id}"] = row
+    else:
+        row["status"] = remote
+        if payload.name:
+            row["name"] = payload.name.strip()
+        if payload.phone:
+            row["phone"] = payload.phone.strip()
+    if remote in SUCCESS_STATUSES:
+        await _notify_rdn_paid(row)
     return PayStatusResponse(
         payment_id="",
-        invoice_id=payload.invoice_id.strip(),
+        invoice_id=invoice_id,
         status=remote,
-        amount_uah=payload.amount_uah,
-        name=(payload.name or "").strip() or None,
-        phone=(payload.phone or "").strip() or None,
+        amount_uah=int(row["amount_uah"]),
+        name=row.get("name"),
+        phone=row.get("phone"),
     )
 
 
+@router.post("/webhook")
+async def monobank_webhook(request: Request) -> dict[str, Any]:
+    """Monobank invoice webhook — notify support as soon as payment succeeds."""
+    try:
+        body = await request.json()
+    except Exception:
+        return {"ok": True}
+    if not isinstance(body, dict):
+        return {"ok": True}
+    invoice_id = str(body.get("invoiceId") or "").strip()
+    status = str(body.get("status") or "").upper()
+    if not invoice_id:
+        return {"ok": True}
+    row = next((r for r in _PENDING.values() if r.get("invoice_id") == invoice_id), None)
+    if row is None:
+        return {"ok": True}
+    if status:
+        row["status"] = status
+    if status in SUCCESS_STATUSES:
+        await _notify_rdn_paid(row)
+    return {"ok": True}
+
+
 @router.post("/pay-test", response_model=PayStatusResponse)
-def create_test_pay(payload: PayTestRequest) -> PayStatusResponse:
+async def create_test_pay(payload: PayTestRequest) -> PayStatusResponse:
     """Local/dev only: mark payment SUCCESS without Monobank."""
     if not is_test_payment_enabled():
         raise HTTPException(status_code=404, detail="Not found")
@@ -175,11 +257,30 @@ def create_test_pay(payload: PayTestRequest) -> PayStatusResponse:
         "phone": (payload.phone or "").strip() or None,
         "status": "SUCCESS",
     }
-    return PayStatusResponse(
-        payment_id=payment_id,
-        invoice_id=invoice_id,
-        status="SUCCESS",
-        amount_uah=payload.amount_uah,
-        name=_PENDING[payment_id]["name"],
-        phone=_PENDING[payment_id]["phone"],
-    )
+    await _notify_rdn_paid(_PENDING[payment_id])
+    return _status_response(payment_id, _PENDING[payment_id])
+
+
+class CallbackRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    phone: str = Field(..., min_length=5, max_length=40)
+
+
+class CallbackResponse(BaseModel):
+    ok: bool = True
+    notified: bool = False
+
+
+@router.post("/callback", response_model=CallbackResponse)
+async def create_callback(payload: CallbackRequest) -> CallbackResponse:
+    """Notify support chat about a callback request. Does not open Telegram for the user."""
+    name = payload.name.strip()
+    phone = payload.phone.strip()
+    if len(name) < 1 or len(phone) < 5:
+        raise HTTPException(status_code=400, detail="name and phone are required")
+    msg = format_rdn_consultation_callback_message(name=name, phone=phone)
+    notified = await send_telegram_message(msg)
+    if not notified:
+        raise HTTPException(status_code=502, detail="Unable to notify support")
+    logger.info("RDN consultation callback notified name=%s", name)
+    return CallbackResponse(ok=True, notified=True)

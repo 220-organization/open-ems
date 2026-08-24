@@ -138,7 +138,7 @@ export default function LandingPage({ t, locale }) {
             <a className="landing-btn landing-btn--primary" href="/">
               {t('landingCtaDemo')}
             </a>
-            <a className="landing-btn landing-btn--secondary" href="#landing-contact">
+            <a className="landing-btn landing-btn--secondary" href="/rdn-consultation">
               {t('landingCtaCallback')}
             </a>
           </div>
