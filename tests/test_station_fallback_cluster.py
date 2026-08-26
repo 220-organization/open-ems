@@ -10,14 +10,15 @@ Covers two layers:
 
 from __future__ import annotations
 
+import time
 import unittest
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Optional
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from app import deye_api
-from app.deye_api import _fill_missing_metrics_from_station_latest
+from app.deye_api import _fill_missing_metrics_from_station_latest, get_display_soc_percent_cached
 
 
 @dataclass
@@ -222,6 +223,37 @@ class TestHourlyClusterDedup(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(
             load_kwh[h_kyiv], (12_000.0 + 13_750.0) / 1000.0, places=3, msg="Load kWh summed"
         )
+
+
+class TestDisplayStationSoc(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        deye_api._station_live_cache.clear()
+        deye_api._soc_cache.clear()
+
+    async def test_prefers_plant_battery_soc_over_device(self) -> None:
+        deye_api._station_live_cache["62272856"] = (
+            38.666667,
+            6580.0,
+            11792.0,
+            8090.0,
+            -265.0,
+            50.0,
+            time.monotonic(),
+        )
+        deye_api._soc_cache["2503291038"] = (47.0, time.monotonic())
+        with patch.object(deye_api, "deye_configured", return_value=True), patch.object(
+            deye_api, "_station_id_for_device_sn", new=AsyncMock(return_value="62272856")
+        ):
+            soc = await get_display_soc_percent_cached("2503291038")
+        self.assertAlmostEqual(soc, 38.666667, places=4)
+
+    async def test_falls_back_to_device_soc_without_station(self) -> None:
+        deye_api._soc_cache["2503291038"] = (47.0, time.monotonic())
+        with patch.object(deye_api, "deye_configured", return_value=True), patch.object(
+            deye_api, "_station_id_for_device_sn", new=AsyncMock(return_value=None)
+        ):
+            soc = await get_display_soc_percent_cached("2503291038")
+        self.assertEqual(soc, 47.0)
 
 
 if __name__ == "__main__":

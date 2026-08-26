@@ -291,3 +291,19 @@ export function computeSimulatedSources(consumptionMw, liveMinerW) {
     consumptionW,
   };
 }
+
+/**
+ * Plant SoC from /api/deye/ess-power rows. Do not sum — station batterySOC is the same on every
+ * cluster serial. If values differ, average the finite readings.
+ */
+export function pickClusterSocPercent(rows) {
+  const socs = [];
+  for (const row of rows || []) {
+    const v = row?.socPercent;
+    if (v != null && Number.isFinite(Number(v))) socs.push(Number(v));
+  }
+  if (socs.length === 0) return null;
+  const first = socs[0];
+  if (socs.every(s => Math.abs(s - first) < 0.05)) return first;
+  return socs.reduce((a, b) => a + b, 0) / socs.length;
+}

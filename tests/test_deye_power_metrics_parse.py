@@ -6,6 +6,7 @@ from app.deye_api import (
     _load_power_watts_from_data_list,
     _metric_key,
     _pv_power_watts_from_data_list,
+    _soc_percent_from_station_payload,
 )
 
 
@@ -182,3 +183,10 @@ def test_flow_balance_skips_derived_grid_when_pv_missing():
         50.0,
     )
     assert grid_w == 0.0
+
+
+def test_station_payload_battery_soc_matches_deye_app():
+    """Deye app overview uses plant batterySOC (average of parallel inverters)."""
+    assert _soc_percent_from_station_payload({"batterySOC": 38.666667}) == 38.666667
+    assert _soc_percent_from_station_payload({"batterySoc": 39}) == 39.0
+    assert _soc_percent_from_station_payload({"generationPower": 8090.0}) is None
