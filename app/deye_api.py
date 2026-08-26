@@ -52,6 +52,8 @@ _station_live_cache: dict[
     ],
 ] = {}
 _soc_lock = asyncio.Lock()
+# Serialize /station/latest fetches so a 3-inverter cluster poll does not stampede Deye.
+_station_fetch_lock = asyncio.Lock()
 _inverter_rows_cache: Optional[list["_InverterListRow"]] = None
 _inverter_rows_cache_at_mono: float = 0.0
 _inverter_rows_lock = asyncio.Lock()
@@ -575,7 +577,7 @@ def _parse_soc_percent_value(raw: Any) -> Optional[float]:
 
 
 def _soc_percent_from_station_payload(payload: Any) -> Optional[float]:
-    """Battery SoC from POST /station/latest JSON (plant-level; used when device/latest has no SOC registers)."""
+    """Battery SoC from POST /station/latest JSON (plant-level; matches the Deye app overview)."""
     if not isinstance(payload, dict):
         return None
     for key in (
@@ -630,6 +632,83 @@ async def _fetch_station_latest_metrics(
         grid_w = _to_float_or_none(payload.get("wirePower"))
     freq_hz = _to_float_or_none(payload.get("gridFrequency"))
     return soc_pct, bat_w, load_w, pv_w, grid_w, freq_hz
+
+
+async def _station_live_metrics_cached(
+    station_id: str,
+) -> tuple[
+    Optional[float],
+    Optional[float],
+    Optional[float],
+    Optional[float],
+    Optional[float],
+    Optional[float],
+]:
+    """(soc %, battery W, load W, pv W, grid W, freq Hz) from /station/latest, TTL ESS_POWER_CACHE_TTL_SEC."""
+    sid = (station_id or "").strip()
+    if not sid:
+        return None, None, None, None, None, None
+
+    async with _station_fetch_lock:
+        async with _soc_lock:
+            now = time.monotonic()
+            st_hit = _station_live_cache.get(sid)
+            if st_hit is not None:
+                st_soc, st_bat, st_load, st_pv, st_grid, st_freq, sts = st_hit
+                if now - sts < ESS_POWER_CACHE_TTL_SEC:
+                    return st_soc, st_bat, st_load, st_pv, st_grid, st_freq
+
+        base = settings.DEYE_API_BASE_URL.rstrip("/")
+        fetch_time = time.monotonic()
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            token = await _ensure_token(client)
+            hdrs = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {token}",
+            }
+            st_soc, st_bat, st_load, st_pv, st_grid, st_freq = await _fetch_station_latest_metrics(
+                client, hdrs, base, sid
+            )
+        async with _soc_lock:
+            _station_live_cache[sid] = (
+                st_soc,
+                st_bat,
+                st_load,
+                st_pv,
+                st_grid,
+                st_freq,
+                fetch_time,
+            )
+        logger.info(
+            "Deye: station/latest cached stationId=%s soc=%s batteryW=%s loadW=%s pvW=%s gridW=%s",
+            sid,
+            st_soc,
+            st_bat,
+            st_load,
+            st_pv,
+            st_grid,
+        )
+        return st_soc, st_bat, st_load, st_pv, st_grid, st_freq
+
+
+async def get_display_soc_percent_cached(device_sn: str) -> Optional[float]:
+    """SoC shown in the UI: plant ``batterySOC`` from /station/latest (matches the Deye app).
+
+    Charge/discharge commands still use per-inverter /device/latest SoC. Falls back to the
+    device cache when the plant has no station id or station SoC is missing.
+    """
+    sn = (device_sn or "").strip()
+    if not sn or not deye_configured():
+        return None
+    station_id = await _station_id_for_device_sn(sn)
+    if station_id:
+        st_soc, *_rest = await _station_live_metrics_cached(station_id)
+        if st_soc is not None:
+            return st_soc
+    hit = _soc_cache.get(sn)
+    if hit is not None and hit[0] is not None:
+        return hit[0]
+    return None
 
 
 _SOC_KEYS_EXACT = frozenset(

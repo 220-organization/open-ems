@@ -11,6 +11,7 @@ import {
   flowMotionPath,
   formatPower,
   formatPowerKwInteger,
+  pickClusterSocPercent,
 } from './powerFlowEngine';
 import DamChartPanel from './DamChartPanel';
 import RdnConsultationCallback from './RdnConsultationCallback';
@@ -3204,12 +3205,24 @@ export default function PowerFlowPage({
           const loadW = sumField('loadPowerW', true);
           const pvW = sumField('pvPowerW', true);
           const gridW = sumField('gridPowerW', false);
+          const socPercent = pickClusterSocPercent(uniqRows);
           setDeyeLive({
             batteryPowerW: bat,
             loadPowerW: loadW,
             pvPowerW: pvW,
             gridPowerW: gridW,
+            socPercent,
           });
+          if (socPercent != null) {
+            setSocBySn(prev => {
+              const next = { ...prev };
+              for (const sn of sns) {
+                const key = String(sn || '').trim();
+                if (key) next[key] = socPercent;
+              }
+              return next;
+            });
+          }
         } else {
           setDeyeLive(null);
         }
@@ -4109,6 +4122,10 @@ export default function PowerFlowPage({
     }
     const sn = selInverterSn.trim();
     if (!sn) return undefined;
+    const liveSoc = deyeLive?.socPercent;
+    if (liveSoc != null && Number.isFinite(Number(liveSoc))) {
+      return Number(liveSoc);
+    }
     const row = deyeCombinedItems.find(r => r.representativeSn === sn);
     if (row) {
       const avg = averageFiniteSocForDeyeRow(row, socBySn);
@@ -4122,12 +4139,13 @@ export default function PowerFlowPage({
     selGridlabDeviceId,
     ubetterLive?.socPercent,
     gridlabLive?.socPercent,
+    deyeLive?.socPercent,
     deyeCombinedItems,
     socBySn,
   ]);
   const essSocHasKey = essSocPercent != null && Number.isFinite(essSocPercent);
   const essSocPending = Boolean(
-    (selInverterSn.trim() && essSocPercent == null && socListLoading) ||
+    (selInverterSn.trim() && essSocPercent == null && (socListLoading || deyeLiveLoading)) ||
       (selUbetterSn.trim() && essSocPercent == null && ubetterLiveLoading) ||
       (selGridlabDeviceId.trim() && essSocPercent == null && gridlabLiveLoading)
   );

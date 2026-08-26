@@ -24,6 +24,7 @@ from app.deye_api import (
     DeyeInverterOrderError,
     fetch_device_soc_percent,
     get_inverter_station_coordinates,
+    get_display_soc_percent_cached,
     get_live_metrics_cached,
     get_live_metrics_with_source_cached,
     get_soc_map_cached,
@@ -943,6 +944,9 @@ async def get_ess_power(
     loadPowerW non-negative (home/AC load), pvPowerW non-negative (PV production),
     gridPowerW signed (positive import from grid, negative export). Cached ~25s.
 
+    ``socPercent`` is plant ``batterySOC`` from POST /station/latest (same figure as the Deye app
+    overview). Per-inverter SoC remains on GET /soc and POST /inverter-socs for write commands.
+
     For multi-inverter (1 MWh-class) Deye stations where /device/latest omits power, values fall
     back to /station/latest plant totals — ``stationFallback=true`` and ``stationId`` mark such
     rows so the UI can dedupe them by station instead of summing N copies of the same plant total.
@@ -957,6 +961,7 @@ async def get_ess_power(
                 "pvPowerW": None,
                 "gridPowerW": None,
                 "gridFrequencyHz": None,
+                "socPercent": None,
                 "stationId": None,
                 "stationFallback": False,
             },
@@ -966,14 +971,16 @@ async def get_ess_power(
         bat, load_w, pv_w, grid_w, grid_hz, station_id, station_fallback = (
             await get_live_metrics_with_source_cached(deviceSn)
         )
+        soc = await get_display_soc_percent_cached(deviceSn)
         logger.info(
-            "GET /api/deye/ess-power — sn=%s batteryW=%s loadW=%s pvW=%s gridW=%s gridHz=%s stationId=%s stationFallback=%s",
+            "GET /api/deye/ess-power — sn=%s batteryW=%s loadW=%s pvW=%s gridW=%s gridHz=%s soc=%s stationId=%s stationFallback=%s",
             deviceSn,
             bat,
             load_w,
             pv_w,
             grid_w,
             grid_hz,
+            soc,
             station_id,
             station_fallback,
         )
@@ -986,6 +993,7 @@ async def get_ess_power(
                 "pvPowerW": pv_w,
                 "gridPowerW": grid_w,
                 "gridFrequencyHz": grid_hz,
+                "socPercent": soc,
                 "stationId": station_id,
                 "stationFallback": bool(station_fallback),
             },
