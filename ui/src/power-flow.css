@@ -934,6 +934,7 @@ body {
   flex-shrink: 0;
   box-sizing: border-box;
   align-self: center;
+  overflow: hidden;
 }
 
 .pf-share-btn {
@@ -1259,6 +1260,7 @@ body {
   width: 100%;
   max-width: 100%;
   gap: var(--pf-header-gap, 8px);
+  flex-wrap: nowrap;
 }
 
 .pf-header .pf-station-field.pf-inverter-field > .pf-inverter-select.pf-header-select--inverter {
@@ -1266,6 +1268,8 @@ body {
   min-width: 0;
   max-width: 100%;
   box-sizing: border-box;
+  position: relative;
+  z-index: 0;
 }
 
 .pf-header .pf-station-field.pf-inverter-field .pf-add-deye-btn {
