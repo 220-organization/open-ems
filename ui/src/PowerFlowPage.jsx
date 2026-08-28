@@ -1653,6 +1653,8 @@ export default function PowerFlowPage({
     hourlyUahPerKwh: null,
     oreeConfigured: false,
   });
+  /** NBU UAH per 1 EUR — Spanish UI converts landing tariffs to EUR. */
+  const [eurUahRate, setEurUahRate] = useState(null);
   const [simTick, setSimTick] = useState(0);
   const [deyeMessengerOpen, setDeyeMessengerOpen] = useState(false);
 
@@ -1682,14 +1684,16 @@ export default function PowerFlowPage({
     v => {
       const n = Number(v);
       if (!Number.isFinite(n)) return '';
-      return t('tariffKwh', {
+      const preferEur = locale === 'es' && eurUahRate > 0;
+      const shown = preferEur ? n / eurUahRate : n;
+      return t(preferEur ? 'tariffKwhEur' : 'tariffKwh', {
         value: new Intl.NumberFormat(bcp47, {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
-        }).format(Math.max(0, n)),
+        }).format(Math.max(0, shown)),
       });
     },
-    [bcp47, t]
+    [bcp47, t, locale, eurUahRate]
   );
 
   /** Dropdown CAPEX: plain amount + space + $ (no locale currency symbol / grouping). */
@@ -1838,6 +1842,31 @@ export default function PowerFlowPage({
     };
     void load();
     const id = setInterval(load, 300_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const day = kyivCalendarIsoForDam();
+      try {
+        const r = await fetch(apiUrl(`/api/fx/eur-uah?date=${encodeURIComponent(day)}`), { cache: 'no-store' });
+        const d = await r.json();
+        if (cancelled) return;
+        if (d?.ok && d.rate != null && Number.isFinite(Number(d.rate))) {
+          setEurUahRate(Number(d.rate));
+        } else {
+          setEurUahRate(null);
+        }
+      } catch {
+        if (!cancelled) setEurUahRate(null);
+      }
+    };
+    void load();
+    const id = setInterval(load, 6 * 3_600_000);
     return () => {
       cancelled = true;
       clearInterval(id);
@@ -6102,6 +6131,7 @@ export default function PowerFlowPage({
                   }
                   t={t}
                   getBcp47Locale={getBcp47Locale}
+                  locale={locale}
                   chartHeight={320}
                 />
               </section>
