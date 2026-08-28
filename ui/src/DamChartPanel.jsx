@@ -240,8 +240,6 @@ function readDamChartParamsFromUrl() {
     const todayIso = tradeCalendarTodayIso(market);
     const dq = u.get('date');
     let date = dq && /^\d{4}-\d{2}-\d{2}$/.test(dq) ? dq : todayIso;
-    // Stale bookmarks: never open a calendar day before “today” for this market.
-    if (date < todayIso) date = todayIso;
     date = clampTradeDayIsoForMarket(date, market);
     const cur = u.get('currency') ?? u.get('damOverlay') ?? '';
     const priceOverlay = parseDamOverlayCurrencyParam(cur);
@@ -475,7 +473,8 @@ function formatDamLineTooltipItem(
   damEntsoeOverlaySeriesNameEs,
   damEntsoeOverlaySeriesNamePl,
   damEntsoeOverlaySeriesNameUaEntsoe,
-  entsoeOverlayUahMode
+  entsoeOverlayUahMode,
+  preferEurDisplay
 ) {
   const value = entry?.value;
   const name = entry?.name;
@@ -513,14 +512,24 @@ function formatDamLineTooltipItem(
     }
     return {
       display: `${fmtEur.format(n)} ${t('damTooltipDamUnitEur')}`,
-      label: t('damTooltipDamEntsoeLabel', { zone: name }),
+      label:
+        name === damEntsoeOverlaySeriesNameUaEntsoe
+          ? t('damSeriesDamUaEntsoe')
+          : t('damTooltipDamEntsoeLabel', {
+              zone:
+                name === damEntsoeOverlaySeriesNamePl
+                  ? 'PL'
+                  : name === damEntsoeOverlaySeriesNameEs
+                    ? 'ES'
+                    : name,
+            }),
     };
   }
   if (name === damLineSeriesName) {
     const n = Number(value);
     const primaryLabel = damMarket === 'entsoe' ? entsoeTipLabel() : t('damTooltipDamUaLabel');
     if (!Number.isFinite(n)) return { display: '—', label: primaryLabel };
-    const fmtPrimary = damMarket === 'entsoe' ? fmtEur : fmtDamTooltip;
+    const fmtPrimary = damMarket === 'entsoe' || preferEurDisplay ? fmtEur : fmtDamTooltip;
     return {
       display: `${fmtPrimary.format(n)} ${damUnitLabel}`,
       label: primaryLabel,
@@ -554,6 +563,7 @@ function DamLineChartTooltip({
   damEntsoeOverlaySeriesNamePl,
   damEntsoeOverlaySeriesNameUaEntsoe,
   entsoeOverlayUahMode,
+  preferEurDisplay,
   isDark,
 }) {
   if (!active || !payload?.length) return null;
@@ -603,7 +613,8 @@ function DamLineChartTooltip({
             damEntsoeOverlaySeriesNameEs,
             damEntsoeOverlaySeriesNamePl,
             damEntsoeOverlaySeriesNameUaEntsoe,
-            entsoeOverlayUahMode
+            entsoeOverlayUahMode,
+            preferEurDisplay
           );
           return (
             <li key={i} className="recharts-tooltip-item" style={{ ...itemStyle, color: entry.color }}>
@@ -873,7 +884,11 @@ export default function DamChartPanel({
     [bcp47]
   );
 
-  const damUnitLabel = damMarket === 'entsoe' ? t('damTooltipDamUnitEur') : t('damTooltipDamUnit');
+  /** Spanish UI shows DAM in EUR (OREE converted via NBU; ENTSO-E overlays stay native EUR). */
+  const preferEurDisplay = locale === 'es';
+  const damAxisIsEur = damMarket === 'entsoe' || preferEurDisplay;
+  const scaleOverlaysToUah = damMarket === 'oree' && !preferEurDisplay && eurUahRate > 0;
+  const damUnitLabel = damAxisIsEur ? t('damTooltipDamUnitEur') : t('damTooltipDamUnit');
 
   const damLineSeriesName = useMemo(
     () => (damMarket === 'oree' ? t('damSeriesDamUa') : t('damSeriesDamEntsoe', { zone: entsoeZone })),
@@ -896,16 +911,31 @@ export default function DamChartPanel({
     () =>
       showEntsoeOverlayAxis &&
       (damSeriesVisible.es || damSeriesVisible.pl || damSeriesVisible.uaEntsoe) &&
-      !(eurUahRate > 0),
-    [showEntsoeOverlayAxis, damSeriesVisible.es, damSeriesVisible.pl, damSeriesVisible.uaEntsoe, eurUahRate]
+      !scaleOverlaysToUah &&
+      !preferEurDisplay,
+    [
+      showEntsoeOverlayAxis,
+      damSeriesVisible.es,
+      damSeriesVisible.pl,
+      damSeriesVisible.uaEntsoe,
+      scaleOverlaysToUah,
+      preferEurDisplay,
+    ]
   );
 
   const overlayUsesDamAxis = useMemo(
     () =>
       showEntsoeOverlayAxis &&
       (damSeriesVisible.es || damSeriesVisible.pl || damSeriesVisible.uaEntsoe) &&
-      eurUahRate > 0,
-    [showEntsoeOverlayAxis, damSeriesVisible.es, damSeriesVisible.pl, damSeriesVisible.uaEntsoe, eurUahRate]
+      (scaleOverlaysToUah || preferEurDisplay),
+    [
+      showEntsoeOverlayAxis,
+      damSeriesVisible.es,
+      damSeriesVisible.pl,
+      damSeriesVisible.uaEntsoe,
+      scaleOverlaysToUah,
+      preferEurDisplay,
+    ]
   );
 
   const showDamPriceAxis = damSeriesVisible.primary || overlayUsesDamAxis;
@@ -1305,6 +1335,16 @@ export default function DamChartPanel({
       return {
         hour: i + 1,
         damPriceKwh: dam[i] != null && Number.isFinite(Number(dam[i])) ? Number(dam[i]) : null,
+        damPriceEurKwh:
+          damMarket === 'entsoe' && dam[i] != null && Number.isFinite(Number(dam[i]))
+            ? Number(dam[i])
+            : damMarket === 'oree' &&
+                fx != null &&
+                fx > 0 &&
+                dam[i] != null &&
+                Number.isFinite(Number(dam[i]))
+              ? Number(dam[i]) / fx
+              : null,
         damEntsoeEsEurKwh:
           entsoeEsEurArr && entsoeEsEurArr[i] != null && Number.isFinite(Number(entsoeEsEurArr[i]))
             ? Number(entsoeEsEurArr[i])
@@ -1625,6 +1665,23 @@ export default function DamChartPanel({
     const ex = damDayEnergyTotals.exportKwh;
     return ex != null && Number.isFinite(ex) && ex > 1e-9;
   }, [damDayEnergyTotals.exportKwh]);
+
+  const damMoneyDisplayEur = preferEurDisplay && eurUahRate > 0;
+  const damEnergyUnavailableLabel = preferEurDisplay
+    ? t('damEnergyDamEurUnavailable')
+    : t('damEnergyDamUahUnavailable');
+  const formatDamEnergyMoneyLine = (kind, costUah, avgUah) => {
+    if (damMoneyDisplayEur) {
+      return t(kind === 'import' ? 'damEnergyGridImportDamLineEur' : 'damEnergyGridExportDamLineEur', {
+        eur: fmtEur.format(costUah / eurUahRate),
+        avg: fmtEur.format(avgUah / eurUahRate),
+      });
+    }
+    return t(kind === 'import' ? 'damEnergyGridImportDamLine' : 'damEnergyGridExportDamLine', {
+      uah: fmtUah.format(costUah),
+      avg: fmtUah.format(avgUah),
+    });
+  };
 
   const hzDomain = useMemo(() => {
     const vals = rows.map(r => r.gridFreqHz).filter(v => v != null && Number.isFinite(v));
@@ -2021,10 +2078,10 @@ export default function DamChartPanel({
                       hide={damChartMobile}
                       tick={{ fill: CHART.axisText, fontSize: 11 }}
                       tickLine={false}
-                      tickFormatter={v => (damMarket === 'entsoe' ? fmtEur.format(v) : fmtDamTooltip.format(v))}
+                      tickFormatter={v => (damAxisIsEur ? fmtEur.format(v) : fmtDamTooltip.format(v))}
                       axisLine={{ stroke: 'rgba(252, 1, 155, 0.25)' }}
                       label={{
-                        value: damMarket === 'entsoe' ? t('damTariffAxisEur') : t('damTariffAxis'),
+                        value: damAxisIsEur ? t('damTariffAxisEur') : t('damTariffAxis'),
                         angle: -90,
                         position: 'insideLeft',
                         offset: 10,
@@ -2095,8 +2152,21 @@ export default function DamChartPanel({
                         fmtUah={fmtUah}
                         fmtEur={fmtEur}
                         damUnitLabel={damUnitLabel}
-                        lostSolarHourMoney={lostSolarForecast?.hourMoney ?? null}
-                        lostSolarCurrency={damMarket === 'entsoe' ? 'eur' : 'uah'}
+                        lostSolarHourMoney={
+                          preferEurDisplay &&
+                          damMarket === 'oree' &&
+                          eurUahRate > 0 &&
+                          Array.isArray(lostSolarForecast?.hourMoney)
+                            ? lostSolarForecast.hourMoney.map(m =>
+                                m != null && Number.isFinite(m) ? m / eurUahRate : m
+                              )
+                            : lostSolarForecast?.hourMoney ?? null
+                        }
+                        lostSolarCurrency={
+                          damMarket === 'entsoe' || (preferEurDisplay && damMarket === 'oree' && eurUahRate > 0)
+                            ? 'eur'
+                            : 'uah'
+                        }
                         damLineSeriesName={damLineSeriesName}
                         damEntsoeOverlaySeriesNames={
                           showEntsoeOverlayAxis
@@ -2112,7 +2182,8 @@ export default function DamChartPanel({
                         damEntsoeOverlaySeriesNameEs={damEntsoeOverlaySeriesNameEs}
                         damEntsoeOverlaySeriesNamePl={damEntsoeOverlaySeriesNamePl}
                         damEntsoeOverlaySeriesNameUaEntsoe={damEntsoeOverlaySeriesNameUaEntsoe}
-                        entsoeOverlayUahMode={eurUahRate > 0}
+                        entsoeOverlayUahMode={scaleOverlaysToUah}
+                        preferEurDisplay={preferEurDisplay}
                         isDark={isDark}
                       />
                     )}
@@ -2121,7 +2192,7 @@ export default function DamChartPanel({
                     <Line
                       yAxisId="dam"
                       type="monotone"
-                      dataKey="damPriceKwh"
+                      dataKey={preferEurDisplay && damMarket === 'oree' ? 'damPriceEurKwh' : 'damPriceKwh'}
                       name={damLineSeriesName}
                       stroke="#22c55e"
                       strokeWidth={2.2}
@@ -2132,9 +2203,9 @@ export default function DamChartPanel({
                   ) : null}
                   {showEntsoeOverlayAxis && damSeriesVisible.uaEntsoe ? (
                     <Line
-                      yAxisId={eurUahRate > 0 ? 'dam' : 'entsoeEur'}
+                      yAxisId={scaleOverlaysToUah || preferEurDisplay ? 'dam' : 'entsoeEur'}
                       type="monotone"
-                      dataKey={eurUahRate > 0 ? 'damEntsoeUaEntsoeUahKwh' : 'damEntsoeUaEntsoeEurKwh'}
+                      dataKey={scaleOverlaysToUah ? 'damEntsoeUaEntsoeUahKwh' : 'damEntsoeUaEntsoeEurKwh'}
                       name={damEntsoeOverlaySeriesNameUaEntsoe}
                       stroke="#22d3ee"
                       strokeWidth={2}
@@ -2146,9 +2217,9 @@ export default function DamChartPanel({
                   ) : null}
                   {showEntsoeOverlayAxis && damSeriesVisible.es ? (
                     <Line
-                      yAxisId={eurUahRate > 0 ? 'dam' : 'entsoeEur'}
+                      yAxisId={scaleOverlaysToUah || preferEurDisplay ? 'dam' : 'entsoeEur'}
                       type="monotone"
-                      dataKey={eurUahRate > 0 ? 'damEntsoeEsUahKwh' : 'damEntsoeEsEurKwh'}
+                      dataKey={scaleOverlaysToUah ? 'damEntsoeEsUahKwh' : 'damEntsoeEsEurKwh'}
                       name={damEntsoeOverlaySeriesNameEs}
                       stroke="#f59e0b"
                       strokeWidth={2}
@@ -2160,9 +2231,9 @@ export default function DamChartPanel({
                   ) : null}
                   {showEntsoeOverlayAxis && damSeriesVisible.pl ? (
                     <Line
-                      yAxisId={eurUahRate > 0 ? 'dam' : 'entsoeEur'}
+                      yAxisId={scaleOverlaysToUah || preferEurDisplay ? 'dam' : 'entsoeEur'}
                       type="monotone"
-                      dataKey={eurUahRate > 0 ? 'damEntsoePlUahKwh' : 'damEntsoePlEurKwh'}
+                      dataKey={scaleOverlaysToUah ? 'damEntsoePlUahKwh' : 'damEntsoePlEurKwh'}
                       name={damEntsoeOverlaySeriesNamePl}
                       stroke="#c084fc"
                       strokeWidth={2}
@@ -2326,9 +2397,21 @@ export default function DamChartPanel({
                   </li>
                 ) : null}
               </ul>
-              {eurUahRate > 0 && eurUahRateLabel && showEntsoeOverlayAxis ? (
+              {scaleOverlaysToUah && eurUahRateLabel && showEntsoeOverlayAxis ? (
                 <p className="dam-line-entsoe-uah-footnote" role="note">
                   {t('damEntsoeEurUahFootnote', {
+                    date: String(eurUahRateLabel),
+                    rate: fmtDamTooltip.format(eurUahRate),
+                  })}
+                </p>
+              ) : null}
+              {preferEurDisplay &&
+              damMarket === 'oree' &&
+              damSeriesVisible.primary &&
+              eurUahRate > 0 &&
+              eurUahRateLabel ? (
+                <p className="dam-line-entsoe-uah-footnote" role="note">
+                  {t('damOreeEurUahFootnote', {
                     date: String(eurUahRateLabel),
                     rate: fmtDamTooltip.format(eurUahRate),
                   })}
@@ -2364,16 +2447,19 @@ export default function DamChartPanel({
                   </span>
                   {damDayEnergyTotals.importKwh != null && damGridWeightedMoneyUah?.importCostUah != null ? (
                     <span className="dam-day-energy-totals__dam-sub">
-                      {t('damEnergyGridImportDamLine', {
-                        uah: fmtUah.format(damGridWeightedMoneyUah.importCostUah),
-                        avg: fmtUah.format(damGridWeightedMoneyUah.importAvgUahPerKwh),
-                      })}
+                      {preferEurDisplay && !damMoneyDisplayEur
+                        ? damEnergyUnavailableLabel
+                        : formatDamEnergyMoneyLine(
+                            'import',
+                            damGridWeightedMoneyUah.importCostUah,
+                            damGridWeightedMoneyUah.importAvgUahPerKwh
+                          )}
                     </span>
                   ) : null}
                   {damDayEnergyTotals.importKwh != null &&
                   damGridWeightedMoneyUah &&
                   damGridWeightedMoneyUah.importCostUah == null ? (
-                    <span className="dam-day-energy-totals__dam-sub">{t('damEnergyDamUahUnavailable')}</span>
+                    <span className="dam-day-energy-totals__dam-sub">{damEnergyUnavailableLabel}</span>
                   ) : null}
                 </div>
               </li>
@@ -2392,16 +2478,19 @@ export default function DamChartPanel({
                   </span>
                   {damDayEnergyTotals.exportKwh != null && damGridWeightedMoneyUah?.exportValueUah != null ? (
                     <span className="dam-day-energy-totals__dam-sub">
-                      {t('damEnergyGridExportDamLine', {
-                        uah: fmtUah.format(damGridWeightedMoneyUah.exportValueUah),
-                        avg: fmtUah.format(damGridWeightedMoneyUah.exportAvgUahPerKwh),
-                      })}
+                      {preferEurDisplay && !damMoneyDisplayEur
+                        ? damEnergyUnavailableLabel
+                        : formatDamEnergyMoneyLine(
+                            'export',
+                            damGridWeightedMoneyUah.exportValueUah,
+                            damGridWeightedMoneyUah.exportAvgUahPerKwh
+                          )}
                     </span>
                   ) : null}
                   {damDayEnergyTotals.exportKwh != null &&
                   damGridWeightedMoneyUah &&
                   damGridWeightedMoneyUah.exportValueUah == null ? (
-                    <span className="dam-day-energy-totals__dam-sub">{t('damEnergyDamUahUnavailable')}</span>
+                    <span className="dam-day-energy-totals__dam-sub">{damEnergyUnavailableLabel}</span>
                   ) : null}
                 </div>
               </li>
@@ -2413,12 +2502,16 @@ export default function DamChartPanel({
                       {t('damEnergyArbitrageRevenue')}:{` `}
                       <span className="dam-day-energy-totals__value">
                         {damArbitrageRevenueDisplay.value != null
-                          ? `${fmtUah.format(damArbitrageRevenueDisplay.value)} ${t('roiValueUahUnit')}`
+                          ? preferEurDisplay && !damMoneyDisplayEur
+                            ? '—'
+                            : damMoneyDisplayEur
+                              ? `${fmtEur.format(damArbitrageRevenueDisplay.value / eurUahRate)} ${t('roiValueEurUnit')}`
+                              : `${fmtUah.format(damArbitrageRevenueDisplay.value)} ${t('roiValueUahUnit')}`
                           : '—'}
                       </span>
                     </span>
                     {damArbitrageRevenueDisplay.showDamUnavailable ? (
-                      <span className="dam-day-energy-totals__dam-sub">{t('damEnergyDamUahUnavailable')}</span>
+                      <span className="dam-day-energy-totals__dam-sub">{damEnergyUnavailableLabel}</span>
                     ) : null}
                     {damArbitrageRevenueDisplay.value != null ? (
                       <span className="dam-day-energy-totals__dam-sub">{t('damEnergyArbitrageRevenueSub')}</span>
