@@ -12,6 +12,19 @@ function upsertMeta(attr, key, content) {
   el.setAttribute('content', content);
 }
 
+function upsertMetaNth(attr, key, index, content) {
+  if (content == null || content === '') return;
+  const marker = `data-og-i`;
+  let el = document.querySelector(`meta[${attr}="${key}"][${marker}="${index}"]`);
+  if (!el) {
+    el = document.createElement('meta');
+    el.setAttribute(attr, key);
+    el.setAttribute(marker, String(index));
+    document.head.appendChild(el);
+  }
+  el.setAttribute('content', content);
+}
+
 function upsertLink(rel, href, extraAttrs = {}) {
   if (!href) return;
   const selectorParts = [`link[rel="${rel}"]`];
@@ -62,7 +75,9 @@ export function useOpenEmsSeo(pageTitle, locale, t, options = {}) {
     const path = canonicalPath ?? (typeof window !== 'undefined' ? window.location.pathname : '/');
     const canonicalUrl = `${origin}${path === '/' ? '/' : path}`;
     const ogImage = `${origin}/static/open-ems-og.png`;
-    const ogLocale = locale === 'uk' ? 'uk_UA' : 'en_US';
+    const ogLocaleByLang = { uk: 'uk_UA', en: 'en_US', es: 'es_ES' };
+    const ogLocale = ogLocaleByLang[locale] || 'en_US';
+    const ogLocaleAlternates = ['uk_UA', 'en_US', 'es_ES'].filter(code => code !== ogLocale);
 
     upsertMeta('name', 'description', desc);
     upsertMeta('name', 'keywords', kw);
@@ -79,7 +94,9 @@ export function useOpenEmsSeo(pageTitle, locale, t, options = {}) {
     upsertMeta('property', 'og:url', canonicalUrl);
     upsertMeta('property', 'og:image', ogImage);
     upsertMeta('property', 'og:locale', ogLocale);
-    upsertMeta('property', 'og:locale:alternate', locale === 'uk' ? 'en_US' : 'uk_UA');
+    ogLocaleAlternates.forEach((alt, i) => {
+      upsertMetaNth('property', 'og:locale:alternate', i + 1, alt);
+    });
 
     upsertMeta('name', 'twitter:card', 'summary_large_image');
     upsertMeta('name', 'twitter:site', '@220kmua');
@@ -90,6 +107,7 @@ export function useOpenEmsSeo(pageTitle, locale, t, options = {}) {
     upsertLink('canonical', canonicalUrl);
     upsertLink('alternate', `${origin}/?lang=uk`, { hreflang: 'uk' });
     upsertLink('alternate', `${origin}/?lang=en`, { hreflang: 'en' });
+    upsertLink('alternate', `${origin}/?lang=es`, { hreflang: 'es' });
     upsertLink('alternate', `${origin}/`, { hreflang: 'x-default' });
   }, [pageTitle, locale, t, variant, canonicalPath]);
 }
