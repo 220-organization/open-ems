@@ -1,11 +1,12 @@
 /**
  * Order BESS presets + custom BOM builder.
- * HV rule: Deye works at 500–850 V → 10–16 modules per string (51.2 V each).
+ * HV rule: Deye string voltage must stay ≤ 800 V → 10–15 modules (51.2 V each, max 768 V).
  */
 
 export const MODULE_V = 51.2;
 export const HV_MODULES_MIN = 10; // 512 V
-export const HV_MODULES_MAX = 16; // 819 V
+export const HV_MODULES_MAX = 15; // 768 V (16 modules = 819.2 V, above 800 V cap)
+export const HV_VOLTAGE_MAX = 800;
 export const LV_MAX_PARALLEL = 8;
 export const HV_MAX_STRINGS = 3;
 
@@ -42,18 +43,36 @@ export const BATTERY_MODELS = {
     brand: 'deye',
     label: 'Deye SE-F5-PRO-C (5,12 кВт·год)',
   },
+  'SE-F12-C': {
+    kwh: 12.28,
+    voltage: 'lv',
+    brand: 'deye',
+    label: 'Deye SE-F12-C (12,28 кВт·год)',
+  },
+  'SE-F12-MAX': {
+    kwh: 12.28,
+    voltage: 'lv',
+    brand: 'deye',
+    label: 'Deye SE-F12-MAX (12,28 кВт·год, підігрів)',
+  },
   'SE-F16-C': {
     kwh: 16.08,
     voltage: 'lv',
     brand: 'deye',
     label: 'Deye SE-F16-C (16,08 кВт·год)',
   },
-  'BOS-G-Pack5.1': {
-    kwh: 5.12,
+  'SE-F16-MAX': {
+    kwh: 16.08,
     voltage: 'lv',
     brand: 'deye',
+    label: 'Deye SE-F16-MAX (16,08 кВт·год, підігрів)',
+  },
+  'BOS-G-Pack5.1': {
+    kwh: 5.12,
+    voltage: 'hv1',
+    brand: 'deye',
     accessory: 'bos-g',
-    label: 'Deye BOS-G-Pack5.1 (5,12 кВт·год)',
+    label: 'Deye BOS-G-Pack5.1 (5,12 кВт·год, HV)',
   },
   // Biom HV
   'BAHV-100512-LFP': {
@@ -68,7 +87,7 @@ export const BATTERY_MODELS = {
     brand: 'biom',
     label: 'Biom BAHV-314512-LFP (16,08 кВт·год, HV-3)',
   },
-  // Deye HV (same 10–16 modules/string rule as Biom HV)
+  // Deye HV (same 10–15 modules/string rule as Biom HV, ≤ 768 V)
   'HV BOS-B-Pack16-A3-Pro': {
     kwh: 16.08,
     voltage: 'hv3',
@@ -80,17 +99,22 @@ export const BATTERY_MODELS = {
 
 /** Inverter options for custom builder (article → meta). */
 export const INVERTERS = {
+  'SUN-5K-SG05LP1-EU-AM2-P': { kw: 5, voltage: 'lv' },
   'SUN-6K-SG05LP1-EU': { kw: 6, voltage: 'lv' },
+  'SUN-6K-SG05LP1-EU-AM2-P': { kw: 6, voltage: 'lv' },
   'SUN-8K-SG05LP1-EU': { kw: 8, voltage: 'lv' },
   'SUN-10K-SG02LP1-EU-AM3': { kw: 10, voltage: 'lv' },
   'SUN-12K-SG02LP1-EU': { kw: 12, voltage: 'lv' },
   'SUN-12K-SG05LP3-EU': { kw: 12, voltage: 'lv' },
   'SUN-15K-SG05LP3-EU': { kw: 15, voltage: 'lv' },
+  'SUN-16K-SG02LP1-EU-AM3': { kw: 16, voltage: 'lv' },
   'SUN-20K-SG05LP3-EU': { kw: 20, voltage: 'lv' },
   'SUN-20K-SG01HP3-EU-AM2': { kw: 20, voltage: 'hv' },
+  'SUN-25K-SG01HP3-EU-AM2': { kw: 25, voltage: 'hv' },
   'SUN-30K-SG02HP3-EU-AM3': { kw: 30, voltage: 'hv' },
   'SUN-50K-SG01HP3-EU-BM4': { kw: 50, voltage: 'hv' },
   'SUN-80K-SG02HP3-EU-EM6': { kw: 80, voltage: 'hv' },
+  'SUN-125K-SG02HP3-EU-EM10': { kw: 125, voltage: 'hv' },
 };
 
 export function stringVoltage(modulesPerString) {
@@ -98,7 +122,8 @@ export function stringVoltage(modulesPerString) {
 }
 
 export function isValidHvString(modulesPerString) {
-  return modulesPerString >= HV_MODULES_MIN && modulesPerString <= HV_MODULES_MAX;
+  if (modulesPerString < HV_MODULES_MIN || modulesPerString > HV_MODULES_MAX) return false;
+  return stringVoltage(modulesPerString) <= HV_VOLTAGE_MAX;
 }
 
 function line(article, qty, note) {
@@ -121,6 +146,12 @@ function platformsForHv3(moduleCount) {
  */
 function hvAccessories(series, moduleCount, strings, accessory) {
   const lines = [];
+  if (accessory === 'bos-g') {
+    const racks = Math.max(1, Math.ceil(moduleCount / 12));
+    lines.push(line('BOS-G-PDU-2', strings, `${strings}× BOS-G PDU`));
+    lines.push(line('3U-HRACK (BOS G PRO)', racks, 'rack 12+1'));
+    return lines;
+  }
   if (accessory === 'bos-b') {
     lines.push(line('BOS-B-PDU-2-A-Pro', strings, `${strings}× BOS-B PDU`));
     return lines;
@@ -158,16 +189,18 @@ export function allowedKwhOptions(batteryArticle, voltageClass) {
     }
     return out;
   }
-  // HV: strings of 10–16 modules, 1…HV_MAX_STRINGS strings
+  // HV: strings of 10–15 modules (≤ 768 V), 1…HV_MAX_STRINGS strings
   for (let strings = 1; strings <= HV_MAX_STRINGS; strings += 1) {
     for (let mps = HV_MODULES_MIN; mps <= HV_MODULES_MAX; mps += 1) {
+      const voltageV = stringVoltage(mps);
+      if (voltageV > HV_VOLTAGE_MAX) continue;
       const modules = strings * mps;
       out.push({
         kwh: Math.round(bat.kwh * modules * 100) / 100,
         modules,
         strings,
         modulesPerString: mps,
-        voltageV: stringVoltage(mps),
+        voltageV,
       });
     }
   }
@@ -358,8 +391,11 @@ export const DEYE_TO_BIOM_BATTERY = {
   'HV BOS-B-Pack16-A3-Pro': 'BAHV-314512-LFP',
   'SE-G5.1-PRO-B': 'BALFP-512100-V1',
   'SE-F5-PRO-C': 'BALFP-512100-V1',
+  'SE-F12-C': 'BALFP-512200-V1',
+  'SE-F12-MAX': 'BALFP-512200-V1',
   'SE-F16-C': 'BALFP-512314-V2',
-  'BOS-G-Pack5.1': 'BALFP-512100-V1',
+  'SE-F16-MAX': 'BALFP-512314-V2',
+  'BOS-G-Pack5.1': 'BAHV-100512-LFP',
 };
 
 /**
@@ -407,7 +443,16 @@ export function computeBiomSavings({
   };
 }
 
-/** Price unit USD for one item given business type (all from BESS_INSTALL_SHEET_URL). */
+/** True when the installer sheet has no inbound/arrival dates for this SKU. */
+export function hasNoArrivalDates(item) {
+  if (!item) return false;
+  const text = `${item.availabilityInstaller || ''} ${item.availability || ''}`;
+  return /дані\s*про\s*приход|приход[иі]\s+відсутн|нет\s+данных\s+о\s+приход|no\s+arrival\s+data/i.test(
+    text
+  );
+}
+
+/** Price unit USD for one item given business type (BIOM install sheet + ETU overlay). */
 export function unitPriceUsd(item, businessType) {
   if (!item) return null;
 

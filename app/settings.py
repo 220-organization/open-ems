@@ -469,6 +469,18 @@ POWER_FLOW_PV_YIELD_KWH_PER_KW_YEAR: float = _env_float(
 # Set via env / GitHub Actions secrets — never commit real sheet URLs.
 BESS_PROMO_SHEET_URL: str = (os.environ.get("BESS_PROMO_SHEET_URL") or "").strip()
 BESS_INSTALL_SHEET_URL: str = (os.environ.get("BESS_INSTALL_SHEET_URL") or "").strip()
+# Energotrendy Ukrainy (ETU) public Deye/Dyness UAH price list. Default is the public sheet;
+# set BESS_ETU_SHEET_URL=off to disable.
+_BESS_ETU_DEFAULT = (
+    "https://docs.google.com/spreadsheets/d/18wGG5ngwgVpOurMB9MlIV-dKlpGiQvTq-Q50WTz0SbY"
+)
+_bess_etu_raw = (os.environ.get("BESS_ETU_SHEET_URL") or "").strip()
+if _bess_etu_raw.lower() in ("0", "off", "false", "none"):
+    BESS_ETU_SHEET_URL: str = ""
+elif _bess_etu_raw:
+    BESS_ETU_SHEET_URL = _bess_etu_raw
+else:
+    BESS_ETU_SHEET_URL = _BESS_ETU_DEFAULT
 BESS_PRICE_CACHE_TTL_SEC: int = _env_int("BESS_PRICE_CACHE_TTL_SEC", 600, 60, 86_400)
 
 # Telegram — Order BESS contact / discount leads → support 220 chat

@@ -11,6 +11,7 @@ import {
   computeBiomSavings,
   kwhRangeLabel,
   unitPriceUsd,
+  hasNoArrivalDates,
 } from './orderBess/presets';
 import { downloadOrderBessOfferPng } from './orderBess/offerPdf';
 import { buildB2bTelegramUrl, buildB2bWhatsAppUrl } from './messengerContactUrls';
@@ -39,20 +40,38 @@ function fmtUah(n) {
   return n.toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function normArticle(a) {
+function skuKey(a) {
   return String(a || '')
     .toUpperCase()
-    .replace(/\s+/g, '');
+    .replace(/[\s\-_]+/g, '')
+    .replace(/[^A-Z0-9.]/g, '');
 }
 
 function findItem(items, article) {
-  const key = normArticle(article);
-  return (items || []).find(it => normArticle(it.article) === key) || null;
+  const key = skuKey(article);
+  if (!key) return null;
+  const list = items || [];
+  const exact = list.find(it => skuKey(it.article) === key);
+  if (exact) return exact;
+  let best = null;
+  let bestLen = 0;
+  for (const it of list) {
+    const ik = skuKey(it.article);
+    if (!ik) continue;
+    if ((key.startsWith(ik) || ik.startsWith(key)) && Math.min(key.length, ik.length) >= 8) {
+      const n = Math.min(key.length, ik.length);
+      if (n > bestLen) {
+        best = it;
+        bestLen = n;
+      }
+    }
+  }
+  return best;
 }
 
 function findBatteryKey(raw) {
-  const key = normArticle(raw);
-  return Object.keys(BATTERY_MODELS).find(a => normArticle(a) === key) || null;
+  const key = skuKey(raw);
+  return Object.keys(BATTERY_MODELS).find(a => skuKey(a) === key) || null;
 }
 
 function readOrderBessFromUrl() {
@@ -217,15 +236,38 @@ export default function OrderBessPage({ t }) {
         if (voltageClass === 'lv') return m.voltage === 'lv';
         return m.voltage === 'hv1' || m.voltage === 'hv3';
       })
-      .map(([article, m]) => ({ article, ...m }));
-  }, [voltageClass]);
+      .map(([article, m]) => ({
+        article,
+        ...m,
+        noArrival: hasNoArrivalDates(findItem(priceList?.items, article)),
+      }));
+  }, [voltageClass, priceList]);
+
+  const inverterChoices = useMemo(() => {
+    return Object.entries(INVERTERS).map(([article, meta]) => ({
+      article,
+      ...meta,
+      noArrival: hasNoArrivalDates(findItem(priceList?.items, article)),
+    }));
+  }, [priceList]);
 
   useEffect(() => {
-    // Keep battery model compatible when inverter voltage class changes
-    if (!batteryChoices.some(b => b.article === customBat)) {
-      setCustomBat(batteryChoices[0]?.article || '');
+    // Keep battery model compatible when inverter voltage class changes;
+    // skip SKUs with no inbound/arrival dates («дані про приходи відсутні»).
+    const selectable = batteryChoices.filter(b => !b.noArrival);
+    const pool = selectable.length ? selectable : batteryChoices;
+    if (!pool.some(b => b.article === customBat)) {
+      setCustomBat(pool[0]?.article || '');
     }
   }, [batteryChoices, customBat]);
+
+  useEffect(() => {
+    const selectable = inverterChoices.filter(i => !i.noArrival);
+    const pool = selectable.length ? selectable : inverterChoices;
+    if (!pool.some(i => i.article === customInv)) {
+      setCustomInv(pool[0]?.article || customInv);
+    }
+  }, [inverterChoices, customInv]);
 
   const kwhOptions = useMemo(() => {
     if (!customBat) return [];
@@ -235,7 +277,10 @@ export default function OrderBessPage({ t }) {
   useEffect(() => {
     if (!kwhOptions.length) return;
     if (!kwhOptions.some(o => Math.abs(o.kwh - customKwh) < 0.01)) {
-      setCustomKwh(kwhOptions[0].kwh);
+      const closest = kwhOptions.reduce((best, o) =>
+        !best || Math.abs(o.kwh - customKwh) < Math.abs(best.kwh - customKwh) ? o : best
+      );
+      setCustomKwh(closest.kwh);
     }
   }, [kwhOptions, customKwh]);
 
@@ -256,6 +301,10 @@ export default function OrderBessPage({ t }) {
       const lineTotal = unit == null ? null : Math.round(unit * l.qty * 100) / 100;
       const availability =
         item?.availabilityInstaller || item?.availability || '';
+      const priceSource =
+        businessType === 'cash'
+          ? item?.priceSourceCash || ''
+          : item?.priceSourceRetail || '';
       return {
         ...l,
         name: item?.name || l.article,
@@ -264,6 +313,7 @@ export default function OrderBessPage({ t }) {
         unit,
         lineTotal,
         availability,
+        priceSource,
         missing: !item || unit == null,
       };
     });
@@ -522,20 +572,36 @@ export default function OrderBessPage({ t }) {
             <div className="order-bess-custom">
               <label className="order-bess-field">
                 <span>{t('orderBessSelectKw')}</span>
-                <select value={customInv} onChange={e => setCustomInv(e.target.value)}>
-                  {Object.entries(INVERTERS).map(([art, meta]) => (
-                    <option key={art} value={art}>
-                      {meta.kw} кВт ({meta.voltage.toUpperCase()}) — {art}
+                <select
+                  value={customInv}
+                  onChange={e => {
+                    const next = inverterChoices.find(i => i.article === e.target.value);
+                    if (next?.noArrival) return;
+                    setCustomInv(e.target.value);
+                  }}
+                >
+                  {inverterChoices.map(inv => (
+                    <option key={inv.article} value={inv.article} disabled={inv.noArrival}>
+                      {inv.kw} кВт ({inv.voltage.toUpperCase()}) — {inv.article}
+                      {inv.noArrival ? ` — ${t('orderBessNoArrivalDates')}` : ''}
                     </option>
                   ))}
                 </select>
               </label>
               <label className="order-bess-field">
                 <span>{t('orderBessSelectBattery')}</span>
-                <select value={customBat} onChange={e => setCustomBat(e.target.value)}>
+                <select
+                  value={customBat}
+                  onChange={e => {
+                    const next = batteryChoices.find(b => b.article === e.target.value);
+                    if (next?.noArrival) return;
+                    setCustomBat(e.target.value);
+                  }}
+                >
                   {batteryChoices.map(b => (
-                    <option key={b.article} value={b.article}>
+                    <option key={b.article} value={b.article} disabled={b.noArrival}>
                       {b.label}
+                      {b.noArrival ? ` — ${t('orderBessNoArrivalDates')}` : ''}
                     </option>
                   ))}
                 </select>
@@ -575,6 +641,9 @@ export default function OrderBessPage({ t }) {
               {t('orderBessRefreshPrices')}
             </button>
           </div>
+          {priceList?.sources?.etu ? (
+            <p className="order-bess-muted order-bess-etu-hint">{t('orderBessEtuHint')}</p>
+          ) : null}
           {loading && !priceList ? <p className="order-bess-muted">{t('orderBessLoading')}</p> : null}
           {loadError ? <p className="order-bess-error">{loadError}</p> : null}
 
@@ -596,9 +665,12 @@ export default function OrderBessPage({ t }) {
                     <td>
                       <div className="order-bess-item-name">{l.name}</div>
                       {l.note ? <div className="order-bess-item-note">{l.note}</div> : null}
+                      {l.priceSource === 'etu' ? (
+                        <div className="order-bess-item-note">{t('orderBessEtuPriceNote')}</div>
+                      ) : null}
                       {biomSavings &&
                       biomSavings.savingsUsd > 0 &&
-                      normArticle(l.article) === normArticle(customBat) ? (
+                      skuKey(l.article) === skuKey(customBat) ? (
                         <div className="order-bess-biom-cheaper">
                           {t('orderBessBiomCheaper', {
                             usd: fmtUsd(biomSavings.savingsUsd),
