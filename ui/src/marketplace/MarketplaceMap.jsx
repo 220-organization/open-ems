@@ -279,6 +279,7 @@ function formatContract(value, t) {
 function marketplaceRelativeTimeLocale(language) {
   const lang = String(language || '').toLowerCase();
   if (lang.startsWith('uk') || lang.startsWith('ua')) return 'uk';
+  if (lang.startsWith('es')) return 'es';
   if (lang.startsWith('ru')) return 'ru';
   return 'en';
 }

@@ -209,13 +209,13 @@ async def entsoe_chart_day(
 async def entsoe_chart_day_zones(
     date_param: Optional[date] = Query(default=None, alias="date"),
     zones: str = Query(
-        "ES,PL",
-        description="Comma-separated zone aliases (e.g. ES,PL)",
+        "ES,PL,UA_ENTSO",
+        description="Comma-separated zone aliases (e.g. ES,PL,UA_ENTSO)",
     ),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """
-    Multiple zones in one response (OREE overlay: ES + PL). Same DB/lazy-sync rules as ``/chart-day`` per zone.
+    Multiple zones in one response (OREE overlay: ES + PL + UA ENTSO-E). Same DB/lazy-sync rules as ``/chart-day`` per zone.
     """
     day = date_param or _brussels_today()
     aliases = [p.strip().upper() for p in zones.replace(" ", "").split(",") if p.strip()]

@@ -140,6 +140,7 @@ function regionCenterToGeoJson(locations) {
 function resolveGeocodeLanguage(locale) {
   const lang = String(locale || 'uk').toLowerCase();
   if (lang.startsWith('en')) return 'en';
+  if (lang.startsWith('es')) return 'es';
   if (lang.startsWith('ru')) return 'ru';
   return 'uk';
 }

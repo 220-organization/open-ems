@@ -11,8 +11,10 @@ import uk from './locales/uk.json';
 
 const BUNDLES = { en, uk, pl, cs, nl, bg, fr, es, de };
 
-/** Languages shown in the header selector (bundles for others remain for legacy ?lang= URLs). */
-const SUPPORTED = ['en', 'uk'];
+const BUNDLE_LANGS = Object.keys(BUNDLES);
+
+/** Languages shown in the header selector (other bundles remain for legacy ?lang= URLs). */
+const SUPPORTED = ['en', 'uk', 'es'];
 
 const ALIASES = { cz: 'cs', ua: 'uk' };
 
@@ -48,8 +50,8 @@ function normalizeLang(raw) {
   const two = key.split('-')[0];
   if (ALIASES[key]) return ALIASES[key];
   if (ALIASES[two]) return ALIASES[two];
-  if (SUPPORTED.includes(key)) return key;
-  if (SUPPORTED.includes(two)) return two;
+  if (BUNDLE_LANGS.includes(key)) return key;
+  if (BUNDLE_LANGS.includes(two)) return two;
   return null;
 }
 

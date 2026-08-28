@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "a1b2c3d4-entsoe-open-ems",
     "name": "Open EMS — ENTSO-E DAM",
-    "description": "Test Open EMS `/api/dam/entsoe/*` routes and the ENTSO-E Transparency REST API (DocumentType A44, ProcessType A01).\n\n**OREE DAM chart (Spain + Poland overlay):** use **GET chart-day-zones** with `zones=ES,PL` — same call as the Open EMS UI (`DamChartPanel.jsx` → `/api/dam/entsoe/chart-day-zones?date=…&zones=ES,PL`).\n\n**Single zone:** **GET chart-day** with `zone=ES` or `zone=PL` (aliases from `ENTSOE_ZONE_ALIASES`).\n\n**Setup:** copy `postman_environment` values — set `entsoeToken` to your portal token; adjust `baseUrl` if the API runs on another host/port.\n\n**Manual sync:** `POST /sync` and `POST /sync-zone` return 403 unless `ENTSOE_DAM_MANUAL_SYNC_ENABLED=1` on the server.\n\n**Direct Transparency:** `periodStart` / `periodEnd` are `YYYYMMDDHHmm` in **UTC** (delivery local midnight → next local midnight). Values differ for **ES** (`Europe/Madrid`) vs **PL** (`Europe/Warsaw`) — set `zoneEic` / `zoneEicPL` and matching period bounds.",
+    "description": "Test Open EMS `/api/dam/entsoe/*` routes and the ENTSO-E Transparency REST API (DocumentType A44, ProcessType A01).\n\n**OREE DAM chart (Spain + Poland + UA ENTSO-E overlay):** use **GET chart-day-zones** with `zones=ES,PL,UA_ENTSO` — same call as the Open EMS UI (`DamChartPanel.jsx` → `/api/dam/entsoe/chart-day-zones?date=…&zones=ES,PL,UA_ENTSO`).\n\n**Single zone:** **GET chart-day** with `zone=ES` or `zone=PL` (aliases from `ENTSOE_ZONE_ALIASES`).\n\n**Setup:** copy `postman_environment` values — set `entsoeToken` to your portal token; adjust `baseUrl` if the API runs on another host/port.\n\n**Manual sync:** `POST /sync` and `POST /sync-zone` return 403 unless `ENTSOE_DAM_MANUAL_SYNC_ENABLED=1` on the server.\n\n**Direct Transparency:** `periodStart` / `periodEnd` are `YYYYMMDDHHmm` in **UTC** (delivery local midnight → next local midnight). Values differ for **ES** (`Europe/Madrid`) vs **PL** (`Europe/Warsaw`) — set `zoneEic` / `zoneEicPL` and matching period bounds.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -10,7 +10,7 @@
     { "key": "entsoeApiBaseUrl", "value": "https://web-api.tp.entsoe.eu/api" },
     { "key": "entsoeToken", "value": "" },
     { "key": "zoneAlias", "value": "ES" },
-    { "key": "zonesBatch", "value": "ES,PL" },
+    { "key": "zonesBatch", "value": "ES,PL,UA_ENTSO" },
     { "key": "zoneEic", "value": "10YES-REE------0" },
     { "key": "zoneEicPL", "value": "10YPL-AREA-----S" },
     { "key": "deliveryDate", "value": "2026-04-07" },
@@ -52,7 +52,7 @@
           "response": []
         },
         {
-          "name": "GET chart-day-zones (ES + PL)",
+          "name": "GET chart-day-zones (ES + PL + UA_ENTSO)",
           "request": {
             "method": "GET",
             "header": [],
@@ -62,10 +62,10 @@
               "path": ["api", "dam", "entsoe", "chart-day-zones"],
               "query": [
                 { "key": "date", "value": "{{deliveryDate}}", "description": "Delivery day (YYYY-MM-DD)." },
-                { "key": "zones", "value": "{{zonesBatch}}", "description": "Comma-separated aliases, same as UI overlay: ES,PL" }
+                { "key": "zones", "value": "{{zonesBatch}}", "description": "Comma-separated aliases, same as UI overlay: ES,PL,UA_ENTSO" }
               ]
             },
-            "description": "Batch endpoint used by the **Ukraine (OREE)** DAM chart for ES/PL EUR overlay lines. Response shape: `zones.ES`, `zones.PL` with `hourlyPriceDamEurMwh` / `hourlyPriceDamEurPerKwh` each; `lazySyncTriggeredByZone` per alias. See `GET /api/dam/entsoe/chart-day-zones` in `app/routers/entsoe_dam.py`."
+            "description": "Batch endpoint used by the **Ukraine (OREE)** DAM chart for ES/PL/UA ENTSO-E EUR overlay lines. Response shape: `zones.ES`, `zones.PL`, `zones.UA_ENTSO` with `hourlyPriceDamEurMwh` / `hourlyPriceDamEurPerKwh` each; `lazySyncTriggeredByZone` per alias. See `GET /api/dam/entsoe/chart-day-zones` in `app/routers/entsoe_dam.py`."
           },
           "response": []
         },
