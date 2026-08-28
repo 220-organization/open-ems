@@ -144,6 +144,7 @@ jobs:
           GRIDLAB_PASSWORD: ${{ secrets.GRIDLAB_PASSWORD }}
           BESS_PROMO_SHEET_URL: ${{ secrets.BESS_PROMO_SHEET_URL }}
           BESS_INSTALL_SHEET_URL: ${{ secrets.BESS_INSTALL_SHEET_URL }}
+          BESS_ETU_SHEET_URL: ${{ secrets.BESS_ETU_SHEET_URL }}
           BESS_PRICE_CACHE_TTL_SEC: ${{ secrets.BESS_PRICE_CACHE_TTL_SEC }}
           TELEGRAM_API_TOKEN: ${{ secrets.TELEGRAM_API_TOKEN }}
           TELEGRAM_SUPPORT_CHAT_ID: ${{ secrets.TELEGRAM_SUPPORT_CHAT_ID }}
@@ -183,6 +184,7 @@ jobs:
             printf '%s\n' "GRIDLAB_PASSWORD=${GRIDLAB_PASSWORD:-}"
             printf '%s\n' "BESS_PROMO_SHEET_URL=${BESS_PROMO_SHEET_URL:-}"
             printf '%s\n' "BESS_INSTALL_SHEET_URL=${BESS_INSTALL_SHEET_URL:-}"
+            printf '%s\n' "BESS_ETU_SHEET_URL=${BESS_ETU_SHEET_URL:-}"
             printf '%s\n' "BESS_PRICE_CACHE_TTL_SEC=${BESS_PRICE_CACHE_TTL_SEC:-600}"
             printf '%s\n' "TELEGRAM_API_TOKEN=${TELEGRAM_API_TOKEN:-}"
             printf '%s\n' "TELEGRAM_SUPPORT_CHAT_ID=${TELEGRAM_SUPPORT_CHAT_ID:-}"

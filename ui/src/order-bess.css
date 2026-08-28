@@ -240,6 +240,12 @@
   border-color: rgba(45, 164, 78, 0.4);
 }
 
+.order-bess-etu-hint {
+  margin: 0 0 10px;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
 .order-bess-kwh {
   margin: 12px 0 0;
   font-size: 0.92rem;
