@@ -80,6 +80,33 @@ class TestBessEtuSheet(unittest.TestCase):
         self.assertEqual(row["priceSourceRetail"], "etu")
         self.assertIsNotNone(row["retailVatUsd"])
 
+    def test_merge_unlocks_no_arrival_when_etu_has_price(self) -> None:
+        """BIOM «дані про приходи відсутні» must not block SKUs ETU can supply."""
+        fx = 45.3
+        by_article = {
+            "BOS-G-PACK5.1": {
+                "article": "BOS-G-Pack5.1",
+                "name": "BIOM BOS-G",
+                "installerCheapestUsd": 710.0,
+                "installerUsd": 710.0,
+                "retailUsd": 817.0,
+                "retailVatUsd": 923.21,
+                "availability": "дані про приходи відсутні",
+                "availabilityInstaller": "дані про приходи відсутні",
+                "priceSourceCash": "install",
+                "priceSourceRetail": "install",
+            }
+        }
+        etu = _parse_etu_sheet_csv(_ETU_CSV)
+        _merge_etu_items(by_article, etu, fx)
+        row = by_article["BOS-G-PACK5.1"]
+        # Cheaper BIOM cash stays
+        self.assertEqual(row["installerCheapestUsd"], 710.0)
+        self.assertEqual(row["priceSourceCash"], "install")
+        # Availability comes from ETU so the UI can select 5 kWh HV
+        self.assertIn("Енерготренди", row["availabilityInstaller"])
+        self.assertNotRegex(row["availabilityInstaller"], r"приход")
+
 
 if __name__ == "__main__":
     unittest.main()

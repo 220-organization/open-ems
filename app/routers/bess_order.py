@@ -437,6 +437,16 @@ def _fill_missing_vat(by_article: dict[str, dict[str, Any]]) -> None:
                 continue
 
 
+_NO_ARRIVAL_RE = re.compile(
+    r"дані\s*про\s*приход|приход[иі]\s+відсутн|нет\s+данных\s+о\s+приход|no\s+arrival\s+data",
+    re.IGNORECASE,
+)
+
+
+def _has_no_arrival_dates(availability: str) -> bool:
+    return bool(_NO_ARRIVAL_RE.search(availability or ""))
+
+
 def _merge_etu_items(
     by_article: dict[str, dict[str, Any]],
     etu_items: dict[str, dict[str, Any]],
@@ -456,6 +466,7 @@ def _merge_etu_items(
         cash_usd = _uah_to_usd(row.get("prepaidUah"), fx)
         fop_usd = _uah_to_usd(row.get("tovUah"), fx)
         vat_usd = round(fop_usd * _UA_VAT, 2) if fop_usd is not None else None
+        etu_avail = (row.get("availability") or "").strip()
         existing = by_article.get(list_key)
         if existing is None:
             by_article[list_key] = {
@@ -469,8 +480,8 @@ def _merge_etu_items(
                 "installerCheapestUsd": cash_usd,
                 "retailUsd": fop_usd,
                 "retailVatUsd": vat_usd,
-                "availability": row.get("availability") or "",
-                "availabilityInstaller": row.get("availability") or "",
+                "availability": etu_avail,
+                "availabilityInstaller": etu_avail,
                 "priceSourceCash": "etu" if cash_usd is not None else None,
                 "priceSourceRetail": "etu" if fop_usd is not None else None,
             }
@@ -482,9 +493,6 @@ def _merge_etu_items(
         if cash_usd is not None and (biom_cash is None or cash_usd < float(biom_cash)):
             existing["installerUsd"] = cash_usd
             existing["installerCheapestUsd"] = cash_usd
-            existing["availabilityInstaller"] = row.get("availability") or existing.get(
-                "availabilityInstaller"
-            )
             existing["priceSourceCash"] = "etu"
         biom_retail = existing.get("retailUsd")
         if fop_usd is not None and (biom_retail is None or fop_usd < float(biom_retail)):
@@ -494,6 +502,19 @@ def _merge_etu_items(
             existing["priceSourceRetail"] = "etu"
         elif existing.get("retailVatUsd") is None and vat_usd is not None:
             existing["retailVatUsd"] = vat_usd
+
+        # ETU can supply this SKU (prepay NL) even when BIOM price wins — unlock UI selection
+        # when BIOM only says «дані про приходи відсутні».
+        if etu_avail and (cash_usd is not None or fop_usd is not None):
+            biom_avail = (
+                f"{existing.get('availabilityInstaller') or ''} "
+                f"{existing.get('availability') or ''}"
+            )
+            if _has_no_arrival_dates(biom_avail):
+                existing["availabilityInstaller"] = etu_avail
+                existing["availability"] = etu_avail
+            elif not (existing.get("availabilityInstaller") or "").strip():
+                existing["availabilityInstaller"] = etu_avail
 
 
 def _parse_sheet_csv(text: str, *, kind: str) -> tuple[float, dict[str, dict[str, Any]]]:

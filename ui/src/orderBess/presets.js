@@ -72,7 +72,8 @@ export const BATTERY_MODELS = {
     voltage: 'hv1',
     brand: 'deye',
     accessory: 'bos-g',
-    label: 'Deye BOS-G-Pack5.1 (5,12 кВт·год, HV)',
+    // ETU sheet: BOS-G-PACK5.1 PRO — HV module (string still 10–15 for ≤768 V)
+    label: 'Deye BOS-G-Pack5.1 PRO (5,12 кВт·год, HV)',
   },
   // Biom HV
   'BAHV-100512-LFP': {
