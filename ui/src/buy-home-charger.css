@@ -1,0 +1,301 @@
+/* Buy Home charger catalog */
+
+.home-charger-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--pf-page-bg, #0b0d10);
+  color: var(--pf-text, #e8eaed);
+  font-family: var(--pf-font-sans, system-ui, sans-serif);
+  padding: 20px 16px 48px;
+}
+
+.home-charger-page__inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.home-charger-hero__title {
+  margin: 0 0 6px;
+  font-size: 1.55rem;
+  font-weight: 700;
+  color: var(--pf-text, #e8eaed);
+}
+
+.home-charger-hero__sub {
+  margin: 0;
+  color: var(--pf-text-muted, #9aa0a6);
+  font-size: 0.95rem;
+  max-width: 42rem;
+}
+
+.home-charger-filters {
+  background: var(--pf-surface-elev, rgba(22, 26, 33, 0.92));
+  border: 1px solid var(--pf-border, #2a3140);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.home-charger-filters__row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.home-charger-filters__label {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pf-text-muted, #9aa0a6);
+}
+
+.home-charger-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.home-charger-chip {
+  appearance: none;
+  border: 1px solid var(--pf-border-strong, #2a3140);
+  background: var(--pf-surface, rgba(0, 0, 0, 0.25));
+  color: var(--pf-text, #e8eaed);
+  border-radius: 999px;
+  padding: 7px 12px;
+  cursor: pointer;
+  font-size: 0.88rem;
+  line-height: 1.2;
+  min-height: 34px;
+}
+
+.home-charger-chip--active {
+  border-color: #fc019b;
+  background: rgba(252, 1, 155, 0.22);
+  color: #ffd0ea;
+  font-weight: 600;
+}
+
+.home-charger-filters__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--pf-border, #2a3140);
+}
+
+.home-charger-sort {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: var(--pf-text, inherit);
+}
+
+.home-charger-sort select {
+  background: var(--pf-surface, #12151b);
+  color: var(--pf-text, inherit);
+  border: 1px solid var(--pf-border, #2a3140);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+
+.home-charger-clear {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: #fc019b;
+  cursor: pointer;
+  font-size: 0.9rem;
+  text-decoration: underline;
+  padding: 0;
+}
+
+.home-charger-count {
+  margin: 0 0 0 auto;
+  font-size: 0.9rem;
+  color: var(--pf-text-muted, #9aa0a6);
+}
+
+.home-charger-muted {
+  margin: 0;
+  color: var(--pf-text-muted, #9aa0a6);
+}
+
+.home-charger-error {
+  margin: 0;
+  color: #ff8a80;
+}
+
+.home-charger-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.home-charger-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--pf-surface-elev, rgba(22, 26, 33, 0.92));
+  border: 1px solid var(--pf-border, #2a3140);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.home-charger-card__media {
+  display: block;
+  aspect-ratio: 4 / 3;
+  background: #11151c;
+  overflow: hidden;
+}
+
+.home-charger-card__media img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #fff;
+}
+
+.home-charger-card__placeholder {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #1a1f2a, #0d1016);
+}
+
+.home-charger-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px 14px;
+  flex: 1;
+}
+
+.home-charger-card__title {
+  margin: 0;
+  font-size: 0.98rem;
+  font-weight: 650;
+  line-height: 1.35;
+  color: var(--pf-text, #e8eaed);
+}
+
+.home-charger-card__title a {
+  color: inherit;
+  text-decoration: none;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.home-charger-card__title a:hover {
+  color: #fc019b;
+}
+
+.home-charger-card__meta {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.86rem;
+  color: var(--pf-text-muted, #9aa0a6);
+}
+
+.home-charger-card__meta strong {
+  color: var(--pf-text, #e8eaed);
+  font-weight: 600;
+}
+
+.home-charger-card__footer {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.home-charger-card__price {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--pf-text, #e8eaed);
+}
+
+.home-charger-card__buy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: #fc019b;
+  color: #fff;
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.home-charger-card__buy:hover {
+  filter: brightness(1.08);
+}
+
+.home-charger-partner {
+  margin: 8px 0 0;
+  font-size: 0.85rem;
+  color: var(--pf-text-muted, #9aa0a6);
+}
+
+.home-charger-partner a {
+  color: #fc019b;
+}
+
+/* Light theme — active chips must stay readable (no pale-on-pale pink) */
+[data-theme='light'] .home-charger-filters,
+[data-theme='light'] .home-charger-card {
+  background: #ffffff;
+  border-color: var(--pf-border, #e2e0d9);
+  box-shadow: 0 2px 12px rgba(20, 22, 28, 0.06);
+}
+
+[data-theme='light'] .home-charger-chip {
+  background: #f3f1ec;
+  border-color: var(--pf-border-strong, #d0cdc4);
+  color: var(--pf-text, #1a1c1e);
+}
+
+[data-theme='light'] .home-charger-chip--active {
+  background: rgba(252, 1, 155, 0.12);
+  border-color: #fc019b;
+  color: #b0006d;
+}
+
+[data-theme='light'] .home-charger-sort select {
+  background: #ffffff;
+  border-color: var(--pf-border-strong, #d0cdc4);
+  color: var(--pf-text, #1a1c1e);
+}
+
+[data-theme='light'] .home-charger-card__media {
+  background: #f6f4ef;
+}
+
+[data-theme='light'] .home-charger-card__title a:hover {
+  color: #b0006d;
+}
+
+@media (max-width: 640px) {
+  .home-charger-count {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .home-charger-hero__title {
+    font-size: 1.35rem;
+  }
+}

@@ -483,6 +483,21 @@ else:
     BESS_ETU_SHEET_URL = _BESS_ETU_DEFAULT
 BESS_PRICE_CACHE_TTL_SEC: int = _env_int("BESS_PRICE_CACHE_TTL_SEC", 600, 60, 86_400)
 
+# Buy Home charger — Sparks Chargers Google Merchant RSS (public catalog feed).
+_HOME_CHARGERS_FEED_DEFAULT = (
+    "https://sparkschargers.com.ua/google_merchant_center.xml"
+    "?hash_tag=4146d037c021d754d7e0e1259b3e794d"
+    "&product_ids=&label_ids=&export_lang=uk&group_ids="
+)
+_home_chargers_feed_raw = (os.environ.get("HOME_CHARGERS_FEED_URL") or "").strip()
+if _home_chargers_feed_raw.lower() in ("0", "off", "false", "none"):
+    HOME_CHARGERS_FEED_URL: str = ""
+elif _home_chargers_feed_raw:
+    HOME_CHARGERS_FEED_URL = _home_chargers_feed_raw
+else:
+    HOME_CHARGERS_FEED_URL = _HOME_CHARGERS_FEED_DEFAULT
+HOME_CHARGERS_CACHE_TTL_SEC: int = _env_int("HOME_CHARGERS_CACHE_TTL_SEC", 600, 60, 86_400)
+
 # Telegram — Order BESS contact / discount leads → support 220 chat
 TELEGRAM_API_TOKEN: str = (os.environ.get("TELEGRAM_API_TOKEN") or "").strip()
 TELEGRAM_SUPPORT_CHAT_ID: str = (
