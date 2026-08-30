@@ -105,6 +105,12 @@
   padding: 6px 10px;
 }
 
+.home-charger-currency {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .home-charger-clear {
   appearance: none;
   border: none;
@@ -245,10 +251,15 @@
   filter: brightness(1.08);
 }
 
+.home-charger-fx,
 .home-charger-partner {
   margin: 8px 0 0;
   font-size: 0.85rem;
   color: var(--pf-text-muted, #9aa0a6);
+}
+
+.home-charger-fx {
+  margin-bottom: 0;
 }
 
 .home-charger-partner a {
