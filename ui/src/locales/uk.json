@@ -879,5 +879,7 @@
   "homeChargerMetaPhases": "Фази",
   "homeChargerMetaBrand": "Бренд",
   "homeChargerBuy": "Купити",
+  "homeChargerCurrency": "Валюта",
+  "homeChargerFxNote": "USD за курсом НБУ {{rate}} грн/$ ({{date}}). Оплата на сайті магазину — в гривнях.",
   "homeChargerPartnerNote": "Ціни та оформлення на"
 }

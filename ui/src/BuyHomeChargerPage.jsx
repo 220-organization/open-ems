@@ -2,23 +2,65 @@ import { useEffect, useMemo, useState } from 'react';
 import { useOpenEmsSeo } from './useOpenEmsSeo';
 import './buy-home-charger.css';
 
+const USD_UAH_FALLBACK = 42;
+const CURRENCY_STORAGE_KEY = 'home-charger-currency';
+
 function apiUrl(path) {
   const base = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
   return base ? `${base}${path}` : path;
 }
 
+function todayKyivIso() {
+  try {
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Kyiv' });
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+function readStoredCurrency() {
+  try {
+    const raw = localStorage.getItem(CURRENCY_STORAGE_KEY);
+    if (raw === 'UAH' || raw === 'USD') return raw;
+  } catch {
+    /* ignore */
+  }
+  return 'USD';
+}
+
+function writeStoredCurrency(currency) {
+  try {
+    localStorage.setItem(CURRENCY_STORAGE_KEY, currency);
+  } catch {
+    /* ignore */
+  }
+}
+
 function fmtMoney(amount, currency, locale) {
   if (amount == null || Number.isNaN(amount)) return '—';
-  const loc = locale === 'uk' ? 'uk-UA' : locale === 'es' ? 'es-ES' : 'en-US';
+  const code = currency || 'USD';
+  const loc = code === 'USD' ? 'en-US' : locale === 'uk' ? 'uk-UA' : locale === 'es' ? 'es-ES' : 'en-US';
   try {
     return new Intl.NumberFormat(loc, {
       style: 'currency',
-      currency: currency || 'UAH',
+      currency: code,
       maximumFractionDigits: 0,
     }).format(amount);
   } catch {
-    return `${Math.round(amount)} ${currency || 'UAH'}`;
+    return `${Math.round(amount)} ${code}`;
   }
+}
+
+function toDisplayAmount(price, srcCurrency, displayCurrency, uahPerUsd) {
+  if (price == null || Number.isNaN(Number(price))) return null;
+  const src = (srcCurrency || 'UAH').toUpperCase();
+  const dest = (displayCurrency || 'USD').toUpperCase();
+  const amount = Number(price);
+  if (src === dest) return amount;
+  if (!(uahPerUsd > 0)) return amount;
+  if (src === 'UAH' && dest === 'USD') return amount / uahPerUsd;
+  if (src === 'USD' && dest === 'UAH') return amount * uahPerUsd;
+  return amount;
 }
 
 function powerBucketLabel(bucket, t) {
@@ -61,6 +103,9 @@ export default function BuyHomeChargerPage({ t, locale }) {
   const [phases, setPhases] = useState('');
   const [brand, setBrand] = useState('');
   const [sort, setSort] = useState('price-asc');
+  const [displayCurrency, setDisplayCurrency] = useState(readStoredCurrency);
+  const [uahPerUsd, setUahPerUsd] = useState(USD_UAH_FALLBACK);
+  const [fxMeta, setFxMeta] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -85,6 +130,35 @@ export default function BuyHomeChargerPage({ t, locale }) {
     };
   }, [t]);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const day = todayKyivIso();
+      try {
+        const res = await fetch(apiUrl(`/api/fx/usd-uah?date=${encodeURIComponent(day)}`), {
+          cache: 'no-store',
+        });
+        const data = await res.json();
+        if (cancelled) return;
+        const rate = data?.ok ? Number(data.rate) : NaN;
+        if (Number.isFinite(rate) && rate > 0) {
+          setUahPerUsd(rate);
+          setFxMeta({ date: data.exchangedate || day });
+        }
+      } catch {
+        /* keep fallback rate */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const setCurrency = next => {
+    setDisplayCurrency(next);
+    writeStoredCurrency(next);
+  };
+
   const filtered = useMemo(() => {
     let list = products.slice();
     if (power) list = list.filter(p => p.power_bucket === power);
@@ -93,14 +167,16 @@ export default function BuyHomeChargerPage({ t, locale }) {
     if (brand) list = list.filter(p => p.brand === brand);
 
     list.sort((a, b) => {
-      const pa = a.price == null ? Number.POSITIVE_INFINITY : a.price;
-      const pb = b.price == null ? Number.POSITIVE_INFINITY : b.price;
-      if (sort === 'price-desc') return pb - pa;
+      const pa = toDisplayAmount(a.price, a.currency, displayCurrency, uahPerUsd);
+      const pb = toDisplayAmount(b.price, b.currency, displayCurrency, uahPerUsd);
+      const na = pa == null ? Number.POSITIVE_INFINITY : pa;
+      const nb = pb == null ? Number.POSITIVE_INFINITY : pb;
+      if (sort === 'price-desc') return nb - na;
       if (sort === 'power-desc') return (b.power_kw || 0) - (a.power_kw || 0);
-      return pa - pb;
+      return na - nb;
     });
     return list;
-  }, [products, power, connector, phases, brand, sort]);
+  }, [products, power, connector, phases, brand, sort, displayCurrency, uahPerUsd]);
 
   const clearFilters = () => {
     setPower('');
@@ -195,6 +271,14 @@ export default function BuyHomeChargerPage({ t, locale }) {
                 <option value="power-desc">{t('homeChargerSortPowerDesc')}</option>
               </select>
             </label>
+            <div className="home-charger-currency" role="group" aria-label={t('homeChargerCurrency')}>
+              <Chip active={displayCurrency === 'USD'} onClick={() => setCurrency('USD')}>
+                USD
+              </Chip>
+              <Chip active={displayCurrency === 'UAH'} onClick={() => setCurrency('UAH')}>
+                UAH
+              </Chip>
+            </div>
             {hasFilters ? (
               <button type="button" className="home-charger-clear" onClick={clearFilters}>
                 {t('homeChargerClearFilters')}
@@ -260,7 +344,13 @@ export default function BuyHomeChargerPage({ t, locale }) {
                   ) : null}
                 </ul>
                 <div className="home-charger-card__footer">
-                  <p className="home-charger-card__price">{fmtMoney(p.price, p.currency, locale)}</p>
+                  <p className="home-charger-card__price">
+                    {fmtMoney(
+                      toDisplayAmount(p.price, p.currency, displayCurrency, uahPerUsd),
+                      displayCurrency,
+                      locale
+                    )}
+                  </p>
                   <a
                     className="home-charger-card__buy"
                     href={p.link}
@@ -275,6 +365,17 @@ export default function BuyHomeChargerPage({ t, locale }) {
           ))}
         </div>
 
+        {displayCurrency === 'USD' ? (
+          <p className="home-charger-fx">
+            {t('homeChargerFxNote', {
+              rate: new Intl.NumberFormat(locale === 'uk' ? 'uk-UA' : 'en-US', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              }).format(uahPerUsd),
+              date: fxMeta?.date || todayKyivIso(),
+            })}
+          </p>
+        ) : null}
         <p className="home-charger-partner">
           {t('homeChargerPartnerNote')}{' '}
           <a href="https://sparkschargers.com.ua/" target="_blank" rel="noopener noreferrer">

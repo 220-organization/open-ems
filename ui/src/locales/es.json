@@ -878,5 +878,7 @@
   "homeChargerMetaPhases": "Fases",
   "homeChargerMetaBrand": "Marca",
   "homeChargerBuy": "Comprar",
+  "homeChargerCurrency": "Moneda",
+  "homeChargerFxNote": "USD al tipo NBU {{rate}} UAH/USD ({{date}}). El pago en la tienda sigue en UAH.",
   "homeChargerPartnerNote": "Precios y compra en"
 }
