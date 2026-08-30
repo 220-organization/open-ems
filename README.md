@@ -92,6 +92,7 @@ cd app-mobile && npm install
 ./run-ios.sh              # iOS simulator → https://220-km.com:9220
 ./run-android.sh          # Android emulator (prod flavor)
 ./run-build-apk-prod.sh   # → dist-apk/open-ems.apk
+./run-build-aab-prod.sh   # signed AAB for Google Play → dist-aab/open-ems.aab
 ```
 
 See [app-mobile/README.md](app-mobile/README.md) for preprod, localhost, and signing.

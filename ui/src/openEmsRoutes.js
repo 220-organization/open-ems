@@ -5,6 +5,7 @@ export const OPEN_EMS_ROUTES = {
   evTv: '/ev-tv',
   marketplace: '/marketplace',
   orderBess: '/order-bess',
+  buyHomeCharger: '/buy-home-charger',
   rdnConsultation: '/rdn-consultation',
 };
 
@@ -31,6 +32,7 @@ export function normalizeOpenEmsPathname(pathname) {
   if (p === OPEN_EMS_ROUTES.evTv) return OPEN_EMS_ROUTES.evTv;
   if (p === OPEN_EMS_ROUTES.marketplace) return OPEN_EMS_ROUTES.marketplace;
   if (p === OPEN_EMS_ROUTES.orderBess) return OPEN_EMS_ROUTES.orderBess;
+  if (p === OPEN_EMS_ROUTES.buyHomeCharger) return OPEN_EMS_ROUTES.buyHomeCharger;
   if (p === OPEN_EMS_ROUTES.rdnConsultation) return OPEN_EMS_ROUTES.rdnConsultation;
   if (p === OPEN_EMS_ROUTES.power || p === LEGACY_POWER_PATH || p === LEGACY_DAM_PATH) {
     return OPEN_EMS_ROUTES.power;
@@ -44,6 +46,7 @@ export function resolveOpenEmsPage(pathname) {
   if (path === OPEN_EMS_ROUTES.evTv) return 'evTv';
   if (path === OPEN_EMS_ROUTES.marketplace) return 'marketplace';
   if (path === OPEN_EMS_ROUTES.orderBess) return 'orderBess';
+  if (path === OPEN_EMS_ROUTES.buyHomeCharger) return 'buyHomeCharger';
   if (path === OPEN_EMS_ROUTES.rdnConsultation) return 'rdnConsultation';
   return 'power';
 }

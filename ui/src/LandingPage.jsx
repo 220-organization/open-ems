@@ -293,6 +293,7 @@ export default function LandingPage({ t, locale }) {
       <footer className="landing-footer">
         <div className="landing-footer__links">
           <a href="/">{t('landingNavDemo')}</a>
+          <a href="/privacy.html">{t('landingFooterPrivacy')}</a>
           <a href={SITE_220KM} target="_blank" rel="noopener noreferrer">
             220-km.com
           </a>
