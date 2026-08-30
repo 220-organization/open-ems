@@ -3,6 +3,9 @@ node_modules/
 *.log
 *.xcuserstate
 ios/App/App.xcworkspace/xcuserdata/
+ios/App/private_keys/
+ios/private_keys/
+*.p8
 android/local.properties
 android/.gradle/
 android/app/build/

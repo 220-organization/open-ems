@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import './android-install-banner.css';
 
 const SHOW_MS = 3000;
+const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.km220.openems';
 const APK_PATH = '/download/open-ems.apk';
 
 function isAndroidMobileBrowser() {
@@ -38,15 +39,12 @@ export default function AndroidInstallBanner({ t }) {
   }, [visible, dismiss]);
 
   const onInstallClick = useCallback(() => {
-    const base = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
-    const url = `${base}${APK_PATH}`;
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'open-ems.apk';
-    link.rel = 'noopener';
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
+    try {
+      window.open(PLAY_STORE_URL, '_blank', 'noopener,noreferrer');
+    } catch {
+      const base = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
+      window.location.href = `${base}${APK_PATH}`;
+    }
     dismiss();
   }, [dismiss]);
 

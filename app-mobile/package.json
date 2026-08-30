@@ -14,13 +14,15 @@
     "android:apk:debug": "cd android && ./gradlew assembleDebug && cd ..",
     "android:apk:prod": "cd android && ./gradlew assembleProdRelease && cd ..",
     "android:apk:preprod": "cd android && ./gradlew assemblePreprodRelease && cd ..",
-    "android:aab:prod": "cd android && ./gradlew bundleProdRelease && cd .."
+    "android:aab:prod": "cd android && ./gradlew bundleProdRelease && cd ..",
+    "ios:archive": "./scripts/ios-testflight.sh",
+    "ios:testflight": "./scripts/ios-testflight.sh --upload"
   },
   "devDependencies": {
-    "@capacitor/android": "^6.2.1",
-    "@capacitor/cli": "^6.1.2",
-    "@capacitor/core": "^6.1.2",
-    "@capacitor/ios": "^6.1.2"
+    "@capacitor/android": "^8.3.2",
+    "@capacitor/cli": "^8.3.2",
+    "@capacitor/core": "^8.3.2",
+    "@capacitor/ios": "^8.3.2"
   },
   "capacitor": {
     "ios": {
@@ -31,6 +33,6 @@
     }
   },
   "dependencies": {
-    "@capacitor/app": "^6.0.3"
+    "@capacitor/app": "^8.0.1"
   }
 }

@@ -4,20 +4,20 @@ def keystorePropsFile = rootProject.file('key.properties')
 def useReleaseSigning = keystorePropsFile.exists()
 
 android {
-    namespace "com.km220.openems"
-    compileSdk rootProject.ext.compileSdkVersion
-    flavorDimensions "env"
+    namespace = "com.km220.openems"
+    compileSdk = rootProject.ext.compileSdkVersion
+    flavorDimensions += "env"
     defaultConfig {
         applicationId "com.km220.openems"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
-        versionName "1.0"
+        versionName "1.0.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
-            ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
     productFlavors {
@@ -49,6 +49,15 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
+        }
+    }
 
     applicationVariants.all { variant ->
         if (variant.flavorName == 'prod' && variant.buildType.name == 'release') {
@@ -78,6 +87,14 @@ dependencies {
 }
 
 apply from: 'capacitor.build.gradle'
+
+// Capacitor 8 template sets Java 21; keep 17 so the project builds with Zulu 17 (Java 17+ is supported).
+android {
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
 
 try {
     def servicesJSON = file('google-services.json')

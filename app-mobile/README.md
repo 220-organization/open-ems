@@ -38,14 +38,36 @@ From **open-ems** repo root:
 ./run-android-preprod.sh
 ./run-build-apk-prod.sh   # → dist-apk/open-ems.apk
 ./run-build-apk-preprod.sh
+./run-build-aab-prod.sh   # signed AAB for Google Play → dist-aab/open-ems.aab
 ```
 
 ## Android signing
 
-Copy `android/key.properties.example` → `android/key.properties` and add a release keystore. Without it, release builds use the debug keystore (installable for testing).
+Copy `android/key.properties.example` → `android/key.properties` and add a release keystore. Without it, **APK** release builds use the debug keystore (installable for testing). **Play Store AAB** (`./run-build-aab-prod.sh`) requires the release keystore — debug-signed bundles are rejected.
 
-## iOS Archive / TestFlight
+Play listing copy, Data safety answers, and privacy URL: [play-store/LISTING.md](play-store/LISTING.md).
 
-Open `ios/App/App.xcworkspace` in Xcode → Product → Archive.
+Public privacy policy (required by Play): https://220-km.com:9220/privacy.html
 
-Bundle IDs: `com.km220.openems` (prod), `com.km220.openems.preprod` (preprod scheme — add manually if needed).
+## iOS Archive / App Store
+
+Bundle ID: `com.km220.openems` (prod). Team: `4U78HYST9P`. Privacy policy: `https://220-km.com:9220/privacy.html`.
+
+From **open-ems** repo root (macOS with Xcode):
+
+```bash
+./run-deploy-ios.sh
+```
+
+Or from `app-mobile`:
+
+```bash
+npm run ios:archive      # IPA only
+npm run ios:testflight   # IPA + upload to App Store Connect
+```
+
+Then in [App Store Connect](https://appstoreconnect.apple.com/apps): attach the build, complete the store listing (screenshots, description, age rating, App Privacy), and **Submit for Review**.
+
+**Prerequisites:** signed Apple Developer / Paid Apps agreements (Account Holder → App Store Connect → Business), Xcode (not only Command Line Tools), CocoaPods, Node.js 18+.
+
+Open `ios/App/App.xcworkspace` in Xcode → Product → Archive if you prefer the GUI.

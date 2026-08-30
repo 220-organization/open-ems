@@ -9,6 +9,12 @@ const config = {
     cleartext: false,
     allowNavigation: ['220-km.com', '220-km-preprod.com'],
   },
+  plugins: {
+    SystemBars: {
+      insetsHandling: 'css',
+      style: 'LIGHT',
+    },
+  },
   ios: {
     contentInset: 'automatic',
     allowsLinkPreview: false,

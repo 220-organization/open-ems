@@ -9,6 +9,12 @@ const config = {
     cleartext: true,
     allowNavigation: ['localhost', '127.0.0.1'],
   },
+  plugins: {
+    SystemBars: {
+      insetsHandling: 'css',
+      style: 'LIGHT',
+    },
+  },
   ios: {
     contentInset: 'automatic',
     allowsLinkPreview: false,

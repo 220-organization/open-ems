@@ -16,6 +16,7 @@ from app.models import Note
 from app.routers import (
     b2b_proxy,
     bess_order,
+    home_chargers,
     dam,
     deye_proxy,
     entsoe_dam,
@@ -455,6 +456,7 @@ app.include_router(power_flow_totals.router)
 app.include_router(ev_driver_tracker.router)
 app.include_router(rdn_consultation.router)
 app.include_router(bess_order.router)
+app.include_router(home_chargers.router)
 
 # Production / `npm run build`: serve CRA output only (no legacy static HTML).
 # Local dev: OPEN_EMS_SERVE_SPA=0 — API only; UI from `npm start`.

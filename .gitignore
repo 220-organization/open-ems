@@ -27,5 +27,9 @@ app-mobile/build/
 app-mobile/android/.gradle/
 app-mobile/android/app/build/
 app-mobile/android/local.properties
+app-mobile/android/key.properties
+app-mobile/android/*.keystore
+app-mobile/android/*.jks
 dist-apk/
+dist-aab/
 
