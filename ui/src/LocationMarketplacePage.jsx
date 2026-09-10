@@ -4,7 +4,6 @@ import './marketplace.css';
 import { useOpenEmsSeo } from './useOpenEmsSeo';
 import { useTheme } from './useTheme';
 import MarketplaceMap from './marketplace/MarketplaceMap';
-import ShareButton from './marketplace/ShareButton';
 import LeadFormModal from './marketplace/LeadFormModal';
 import { isMarketplaceApiConfigured } from './marketplace/marketplaceApi';
 
@@ -98,27 +97,17 @@ export default function LocationMarketplacePage({ t, locale }) {
   }
 
   return (
-    <div className="landing-page marketplace-page">
-      <main className="landing-main">
-        <section className="landing-hero marketplace-hero" aria-labelledby="marketplace-hero-title">
-          <h1 id="marketplace-hero-title" className="landing-hero__title">
-            {t('marketplacePageTitle')}
-          </h1>
-        </section>
+    <div className="landing-page marketplace-page marketplace-page--fullscreen">
+      <main className="landing-main marketplace-main">
+        <h1 id="marketplace-hero-title" className="marketplace-sr-only">
+          {t('marketplacePageTitle')}
+        </h1>
 
-        <section className="marketplace-section" aria-label={t('marketplacePageTitle')}>
-          {publishSuccess ? (
-            <p className="marketplace-publish-success" role="status">
-              {t('marketplaceMessengerPublishSuccess')}
-            </p>
-          ) : null}
-
-          <ShareButton t={t} />
-
+        <section className="marketplace-stage" aria-label={t('marketplacePageTitle')}>
           <div className="marketplace-action-buttons">
             <button
               type="button"
-              className="landing-btn landing-btn--secondary marketplace-action-btn"
+              className="marketplace-action-btn marketplace-action-btn--propose"
               onClick={() =>
                 openLeadModal(
                   `${t('marketplaceTelegramGreeting')}\n\n#ЗапропонуватиЛокацію`,
@@ -131,7 +120,7 @@ export default function LocationMarketplacePage({ t, locale }) {
             </button>
             <button
               type="button"
-              className="landing-btn landing-btn--secondary marketplace-action-btn"
+              className="marketplace-action-btn marketplace-action-btn--looking"
               onClick={() =>
                 openLeadModal(
                   `${t('marketplaceTelegramLookingForLocationGreeting')}\n\n#ШукаюЛокацію`,
@@ -144,19 +133,27 @@ export default function LocationMarketplacePage({ t, locale }) {
             </button>
           </div>
 
-          <MarketplaceMap
-            t={t}
-            locale={locale}
-            requestType="PROPOSE"
-            hideHeader
-            loadEvuaHeatmap
-            showLookingMarkers
-            paymentReturnId={paymentReturn.paymentReturnId}
-            paymentReturnLocationId={paymentReturn.paymentReturnLocationId}
-            onPaymentReturnHandled={handlePaymentReturnHandled}
-            heatmapPaymentReturnId={paymentReturn.heatmapPaymentReturnId}
-            onHeatmapPaymentReturnHandled={handleHeatmapPaymentReturnHandled}
-          />
+          {publishSuccess ? (
+            <p className="marketplace-publish-success" role="status">
+              {t('marketplaceMessengerPublishSuccess')}
+            </p>
+          ) : null}
+
+          <div className="marketplace-map-fill">
+            <MarketplaceMap
+              t={t}
+              locale={locale}
+              requestType="PROPOSE"
+              hideHeader
+              loadEvuaHeatmap
+              showLookingMarkers
+              paymentReturnId={paymentReturn.paymentReturnId}
+              paymentReturnLocationId={paymentReturn.paymentReturnLocationId}
+              onPaymentReturnHandled={handlePaymentReturnHandled}
+              heatmapPaymentReturnId={paymentReturn.heatmapPaymentReturnId}
+              onHeatmapPaymentReturnHandled={handleHeatmapPaymentReturnHandled}
+            />
+          </div>
         </section>
       </main>
 

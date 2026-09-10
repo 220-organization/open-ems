@@ -28,7 +28,7 @@ import { useGovmapHeatmapPoints } from './useGovmapHeatmapPoints';
 import { useDriverGpsHeatmapPoints } from './useDriverGpsHeatmapPoints';
 import { aggregateHeatmapPoints, buildHeatmapWeightedPoints, HEATMAP_INTENSITY_SCALE, HEATMAP_LAYER_OPACITY, precisionForZoom } from './marketplaceHeatmapPoints';
 import { downloadContractPhotosAsPdf } from './marketplaceContractPdf';
-import { formatKwLabel } from './marketplaceKw';
+import { formatKwLabel, markerFontPxForKw, markerSizePxForKw } from './marketplaceKw';
 import { buildMarketplacePayRedirectBase } from './marketplacePayRedirect';
 import { infoPaymentAmountUah } from './marketplacePaymentAmounts';
 import MarketplaceModal from './MarketplaceModal';
@@ -97,9 +97,7 @@ function flattenLocations(items) {
 }
 
 function markerClassForPoint(point, styles) {
-  if (point.requestType === 'LOOKING') return styles.mapMarkerLooking;
-  if (point.hasContract === 0) return styles.mapMarkerContractNo;
-  return styles.mapMarkerContractYes;
+  return point.requestType === 'LOOKING' ? styles.mapMarkerLooking : styles.mapMarkerPropose;
 }
 
 function createMarketplaceMarkerElement(point, styles) {
@@ -107,6 +105,10 @@ function createMarketplaceMarkerElement(point, styles) {
   el.type = 'button';
   el.className = [styles.mapMarker, markerClassForPoint(point, styles)].join(' ');
   el.textContent = formatKwLabel(point.kw);
+  const size = markerSizePxForKw(point.kw);
+  el.style.setProperty('--mp-marker-size', `${size}px`);
+  el.style.setProperty('--mp-marker-font', `${markerFontPxForKw(point.kw)}px`);
+  el.style.zIndex = String(Math.max(1, 160 - size));
   return el;
 }
 
@@ -743,6 +745,18 @@ export default function MarketplaceMap({
 
     mapRef.current = map;
 
+    const resizeMap = () => {
+      if (mapRef.current === map) map.resize();
+    };
+    const resizeObserver =
+      typeof ResizeObserver !== 'undefined' && mapContainerRef.current
+        ? new ResizeObserver(resizeMap)
+        : null;
+    if (resizeObserver && mapContainerRef.current) {
+      resizeObserver.observe(mapContainerRef.current);
+    }
+    window.addEventListener('resize', resizeMap);
+
     map.addControl(new maplibregl.ScaleControl({ maxWidth: HEATMAP_SCALE_BAR_MAX_PX, unit: 'metric' }), 'bottom-right');
 
     const updateHeatmapLegendVisibility = () => {
@@ -785,6 +799,7 @@ export default function MarketplaceMap({
     map.on('load', () => {
       setMapReady(true);
       lastAllowedZoomRef.current = map.getZoom();
+      resizeMap();
       syncMarketplaceMarkers(map, pointsRef.current, handleMarkerSelect, htmlMarkersRef, styles);
       syncHeatmapAfterZoom();
     });
@@ -799,6 +814,8 @@ export default function MarketplaceMap({
     return () => {
       heatmapSyncGenerationRef.current += 1;
       lastHeatmapSyncKeyRef.current = '';
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', resizeMap);
       map.off('zoom', updateHeatmapLegendVisibility);
       map.off('zoomend', onZoomEnd);
       removeHeatmapLayer(map);

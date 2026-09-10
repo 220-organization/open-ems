@@ -1,10 +1,17 @@
-import { hubPartnerIndexById, readPinnedHubLogoIndexFromUrl } from './partnerPromotions';
+import {
+  HUB_PARTNER_PROMOTIONS,
+  hubPartnerIndexById,
+  readPinnedHubLogoIndexFromUrl,
+} from './partnerPromotions';
 
 describe('hub logo URL pin', () => {
   it('resolves known partner ids', () => {
     expect(hubPartnerIndexById('dtek-kem')).toBeGreaterThan(0);
     expect(hubPartnerIndexById('ecu')).toBeGreaterThan(0);
+    expect(hubPartnerIndexById('atmosfera')).toBeGreaterThan(0);
+    expect(hubPartnerIndexById('gridlab')).toBeGreaterThan(0);
     expect(hubPartnerIndexById('vyriy')).toBe(0);
+    expect(HUB_PARTNER_PROMOTIONS.find(p => p.id === 'gridlab')?.logoDarkPad).toBe(true);
   });
 
   it('rejects unknown ids', () => {

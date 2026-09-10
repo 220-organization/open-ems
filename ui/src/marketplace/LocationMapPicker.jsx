@@ -246,6 +246,7 @@ export default function LocationMapPicker({ t, locale = 'uk', locations, onChang
   const regionRadiusKmRef = useRef(REGION_RADIUS_KM_DEFAULT);
   const searchDebounceRef = useRef(null);
   const searchRequestIdRef = useRef(0);
+  const pointPickRequestIdRef = useRef(0);
   const [resolving, setResolving] = useState(false);
   const [regionRadiusKm, setRegionRadiusKm] = useState(REGION_RADIUS_KM_DEFAULT);
   const [searchQuery, setSearchQuery] = useState('');
@@ -297,9 +298,12 @@ export default function LocationMapPicker({ t, locale = 'uk', locations, onChang
 
   const addPointLocation = useCallback(
     async (lng, lat) => {
+      const requestId = pointPickRequestIdRef.current + 1;
+      pointPickRequestIdRef.current = requestId;
       setResolving(true);
       const label = await reverseGeocodePoint(lng, lat, resolveGeocodeLanguage(locale));
-      const next = [...locationsRef.current, { id: uuidv4(), lng, lat, label }];
+      if (pointPickRequestIdRef.current !== requestId) return;
+      const next = [{ id: uuidv4(), lng, lat, label }];
       onChangeRef.current(next);
       syncMapLayers(next);
       setResolving(false);

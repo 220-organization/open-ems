@@ -14,7 +14,15 @@ import {
   submitMarketplaceLocation,
   uploadMarketplaceFile,
 } from './marketplaceApi';
-import { KW_OPTIONS, formatKwLabel } from './marketplaceKw';
+import {
+  KW_DEFAULT,
+  KW_MAX,
+  KW_MIN,
+  KW_SLIDER_MAX_INDEX,
+  formatKwLabel,
+  kwFromSliderIndex,
+  sliderIndexFromKw,
+} from './marketplaceKw';
 const PRICE_KWH_EXTRA_MIN = 0.5;
 const PRICE_KWH_EXTRA_MAX = 5;
 const PRICE_KWH_EXTRA_STEP = 0.1;
@@ -39,7 +47,7 @@ export default function LeadFormModal({
 }) {
   const [leadName, setLeadName] = useState('');
   const [leadPhone, setLeadPhone] = useState('');
-  const [leadKwAvailable, setLeadKwAvailable] = useState('');
+  const [leadKwAvailable, setLeadKwAvailable] = useState(String(KW_DEFAULT));
   const [leadDistributionContract, setLeadDistributionContract] = useState('');
   const [leadLocations, setLeadLocations] = useState([]);
   const [leadParkingPhotos, setLeadParkingPhotos] = useState([]);
@@ -62,7 +70,7 @@ export default function LeadFormModal({
   const resetForm = () => {
     setLeadName('');
     setLeadPhone('');
-    setLeadKwAvailable('');
+    setLeadKwAvailable(String(KW_DEFAULT));
     setLeadDistributionContract('');
     setLeadLocations([]);
     setLeadParkingPhotos([]);
@@ -327,28 +335,38 @@ export default function LeadFormModal({
                   {t('marketplaceLeadFormKwLabel')}
                   <span className="marketplace-lead-required">*</span>
                 </legend>
-                <div className="marketplace-lead-options" role="radiogroup" aria-label={t('marketplaceLeadFormKwLabel')}>
-                  {KW_OPTIONS.map(option => (
-                    <button
-                      key={option}
-                      type="button"
-                      role="radio"
-                      aria-checked={leadKwAvailable === option}
-                      className={`marketplace-lead-option${leadKwAvailable === option ? ' marketplace-lead-option--active' : ''}`}
-                      onClick={() => {
-                        setLeadKwAvailable(option);
-                        if (leadFormErrors.kw) {
-                          setLeadFormErrors(prev => {
-                            const next = { ...prev };
-                            delete next.kw;
-                            return next;
-                          });
-                        }
-                      }}
-                    >
-                      {formatKwLabel(option)}
-                    </button>
-                  ))}
+                <label className="marketplace-lead-slider-header" htmlFor="marketplace-lead-kw-slider">
+                  <span className="marketplace-lead-slider-value">
+                    {formatKwLabel(leadKwAvailable || KW_DEFAULT)}
+                  </span>
+                </label>
+                <input
+                  id="marketplace-lead-kw-slider"
+                  className="marketplace-lead-slider"
+                  type="range"
+                  min={0}
+                  max={KW_SLIDER_MAX_INDEX}
+                  step={1}
+                  value={sliderIndexFromKw(leadKwAvailable)}
+                  aria-label={t('marketplaceLeadFormKwLabel')}
+                  aria-valuemin={KW_MIN}
+                  aria-valuemax={KW_MAX}
+                  aria-valuenow={kwFromSliderIndex(sliderIndexFromKw(leadKwAvailable))}
+                  aria-valuetext={formatKwLabel(leadKwAvailable || KW_DEFAULT)}
+                  onChange={e => {
+                    setLeadKwAvailable(String(kwFromSliderIndex(e.target.value)));
+                    if (leadFormErrors.kw) {
+                      setLeadFormErrors(prev => {
+                        const next = { ...prev };
+                        delete next.kw;
+                        return next;
+                      });
+                    }
+                  }}
+                />
+                <div className="marketplace-lead-slider-scale">
+                  <span>{formatKwLabel(KW_MIN)}</span>
+                  <span>{formatKwLabel(KW_MAX)}</span>
                 </div>
                 {leadFormErrors.kw ? <p className="marketplace-lead-error">{leadFormErrors.kw}</p> : null}
               </fieldset>

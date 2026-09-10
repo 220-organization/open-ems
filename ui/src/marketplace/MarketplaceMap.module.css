@@ -8,8 +8,12 @@
 }
 
 .rootEmbedded {
-  margin: 16px auto 0;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
   padding: 0;
+  max-width: none;
+  height: 100%;
 }
 
 .title {
@@ -38,22 +42,39 @@
   color: var(--b2b-body-muted, rgba(218, 209, 230, 0.85));
 }
 
+.rootEmbedded .status,
+.rootEmbedded .error {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 3;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(17, 12, 23, 0.82);
+}
+
 .error {
   color: #ff8a9a;
 }
 
 .mapWrap {
   position: relative;
+  flex: 1 1 auto;
   width: 100%;
-  border-radius: 16px;
+  height: 100%;
+  min-height: 0;
+  border-radius: 0;
   overflow: hidden;
-  border: 1px solid var(--b2b-card-border, rgba(249, 76, 175, 0.32));
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.32);
+  border: none;
+  box-shadow: none;
 }
 
 .map {
   width: 100%;
-  height: 420px;
+  height: 100%;
+  min-height: 0;
 }
 
 .map :global(.maplibregl-ctrl-attrib),
@@ -81,18 +102,18 @@
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  min-width: 44px;
-  min-height: 44px;
-  width: 44px;
-  height: 44px;
-  padding: 0;
+  min-width: var(--mp-marker-size, 44px);
+  min-height: var(--mp-marker-size, 44px);
+  width: var(--mp-marker-size, 44px);
+  height: var(--mp-marker-size, 44px);
+  padding: 0 2px;
   margin: 0;
   border: 3px solid rgba(255, 255, 255, 0.8);
   border-radius: 50%;
   background: rgba(95, 105, 118, 0.62);
   color: #ffffff;
   font-family: var(--b2b-font-body, 'Fira Sans', system-ui, sans-serif);
-  font-size: 9px;
+  font-size: var(--mp-marker-font, 9px);
   font-weight: 700;
   line-height: 1.05;
   letter-spacing: -0.2px;
@@ -111,18 +132,13 @@
   z-index: 10;
 }
 
-.mapMarkerContractYes {
-  background: color-mix(in srgb, var(--b2b-success, #6ee7a0) 58%, transparent);
-  color: #ffffff;
-}
-
-.mapMarkerContractNo {
-  background: rgba(95, 105, 118, 0.62);
-  color: #ffffff;
+.mapMarkerPropose {
+  background: color-mix(in srgb, var(--b2b-success, #6ee7a0) 82%, transparent);
+  color: #0b1f14;
 }
 
 .mapMarkerLooking {
-  background: color-mix(in srgb, var(--b2b-accent, #f94caf) 58%, transparent);
+  background: color-mix(in srgb, var(--b2b-accent, #f94caf) 78%, transparent);
   color: #ffffff;
 }
 
@@ -179,7 +195,7 @@
 
 .detailPanel {
   position: absolute;
-  top: 12px;
+  top: 76px;
   right: 12px;
   bottom: 12px;
   width: min(100%, 360px);
@@ -525,7 +541,7 @@
 
 @media (min-width: 768px) {
   .map {
-    height: 480px;
+    height: 100%;
   }
 }
 

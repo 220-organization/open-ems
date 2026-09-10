@@ -20,6 +20,7 @@ export default function PartnerHubLogo({ t, flowEndsHere = false }) {
   const partner = HUB_PARTNER_PROMOTIONS[index] ?? HUB_PARTNER_PROMOTIONS[0];
   const hubLabel = partner.hubLabelKey ? t(partner.hubLabelKey) : partner.name;
   const logoWide = Boolean(partner.logoWide);
+  const logoDarkPad = Boolean(partner.logoDarkPad);
 
   const applyLogoFromUrl = useCallback(() => {
     const pinned = readPinnedHubLogoIndexFromUrl();
@@ -110,7 +111,7 @@ export default function PartnerHubLogo({ t, flowEndsHere = false }) {
         aria-live="polite"
       >
         <span
-          className={`pf-hub-logo-stage${logoWide ? ' pf-hub-logo-stage--wide' : ''}`}
+          className={`pf-hub-logo-stage${logoWide ? ' pf-hub-logo-stage--wide' : ''}${logoDarkPad ? ' pf-hub-logo-stage--dark' : ''}`}
           aria-hidden="true"
         >
           <img

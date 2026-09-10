@@ -39,6 +39,70 @@
   --mp-map-control-hover-bg: rgba(249, 76, 175, 0.16);
 }
 
+.marketplace-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+html:has(.marketplace-page--fullscreen) {
+  overflow: hidden;
+}
+
+html:has(.marketplace-page--fullscreen) .app-root-layout {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+html:has(.marketplace-page--fullscreen) .app-root-layout__main {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.marketplace-page--fullscreen.landing-page {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.marketplace-page--fullscreen .marketplace-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.marketplace-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+}
+
+.marketplace-map-fill {
+  position: absolute;
+  inset: 0;
+}
+
+.marketplace-map-fill > * {
+  height: 100%;
+}
+
 .marketplace-hero {
   padding-bottom: 0.5rem;
 }
@@ -51,14 +115,19 @@
 }
 
 .marketplace-publish-success {
-  margin: 0 0 1rem;
+  position: absolute;
+  top: 5.25rem;
+  left: 12px;
+  right: 12px;
+  z-index: 6;
+  margin: 0;
   padding: 0.75rem 1rem;
   border-radius: 12px;
   text-align: center;
   font-size: 0.95rem;
   color: var(--mp-success);
-  background: rgba(110, 231, 160, 0.1);
-  border: 1px solid rgba(110, 231, 160, 0.35);
+  background: rgba(17, 12, 23, 0.9);
+  border: 1px solid rgba(110, 231, 160, 0.45);
 }
 
 .marketplace-publish-error {
@@ -119,22 +188,54 @@
 }
 
 .marketplace-action-buttons {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  z-index: 6;
   display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 0.75rem;
-  margin-bottom: 1.25rem;
-}
-
-@media (min-width: 640px) {
-  .marketplace-action-buttons {
-    grid-template-columns: 1fr 1fr;
-  }
+  pointer-events: none;
 }
 
 .marketplace-action-btn {
+  pointer-events: auto;
   width: 100%;
   min-height: 3.25rem;
+  padding: 0 16px;
+  border-radius: 14px;
+  border: none;
+  font-family: var(--mp-font);
   font-size: 1.05rem;
+  font-weight: 700;
   letter-spacing: 0.04em;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+  transition: transform 0.12s ease, box-shadow 0.15s ease, filter 0.15s ease;
+}
+
+.marketplace-action-btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+}
+
+.marketplace-action-btn--propose {
+  background: var(--mp-success);
+  color: #0b1f14;
+}
+
+.marketplace-action-btn--looking {
+  background: var(--mp-accent);
+  color: #fff;
+}
+
+@media (max-width: 480px) {
+  .marketplace-action-btn {
+    min-height: 2.75rem;
+    font-size: 0.92rem;
+    padding: 0 10px;
+  }
 }
 
 /* Modal */

@@ -57,6 +57,7 @@ export default function App() {
   }, [page]);
 
   const showKiosk = kioskMode && page === 'power';
+  const hideChromeFooter = showKiosk || page === 'marketplace';
 
   return (
     <div className="app-root-layout">
@@ -88,7 +89,7 @@ export default function App() {
           <PowerFlowPage {...i18n} isDark={isDark} kioskMode={showKiosk} />
         )}
       </div>
-      {showKiosk ? null : (
+      {hideChromeFooter ? null : (
         <footer className="app-shell-footer">
           <ServerMetricsBar />
         </footer>
