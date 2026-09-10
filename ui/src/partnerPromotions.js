@@ -32,6 +32,8 @@ export const HUB_PARTNER_PROMOTIONS = [
     url: 'https://gridlab.com.ua/uk',
     logoSrc: `${staticBase}/gridlab.png`,
     logoWide: true,
+    // Official wordmark is cyan/white on transparent; needs a dark pad to stay readable.
+    logoDarkPad: true,
   },
   {
     id: 'eva',
@@ -81,6 +83,13 @@ export const HUB_PARTNER_PROMOTIONS = [
     name: 'BIOM',
     url: 'https://biom.ua/',
     logoSrc: `${staticBase}/biom.svg`,
+  },
+  {
+    id: 'atmosfera',
+    name: 'Atmosfera',
+    url: 'https://www.atmosfera.ua/ru',
+    logoSrc: `${staticBase}/atmosfera.svg`,
+    logoWide: true,
   },
   {
     id: 'evua',

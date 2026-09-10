@@ -703,7 +703,7 @@
   "marketplaceLeadFormYes": "Так",
   "marketplaceLeadFormNo": "Ні",
   "marketplaceLeadFormLocationsLabel": "Локації на карті",
-  "marketplaceLeadFormMapHint": "Введіть адресу для пошуку або натисніть на карту, щоб додати точки приєднання. Використайте геолокацію для центрування.",
+  "marketplaceLeadFormMapHint": "Введіть адресу для пошуку або натисніть на карту, щоб обрати точку приєднання. Новий клік замінює попередню точку. Використайте геолокацію для центрування.",
   "marketplaceLeadFormMapAria": "Карта для вибору локацій",
   "marketplaceLeadFormMapGeolocate": "Моє місцезнаходження",
   "marketplaceLeadFormMapLoading": "Завантаження…",

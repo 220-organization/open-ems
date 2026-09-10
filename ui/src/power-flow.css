@@ -1778,6 +1778,12 @@ a.pf-node { cursor: pointer; }
   border-radius: 12px;
 }
 
+/* Wordmarks designed for dark UI (cyan/white artwork, e.g. GridLab). */
+.pf-hub-logo-stage--dark {
+  background: #0f172a;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
 @keyframes pf-hub-partner-logo-in {
   0% {
     opacity: 0;

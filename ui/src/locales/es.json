@@ -702,7 +702,7 @@
   "marketplaceLeadFormYes": "Sí",
   "marketplaceLeadFormNo": "No",
   "marketplaceLeadFormLocationsLabel": "Ubicaciones en el mapa",
-  "marketplaceLeadFormMapHint": "Introduzca una dirección para buscar o pulse el mapa para añadir puntos de conexión. Use la geolocalización para centrar el mapa.",
+  "marketplaceLeadFormMapHint": "Introduzca una dirección para buscar o pulse el mapa para elegir un punto de conexión. Un nuevo clic sustituye el punto anterior. Use la geolocalización para centrar el mapa.",
   "marketplaceLeadFormMapAria": "Mapa para selección de ubicaciones",
   "marketplaceLeadFormMapGeolocate": "Mi ubicación",
   "marketplaceLeadFormMapLoading": "Cargando…",
