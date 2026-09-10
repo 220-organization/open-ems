@@ -721,7 +721,7 @@
   "marketplaceLeadFormDistancePlaceholder": "Оберіть відстань",
   "marketplaceLeadFormDistanceUpTo5": "до 5 м",
   "marketplaceLeadFormPriceKwhExtraLabel": "Доплата за кВт·год",
-  "marketplaceLeadFormMonthlyParkingLabel": "Орендна плата",
+  "marketplaceLeadFormMonthlyParkingLabel": "Орендна плата грн/міс",
   "marketplaceTitle": "Збережені локації",
   "marketplaceMapHint": "Натисніть маркер на карті, щоб переглянути деталі локації",
   "marketplaceEmpty": "Поки що немає опублікованих локацій",

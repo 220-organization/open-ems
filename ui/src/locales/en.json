@@ -720,7 +720,7 @@
   "marketplaceLeadFormDistancePlaceholder": "Select distance",
   "marketplaceLeadFormDistanceUpTo5": "up to 5 m",
   "marketplaceLeadFormPriceKwhExtraLabel": "Extra price per kWh",
-  "marketplaceLeadFormMonthlyParkingLabel": "Monthly rental fee",
+  "marketplaceLeadFormMonthlyParkingLabel": "Rental fee, UAH/month",
   "marketplaceTitle": "Saved locations",
   "marketplaceMapHint": "Tap a marker on the map to view location details",
   "marketplaceEmpty": "No published locations yet",
