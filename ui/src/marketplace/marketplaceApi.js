@@ -69,6 +69,21 @@ export async function fetchMarketplaceLocations(requestType) {
   return data.items || [];
 }
 
+/** Submissions awaiting moderation: map point and kW only. */
+export async function fetchPendingMarketplaceLocations() {
+  const base = apiBase();
+  if (!base) return [];
+
+  const response = await fetch(`${base}/marketplace/locations/pending`);
+
+  if (!response.ok) {
+    throw new Error(`Fetch failed (${response.status})`);
+  }
+
+  const data = await response.json();
+  return data.items || [];
+}
+
 export async function requestMarketplaceLocationInfo(locationId) {
   const base = apiBase();
   if (!base || !locationId) return null;

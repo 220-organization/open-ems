@@ -11,6 +11,7 @@ import {
   createMarketplaceTestPayment,
   fetchMarketplaceLocations,
   fetchMarketplacePaymentStatus,
+  fetchPendingMarketplaceLocations,
   getStoredMarketplacePaymentId,
   isMarketplaceApiConfigured,
   isMarketplaceLocalTestPaymentEnabled,
@@ -78,6 +79,7 @@ function flattenLocations(items) {
   const points = [];
   (items || []).forEach(item => {
     const requestType = item.request_type === 'LOOKING' ? 'LOOKING' : 'PROPOSE';
+    const pending = item.status === 'PENDING';
     const hasContract =
       item.distribution_contract === true ? 1 : item.distribution_contract === false ? 0 : -1;
     (item.locations || []).forEach((loc, index) => {
@@ -90,6 +92,7 @@ function flattenLocations(items) {
         hasContract,
         kw: item.kw_available,
         requestType,
+        pending,
       });
     });
   });
@@ -97,6 +100,7 @@ function flattenLocations(items) {
 }
 
 function markerClassForPoint(point, styles) {
+  if (point.pending) return styles.mapMarkerPending;
   return point.requestType === 'LOOKING' ? styles.mapMarkerLooking : styles.mapMarkerPropose;
 }
 
@@ -482,6 +486,7 @@ export default function MarketplaceMap({
   const [mapReady, setMapReady] = useState(false);
   const [items, setItems] = useState([]);
   const [lookingItems, setLookingItems] = useState([]);
+  const [pendingItems, setPendingItems] = useState([]);
   const heatmapEnabled = showLookingHeatmap && loadEvuaHeatmap;
   const { stations: evuaStations } = useEvua80KwStations(heatmapEnabled);
   const { points: govmapPoints } = useGovmapHeatmapPoints(heatmapEnabled);
@@ -504,13 +509,20 @@ export default function MarketplaceMap({
   const [heatmapPaymentError, setHeatmapPaymentError] = useState('');
   const ownerPdfDownloadKeyRef = useRef('');
 
-  const allItems = useMemo(() => [...items, ...lookingItems], [items, lookingItems]);
+  const allItems = useMemo(
+    () => [...items, ...lookingItems, ...pendingItems],
+    [items, lookingItems, pendingItems]
+  );
   itemsRef.current = allItems;
   heatmapPointsRef.current = heatmapPoints;
   heatmapZoomUnlockedRef.current = heatmapZoomUnlocked;
   const points = useMemo(
-    () => [...flattenLocations(items), ...flattenLocations(lookingItems)],
-    [items, lookingItems]
+    () => [
+      ...flattenLocations(items),
+      ...flattenLocations(lookingItems),
+      ...flattenLocations(pendingItems),
+    ],
+    [items, lookingItems, pendingItems]
   );
   pointsRef.current = points;
   const hasHeatmapData = heatmapEnabled && heatmapPoints.length > 0;
@@ -726,6 +738,24 @@ export default function MarketplaceMap({
       cancelled = true;
     };
   }, [loadEvuaHeatmap, requestType, showLookingMarkers, t]);
+
+  useEffect(() => {
+    if (!loadEvuaHeatmap || !isMarketplaceApiConfigured()) return undefined;
+
+    let cancelled = false;
+    // Pending submissions are a side list: a failure here must not hide published locations.
+    fetchPendingMarketplaceLocations()
+      .then(rows => {
+        if (!cancelled) setPendingItems(rows || []);
+      })
+      .catch(() => {
+        if (!cancelled) setPendingItems([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loadEvuaHeatmap]);
 
   useEffect(() => {
     if (!loadEvuaHeatmap || mapRef.current || !mapContainerRef.current) return undefined;
@@ -1018,6 +1048,16 @@ export default function MarketplaceMap({
   };
 
   const showLocalTestPayment = isMarketplaceLocalTestPaymentEnabled();
+  const selectedIsPending = selectedItem?.status === 'PENDING';
+  const selectedIsLooking = selectedItem?.request_type === 'LOOKING';
+  const selectedDetailTitleKey = selectedIsPending
+    ? 'marketplaceDetailTitlePending'
+    : selectedIsLooking
+      ? 'marketplaceDetailTitleLooking'
+      : 'marketplaceDetailTitlePropose';
+  const selectedRequestInfoKey = selectedIsLooking
+    ? 'marketplaceRequestInvestorInfoPayButton'
+    : 'marketplaceRequestInfoPayButton';
 
   if (!isMarketplaceApiConfigured()) {
     return null;
@@ -1058,11 +1098,11 @@ export default function MarketplaceMap({
           <div
             className={styles.detailPanel}
             role="dialog"
-            aria-label={t('marketplaceDetailTitle')}
+            aria-label={t(selectedDetailTitleKey)}
             onClick={e => e.stopPropagation()}
           >
             <div className={styles.detailHeader}>
-              <h3 className={styles.detailTitle}>{t('marketplaceDetailTitle')}</h3>
+              <h3 className={styles.detailTitle}>{t(selectedDetailTitleKey)}</h3>
               <button
                 type="button"
                 className={styles.detailCloseBtn}
@@ -1073,34 +1113,47 @@ export default function MarketplaceMap({
               </button>
             </div>
 
-            <MarketplaceDetailsBody item={selectedItem} t={t} language={locale} variant="map" />
+            {selectedIsPending ? (
+              <>
+                <div className={styles.detailBadges}>
+                  <span className={styles.kwBadge}>{formatKwLabel(selectedItem.kw_available)}</span>
+                </div>
+                <p className={styles.pendingNote}>{t('marketplacePendingReviewNote')}</p>
+              </>
+            ) : (
+              <>
+                <MarketplaceDetailsBody item={selectedItem} t={t} language={locale} variant="map" />
 
-            <p className={styles.viewCount}>{t('marketplaceViewedTimes', { count: selectedItem.view_count || 0 })}</p>
+                <p className={styles.viewCount}>
+                  {t('marketplaceViewedTimes', { count: selectedItem.view_count || 0 })}
+                </p>
 
-            {paymentError ? <p className={styles.paymentError}>{paymentError}</p> : null}
+                {paymentError ? <p className={styles.paymentError}>{paymentError}</p> : null}
 
-            <button
-              type="button"
-              className={styles.requestInfoBtn}
-              onClick={handleRequestInfo}
-              disabled={requestLoading}
-            >
-              {requestLoading
-                ? t('marketplaceLeadFormMapLoading')
-                : t('marketplaceRequestInfoPayButton', {
-                    amount: infoPaymentAmountUah(selectedItem.request_type),
-                  })}
-            </button>
-            {showLocalTestPayment ? (
-              <button
-                type="button"
-                className={styles.payTestBtn}
-                onClick={handleSkipPaymentTest}
-                disabled={requestLoading}
-              >
-                {t('marketplacePayTestSkip')}
-              </button>
-            ) : null}
+                <button
+                  type="button"
+                  className={styles.requestInfoBtn}
+                  onClick={handleRequestInfo}
+                  disabled={requestLoading}
+                >
+                  {requestLoading
+                    ? t('marketplaceLeadFormMapLoading')
+                    : t(selectedRequestInfoKey, {
+                        amount: infoPaymentAmountUah(selectedItem.request_type),
+                      })}
+                </button>
+                {showLocalTestPayment ? (
+                  <button
+                    type="button"
+                    className={styles.payTestBtn}
+                    onClick={handleSkipPaymentTest}
+                    disabled={requestLoading}
+                  >
+                    {t('marketplacePayTestSkip')}
+                  </button>
+                ) : null}
+              </>
+            )}
           </div>
         ) : null}
       </div>
