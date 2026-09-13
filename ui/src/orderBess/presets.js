@@ -453,9 +453,21 @@ export function hasNoArrivalDates(item) {
   );
 }
 
+/** Energotrendy Ukrainy (5–10 days from the Netherlands) is the displayed vendor. */
+export function isEtuVendor(item) {
+  if (!item) return false;
+  const text = `${item.availabilityInstaller || ''} ${item.availability || ''}`;
+  return /нідерланд|netherland|енерготренд|energotrend/i.test(text);
+}
+
 /** Price unit USD for one item given business type (BIOM install sheet + ETU overlay). */
 export function unitPriceUsd(item, businessType) {
   if (!item) return null;
+
+  // NL vendor: always the ETU sheet prepaid price, ignoring FOP / VAT / installer chips.
+  if (isEtuVendor(item) && item.etuUsd != null) {
+    return Math.round(Number(item.etuUsd) * 100) / 100;
+  }
 
   // Cash / installer 220-km.com — cheapest among install-sheet price columns.
   if (businessType === 'cash') {

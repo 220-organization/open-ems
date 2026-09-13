@@ -75,6 +75,8 @@ class TestBessEtuSheet(unittest.TestCase):
         # ETU prepaid 195000/45.3 ≈ 4304 > BIOM 3850 → keep BIOM cash
         self.assertEqual(row["installerCheapestUsd"], 3850.0)
         self.assertEqual(row["priceSourceCash"], "install")
+        # Prepaid list price is always kept, even when BIOM cash wins.
+        self.assertAlmostEqual(row["etuUsd"], _uah_to_usd(195000.0, fx) or 0, places=2)
         # ETU TOV 205000/45.3 ≈ 4525 < BIOM 5237 → take ETU retail
         self.assertAlmostEqual(row["retailUsd"], _uah_to_usd(205000.0, fx) or 0, places=2)
         self.assertEqual(row["priceSourceRetail"], "etu")
@@ -100,9 +102,10 @@ class TestBessEtuSheet(unittest.TestCase):
         etu = _parse_etu_sheet_csv(_ETU_CSV)
         _merge_etu_items(by_article, etu, fx)
         row = by_article["BOS-G-PACK5.1"]
-        # Cheaper BIOM cash stays
+        # Cheaper BIOM cash stays on installer columns; NL list price is separate.
         self.assertEqual(row["installerCheapestUsd"], 710.0)
         self.assertEqual(row["priceSourceCash"], "install")
+        self.assertAlmostEqual(row["etuUsd"], _uah_to_usd(38500.0, fx) or 0, places=2)
         # Availability comes from ETU so the UI can select 5 kWh HV
         self.assertIn("Енерготренди", row["availabilityInstaller"])
         self.assertNotRegex(row["availabilityInstaller"], r"приход")

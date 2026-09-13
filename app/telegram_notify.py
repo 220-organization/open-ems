@@ -101,6 +101,51 @@ def format_rdn_consultation_callback_message(
     )
 
 
+def format_charger_buy_request_message(
+    *,
+    catalog: str,
+    phone: str,
+    name: Optional[str] = None,
+    title: Optional[str] = None,
+    sku: Optional[str] = None,
+    price: Optional[str] = None,
+    page_url: Optional[str] = None,
+    product_url: Optional[str] = None,
+    requested_at: Optional[datetime] = None,
+) -> str:
+    """Ukrainian HTML alert for a charger buy request (callback wanted)."""
+    catalog_labels = {
+        "home": "Домашні зарядки",
+        "commercial": "Комерційні DC зарядки",
+    }
+    kyiv = ZoneInfo("Europe/Kyiv")
+    when = requested_at.astimezone(kyiv) if requested_at else datetime.now(tz=kyiv)
+
+    lines = [
+        "<b>Заявка на купівлю зарядки.</b>",
+        "",
+        f"Каталог: {html.escape(catalog_labels.get(catalog, catalog))}",
+    ]
+    if title:
+        lines.append(f"Модель: <b>{html.escape(title)}</b>")
+    if sku:
+        lines.append(f"Артикул: <code>{html.escape(sku)}</code>")
+    if price:
+        lines.append(f"Ціна: {html.escape(price)}")
+    lines.append(f"Телефон: {html.escape(phone)}")
+    if name:
+        lines.append(f"Ім'я: {html.escape(name)}")
+    lines.append(f"Час заявки: {html.escape(when.strftime('%d.%m.%Y, %H:%M:%S'))}")
+
+    # Keep URLs unescaped so Telegram auto-link keeps query params (&).
+    lines.append("")
+    lines.append("#buyRequest")
+    for link in (page_url, product_url):
+        if link and link not in lines:
+            lines.append(link)
+    return "\n".join(lines)
+
+
 def format_bess_lead_message(
     *,
     kind: str,
@@ -129,11 +174,13 @@ def format_bess_lead_message(
         "offer": "Хоче пропозицію Order BESS",
         "contact": "Хоче пропозицію Order BESS",
         "discount": "Хоче знижку Order BESS",
+        "buy": "Заявка на купівлю Order BESS",
     }.get(kind, "Order BESS")
     hashtag = {
         "offer": "#OrderBessOffer",
         "contact": "#OrderBessOffer",
         "discount": "#OrderBessDiscount",
+        "buy": "#buyRequest",
     }.get(kind, "#OrderBess")
 
     kw = kit.get("kw") if isinstance(kit, dict) else None

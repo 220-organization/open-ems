@@ -17,6 +17,8 @@ from app.routers import (
     b2b_proxy,
     bess_order,
     home_chargers,
+    commercial_chargers,
+    charger_buy_request,
     dam,
     deye_proxy,
     entsoe_dam,
@@ -457,6 +459,8 @@ app.include_router(ev_driver_tracker.router)
 app.include_router(rdn_consultation.router)
 app.include_router(bess_order.router)
 app.include_router(home_chargers.router)
+app.include_router(commercial_chargers.router)
+app.include_router(charger_buy_request.router)
 
 # Production / `npm run build`: serve CRA output only (no legacy static HTML).
 # Local dev: OPEN_EMS_SERVE_SPA=0 — API only; UI from `npm start`.
@@ -496,6 +500,14 @@ if settings.OPEN_EMS_SERVE_SPA:
 
     @app.get("/order-bess", include_in_schema=False)
     async def order_bess_page() -> FileResponse:
+        return _react_spa_index()
+
+    @app.get("/buy-home-charger", include_in_schema=False)
+    async def buy_home_charger_page() -> FileResponse:
+        return _react_spa_index()
+
+    @app.get("/buy-commercial-charger", include_in_schema=False)
+    async def buy_commercial_charger_page() -> FileResponse:
         return _react_spa_index()
 
     @app.get("/rdn-consultation", include_in_schema=False)

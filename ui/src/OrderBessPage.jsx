@@ -12,6 +12,7 @@ import {
   kwhRangeLabel,
   unitPriceUsd,
   hasNoArrivalDates,
+  isEtuVendor,
 } from './orderBess/presets';
 import { downloadOrderBessOfferPng } from './orderBess/offerPdf';
 import { buildB2bTelegramUrl, buildB2bWhatsAppUrl } from './messengerContactUrls';
@@ -174,6 +175,8 @@ export default function OrderBessPage({ t }) {
   const [discountBusy, setDiscountBusy] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [contactBusy, setContactBusy] = useState(''); // '' | 'offer:telegram' | …
+  const [buyBusy, setBuyBusy] = useState(false);
+  const [buySent, setBuySent] = useState(false);
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [shareModalUrl, setShareModalUrl] = useState('');
   const [shareModalCopied, setShareModalCopied] = useState(false);
@@ -301,8 +304,9 @@ export default function OrderBessPage({ t }) {
       const lineTotal = unit == null ? null : Math.round(unit * l.qty * 100) / 100;
       const availability =
         item?.availabilityInstaller || item?.availability || '';
-      const priceSource =
-        businessType === 'cash'
+      const priceSource = isEtuVendor(item)
+        ? 'etu'
+        : businessType === 'cash'
           ? item?.priceSourceCash || ''
           : item?.priceSourceRetail || '';
       return {
@@ -398,6 +402,37 @@ export default function OrderBessPage({ t }) {
       isDiscount ? BESS_DISCOUNT_HASHTAG : BESS_OFFER_HASHTAG,
     ].filter(Boolean);
     return lines.join('\n');
+  };
+
+  const submitBuyRequest = async () => {
+    if (buyBusy || buySent) return;
+    if (trimmedPhone.length < 5) {
+      setContactFormError(t('orderBessContactNeedPhone'));
+      return;
+    }
+    setContactFormError('');
+    setBuyBusy(true);
+    try {
+      const res = await fetch(apiUrl('/api/bess-order/buy-request'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          preset_id: presetId,
+          business_type: businessType,
+          total_usd: totalUsd,
+          name: trimmedName || null,
+          phone: trimmedPhone,
+          kit: kitPayload,
+          page_url: typeof window !== 'undefined' ? window.location.href : orderBessPageUrl,
+        }),
+      });
+      if (!res.ok) throw new Error(`buy request ${res.status}`);
+      setBuySent(true);
+    } catch {
+      setContactFormError(t('orderBessBuyFailed'));
+    } finally {
+      setBuyBusy(false);
+    }
   };
 
   const openContact = async (channel, intent = 'offer') => {
@@ -782,30 +817,29 @@ export default function OrderBessPage({ t }) {
                   onChange={e => {
                     setContactPhone(e.target.value);
                     if (contactFormError) setContactFormError('');
+                    if (buySent) setBuySent(false);
                   }}
                   placeholder={t('orderBessContactPhonePh')}
                 />
               </label>
             </div>
             {contactFormError ? <p className="order-bess-error">{contactFormError}</p> : null}
-            <div className="order-bess-contact__btns">
-              <button
-                type="button"
-                className="order-bess-msg-btn order-bess-msg-btn--telegram"
-                disabled={!!contactBusy}
-                onClick={() => void openContact('telegram', 'offer')}
-              >
-                {contactBusy === 'offer:telegram' ? t('orderBessContactBusy') : t('orderBessContactTelegram')}
-              </button>
-              <button
-                type="button"
-                className="order-bess-msg-btn order-bess-msg-btn--whatsapp"
-                disabled={!!contactBusy}
-                onClick={() => void openContact('whatsapp', 'offer')}
-              >
-                {contactBusy === 'offer:whatsapp' ? t('orderBessContactBusy') : t('orderBessContactWhatsApp')}
-              </button>
-            </div>
+            {buySent ? (
+              <p className="order-bess-ok" role="status">
+                {t('orderBessBuyOk')}
+              </p>
+            ) : (
+              <div className="order-bess-contact__btns">
+                <button
+                  type="button"
+                  className="order-bess-buy-btn"
+                  disabled={buyBusy}
+                  onClick={() => void submitBuyRequest()}
+                >
+                  {buyBusy ? t('orderBessContactBusy') : t('orderBessBuyBtn')}
+                </button>
+              </div>
+            )}
           </div>
         </section>
 

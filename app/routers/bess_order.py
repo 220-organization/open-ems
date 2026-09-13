@@ -466,6 +466,8 @@ def _merge_etu_items(
         cash_usd = _uah_to_usd(row.get("prepaidUah"), fx)
         fop_usd = _uah_to_usd(row.get("tovUah"), fx)
         vat_usd = round(fop_usd * _UA_VAT, 2) if fop_usd is not None else None
+        # Prepaid 100% column is the NL list price shown for every business type.
+        etu_usd = cash_usd if cash_usd is not None else fop_usd
         etu_avail = (row.get("availability") or "").strip()
         existing = by_article.get(list_key)
         if existing is None:
@@ -480,12 +482,15 @@ def _merge_etu_items(
                 "installerCheapestUsd": cash_usd,
                 "retailUsd": fop_usd,
                 "retailVatUsd": vat_usd,
+                "etuUsd": etu_usd,
                 "availability": etu_avail,
                 "availabilityInstaller": etu_avail,
                 "priceSourceCash": "etu" if cash_usd is not None else None,
                 "priceSourceRetail": "etu" if fop_usd is not None else None,
             }
             continue
+        if etu_usd is not None:
+            existing["etuUsd"] = etu_usd
 
         biom_cash = existing.get("installerCheapestUsd")
         if biom_cash is None:
@@ -915,6 +920,50 @@ class ContactRequestBody(BaseModel):
 class ContactRequestResponse(BaseModel):
     ok: bool = True
     notified: bool = False
+
+
+class BuyRequestBody(BaseModel):
+    preset_id: Optional[str] = Field(None, max_length=64)
+    business_type: Optional[str] = None
+    total_usd: Optional[float] = None
+    name: Optional[str] = Field(None, max_length=120)
+    phone: str = Field(..., max_length=40)
+    kit: Optional[dict[str, Any]] = None
+    page_url: Optional[str] = Field(None, max_length=2000)
+
+
+class BuyRequestResponse(BaseModel):
+    ok: bool = True
+    notified: bool = False
+
+
+@router.post("/buy-request", response_model=BuyRequestResponse)
+async def create_buy_request(payload: BuyRequestBody) -> BuyRequestResponse:
+    """Notify support chat about a buy request. The user stays on the page."""
+    phone = (payload.phone or "").strip()
+    if len(phone) < 5:
+        raise HTTPException(status_code=400, detail="phone is required")
+    if payload.business_type and payload.business_type not in ALLOWED_BUSINESS:
+        raise HTTPException(status_code=400, detail=f"business_type must be one of {sorted(ALLOWED_BUSINESS)}")
+
+    name = (payload.name or "").strip() or None
+    msg = format_bess_lead_message(
+        kind="buy",
+        preset_id=payload.preset_id,
+        business_type=payload.business_type,
+        total_usd=payload.total_usd,
+        contact=None,
+        name=name,
+        phone=phone,
+        kit=payload.kit,
+        page_url=payload.page_url,
+    )
+    notified = await send_telegram_message(msg)
+    if not notified:
+        raise HTTPException(status_code=502, detail="Unable to notify support")
+
+    logger.info("BESS buy request preset=%s notified=%s", payload.preset_id, notified)
+    return BuyRequestResponse(ok=True, notified=True)
 
 
 @router.post("/contact", response_model=ContactRequestResponse)

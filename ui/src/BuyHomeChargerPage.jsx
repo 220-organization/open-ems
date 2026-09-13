@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import ChargerBuyRequestModal from './ChargerBuyRequestModal';
 import { useOpenEmsSeo } from './useOpenEmsSeo';
 import './buy-home-charger.css';
 
@@ -106,6 +107,7 @@ export default function BuyHomeChargerPage({ t, locale }) {
   const [displayCurrency, setDisplayCurrency] = useState(readStoredCurrency);
   const [uahPerUsd, setUahPerUsd] = useState(USD_UAH_FALLBACK);
   const [fxMeta, setFxMeta] = useState(null);
+  const [buyRequest, setBuyRequest] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -300,24 +302,15 @@ export default function BuyHomeChargerPage({ t, locale }) {
         <div className="home-charger-grid">
           {filtered.map(p => (
             <article key={p.id} className="home-charger-card">
-              <a
-                className="home-charger-card__media"
-                href={p.link}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
+              <div className="home-charger-card__media">
                 {p.image ? (
                   <img src={p.image} alt="" loading="lazy" decoding="async" />
                 ) : (
                   <div className="home-charger-card__placeholder" aria-hidden />
                 )}
-              </a>
+              </div>
               <div className="home-charger-card__body">
-                <h2 className="home-charger-card__title">
-                  <a href={p.link} target="_blank" rel="noopener noreferrer">
-                    {p.title}
-                  </a>
-                </h2>
+                <h2 className="home-charger-card__title">{p.title}</h2>
                 <ul className="home-charger-card__meta">
                   {p.power_kw != null ? (
                     <li>
@@ -351,14 +344,22 @@ export default function BuyHomeChargerPage({ t, locale }) {
                       locale
                     )}
                   </p>
-                  <a
+                  <button
+                    type="button"
                     className="home-charger-card__buy"
-                    href={p.link}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    onClick={() =>
+                      setBuyRequest({
+                        catalog: 'home',
+                        title: p.title,
+                        sku: p.id,
+                        price: fmtMoney(p.price, p.currency, locale),
+                        pageUrl: window.location.href,
+                        productUrl: p.link,
+                      })
+                    }
                   >
                     {t('homeChargerBuy')}
-                  </a>
+                  </button>
                 </div>
               </div>
             </article>
@@ -376,13 +377,11 @@ export default function BuyHomeChargerPage({ t, locale }) {
             })}
           </p>
         ) : null}
-        <p className="home-charger-partner">
-          {t('homeChargerPartnerNote')}{' '}
-          <a href="https://sparkschargers.com.ua/" target="_blank" rel="noopener noreferrer">
-            sparkschargers.com.ua
-          </a>
-        </p>
       </div>
+
+      {buyRequest ? (
+        <ChargerBuyRequestModal t={t} product={buyRequest} onClose={() => setBuyRequest(null)} />
+      ) : null}
     </div>
   );
 }
