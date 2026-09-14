@@ -498,6 +498,22 @@ else:
     HOME_CHARGERS_FEED_URL = _HOME_CHARGERS_FEED_DEFAULT
 HOME_CHARGERS_CACHE_TTL_SEC: int = _env_int("HOME_CHARGERS_CACHE_TTL_SEC", 600, 60, 86_400)
 
+# Buy commercial EV charger — EDS Chargers retail Google Sheet (Прайс EDS).
+_COMMERCIAL_CHARGERS_SHEET_DEFAULT = (
+    "https://docs.google.com/spreadsheets/d/1VTxLuYOWle38_1SGOBsnq1ihmoJEPDIJGNVpBkIEN7s/"
+    "edit?gid=270605016#gid=270605016"
+)
+_commercial_chargers_sheet_raw = (os.environ.get("COMMERCIAL_CHARGERS_SHEET_URL") or "").strip()
+if _commercial_chargers_sheet_raw.lower() in ("0", "off", "false", "none"):
+    COMMERCIAL_CHARGERS_SHEET_URL: str = ""
+elif _commercial_chargers_sheet_raw:
+    COMMERCIAL_CHARGERS_SHEET_URL = _commercial_chargers_sheet_raw
+else:
+    COMMERCIAL_CHARGERS_SHEET_URL = _COMMERCIAL_CHARGERS_SHEET_DEFAULT
+COMMERCIAL_CHARGERS_CACHE_TTL_SEC: int = _env_int(
+    "COMMERCIAL_CHARGERS_CACHE_TTL_SEC", 600, 60, 86_400
+)
+
 # Telegram — Order BESS contact / discount leads → support 220 chat
 TELEGRAM_API_TOKEN: str = (os.environ.get("TELEGRAM_API_TOKEN") or "").strip()
 TELEGRAM_SUPPORT_CHAT_ID: str = (

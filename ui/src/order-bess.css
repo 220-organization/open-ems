@@ -410,6 +410,24 @@
   border-color: #1da851;
 }
 
+.order-bess-buy-btn {
+  appearance: none;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 22px;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #fff;
+  min-width: 180px;
+  background: linear-gradient(145deg, #ff6ec4 0%, #f94caf 55%, #d22e8c 100%);
+}
+
+.order-bess-buy-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .order-bess-share-card {
   text-align: center;
 }

@@ -5,6 +5,7 @@ import EvTvPage from './EvTvPage';
 import LocationMarketplacePage from './LocationMarketplacePage';
 import OrderBessPage from './OrderBessPage';
 import BuyHomeChargerPage from './BuyHomeChargerPage';
+import BuyCommercialChargerPage from './BuyCommercialChargerPage';
 import RdnConsultationPage from './RdnConsultationPage';
 import OpenEmsHeader from './OpenEmsHeader';
 import PowerFlowPage from './PowerFlowPage';
@@ -83,6 +84,8 @@ export default function App() {
           <OrderBessPage {...i18n} />
         ) : page === 'buyHomeCharger' ? (
           <BuyHomeChargerPage {...i18n} />
+        ) : page === 'buyCommercialCharger' ? (
+          <BuyCommercialChargerPage {...i18n} />
         ) : page === 'rdnConsultation' ? (
           <RdnConsultationPage {...i18n} />
         ) : (
