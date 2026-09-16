@@ -192,9 +192,26 @@
 
 .home-charger-card__media {
   display: block;
+  position: relative;
   aspect-ratio: 4 / 3;
   background: #11151c;
   overflow: hidden;
+}
+
+.home-charger-card__badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(12, 16, 22, 0.82);
+  color: #ffd0ea;
+  border: 1px solid rgba(252, 1, 155, 0.45);
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
 }
 
 .home-charger-card__media img {
@@ -307,47 +324,53 @@
 }
 
 /* Light theme — active chips must stay readable (no pale-on-pale pink) */
-[data-theme='light'] .home-charger-filters,
-[data-theme='light'] .home-charger-card {
+[data-theme="light"] .home-charger-filters,
+[data-theme="light"] .home-charger-card {
   background: #ffffff;
   border-color: var(--pf-border, #e2e0d9);
   box-shadow: 0 2px 12px rgba(20, 22, 28, 0.06);
 }
 
-[data-theme='light'] .home-charger-card--selected {
+[data-theme="light"] .home-charger-card--selected {
   border-color: #fc019b;
   box-shadow: 0 0 0 2px rgba(252, 1, 155, 0.18);
 }
 
-[data-theme='light'] .home-charger-chip {
+[data-theme="light"] .home-charger-card__badge {
+  background: rgba(255, 255, 255, 0.92);
+  color: #b0006d;
+  border-color: rgba(252, 1, 155, 0.4);
+}
+
+[data-theme="light"] .home-charger-chip {
   background: #f3f1ec;
   border-color: var(--pf-border-strong, #d0cdc4);
   color: var(--pf-text, #1a1c1e);
 }
 
-[data-theme='light'] .home-charger-chip--active {
+[data-theme="light"] .home-charger-chip--active {
   background: rgba(252, 1, 155, 0.12);
   border-color: #fc019b;
   color: #b0006d;
 }
 
-[data-theme='light'] .home-charger-clear--top {
+[data-theme="light"] .home-charger-clear--top {
   background: #f3f1ec;
   border-color: var(--pf-border-strong, #d0cdc4);
   color: #b0006d;
 }
 
-[data-theme='light'] .home-charger-clear--top:disabled {
+[data-theme="light"] .home-charger-clear--top:disabled {
   color: var(--pf-text-muted, #6b7280);
 }
 
-[data-theme='light'] .home-charger-sort select {
+[data-theme="light"] .home-charger-sort select {
   background: #ffffff;
   border-color: var(--pf-border-strong, #d0cdc4);
   color: var(--pf-text, #1a1c1e);
 }
 
-[data-theme='light'] .home-charger-card__media {
+[data-theme="light"] .home-charger-card__media {
   background: #f6f4ef;
 }
 
@@ -482,19 +505,19 @@
   color: #4ade80;
 }
 
-[data-theme='light'] .charger-buy-modal {
+[data-theme="light"] .charger-buy-modal {
   background: #ffffff;
   border-color: var(--pf-border, #e2e0d9);
   box-shadow: 0 18px 48px rgba(20, 22, 28, 0.14);
 }
 
-[data-theme='light'] .charger-buy-modal__input {
+[data-theme="light"] .charger-buy-modal__input {
   background: #ffffff;
   border-color: var(--pf-border-strong, #d0cdc4);
   color: var(--pf-text, #1a1c1e);
 }
 
-[data-theme='light'] .charger-buy-modal__success {
+[data-theme="light"] .charger-buy-modal__success {
   color: #1a7f4b;
 }
 

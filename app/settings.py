@@ -483,13 +483,16 @@ else:
     BESS_ETU_SHEET_URL = _BESS_ETU_DEFAULT
 BESS_PRICE_CACHE_TTL_SEC: int = _env_int("BESS_PRICE_CACHE_TTL_SEC", 600, 60, 86_400)
 
-# Buy Home charger — Sparks Chargers Google Merchant RSS (public catalog feed).
+# Buy Home charger — Sparks Chargers PROM Google Sheet (public product export).
+# HOME_CHARGERS_SHEET_URL aliases HOME_CHARGERS_FEED_URL. Set either to off to disable.
 _HOME_CHARGERS_FEED_DEFAULT = (
-    "https://sparkschargers.com.ua/google_merchant_center.xml"
-    "?hash_tag=4146d037c021d754d7e0e1259b3e794d"
-    "&product_ids=&label_ids=&export_lang=uk&group_ids="
+    "https://docs.google.com/spreadsheets/d/1TH520cXCXptBr3ODTHyYEZiF5f8nZZoG/"
+    "edit?gid=100970197#gid=100970197"
 )
-_home_chargers_feed_raw = (os.environ.get("HOME_CHARGERS_FEED_URL") or "").strip()
+_home_chargers_feed_raw = (
+    (os.environ.get("HOME_CHARGERS_SHEET_URL") or os.environ.get("HOME_CHARGERS_FEED_URL") or "")
+    .strip()
+)
 if _home_chargers_feed_raw.lower() in ("0", "off", "false", "none"):
     HOME_CHARGERS_FEED_URL: str = ""
 elif _home_chargers_feed_raw:
