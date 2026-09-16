@@ -1,19 +1,26 @@
-import { useEffect, useMemo, useState } from 'react';
-import ChargerBuyRequestModal from './ChargerBuyRequestModal';
-import { useOpenEmsSeo } from './useOpenEmsSeo';
-import './buy-home-charger.css';
+import { useEffect, useMemo, useRef, useState } from "react";
+import ChargerBuyRequestModal from "./ChargerBuyRequestModal";
+import {
+  HOME_CHARGER_DEFAULT_SORT,
+  applyHomeChargerCatalogSearch,
+  parseHomeChargerCatalogSearch,
+} from "./buyHomeChargerUrl";
+import { notifyOpenEmsSearchChange } from "./sharePageQr";
+import { useOpenEmsSeo } from "./useOpenEmsSeo";
+import "./buy-home-charger.css";
 
 const USD_UAH_FALLBACK = 42;
-const CURRENCY_STORAGE_KEY = 'home-charger-currency';
+const CURRENCY_STORAGE_KEY = "home-charger-currency";
+const CATALOG_PATH = "/buy-home-charger";
 
 function apiUrl(path) {
-  const base = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
+  const base = (process.env.REACT_APP_API_BASE_URL || "").replace(/\/$/, "");
   return base ? `${base}${path}` : path;
 }
 
 function todayKyivIso() {
   try {
-    return new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Kyiv' });
+    return new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Kyiv" });
   } catch {
     return new Date().toISOString().slice(0, 10);
   }
@@ -22,11 +29,11 @@ function todayKyivIso() {
 function readStoredCurrency() {
   try {
     const raw = localStorage.getItem(CURRENCY_STORAGE_KEY);
-    if (raw === 'UAH' || raw === 'USD') return raw;
+    if (raw === "UAH" || raw === "USD") return raw;
   } catch {
     /* ignore */
   }
-  return 'USD';
+  return "USD";
 }
 
 function writeStoredCurrency(currency) {
@@ -37,13 +44,74 @@ function writeStoredCurrency(currency) {
   }
 }
 
+function readCatalogFromUrl() {
+  if (typeof window === "undefined") return {};
+  try {
+    return parseHomeChargerCatalogSearch(window.location.search);
+  } catch {
+    return {};
+  }
+}
+
+function writeCatalogToUrl(state) {
+  if (typeof window === "undefined") return;
+  try {
+    const u = new URL(window.location.href);
+    applyHomeChargerCatalogSearch(u.searchParams, state);
+    const next = `${u.pathname}${u.search}${u.hash}`;
+    const cur = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (next === cur) return;
+    window.history.replaceState({}, "", next);
+    notifyOpenEmsSearchChange();
+  } catch {
+    /* ignore */
+  }
+}
+
+function productQuotePageUrl(p) {
+  if (typeof window === "undefined") return CATALOG_PATH;
+  const u = new URL(CATALOG_PATH, window.location.origin);
+  const lang = new URLSearchParams(window.location.search).get("lang");
+  if (lang) u.searchParams.set("lang", lang);
+  applyHomeChargerCatalogSearch(u.searchParams, {
+    kind:
+      p.kind === "adapter" || p.kind === "cable"
+        ? "accessory"
+        : p.kind === "charger"
+          ? "charger"
+          : "",
+    power: p.power_bucket || "",
+    connector: (p.connectors && p.connectors[0]) || "",
+    phases: p.phases != null ? String(p.phases) : "",
+    brand: p.brand || "",
+    sku: p.id || "",
+  });
+  return u.toString();
+}
+
+function findSkuCard(sku) {
+  if (!sku || typeof document === "undefined") return null;
+  const nodes = document.querySelectorAll("[data-charger-sku]");
+  for (let i = 0; i < nodes.length; i += 1) {
+    if (nodes[i].getAttribute("data-charger-sku") === sku) return nodes[i];
+  }
+  return null;
+}
+
 function fmtMoney(amount, currency, locale) {
-  if (amount == null || Number.isNaN(amount)) return '—';
-  const code = currency || 'USD';
-  const loc = code === 'USD' ? 'en-US' : locale === 'uk' ? 'uk-UA' : locale === 'es' ? 'es-ES' : 'en-US';
+  if (amount == null || Number.isNaN(amount)) return "—";
+  const code = currency || "USD";
+  const loc =
+    code === "USD"
+      ? "en-US"
+      : locale === "uk"
+        ? "uk-UA"
+        : locale === "es"
+          ? "es-ES"
+          : "en-US";
   try {
     return new Intl.NumberFormat(loc, {
-      style: 'currency',
+      style: "currency",
       currency: code,
       maximumFractionDigits: 0,
     }).format(amount);
@@ -54,21 +122,35 @@ function fmtMoney(amount, currency, locale) {
 
 function toDisplayAmount(price, srcCurrency, displayCurrency, uahPerUsd) {
   if (price == null || Number.isNaN(Number(price))) return null;
-  const src = (srcCurrency || 'UAH').toUpperCase();
-  const dest = (displayCurrency || 'USD').toUpperCase();
+  const src = (srcCurrency || "UAH").toUpperCase();
+  const dest = (displayCurrency || "USD").toUpperCase();
   const amount = Number(price);
   if (src === dest) return amount;
   if (!(uahPerUsd > 0)) return amount;
-  if (src === 'UAH' && dest === 'USD') return amount / uahPerUsd;
-  if (src === 'USD' && dest === 'UAH') return amount * uahPerUsd;
+  if (src === "UAH" && dest === "USD") return amount / uahPerUsd;
+  if (src === "USD" && dest === "UAH") return amount * uahPerUsd;
   return amount;
 }
 
+function kindLabel(kind, t) {
+  if (kind === "adapter") return t("homeChargerKindAdapter");
+  if (kind === "cable") return t("homeChargerKindCable");
+  if (kind === "charger") return t("homeChargerKindCharger");
+  return kind;
+}
+
+function matchesKindFilter(product, kind) {
+  if (!kind) return true;
+  if (kind === "accessory")
+    return product.kind === "adapter" || product.kind === "cable";
+  return product.kind === kind;
+}
+
 function powerBucketLabel(bucket, t) {
-  if (bucket === 'upto4') return t('homeChargerPowerUpto4');
-  if (bucket === '7to8') return t('homeChargerPower7to8');
-  if (bucket === '11') return t('homeChargerPower11');
-  if (bucket === '22plus') return t('homeChargerPower22');
+  if (bucket === "upto4") return t("homeChargerPowerUpto4");
+  if (bucket === "7to8") return t("homeChargerPower7to8");
+  if (bucket === "11") return t("homeChargerPower11");
+  if (bucket === "22plus") return t("homeChargerPower22");
   return bucket;
 }
 
@@ -76,7 +158,7 @@ function Chip({ active, onClick, children }) {
   return (
     <button
       type="button"
-      className={`home-charger-chip${active ? ' home-charger-chip--active' : ''}`}
+      className={`home-charger-chip${active ? " home-charger-chip--active" : ""}`}
       onClick={onClick}
       aria-pressed={active}
     >
@@ -89,21 +171,27 @@ function Chip({ active, onClick, children }) {
  * Buy Home charger — Sparks catalog with simple EV-driver filters.
  */
 export default function BuyHomeChargerPage({ t, locale }) {
-  useOpenEmsSeo(t('homeChargerPageTitle'), locale, t, {
-    variant: 'landing',
-    canonicalPath: '/buy-home-charger',
+  useOpenEmsSeo(t("homeChargerPageTitle"), locale, t, {
+    variant: "landing",
+    canonicalPath: "/buy-home-charger",
   });
 
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const [products, setProducts] = useState([]);
   const [facets, setFacets] = useState(null);
 
-  const [power, setPower] = useState('');
-  const [connector, setConnector] = useState('');
-  const [phases, setPhases] = useState('');
-  const [brand, setBrand] = useState('');
-  const [sort, setSort] = useState('price-asc');
+  const initialUrl = useMemo(() => readCatalogFromUrl(), []);
+  const [power, setPower] = useState(initialUrl.power || "");
+  const [connector, setConnector] = useState(initialUrl.connector || "");
+  const [phases, setPhases] = useState(initialUrl.phases || "");
+  const [brand, setBrand] = useState(initialUrl.brand || "");
+  const [kind, setKind] = useState(initialUrl.kind || "");
+  const [sku, setSku] = useState(initialUrl.sku || "");
+  const [sort, setSort] = useState(
+    initialUrl.sort || HOME_CHARGER_DEFAULT_SORT,
+  );
+  const skuHydrated = useRef(false);
   const [displayCurrency, setDisplayCurrency] = useState(readStoredCurrency);
   const [uahPerUsd, setUahPerUsd] = useState(USD_UAH_FALLBACK);
   const [fxMeta, setFxMeta] = useState(null);
@@ -113,16 +201,18 @@ export default function BuyHomeChargerPage({ t, locale }) {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      setError('');
+      setError("");
       try {
-        const res = await fetch(apiUrl('/api/home-chargers'), { cache: 'no-store' });
+        const res = await fetch(apiUrl("/api/home-chargers"), {
+          cache: "no-store",
+        });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         if (cancelled) return;
         setProducts(Array.isArray(data.products) ? data.products : []);
         setFacets(data.facets || null);
       } catch (e) {
-        if (!cancelled) setError(t('homeChargerLoadError'));
+        if (!cancelled) setError(t("homeChargerLoadError"));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -137,9 +227,12 @@ export default function BuyHomeChargerPage({ t, locale }) {
     (async () => {
       const day = todayKyivIso();
       try {
-        const res = await fetch(apiUrl(`/api/fx/usd-uah?date=${encodeURIComponent(day)}`), {
-          cache: 'no-store',
-        });
+        const res = await fetch(
+          apiUrl(`/api/fx/usd-uah?date=${encodeURIComponent(day)}`),
+          {
+            cache: "no-store",
+          },
+        );
         const data = await res.json();
         if (cancelled) return;
         const rate = data?.ok ? Number(data.rate) : NaN;
@@ -156,73 +249,211 @@ export default function BuyHomeChargerPage({ t, locale }) {
     };
   }, []);
 
-  const setCurrency = next => {
+  const setCurrency = (next) => {
     setDisplayCurrency(next);
     writeStoredCurrency(next);
   };
 
+  useEffect(() => {
+    writeCatalogToUrl({
+      kind,
+      power,
+      connector,
+      phases,
+      brand,
+      sku,
+      sort,
+    });
+  }, [kind, power, connector, phases, brand, sku, sort]);
+
+  useEffect(() => {
+    if (skuHydrated.current || !products.length) return;
+    if (!initialUrl.sku) {
+      skuHydrated.current = true;
+      return;
+    }
+    if (sku !== initialUrl.sku) {
+      skuHydrated.current = true;
+      return;
+    }
+    const p = products.find((x) => x.id === sku);
+    if (!p) return;
+    skuHydrated.current = true;
+    if (!kind && p.kind === "adapter") setKind("accessory");
+    else if (!kind && p.kind === "cable") setKind("accessory");
+    else if (!kind && p.kind === "charger") setKind("charger");
+    if (!power && p.power_bucket) setPower(p.power_bucket);
+    if (!connector && p.connectors?.length) setConnector(p.connectors[0]);
+    if (!phases && p.phases != null) setPhases(String(p.phases));
+    if (!brand && p.brand) setBrand(p.brand);
+  }, [products, sku, kind, power, connector, phases, brand, initialUrl.sku]);
+
+  useEffect(() => {
+    if (!sku || !products.length) return;
+    const p = products.find((x) => x.id === sku);
+    if (!p) {
+      setSku("");
+      return;
+    }
+    if (kind && !matchesKindFilter(p, kind)) setSku("");
+    else if (power && p.power_bucket !== power) setSku("");
+    else if (connector && !(p.connectors || []).includes(connector)) setSku("");
+    else if (phases && String(p.phases) !== String(phases)) setSku("");
+    else if (brand && p.brand !== brand) setSku("");
+  }, [sku, kind, power, connector, phases, brand, products]);
+
   const filtered = useMemo(() => {
     let list = products.slice();
-    if (power) list = list.filter(p => p.power_bucket === power);
-    if (connector) list = list.filter(p => (p.connectors || []).includes(connector));
-    if (phases) list = list.filter(p => String(p.phases) === String(phases));
-    if (brand) list = list.filter(p => p.brand === brand);
+    if (kind) list = list.filter((p) => matchesKindFilter(p, kind));
+    if (power) list = list.filter((p) => p.power_bucket === power);
+    if (connector)
+      list = list.filter((p) => (p.connectors || []).includes(connector));
+    if (phases) list = list.filter((p) => String(p.phases) === String(phases));
+    if (brand) list = list.filter((p) => p.brand === brand);
 
     list.sort((a, b) => {
-      const pa = toDisplayAmount(a.price, a.currency, displayCurrency, uahPerUsd);
-      const pb = toDisplayAmount(b.price, b.currency, displayCurrency, uahPerUsd);
+      if (sku) {
+        if (a.id === sku && b.id !== sku) return -1;
+        if (b.id === sku && a.id !== sku) return 1;
+      }
+      const pa = toDisplayAmount(
+        a.price,
+        a.currency,
+        displayCurrency,
+        uahPerUsd,
+      );
+      const pb = toDisplayAmount(
+        b.price,
+        b.currency,
+        displayCurrency,
+        uahPerUsd,
+      );
       const na = pa == null ? Number.POSITIVE_INFINITY : pa;
       const nb = pb == null ? Number.POSITIVE_INFINITY : pb;
-      if (sort === 'price-desc') return nb - na;
-      if (sort === 'power-desc') return (b.power_kw || 0) - (a.power_kw || 0);
+      if (sort === "price-desc") return nb - na;
+      if (sort === "power-desc") return (b.power_kw || 0) - (a.power_kw || 0);
       return na - nb;
     });
     return list;
-  }, [products, power, connector, phases, brand, sort, displayCurrency, uahPerUsd]);
+  }, [
+    products,
+    kind,
+    power,
+    connector,
+    phases,
+    brand,
+    sort,
+    sku,
+    displayCurrency,
+    uahPerUsd,
+  ]);
+
+  useEffect(() => {
+    if (!sku || loading) return;
+    const el = findSkuCard(sku);
+    if (!el) return;
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [sku, loading, filtered.length]);
 
   const clearFilters = () => {
-    setPower('');
-    setConnector('');
-    setPhases('');
-    setBrand('');
+    setSku("");
+    setKind("");
+    setPower("");
+    setConnector("");
+    setPhases("");
+    setBrand("");
   };
 
-  const hasFilters = Boolean(power || connector || phases || brand);
+  const hasFilters = Boolean(
+    sku || kind || power || connector || phases || brand,
+  );
+
+  const openBuyRequest = (p) => {
+    setSku(p.id);
+    setBuyRequest({
+      catalog: "home",
+      title: p.title,
+      sku: p.id,
+      price: fmtMoney(p.price, p.currency, locale),
+      pageUrl: productQuotePageUrl(p),
+      productUrl: p.link,
+    });
+  };
 
   return (
     <div className="home-charger-page">
       <div className="home-charger-page__inner">
         <header className="home-charger-hero">
-          <h1 className="home-charger-hero__title">{t('homeChargerPageTitle')}</h1>
-          <p className="home-charger-hero__sub">{t('homeChargerPageSubtitle')}</p>
+          <h1 className="home-charger-hero__title">
+            {t("homeChargerPageTitle")}
+          </h1>
+          <p className="home-charger-hero__sub">
+            {t("homeChargerPageSubtitle")}
+          </p>
         </header>
 
-        <section className="home-charger-filters" aria-label={t('homeChargerFiltersAria')}>
+        <section
+          className="home-charger-filters"
+          aria-label={t("homeChargerFiltersAria")}
+        >
           <div className="home-charger-filters__row">
-            <span className="home-charger-filters__label">{t('homeChargerFilterPower')}</span>
+            <span className="home-charger-filters__label">
+              {t("homeChargerFilterKind")}
+            </span>
             <div className="home-charger-chips">
-              <Chip active={!power} onClick={() => setPower('')}>
-                {t('homeChargerFilterAny')}
+              <Chip active={!kind} onClick={() => setKind("")}>
+                {t("homeChargerFilterAny")}
               </Chip>
-              {(facets?.power_buckets || ['upto4', '7to8', '11', '22plus']).map(b => (
-                <Chip key={b} active={power === b} onClick={() => setPower(power === b ? '' : b)}>
-                  {powerBucketLabel(b, t)}
-                </Chip>
-              ))}
+              <Chip
+                active={kind === "charger"}
+                onClick={() => setKind(kind === "charger" ? "" : "charger")}
+              >
+                {t("homeChargerKindCharger")}
+              </Chip>
+              <Chip
+                active={kind === "accessory"}
+                onClick={() => setKind(kind === "accessory" ? "" : "accessory")}
+              >
+                {t("homeChargerKindAccessory")}
+              </Chip>
             </div>
           </div>
 
           <div className="home-charger-filters__row">
-            <span className="home-charger-filters__label">{t('homeChargerFilterConnector')}</span>
+            <span className="home-charger-filters__label">
+              {t("homeChargerFilterPower")}
+            </span>
             <div className="home-charger-chips">
-              <Chip active={!connector} onClick={() => setConnector('')}>
-                {t('homeChargerFilterAny')}
+              <Chip active={!power} onClick={() => setPower("")}>
+                {t("homeChargerFilterAny")}
               </Chip>
-              {(facets?.connectors || []).map(c => (
+              {(facets?.power_buckets || ["upto4", "7to8", "11", "22plus"]).map(
+                (b) => (
+                  <Chip
+                    key={b}
+                    active={power === b}
+                    onClick={() => setPower(power === b ? "" : b)}
+                  >
+                    {powerBucketLabel(b, t)}
+                  </Chip>
+                ),
+              )}
+            </div>
+          </div>
+
+          <div className="home-charger-filters__row">
+            <span className="home-charger-filters__label">
+              {t("homeChargerFilterConnector")}
+            </span>
+            <div className="home-charger-chips">
+              <Chip active={!connector} onClick={() => setConnector("")}>
+                {t("homeChargerFilterAny")}
+              </Chip>
+              {(facets?.connectors || []).map((c) => (
                 <Chip
                   key={c}
                   active={connector === c}
-                  onClick={() => setConnector(connector === c ? '' : c)}
+                  onClick={() => setConnector(connector === c ? "" : c)}
                 >
                   {c}
                 </Chip>
@@ -231,18 +462,22 @@ export default function BuyHomeChargerPage({ t, locale }) {
           </div>
 
           <div className="home-charger-filters__row">
-            <span className="home-charger-filters__label">{t('homeChargerFilterPhases')}</span>
+            <span className="home-charger-filters__label">
+              {t("homeChargerFilterPhases")}
+            </span>
             <div className="home-charger-chips">
-              <Chip active={!phases} onClick={() => setPhases('')}>
-                {t('homeChargerFilterAny')}
+              <Chip active={!phases} onClick={() => setPhases("")}>
+                {t("homeChargerFilterAny")}
               </Chip>
-              {(facets?.phases || [1, 3]).map(ph => (
+              {(facets?.phases || [1, 3]).map((ph) => (
                 <Chip
                   key={ph}
                   active={String(phases) === String(ph)}
-                  onClick={() => setPhases(String(phases) === String(ph) ? '' : String(ph))}
+                  onClick={() =>
+                    setPhases(String(phases) === String(ph) ? "" : String(ph))
+                  }
                 >
-                  {ph === 1 ? t('homeChargerPhase1') : t('homeChargerPhase3')}
+                  {ph === 1 ? t("homeChargerPhase1") : t("homeChargerPhase3")}
                 </Chip>
               ))}
             </div>
@@ -250,13 +485,19 @@ export default function BuyHomeChargerPage({ t, locale }) {
 
           {(facets?.brands || []).length > 0 ? (
             <div className="home-charger-filters__row">
-              <span className="home-charger-filters__label">{t('homeChargerFilterBrand')}</span>
+              <span className="home-charger-filters__label">
+                {t("homeChargerFilterBrand")}
+              </span>
               <div className="home-charger-chips">
-                <Chip active={!brand} onClick={() => setBrand('')}>
-                  {t('homeChargerFilterAny')}
+                <Chip active={!brand} onClick={() => setBrand("")}>
+                  {t("homeChargerFilterAny")}
                 </Chip>
-                {facets.brands.map(b => (
-                  <Chip key={b} active={brand === b} onClick={() => setBrand(brand === b ? '' : b)}>
+                {facets.brands.map((b) => (
+                  <Chip
+                    key={b}
+                    active={brand === b}
+                    onClick={() => setBrand(brand === b ? "" : b)}
+                  >
                     {b}
                   </Chip>
                 ))}
@@ -266,99 +507,130 @@ export default function BuyHomeChargerPage({ t, locale }) {
 
           <div className="home-charger-filters__toolbar">
             <label className="home-charger-sort">
-              <span>{t('homeChargerSort')}</span>
-              <select value={sort} onChange={e => setSort(e.target.value)}>
-                <option value="price-asc">{t('homeChargerSortPriceAsc')}</option>
-                <option value="price-desc">{t('homeChargerSortPriceDesc')}</option>
-                <option value="power-desc">{t('homeChargerSortPowerDesc')}</option>
+              <span>{t("homeChargerSort")}</span>
+              <select value={sort} onChange={(e) => setSort(e.target.value)}>
+                <option value="price-asc">
+                  {t("homeChargerSortPriceAsc")}
+                </option>
+                <option value="price-desc">
+                  {t("homeChargerSortPriceDesc")}
+                </option>
+                <option value="power-desc">
+                  {t("homeChargerSortPowerDesc")}
+                </option>
               </select>
             </label>
-            <div className="home-charger-currency" role="group" aria-label={t('homeChargerCurrency')}>
-              <Chip active={displayCurrency === 'USD'} onClick={() => setCurrency('USD')}>
+            <div
+              className="home-charger-currency"
+              role="group"
+              aria-label={t("homeChargerCurrency")}
+            >
+              <Chip
+                active={displayCurrency === "USD"}
+                onClick={() => setCurrency("USD")}
+              >
                 USD
               </Chip>
-              <Chip active={displayCurrency === 'UAH'} onClick={() => setCurrency('UAH')}>
+              <Chip
+                active={displayCurrency === "UAH"}
+                onClick={() => setCurrency("UAH")}
+              >
                 UAH
               </Chip>
             </div>
             {hasFilters ? (
-              <button type="button" className="home-charger-clear" onClick={clearFilters}>
-                {t('homeChargerClearFilters')}
+              <button
+                type="button"
+                className="home-charger-clear"
+                onClick={clearFilters}
+              >
+                {t("homeChargerClearFilters")}
               </button>
             ) : null}
             <p className="home-charger-count">
-              {t('homeChargerResultCount', { count: filtered.length })}
+              {t("homeChargerResultCount", { count: filtered.length })}
             </p>
           </div>
         </section>
 
-        {loading ? <p className="home-charger-muted">{t('homeChargerLoading')}</p> : null}
+        {loading ? (
+          <p className="home-charger-muted">{t("homeChargerLoading")}</p>
+        ) : null}
         {error ? <p className="home-charger-error">{error}</p> : null}
 
         {!loading && !error && filtered.length === 0 ? (
-          <p className="home-charger-muted">{t('homeChargerEmpty')}</p>
+          <p className="home-charger-muted">{t("homeChargerEmpty")}</p>
         ) : null}
 
         <div className="home-charger-grid">
-          {filtered.map(p => (
-            <article key={p.id} className="home-charger-card">
+          {filtered.map((p) => (
+            <article
+              key={p.id}
+              data-charger-sku={p.id}
+              className={`home-charger-card${p.id === sku ? " home-charger-card--selected" : ""}`}
+            >
               <div className="home-charger-card__media">
                 {p.image ? (
                   <img src={p.image} alt="" loading="lazy" decoding="async" />
                 ) : (
                   <div className="home-charger-card__placeholder" aria-hidden />
                 )}
+                {p.kind && p.kind !== "charger" ? (
+                  <span className="home-charger-card__badge">
+                    {kindLabel(p.kind, t)}
+                  </span>
+                ) : null}
               </div>
               <div className="home-charger-card__body">
                 <h2 className="home-charger-card__title">{p.title}</h2>
                 <ul className="home-charger-card__meta">
                   {p.power_kw != null ? (
                     <li>
-                      {t('homeChargerMetaPower')}: <strong>{p.power_kw} kW</strong>
+                      {t("homeChargerMetaPower")}:{" "}
+                      <strong>{p.power_kw} kW</strong>
                     </li>
                   ) : null}
                   {p.connectors?.length ? (
                     <li>
-                      {t('homeChargerMetaConnector')}: <strong>{p.connectors.join(' / ')}</strong>
+                      {t("homeChargerMetaConnector")}:{" "}
+                      <strong>{p.connectors.join(" / ")}</strong>
                     </li>
                   ) : null}
                   {p.phases != null ? (
                     <li>
-                      {t('homeChargerMetaPhases')}:{' '}
+                      {t("homeChargerMetaPhases")}:{" "}
                       <strong>
-                        {p.phases === 1 ? t('homeChargerPhase1') : t('homeChargerPhase3')}
+                        {p.phases === 1
+                          ? t("homeChargerPhase1")
+                          : t("homeChargerPhase3")}
                       </strong>
                     </li>
                   ) : null}
                   {p.brand ? (
                     <li>
-                      {t('homeChargerMetaBrand')}: <strong>{p.brand}</strong>
+                      {t("homeChargerMetaBrand")}: <strong>{p.brand}</strong>
                     </li>
                   ) : null}
                 </ul>
                 <div className="home-charger-card__footer">
                   <p className="home-charger-card__price">
                     {fmtMoney(
-                      toDisplayAmount(p.price, p.currency, displayCurrency, uahPerUsd),
+                      toDisplayAmount(
+                        p.price,
+                        p.currency,
+                        displayCurrency,
+                        uahPerUsd,
+                      ),
                       displayCurrency,
-                      locale
+                      locale,
                     )}
                   </p>
                   <button
                     type="button"
                     className="home-charger-card__buy"
-                    onClick={() =>
-                      setBuyRequest({
-                        catalog: 'home',
-                        title: p.title,
-                        sku: p.id,
-                        price: fmtMoney(p.price, p.currency, locale),
-                        pageUrl: window.location.href,
-                        productUrl: p.link,
-                      })
-                    }
+                    onClick={() => openBuyRequest(p)}
                   >
-                    {t('homeChargerBuy')}
+                    {t("homeChargerBuy")}
                   </button>
                 </div>
               </div>
@@ -366,10 +638,10 @@ export default function BuyHomeChargerPage({ t, locale }) {
           ))}
         </div>
 
-        {displayCurrency === 'USD' ? (
+        {displayCurrency === "USD" ? (
           <p className="home-charger-fx">
-            {t('homeChargerFxNote', {
-              rate: new Intl.NumberFormat(locale === 'uk' ? 'uk-UA' : 'en-US', {
+            {t("homeChargerFxNote", {
+              rate: new Intl.NumberFormat(locale === "uk" ? "uk-UA" : "en-US", {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
               }).format(uahPerUsd),
@@ -380,7 +652,11 @@ export default function BuyHomeChargerPage({ t, locale }) {
       </div>
 
       {buyRequest ? (
-        <ChargerBuyRequestModal t={t} product={buyRequest} onClose={() => setBuyRequest(null)} />
+        <ChargerBuyRequestModal
+          t={t}
+          product={buyRequest}
+          onClose={() => setBuyRequest(null)}
+        />
       ) : null}
     </div>
   );
