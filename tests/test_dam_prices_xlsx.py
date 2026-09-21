@@ -53,5 +53,41 @@ class TestDamPricesXlsx(unittest.TestCase):
         self.assertIn("EUR/kWh", sheet)
 
 
+class TestDamXlsxPayment(unittest.TestCase):
+    def test_invoice_amount_is_5000_uah(self) -> None:
+        from app.rdn_consultation_payment import DAM_XLSX_AMOUNT_UAH, dam_xlsx_invoice_payload
+
+        self.assertEqual(DAM_XLSX_AMOUNT_UAH, 5000)
+        payload = dam_xlsx_invoice_payload(
+            redirect_url="https://example.com/?market=oree",
+            reference="pay-1",
+        )
+        self.assertEqual(payload["amount"], 500000)
+        self.assertEqual(payload["ccy"], 980)
+        self.assertIn("Excel", payload["merchantPaymInfo"]["destination"])
+
+    def test_download_unlocks_only_after_success(self) -> None:
+        from app.routers import dam as dam_router
+
+        dam_router._XLSX_PENDING.clear()
+        self.assertFalse(dam_router._xlsx_payment_unlocked(None))
+        self.assertFalse(dam_router._xlsx_payment_unlocked("missing"))
+        dam_router._XLSX_PENDING["p1"] = {"status": "created", "invoice_id": "inv"}
+        self.assertFalse(dam_router._xlsx_payment_unlocked("p1"))
+        dam_router._XLSX_PENDING["p1"]["status"] = "SUCCESS"
+        self.assertTrue(dam_router._xlsx_payment_unlocked("p1"))
+        dam_router._XLSX_PENDING.clear()
+
+
+class TestDamXlsxYears(unittest.TestCase):
+    def test_pick_xlsx_year(self) -> None:
+        from app.routers.dam import pick_xlsx_year
+
+        self.assertIsNone(pick_xlsx_year(2026, []))
+        self.assertEqual(pick_xlsx_year(None, [2025, 2026]), 2026)
+        self.assertEqual(pick_xlsx_year(2025, [2025, 2026]), 2025)
+        self.assertEqual(pick_xlsx_year(2024, [2025, 2026]), 2026)
+
+
 if __name__ == "__main__":
     unittest.main()

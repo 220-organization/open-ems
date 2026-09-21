@@ -103,12 +103,88 @@ function isValidAmountUah(amount) {
   );
 }
 
+function addDaysIso(iso, n) {
+  const [y, m, d] = String(iso)
+    .split('-')
+    .map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + n));
+  return dt.toISOString().slice(0, 10);
+}
+
+function mondayOnOrBefore(iso) {
+  const [y, m, d] = String(iso)
+    .split('-')
+    .map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  const back = dow === 0 ? 6 : dow - 1;
+  return addDaysIso(iso, -back);
+}
+
+function sundayOnOrAfter(iso) {
+  const [y, m, d] = String(iso)
+    .split('-')
+    .map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  const fwd = dow === 0 ? 0 : 7 - dow;
+  return addDaysIso(iso, fwd);
+}
+
+function buildSlotWeeks(days) {
+  if (!Array.isArray(days) || days.length === 0) return [];
+  const byDate = Object.fromEntries(days.map(row => [row.date, row]));
+  let cursor = mondayOnOrBefore(days[0].date);
+  const last = sundayOnOrAfter(days[days.length - 1].date);
+  const weeks = [];
+  while (cursor <= last) {
+    const week = [];
+    for (let i = 0; i < 7; i += 1) {
+      week.push({ iso: cursor, day: byDate[cursor] || null });
+      cursor = addDaysIso(cursor, 1);
+    }
+    weeks.push(week);
+  }
+  return weeks;
+}
+
+function weekdayLabels(locale) {
+  const fmt = new Intl.DateTimeFormat(locale || 'uk-UA', { weekday: 'short', timeZone: 'UTC' });
+  return Array.from({ length: 7 }, (_, i) => fmt.format(new Date(Date.UTC(2026, 0, 5 + i))));
+}
+
+function monthHeading(days, locale) {
+  if (!Array.isArray(days) || days.length === 0) return '';
+  const fmtM = new Intl.DateTimeFormat(locale || 'uk-UA', { month: 'long', timeZone: 'UTC' });
+  const first = days[0].date;
+  const last = days[days.length - 1].date;
+  const m1 = fmtM.format(new Date(`${first}T00:00:00Z`));
+  const m2 = fmtM.format(new Date(`${last}T00:00:00Z`));
+  const y1 = first.slice(0, 4);
+  const y2 = last.slice(0, 4);
+  if (y1 === y2 && m1 === m2) return `${m1} ${y1}`;
+  if (y1 === y2) return `${m1} – ${m2} ${y1}`;
+  return `${m1} ${y1} – ${m2} ${y2}`;
+}
+
+function dayNumber(iso) {
+  const parts = String(iso).split('-');
+  return parts.length === 3 ? String(Number(parts[2])) : iso;
+}
+
+function slotLabelFromId(slotId) {
+  const [day, hm] = String(slotId).split('T');
+  if (!day || !hm) return slotId;
+  const [y, m, d] = day.split('-');
+  return `${d}.${m}.${y}, ${hm}`;
+}
+
 export default function RdnConsultationCallback({
   t,
   htmlIdPrefix = '',
   rootClassName = '',
   payOnly = false,
+  getBcp47Locale,
 }) {
+  const bcp47 = typeof getBcp47Locale === 'function' ? getBcp47Locale() : 'uk-UA';
   const [mode, setMode] = useState('pay'); // 'callback' | 'pay'
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -122,6 +198,11 @@ export default function RdnConsultationCallback({
   const [highlightContact, setHighlightContact] = useState(false);
   const [callbackSent, setCallbackSent] = useState(false);
   const [callbackBusy, setCallbackBusy] = useState(false);
+  const [slotDays, setSlotDays] = useState([]);
+  const [selectedDate, setSelectedDate] = useState('');
+  const [selectedSlotId, setSelectedSlotId] = useState('');
+  const [bookedSlotLabel, setBookedSlotLabel] = useState('');
+  const [slotHighlight, setSlotHighlight] = useState(false);
   const nameInputRef = useRef(null);
   const phoneInputRef = useRef(null);
   const amountInputRef = useRef(null);
@@ -141,6 +222,11 @@ export default function RdnConsultationCallback({
   const amountUah = parseAmountUah(amountText);
   const amountOk = isValidAmountUah(amountUah);
   const sliderValue = snapAmountUah(amountUah) ?? DEFAULT_AMOUNT_UAH;
+  const slotOk = Boolean(selectedSlotId);
+  const slotWeeks = buildSlotWeeks(slotDays);
+  const selectedDay = slotDays.find(d => d.date === selectedDate) || null;
+  const weekdayNames = weekdayLabels(bcp47);
+  const slotMonthTitle = monthHeading(slotDays, bcp47);
 
   const setAmountFromUi = (raw) => {
     const parsed = parseAmountUah(raw);
@@ -167,26 +253,74 @@ export default function RdnConsultationCallback({
     });
   };
 
+  const focusSlotToFill = () => {
+    setSlotHighlight(true);
+    setFormHint(t('rdnCallbackSlotRequired'));
+    setPayError('');
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(apiUrl('/api/rdn-consultation/slots'), { cache: 'no-store' });
+        const data = await res.json();
+        if (cancelled) return;
+        const days = Array.isArray(data?.days) ? data.days : [];
+        setSlotDays(days);
+        const draft = readDraft();
+        const draftSlot = (draft?.slotId || '').trim();
+        const draftSlotDay = days.find(d => (d.windows || []).some(w => w.id === draftSlot && w.available));
+        if (draftSlotDay) {
+          setSelectedSlotId(draftSlot);
+          setSelectedDate(draftSlotDay.date);
+        } else {
+          const firstDay = days.find(d => d.hasAvailable);
+          if (firstDay?.date) setSelectedDate(firstDay.date);
+        }
+      } catch {
+        if (!cancelled) setSlotDays([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedSlotId || slotDays.length === 0) return;
+    const window = slotDays.flatMap(d => d.windows || []).find(w => w.id === selectedSlotId);
+    if (!window || !window.available) {
+      setSelectedSlotId('');
+    }
+  }, [slotDays, selectedSlotId]);
+
   const submitCallback = async () => {
     if (callbackBusy || callbackSent) return;
     if (!canSend) {
       focusFieldsToFill();
       return;
     }
+    if (!slotOk) {
+      focusSlotToFill();
+      return;
+    }
     setFormHint('');
     setHighlightContact(false);
+    setSlotHighlight(false);
     setPayError('');
     setCallbackBusy(true);
     try {
       const res = await fetch(apiUrl('/api/rdn-consultation/callback'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: trimmedName, phone: trimmedPhone }),
+        body: JSON.stringify({ name: trimmedName, phone: trimmedPhone, slot_id: selectedSlotId }),
       });
       if (!res.ok) {
         throw new Error(`callback ${res.status}`);
       }
       setCallbackSent(true);
+      if (selectedSlotId) setBookedSlotLabel(slotLabelFromId(selectedSlotId));
     } catch {
       setPayError(t('rdnCallbackSubmitFailed'));
     } finally {
@@ -201,6 +335,7 @@ export default function RdnConsultationCallback({
     const draft = readDraft();
     if (draft?.name) setName(String(draft.name));
     if (draft?.phone) setPhone(String(draft.phone));
+    if (draft?.slotId) setSelectedSlotId(String(draft.slotId));
     if (draft?.amountUah != null && isValidAmountUah(Number(draft.amountUah))) {
       setAmountText(String(Number(draft.amountUah)));
     }
@@ -212,12 +347,13 @@ export default function RdnConsultationCallback({
     let cancelled = false;
     let attempts = 0;
 
-    const finishSuccess = (amount, nameValue, phoneValue) => {
+    const finishSuccess = (amount, nameValue, phoneValue, slotLabelValue) => {
       const paidAt = formatPaymentTime();
       setPaidAmountUah(amount);
       setPaymentTime(paidAt);
       if (nameValue) setName(nameValue);
       if (phoneValue) setPhone(phoneValue);
+      if (slotLabelValue) setBookedSlotLabel(String(slotLabelValue));
       setStatusNote('');
       clearDraft();
     };
@@ -240,6 +376,7 @@ export default function RdnConsultationCallback({
               amount_uah: Number(draft.amountUah),
               name: draft.name || null,
               phone: draft.phone || null,
+              slot_id: draft.slotId || null,
             }),
           });
           if (!fallback.ok) throw new Error(`status ${fallback.status}`);
@@ -254,6 +391,7 @@ export default function RdnConsultationCallback({
             Number(data.amount_uah) || Number(draft?.amountUah) || amountUah,
             data.name || draft?.name,
             data.phone || draft?.phone,
+            data.slot_label || '',
           );
           return;
         }
@@ -285,7 +423,7 @@ export default function RdnConsultationCallback({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount for redirect return
   }, []);
 
-  const applyPaidSuccess = (amount, nameValue, phoneValue) => {
+  const applyPaidSuccess = (amount, nameValue, phoneValue, slotLabelValue) => {
     const paidAt = formatPaymentTime();
     const finalName = (nameValue || trimmedName || '').trim();
     const finalPhone = (phoneValue || trimmedPhone || '').trim();
@@ -293,6 +431,7 @@ export default function RdnConsultationCallback({
     setPaymentTime(paidAt);
     if (finalName) setName(finalName);
     if (finalPhone) setPhone(finalPhone);
+    if (slotLabelValue) setBookedSlotLabel(String(slotLabelValue));
     setStatusNote('');
     clearDraft();
   };
@@ -303,8 +442,13 @@ export default function RdnConsultationCallback({
       focusFieldsToFill();
       return;
     }
+    if (!slotOk) {
+      focusSlotToFill();
+      return;
+    }
     if (!amountOk) {
       setHighlightContact(false);
+      setSlotHighlight(false);
       setFormHint(t('rdnCallbackAmountInvalidHint', { min: MIN_AMOUNT_UAH, max: MAX_AMOUNT_UAH }));
       setPayError('');
       window.requestAnimationFrame(() => amountInputRef.current?.focus());
@@ -312,10 +456,11 @@ export default function RdnConsultationCallback({
     }
     setFormHint('');
     setHighlightContact(false);
+    setSlotHighlight(false);
     setPayBusy(true);
     setPayError('');
     setStatusNote('');
-    writeDraft({ name: trimmedName, phone: trimmedPhone, amountUah });
+    writeDraft({ name: trimmedName, phone: trimmedPhone, amountUah, slotId: selectedSlotId });
     try {
       const res = await fetch(apiUrl('/api/rdn-consultation/pay'), {
         method: 'POST',
@@ -325,6 +470,7 @@ export default function RdnConsultationCallback({
           redirect_url: buildRedirectUrl(),
           name: trimmedName,
           phone: trimmedPhone,
+          slot_id: selectedSlotId,
         }),
       });
       if (!res.ok) {
@@ -338,6 +484,7 @@ export default function RdnConsultationCallback({
         name: trimmedName,
         phone: trimmedPhone,
         amountUah,
+        slotId: selectedSlotId,
         paymentId: data.payment_id,
         invoiceId: data.invoice_id,
       });
@@ -354,14 +501,20 @@ export default function RdnConsultationCallback({
       focusFieldsToFill();
       return;
     }
+    if (!slotOk) {
+      focusSlotToFill();
+      return;
+    }
     if (!amountOk) {
       setHighlightContact(false);
+      setSlotHighlight(false);
       setFormHint(t('rdnCallbackAmountInvalidHint', { min: MIN_AMOUNT_UAH, max: MAX_AMOUNT_UAH }));
       window.requestAnimationFrame(() => amountInputRef.current?.focus());
       return;
     }
     setFormHint('');
     setHighlightContact(false);
+    setSlotHighlight(false);
     setPayBusy(true);
     setPayError('');
     setStatusNote(t('rdnCallbackPayChecking'));
@@ -373,6 +526,7 @@ export default function RdnConsultationCallback({
           amount_uah: amountUah,
           name: trimmedName,
           phone: trimmedPhone,
+          slot_id: selectedSlotId,
         }),
       });
       if (!res.ok) {
@@ -386,6 +540,7 @@ export default function RdnConsultationCallback({
         Number(data.amount_uah) || amountUah,
         data.name || trimmedName,
         data.phone || trimmedPhone,
+        data.slot_label || '',
       );
     } catch {
       setPayError(t('rdnCallbackPayFailed'));
@@ -484,6 +639,88 @@ export default function RdnConsultationCallback({
           />
         </label>
 
+        {!isPaid && !(callbackSent && effectiveMode === 'callback') && slotWeeks.length > 0 ? (
+          <div
+            className={`rdn-callback-card__schedule${slotHighlight && !slotOk ? ' rdn-callback-card__schedule--needs-fill' : ''}`}
+          >
+            <span className="rdn-callback-card__label">{t('rdnCallbackSlotLabel')}</span>
+            <p className="rdn-callback-card__schedule-month">{slotMonthTitle}</p>
+            <div className="rdn-slot-cal" role="group" aria-label={t('rdnCallbackSlotAria')}>
+              <div className="rdn-slot-cal__weekdays" aria-hidden="true">
+                {weekdayNames.map((name, idx) => (
+                  <span key={`${name}-${idx}`} className="rdn-slot-cal__wd">
+                    {name}
+                  </span>
+                ))}
+              </div>
+              {slotWeeks.map(week => (
+                <div key={week[0].iso} className="rdn-slot-cal__week">
+                  {week.map(cell => {
+                    const inRange = Boolean(cell.day);
+                    const available = Boolean(cell.day?.hasAvailable);
+                    const isSelected = cell.iso === selectedDate;
+                    return (
+                      <button
+                        key={cell.iso}
+                        type="button"
+                        className={`rdn-slot-cal__day${isSelected ? ' is-selected' : ''}${
+                          available ? '' : ' is-muted'
+                        }`}
+                        disabled={!inRange || !available}
+                        aria-pressed={isSelected}
+                        onClick={() => {
+                          if (!cell.day?.hasAvailable) return;
+                          setSelectedDate(cell.iso);
+                          setSlotHighlight(false);
+                          if (formHint) setFormHint('');
+                          const stillOk = (cell.day.windows || []).some(
+                            w => w.id === selectedSlotId && w.available
+                          );
+                          if (!stillOk) setSelectedSlotId('');
+                        }}
+                      >
+                        {dayNumber(cell.iso)}
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+            {selectedDay ? (
+              <div className="rdn-slot-windows" role="group" aria-label={t('rdnCallbackSlotWindowsAria')}>
+                {(selectedDay.windows || []).map(window => {
+                  const bookable = Boolean(window.available);
+                  const isOn = window.id === selectedSlotId;
+                  return (
+                    <button
+                      key={window.id}
+                      type="button"
+                      className={`rdn-slot-windows__btn${isOn ? ' is-selected' : ''}${
+                        bookable ? '' : ' is-busy'
+                      }`}
+                      disabled={!bookable}
+                      aria-pressed={isOn}
+                      onClick={() => {
+                        if (!bookable) return;
+                        setSelectedSlotId(window.id);
+                        setSlotHighlight(false);
+                        if (formHint) setFormHint('');
+                      }}
+                    >
+                      <span>{window.label}</span>
+                      {bookable ? null : (
+                        <span className="rdn-slot-windows__busy">
+                          {window.past ? t('rdnCallbackSlotPast') : t('rdnCallbackSlotBusy')}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         {effectiveMode === 'pay' && !isPaid ? (
           <div className="rdn-callback-card__amount-block">
             <label className="rdn-callback-card__label" htmlFor={amountId}>
@@ -547,11 +784,23 @@ export default function RdnConsultationCallback({
         {isPaid ? (
           <p className="rdn-callback-card__paid-summary" role="status">
             {t('rdnCallbackPaidSummary')}
+            {bookedSlotLabel ? (
+              <>
+                <br />
+                {t('rdnCallbackSlotBooked', { slot: bookedSlotLabel })}
+              </>
+            ) : null}
           </p>
         ) : null}
         {callbackSent && effectiveMode === 'callback' && !isPaid ? (
           <p className="rdn-callback-card__paid-summary" role="status">
             {t('rdnCallbackSubmitSuccess')}
+            {bookedSlotLabel ? (
+              <>
+                <br />
+                {t('rdnCallbackSlotBooked', { slot: bookedSlotLabel })}
+              </>
+            ) : null}
           </p>
         ) : null}
       </div>

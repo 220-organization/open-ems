@@ -30,6 +30,9 @@ AMOUNT_STEP_UAH = 100
 
 PAYMENT_DESCRIPTION = "Консультація з налаштування Open EMS (Вирій ЕМС)"
 
+DAM_XLSX_AMOUNT_UAH = 5000
+DAM_XLSX_PAYMENT_DESCRIPTION = "Ціни РДН Excel (Вирій ЕМС)"
+
 
 def is_valid_amount_uah(amount_uah: int) -> bool:
     try:
@@ -149,6 +152,57 @@ def create_consultation_invoice(
     if webhook_url:
         payload["webHookUrl"] = webhook_url
     return _call_monobank(MONOBANK_INVOICE_CREATE_URL, method="POST", payload=payload)
+
+
+def dam_xlsx_invoice_payload(
+    *,
+    redirect_url: str,
+    reference: str,
+    webhook_url: Optional[str] = None,
+) -> Dict[str, Any]:
+    amount_cents = amount_uah_to_cents(DAM_XLSX_AMOUNT_UAH)
+    payload: Dict[str, Any] = {
+        "amount": amount_cents,
+        "ccy": 980,
+        "merchantPaymInfo": {
+            "reference": reference,
+            "destination": DAM_XLSX_PAYMENT_DESCRIPTION,
+            "comment": DAM_XLSX_PAYMENT_DESCRIPTION,
+            "basketOrder": [
+                {
+                    "name": DAM_XLSX_PAYMENT_DESCRIPTION,
+                    "qty": 1,
+                    "sum": amount_cents,
+                    "total": amount_cents,
+                    "unit": "шт",
+                    "code": f"dam-xlsx-{DAM_XLSX_AMOUNT_UAH}",
+                }
+            ],
+        },
+        "redirectUrl": redirect_url,
+        "validity": 3600,
+        "paymentType": "debit",
+    }
+    if webhook_url:
+        payload["webHookUrl"] = webhook_url
+    return payload
+
+
+def create_dam_xlsx_invoice(
+    *,
+    redirect_url: str,
+    reference: str,
+    webhook_url: Optional[str] = None,
+) -> Dict[str, Any]:
+    return _call_monobank(
+        MONOBANK_INVOICE_CREATE_URL,
+        method="POST",
+        payload=dam_xlsx_invoice_payload(
+            redirect_url=redirect_url,
+            reference=reference,
+            webhook_url=webhook_url,
+        ),
+    )
 
 
 def fetch_invoice_status(invoice_id: str) -> Optional[str]:

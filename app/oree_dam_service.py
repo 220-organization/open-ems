@@ -9,7 +9,7 @@ from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 import httpx
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import settings
@@ -271,6 +271,20 @@ async def list_oree_dam_prices_for_year(
         if 1 <= p <= 24:
             out.append((trade_day, p, float(price)))
     return out
+
+
+async def list_oree_dam_years(session: AsyncSession, zone_eic: str) -> list[int]:
+    """Calendar years that have at least one OREE DAM row for ``zone_eic`` (ascending)."""
+    year_col = func.extract("year", OreeDamPrice.trade_day)
+    result = await session.execute(
+        select(year_col).where(OreeDamPrice.zone_eic == zone_eic).distinct().order_by(year_col)
+    )
+    years: list[int] = []
+    for (raw,) in result.all():
+        if raw is None:
+            continue
+        years.append(int(raw))
+    return years
 
 
 async def get_hourly_dam_with_optional_sync(

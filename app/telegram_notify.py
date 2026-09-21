@@ -55,6 +55,7 @@ def format_rdn_consultation_paid_message(
     phone: str,
     amount_uah: int,
     paid_at: Optional[datetime] = None,
+    slot_label: Optional[str] = None,
 ) -> str:
     """Ukrainian HTML alert for a paid RDN consultation."""
     kyiv = ZoneInfo("Europe/Kyiv")
@@ -62,16 +63,37 @@ def format_rdn_consultation_paid_message(
     time_str = when.strftime("%d.%m.%Y, %H:%M:%S")
     safe_name = html.escape((name or "").strip() or "—")
     safe_phone = html.escape((phone or "").strip() or "—")
+    lines = [
+        "<b>Оплатив консультацію по РДН.</b>",
+        "",
+        f"Ім'я: {safe_name}",
+        f"Телефон: {safe_phone}",
+        f"Сума: <b>{int(amount_uah)} грн</b>",
+        f"Час оплати: {html.escape(time_str)}",
+    ]
+    if (slot_label or "").strip():
+        lines.append(f"Слот: {html.escape(slot_label.strip())}")
+    lines.extend(["", "#ОплатаКонсультаціїПоРДН"])
+    return "\n".join(lines)
+
+
+def format_dam_xlsx_paid_message(
+    *,
+    amount_uah: int,
+    paid_at: Optional[datetime] = None,
+) -> str:
+    """Ukrainian HTML alert for a paid DAM prices Excel download."""
+    kyiv = ZoneInfo("Europe/Kyiv")
+    when = paid_at.astimezone(kyiv) if paid_at else datetime.now(tz=kyiv)
+    time_str = when.strftime("%d.%m.%Y, %H:%M:%S")
     return "\n".join(
         [
-            "<b>Оплатив консультацію по РДН.</b>",
+            "<b>Оплатив Excel з цінами РДН.</b>",
             "",
-            f"Ім'я: {safe_name}",
-            f"Телефон: {safe_phone}",
             f"Сума: <b>{int(amount_uah)} грн</b>",
             f"Час оплати: {html.escape(time_str)}",
             "",
-            "#ОплатаКонсультаціїПоРДН",
+            "#ОплатаЦінРДНExcel",
         ]
     )
 
@@ -81,6 +103,7 @@ def format_rdn_consultation_callback_message(
     name: str,
     phone: str,
     requested_at: Optional[datetime] = None,
+    slot_label: Optional[str] = None,
 ) -> str:
     """Ukrainian HTML alert for an RDN consultation callback request."""
     kyiv = ZoneInfo("Europe/Kyiv")
@@ -88,17 +111,17 @@ def format_rdn_consultation_callback_message(
     time_str = when.strftime("%d.%m.%Y, %H:%M:%S")
     safe_name = html.escape((name or "").strip() or "—")
     safe_phone = html.escape((phone or "").strip() or "—")
-    return "\n".join(
-        [
-            "<b>Замовив консультацію по РДН.</b>",
-            "",
-            f"Ім'я: {safe_name}",
-            f"Телефон: {safe_phone}",
-            f"Час заявки: {html.escape(time_str)}",
-            "",
-            "#ЗамовитиКонсультаціюПоРДН",
-        ]
-    )
+    lines = [
+        "<b>Замовив консультацію по РДН.</b>",
+        "",
+        f"Ім'я: {safe_name}",
+        f"Телефон: {safe_phone}",
+        f"Час заявки: {html.escape(time_str)}",
+    ]
+    if (slot_label or "").strip():
+        lines.append(f"Слот: {html.escape(slot_label.strip())}")
+    lines.extend(["", "#ЗамовитиКонсультаціюПоРДН"])
+    return "\n".join(lines)
 
 
 def format_charger_buy_request_message(
