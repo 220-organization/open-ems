@@ -14,7 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app import settings
-from app.dam_prices_xlsx import build_hourly_dam_prices_xlsx, dam_xlsx_filename
+from app.dam_prices_xlsx import (
+    DamXlsxSheet,
+    ENTSOE_XLSX_TABS,
+    build_hourly_dam_prices_xlsx,
+    dam_xlsx_filename,
+)
 from app.entsoe_dam_service import list_entsoe_dam_prices_for_year, list_entsoe_dam_years, resolve_zone_eic
 from app.oree_dam_service import (
     KYIV,
@@ -118,6 +123,28 @@ def pick_xlsx_year(requested: Optional[int], years: list[int]) -> Optional[int]:
     if requested is not None and int(requested) in years:
         return int(requested)
     return years[-1]
+
+
+async def _entsoe_xlsx_extra_sheets(db: AsyncSession, year: int) -> list[DamXlsxSheet]:
+    """ENTSO-E UA / PL / ES tabs for the same calendar year (EUR/kWh; empty sheet if no rows)."""
+    sheets: list[DamXlsxSheet] = []
+    for tab_name, alias in ENTSOE_XLSX_TABS:
+        ze = resolve_zone_eic(alias)
+        if ze is None:
+            continue
+        display = "UA" if alias == "UA_ENTSO" else alias
+        rows = await list_entsoe_dam_prices_for_year(db, year, ze)
+        sheets.append(
+            DamXlsxSheet(
+                name=tab_name,
+                rows=rows,
+                year=year,
+                market_label="ENTSO-E",
+                zone_label=f"{display} ({ze})",
+                unit_label="EUR/kWh",
+            )
+        )
+    return sheets
 
 
 async def _xlsx_years_for_market(
@@ -407,7 +434,8 @@ async def dam_prices_xlsx(
     Requires a successful 5000 UAH payment (``paymentId`` from POST /api/dam/xlsx-pay).
     ``year`` defaults to the latest year that has prices for the selected market/zone.
     Only years with at least one DAM row are allowed.
-    OREE export is UAH/kWh; ENTSO-E export is EUR/kWh. One row per trade day, hours 00:00–23:00.
+    First tab is the selected market; extra tabs are ENTSO-E UA / PL / ES (EUR/kWh).
+    OREE values are UAH/kWh. One row per trade day, hours 00:00–23:00.
     """
     if not _xlsx_payment_unlocked(payment_id):
         return JSONResponse(
@@ -439,6 +467,7 @@ async def dam_prices_xlsx(
             headers=_NO_STORE,
         )
 
+    extra = await _entsoe_xlsx_extra_sheets(db, y)
     if m == "entsoe":
         rows = await list_entsoe_dam_prices_for_year(db, y, ze)
         xlsx = build_hourly_dam_prices_xlsx(
@@ -447,6 +476,7 @@ async def dam_prices_xlsx(
             market_label="ENTSO-E",
             zone_label=f"{zone.strip().upper()} ({ze})",
             unit_label="EUR/kWh",
+            extra_sheets=extra,
         )
         filename = dam_xlsx_filename("entsoe", y, zone.strip().upper())
     else:
@@ -457,6 +487,7 @@ async def dam_prices_xlsx(
             market_label="Ukraine (OREE)",
             zone_label=ze,
             unit_label="UAH/kWh",
+            extra_sheets=extra,
         )
         filename = dam_xlsx_filename("oree", y)
 
