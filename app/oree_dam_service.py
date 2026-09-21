@@ -248,6 +248,31 @@ async def get_hourly_dam_uah_mwh(
     return [by_period.get(p) for p in range(1, 25)]
 
 
+async def list_oree_dam_prices_for_year(
+    session: AsyncSession,
+    year: int,
+    zone_eic: str,
+) -> list[tuple[date, int, float]]:
+    """Hourly OREE DAM rows for calendar ``year`` (trade_day in [Jan 1, Dec 31])."""
+    start = date(year, 1, 1)
+    end = date(year, 12, 31)
+    result = await session.execute(
+        select(OreeDamPrice.trade_day, OreeDamPrice.period, OreeDamPrice.price_uah_mwh)
+        .where(
+            OreeDamPrice.zone_eic == zone_eic,
+            OreeDamPrice.trade_day >= start,
+            OreeDamPrice.trade_day <= end,
+        )
+        .order_by(OreeDamPrice.trade_day.asc(), OreeDamPrice.period.asc())
+    )
+    out: list[tuple[date, int, float]] = []
+    for trade_day, period, price in result.all():
+        p = int(period)
+        if 1 <= p <= 24:
+            out.append((trade_day, p, float(price)))
+    return out
+
+
 async def get_hourly_dam_with_optional_sync(
     session: AsyncSession,
     trade_day: date,

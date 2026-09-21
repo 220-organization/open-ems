@@ -396,6 +396,80 @@
   min-width: 160px;
 }
 
+.dam-xlsx-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.dam-xlsx-years {
+  display: inline-flex;
+  border-radius: 10px;
+  border: 1px solid var(--pf-border);
+  overflow: hidden;
+  background: var(--pf-surface);
+}
+
+.dam-xlsx-year {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--pf-text-secondary, rgba(245, 230, 255, 0.78));
+  min-width: 64px;
+  height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.dam-xlsx-year + .dam-xlsx-year {
+  border-left: 1px solid var(--pf-border);
+}
+
+.dam-xlsx-year.is-active {
+  background: rgba(252, 1, 155, 0.18);
+  color: var(--pf-label);
+}
+
+.dam-xlsx-year:hover:not(.is-active) {
+  color: var(--pf-label);
+}
+
+.dam-xlsx-download {
+  appearance: none;
+  background: var(--pf-surface);
+  border: 1px solid var(--pf-border);
+  border-radius: 10px;
+  color: var(--pf-label);
+  min-height: 36px;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.dam-xlsx-download:hover:not(:disabled) {
+  border-color: rgba(252, 1, 155, 0.45);
+}
+
+.dam-xlsx-download:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.dam-xlsx-error {
+  margin: 0;
+  flex: 1 1 100%;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #f87171;
+}
+
 .dam-title-with-compare {
   margin-bottom: 16px;
 }
@@ -1248,6 +1322,14 @@ a.dam-oree-embed-external:hover {
 
 /* ─── Light theme overrides ────────────────────────────────────────────────── */
 
+[data-theme="light"] .dam-xlsx-error {
+  color: #b91c1c;
+}
+
+[data-theme="light"] .dam-xlsx-year.is-active {
+  background: rgba(193, 0, 185, 0.12);
+}
+
 [data-theme="light"] .dam-banner-warn {
   color: #78470a;
   background: rgba(234, 179, 8, 0.08);
@@ -1281,6 +1363,14 @@ a.dam-oree-embed-external:hover {
 }
 
 @media (prefers-color-scheme: light) {
+  :root:not([data-theme]) .dam-xlsx-error {
+    color: #b91c1c;
+  }
+
+  :root:not([data-theme]) .dam-xlsx-year.is-active {
+    background: rgba(193, 0, 185, 0.12);
+  }
+
   :root:not([data-theme]) .dam-banner-warn {
     color: #78470a;
     background: rgba(234, 179, 8, 0.08);

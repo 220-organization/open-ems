@@ -740,6 +740,11 @@ export default function DamChartPanel({
   const [damUrlBootstrap] = useState(() => getInitialDamChartState());
   const [tradeDay, setTradeDay] = useState(damUrlBootstrap.date);
   const [damMarket, setDamMarket] = useState(damUrlBootstrap.market);
+  const [damXlsxYear, setDamXlsxYear] = useState(
+    () => Number(tradeCalendarTodayIso(damUrlBootstrap.market).slice(0, 4))
+  );
+  const [damXlsxBusy, setDamXlsxBusy] = useState(false);
+  const [damXlsxError, setDamXlsxError] = useState('');
   const [entsoeZone, setEntsoeZone] = useState(damUrlBootstrap.zone);
   const [payload, setPayload] = useState(null);
   /** Per-zone ENTSO-E chart-day payloads when primary market is Ukraine (OREE); keys ES, PL, UA_ENTSO. */
@@ -971,10 +976,18 @@ export default function DamChartPanel({
   const maxTradeDay = damMarket === 'entsoe' ? maxTradeDayBrusselsIso() : maxTradeDayKyivIso();
   /** Calendar “today” for the active market zone — used only to disable the redundant Today jump. */
   const calendarTodayIso = tradeCalendarTodayIso(damMarket);
+  const damCalendarYear = Number(calendarTodayIso.slice(0, 4));
+  const damPrevYear = damCalendarYear - 1;
 
   useEffect(() => {
     if (tradeDay > maxTradeDay) setTradeDay(maxTradeDay);
   }, [tradeDay, maxTradeDay]);
+
+  useEffect(() => {
+    if (damXlsxYear !== damCalendarYear && damXlsxYear !== damPrevYear) {
+      setDamXlsxYear(damCalendarYear);
+    }
+  }, [damCalendarYear, damPrevYear, damXlsxYear]);
 
   useEffect(() => {
     replaceUrlDamChartState(tradeDay, damMarket, entsoeZone, {
@@ -1745,6 +1758,46 @@ export default function DamChartPanel({
   const goToday = () =>
     setTradeDay(damMarket === 'entsoe' ? brusselsCalendarIso() : kyivCalendarIso());
 
+  const downloadDamPricesXlsx = async () => {
+    setDamXlsxBusy(true);
+    setDamXlsxError('');
+    try {
+      const q = new URLSearchParams({
+        year: String(damXlsxYear),
+        market: damMarket,
+      });
+      if (damMarket === 'entsoe') q.set('zone', entsoeZone);
+      const r = await fetch(apiUrl(`/api/dam/prices.xlsx?${q}`), { cache: 'no-store' });
+      if (!r.ok) {
+        let msg = r.statusText || String(r.status);
+        const txt = await r.text();
+        try {
+          const j = JSON.parse(txt);
+          if (j?.detail) msg = String(j.detail);
+        } catch {
+          if (txt) msg = txt;
+        }
+        throw new Error(msg);
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download =
+        damMarket === 'entsoe'
+          ? `dam-prices-entsoe-${entsoeZone}-${damXlsxYear}.xlsx`
+          : `dam-prices-oree-${damXlsxYear}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setDamXlsxError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDamXlsxBusy(false);
+    }
+  };
+
   const openTradeDayPicker = useCallback(inputRef => {
     const el = inputRef?.current;
     if (!el) return;
@@ -1830,6 +1883,43 @@ export default function DamChartPanel({
       >
         {t('damToday')}
       </button>
+    </div>
+  );
+
+  const downloadBar = (
+    <div className="dam-xlsx-toolbar">
+      <div className="dam-xlsx-years" role="group" aria-label={t('damDownloadYearSwitcherAria')}>
+        <button
+          type="button"
+          className={`dam-xlsx-year${damXlsxYear === damCalendarYear ? ' is-active' : ''}`}
+          aria-pressed={damXlsxYear === damCalendarYear}
+          onClick={() => setDamXlsxYear(damCalendarYear)}
+        >
+          {damCalendarYear}
+        </button>
+        <button
+          type="button"
+          className={`dam-xlsx-year${damXlsxYear === damPrevYear ? ' is-active' : ''}`}
+          aria-pressed={damXlsxYear === damPrevYear}
+          onClick={() => setDamXlsxYear(damPrevYear)}
+        >
+          {damPrevYear}
+        </button>
+      </div>
+      <button
+        type="button"
+        className="dam-xlsx-download"
+        onClick={() => void downloadDamPricesXlsx()}
+        disabled={damXlsxBusy}
+        aria-label={t('damDownloadPrices')}
+      >
+        {damXlsxBusy ? t('damDownloadPricesBusy') : t('damDownloadPrices')}
+      </button>
+      {damXlsxError ? (
+        <p className="dam-xlsx-error" role="alert">
+          {t('damError')}: {damXlsxError}
+        </p>
+      ) : null}
     </div>
   );
 
@@ -1951,6 +2041,7 @@ export default function DamChartPanel({
         <div className="dam-embedded-head">
           <div className="dam-embedded-head-main">
             <h2 className="dam-title dam-title-embedded">{t('damChartHeading')}</h2>
+            {downloadBar}
           </div>
           {showEmbeddedHeadDateBar ? dateBar : null}
         </div>
@@ -2012,6 +2103,7 @@ export default function DamChartPanel({
         {variant === 'fullpage' ? (
           <div className="dam-title-with-compare">
             <h1 className="dam-title">{t('damChartHeading')}</h1>
+            {downloadBar}
           </div>
         ) : null}
 
