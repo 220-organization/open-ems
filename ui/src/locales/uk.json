@@ -925,7 +925,7 @@
   "chargerBuyRequestClose": "Закрити",
   "commercialChargerNavLabel": "Для ЕЗС",
   "commercialChargerPageTitle": "Для ЕЗС",
-  "commercialChargerPageSubtitle": "Відфільтруйте DC-станції EDS за потужністю та портами — і запросіть пропозицію. Роздрібні ціни з ПДВ, відгрузка через 2–3 місяці.",
+  "commercialChargerPageSubtitle": "Відфільтруйте DC-станції EDS за потужністю та портами — і купіть. Роздрібні ціни з ПДВ, відгрузка через 2–3 місяці.",
   "commercialChargerFiltersAria": "Фільтри комерційних зарядок",
   "commercialChargerFilterPower": "Потужність",
   "commercialChargerFilterConnector": "Роз’єм",
@@ -977,7 +977,7 @@
   "commercialChargerMetaManager": "Персональний менеджер",
   "commercialChargerMetaLeadTime": "Відгрузка через",
   "commercialChargerLeadTime2to3m": "2–3 місяці",
-  "commercialChargerBuy": "Запит",
+  "commercialChargerBuy": "Купити",
   "commercialChargerCurrency": "Валюта",
   "commercialChargerFxNote": "Орієнтовно грн/$ за курсом НБУ {{eur}} грн/€ та {{usd}} грн/$ ({{date}}). Комерційна пропозиція — в євро з ПДВ.",
   "commercialChargerVatNote": "Ціни з ПДВ. У моноблоки входить кабель 5 м. Силові шафи менше ніж на 6 диспенсерів — індивідуальний розрахунок."

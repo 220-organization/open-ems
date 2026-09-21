@@ -924,7 +924,7 @@
   "chargerBuyRequestClose": "Cerrar",
   "commercialChargerNavLabel": "Para EDC",
   "commercialChargerPageTitle": "Para EDC",
-  "commercialChargerPageSubtitle": "Filtre estaciones DC de EDS por potencia y puertos — y solicite oferta. Precios minoristas con IVA, entrega en 2–3 meses.",
+  "commercialChargerPageSubtitle": "Filtre estaciones DC de EDS por potencia y puertos — y compre. Precios minoristas con IVA, entrega en 2–3 meses.",
   "commercialChargerFiltersAria": "Filtros de cargadores comerciales",
   "commercialChargerFilterPower": "Potencia",
   "commercialChargerFilterConnector": "Conector",
@@ -976,7 +976,7 @@
   "commercialChargerMetaManager": "Gestor dedicado",
   "commercialChargerMetaLeadTime": "Entrega en",
   "commercialChargerLeadTime2to3m": "2–3 meses",
-  "commercialChargerBuy": "Pedir oferta",
+  "commercialChargerBuy": "Comprar",
   "commercialChargerCurrency": "Moneda",
   "commercialChargerFxNote": "UAH/USD orientativos al tipo NBU {{eur}} UAH/EUR y {{usd}} UAH/USD ({{date}}). La oferta sigue en EUR con IVA.",
   "commercialChargerVatNote": "Precios con IVA. Los monobloques incluyen cable de 5 m. Unidades de potencia para menos de 6 dispensadores se cotizan a medida."
