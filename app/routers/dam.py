@@ -7,16 +7,19 @@ from datetime import date, datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app import settings
+from app.dam_prices_xlsx import build_hourly_dam_prices_xlsx, dam_xlsx_filename
+from app.entsoe_dam_service import BRUSSELS, list_entsoe_dam_prices_for_year, resolve_zone_eic
 from app.oree_dam_service import (
     KYIV,
     ensure_dam_indexes_for_day,
     get_hourly_dam_with_optional_sync,
     get_lazy_oree_chart_meta,
+    list_oree_dam_prices_for_year,
     oree_dam_configured,
     sync_dam_prices_to_db,
 )
@@ -30,6 +33,15 @@ _NO_STORE = {"Cache-Control": "no-store, max-age=0, must-revalidate"}
 
 def _kyiv_today() -> date:
     return datetime.now(KYIV).date()
+
+
+_XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _allowed_xlsx_years(market: str) -> tuple[int, int]:
+    tz = BRUSSELS if market == "entsoe" else KYIV
+    current = datetime.now(tz).date().year
+    return current - 1, current
 
 
 @router.post("/sync")
@@ -153,3 +165,76 @@ async def dam_damindexes(
     except Exception as exc:
         logger.exception("damindexes failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/prices.xlsx")
+async def dam_prices_xlsx(
+    year: Optional[int] = Query(default=None, ge=2000, le=2100),
+    market: str = Query(default="oree", description="oree or entsoe"),
+    zone: str = Query(default="ES", description="ENTSO-E alias when market=entsoe"),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """
+    Hourly DAM prices for a calendar year as Excel (.xlsx).
+
+    ``year`` defaults to the current year in the market timezone (Kyiv / Brussels).
+    Only the current year and the previous year are allowed.
+    OREE export is UAH/kWh; ENTSO-E export is EUR/kWh. One row per trade day, hours 00:00–23:00.
+    """
+    m = (market or "oree").strip().lower()
+    if m not in ("oree", "entsoe"):
+        return JSONResponse(
+            content={"ok": False, "detail": "market must be oree or entsoe"},
+            status_code=400,
+            headers=_NO_STORE,
+        )
+    prev_y, cur_y = _allowed_xlsx_years(m)
+    y = int(year) if year is not None else cur_y
+    if y not in (prev_y, cur_y):
+        return JSONResponse(
+            content={
+                "ok": False,
+                "detail": f"year must be {prev_y} or {cur_y}",
+                "year": y,
+            },
+            status_code=400,
+            headers=_NO_STORE,
+        )
+
+    if m == "entsoe":
+        ze = resolve_zone_eic(zone)
+        if ze is None:
+            return JSONResponse(
+                content={"ok": False, "detail": f"Unknown zone: {zone!r}"},
+                status_code=400,
+                headers=_NO_STORE,
+            )
+        rows = await list_entsoe_dam_prices_for_year(db, y, ze)
+        xlsx = build_hourly_dam_prices_xlsx(
+            rows,
+            year=y,
+            market_label="ENTSO-E",
+            zone_label=f"{zone.strip().upper()} ({ze})",
+            unit_label="EUR/kWh",
+        )
+        filename = dam_xlsx_filename("entsoe", y, zone.strip().upper())
+    else:
+        ze = settings.OREE_COMPARE_ZONE_EIC
+        rows = await list_oree_dam_prices_for_year(db, y, ze)
+        xlsx = build_hourly_dam_prices_xlsx(
+            rows,
+            year=y,
+            market_label="Ukraine (OREE)",
+            zone_label=ze,
+            unit_label="UAH/kWh",
+        )
+        filename = dam_xlsx_filename("oree", y)
+
+    return Response(
+        content=xlsx,
+        media_type=_XLSX_MEDIA,
+        headers={
+            **_NO_STORE,
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )

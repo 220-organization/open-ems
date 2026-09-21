@@ -271,6 +271,31 @@ async def get_hourly_entsoe_eur_mwh(
     return [by_period.get(p) for p in range(1, 25)]
 
 
+async def list_entsoe_dam_prices_for_year(
+    session: AsyncSession,
+    year: int,
+    zone_eic: str,
+) -> list[tuple[date, int, float]]:
+    """Hourly ENTSO-E DAM rows for calendar ``year`` (trade_day in [Jan 1, Dec 31])."""
+    start = date(year, 1, 1)
+    end = date(year, 12, 31)
+    result = await session.execute(
+        select(EntsoeDamPrice.trade_day, EntsoeDamPrice.period, EntsoeDamPrice.price_eur_mwh)
+        .where(
+            EntsoeDamPrice.zone_eic == zone_eic,
+            EntsoeDamPrice.trade_day >= start,
+            EntsoeDamPrice.trade_day <= end,
+        )
+        .order_by(EntsoeDamPrice.trade_day.asc(), EntsoeDamPrice.period.asc())
+    )
+    out: list[tuple[date, int, float]] = []
+    for trade_day, period, price in result.all():
+        p = int(period)
+        if 1 <= p <= 24:
+            out.append((trade_day, p, float(price)))
+    return out
+
+
 def resolve_zone_eic(zone: str) -> Optional[str]:
     """Map alias (ES, …) or pass through full EIC."""
     z = zone.strip().upper()
