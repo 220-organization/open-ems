@@ -30,6 +30,78 @@ function apiUrl(path) {
   return `${base}${path}`;
 }
 
+const DAM_XLSX_AMOUNT_UAH = 5000;
+const DAM_XLSX_PAID_KEY = 'damXlsxPaidPaymentId';
+const DAM_XLSX_DRAFT_KEY = 'damXlsxPayDraft';
+const DAM_XLSX_PAYMENT_QUERY = 'damXlsxPayment';
+
+function isLocalhostDev() {
+  if (typeof window === 'undefined') return false;
+  const { hostname } = window.location;
+  return hostname === 'localhost' || hostname === '127.0.0.1';
+}
+
+function readDamXlsxPaidId() {
+  try {
+    return (sessionStorage.getItem(DAM_XLSX_PAID_KEY) || '').trim() || '';
+  } catch {
+    return '';
+  }
+}
+
+function writeDamXlsxPaidId(paymentId) {
+  try {
+    if (paymentId) sessionStorage.setItem(DAM_XLSX_PAID_KEY, paymentId);
+    else sessionStorage.removeItem(DAM_XLSX_PAID_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+function readDamXlsxDraft() {
+  try {
+    const raw = sessionStorage.getItem(DAM_XLSX_DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeDamXlsxDraft(draft) {
+  try {
+    sessionStorage.setItem(DAM_XLSX_DRAFT_KEY, JSON.stringify(draft));
+  } catch {
+    /* ignore */
+  }
+}
+
+function clearDamXlsxDraft() {
+  try {
+    sessionStorage.removeItem(DAM_XLSX_DRAFT_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+function takeDamXlsxPaymentIdFromUrl() {
+  if (typeof window === 'undefined') return null;
+  const url = new URL(window.location.href);
+  const paymentId = (url.searchParams.get(DAM_XLSX_PAYMENT_QUERY) || '').trim();
+  if (!paymentId) return null;
+  url.searchParams.delete(DAM_XLSX_PAYMENT_QUERY);
+  window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+  return paymentId;
+}
+
+function damXlsxRedirectUrl() {
+  if (typeof window === 'undefined') return '';
+  const url = new URL(window.location.href);
+  url.searchParams.delete(DAM_XLSX_PAYMENT_QUERY);
+  return url.toString();
+}
+
 const DAM_GRID_BARS_OPEN_KEY = 'pf-dam-grid-bars-open-v2';
 const DAM_PV_LOAD_BARS_OPEN_KEY = 'pf-dam-pv-load-bars-open-v2';
 
@@ -743,8 +815,10 @@ export default function DamChartPanel({
   const [damXlsxYear, setDamXlsxYear] = useState(
     () => Number(tradeCalendarTodayIso(damUrlBootstrap.market).slice(0, 4))
   );
+  const [damXlsxYears, setDamXlsxYears] = useState(null);
   const [damXlsxBusy, setDamXlsxBusy] = useState(false);
   const [damXlsxError, setDamXlsxError] = useState('');
+  const [damXlsxPaymentId, setDamXlsxPaymentId] = useState(() => readDamXlsxPaidId());
   const [entsoeZone, setEntsoeZone] = useState(damUrlBootstrap.zone);
   const [payload, setPayload] = useState(null);
   /** Per-zone ENTSO-E chart-day payloads when primary market is Ukraine (OREE); keys ES, PL, UA_ENTSO. */
@@ -976,18 +1050,147 @@ export default function DamChartPanel({
   const maxTradeDay = damMarket === 'entsoe' ? maxTradeDayBrusselsIso() : maxTradeDayKyivIso();
   /** Calendar “today” for the active market zone — used only to disable the redundant Today jump. */
   const calendarTodayIso = tradeCalendarTodayIso(damMarket);
-  const damCalendarYear = Number(calendarTodayIso.slice(0, 4));
-  const damPrevYear = damCalendarYear - 1;
 
   useEffect(() => {
     if (tradeDay > maxTradeDay) setTradeDay(maxTradeDay);
   }, [tradeDay, maxTradeDay]);
 
   useEffect(() => {
-    if (damXlsxYear !== damCalendarYear && damXlsxYear !== damPrevYear) {
-      setDamXlsxYear(damCalendarYear);
+    let cancelled = false;
+    (async () => {
+      const q = new URLSearchParams({ market: damMarket });
+      if (damMarket === 'entsoe') q.set('zone', entsoeZone);
+      try {
+        const r = await fetch(apiUrl(`/api/dam/xlsx-years?${q}`), { cache: 'no-store' });
+        const d = await r.json();
+        if (cancelled) return;
+        const years = Array.isArray(d?.years)
+          ? d.years.map(n => Number(n)).filter(n => Number.isInteger(n) && n >= 2000 && n <= 2100)
+          : [];
+        setDamXlsxYears(years);
+      } catch {
+        if (!cancelled) setDamXlsxYears([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [damMarket, entsoeZone]);
+
+  useEffect(() => {
+    if (!Array.isArray(damXlsxYears) || damXlsxYears.length === 0) return;
+    if (!damXlsxYears.includes(damXlsxYear)) {
+      setDamXlsxYear(damXlsxYears[damXlsxYears.length - 1]);
     }
-  }, [damCalendarYear, damPrevYear, damXlsxYear]);
+  }, [damXlsxYears, damXlsxYear]);
+
+  useEffect(() => {
+    const fromUrl = takeDamXlsxPaymentIdFromUrl();
+    const stored = readDamXlsxPaidId();
+    const paymentId = fromUrl || stored;
+    if (!paymentId) return undefined;
+
+    let cancelled = false;
+    let attempts = 0;
+
+    const markPaid = () => {
+      writeDamXlsxPaidId(paymentId);
+      setDamXlsxPaymentId(paymentId);
+    };
+
+    const downloadAfterPay = async () => {
+      const draft = readDamXlsxDraft();
+      clearDamXlsxDraft();
+      setDamXlsxBusy(true);
+      setDamXlsxError('');
+      try {
+        await fetchPaidDamXlsxFile(paymentId, {
+          year: draft?.year,
+          market: draft?.market,
+          zone: draft?.zone,
+        });
+      } catch (e) {
+        if (!cancelled) setDamXlsxError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setDamXlsxBusy(false);
+      }
+    };
+
+    const poll = async () => {
+      attempts += 1;
+      try {
+        const r = await fetch(apiUrl(`/api/dam/xlsx-payments/${encodeURIComponent(paymentId)}`), {
+          cache: 'no-store',
+        });
+        let data = null;
+        if (r.status === 404) {
+          const draft = readDamXlsxDraft();
+          if (fromUrl && draft?.invoiceId) {
+            const fallback = await fetch(apiUrl('/api/dam/xlsx-invoice-status'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ invoice_id: draft.invoiceId, payment_id: paymentId }),
+            });
+            if (!fallback.ok) throw new Error(`status ${fallback.status}`);
+            data = await fallback.json();
+          } else {
+            writeDamXlsxPaidId('');
+            if (!cancelled) setDamXlsxPaymentId('');
+            if (!cancelled) setDamXlsxBusy(false);
+            return;
+          }
+        } else if (!r.ok) {
+          throw new Error(`status ${r.status}`);
+        } else {
+          data = await r.json();
+        }
+        if (cancelled) return;
+        const status = String(data.status || '').toUpperCase();
+        if (status === 'SUCCESS') {
+          markPaid();
+          if (fromUrl) await downloadAfterPay();
+          else if (!cancelled) setDamXlsxBusy(false);
+          return;
+        }
+        if (['FAILURE', 'EXPIRED', 'REVERSED'].includes(status)) {
+          writeDamXlsxPaidId('');
+          setDamXlsxPaymentId('');
+          setDamXlsxBusy(false);
+          setDamXlsxError(t('damDownloadPricesPayFailed'));
+          return;
+        }
+      } catch {
+        if (cancelled) return;
+        if (!fromUrl) {
+          writeDamXlsxPaidId('');
+          setDamXlsxPaymentId('');
+          setDamXlsxBusy(false);
+          return;
+        }
+        if (attempts >= 8) {
+          setDamXlsxBusy(false);
+          setDamXlsxError(t('damDownloadPricesPayFailed'));
+          return;
+        }
+      }
+      if (!cancelled && fromUrl && attempts < 12) {
+        window.setTimeout(poll, 2000);
+      } else if (!cancelled && fromUrl) {
+        setDamXlsxBusy(false);
+        setDamXlsxError(t('damDownloadPricesPayProcessing'));
+      }
+    };
+
+    if (fromUrl) {
+      setDamXlsxBusy(true);
+      setDamXlsxError('');
+    }
+    poll();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- return from Monobank once on mount
+  }, []);
 
   useEffect(() => {
     replaceUrlDamChartState(tradeDay, damMarket, entsoeZone, {
@@ -1758,39 +1961,106 @@ export default function DamChartPanel({
   const goToday = () =>
     setTradeDay(damMarket === 'entsoe' ? brusselsCalendarIso() : kyivCalendarIso());
 
+  const damXlsxYearList = Array.isArray(damXlsxYears) ? damXlsxYears : [];
+  const damXlsxYearIdx = damXlsxYearList.indexOf(damXlsxYear);
+  const goPrevXlsxYear = () => {
+    if (damXlsxYearIdx > 0) setDamXlsxYear(damXlsxYearList[damXlsxYearIdx - 1]);
+  };
+  const goNextXlsxYear = () => {
+    if (damXlsxYearIdx >= 0 && damXlsxYearIdx < damXlsxYearList.length - 1) {
+      setDamXlsxYear(damXlsxYearList[damXlsxYearIdx + 1]);
+    }
+  };
+
+  const fetchPaidDamXlsxFile = async (paymentId, opts = {}) => {
+    const year = opts.year != null ? Number(opts.year) : damXlsxYear;
+    const market = opts.market || damMarket;
+    const zone = opts.zone || entsoeZone;
+    const q = new URLSearchParams({
+      year: String(year),
+      market,
+      paymentId,
+    });
+    if (market === 'entsoe') q.set('zone', zone);
+    const r = await fetch(apiUrl(`/api/dam/prices.xlsx?${q}`), { cache: 'no-store' });
+    if (!r.ok) {
+      let msg = r.statusText || String(r.status);
+      const txt = await r.text();
+      try {
+        const j = JSON.parse(txt);
+        if (j?.detail) msg = String(j.detail);
+      } catch {
+        if (txt) msg = txt;
+      }
+      throw new Error(msg);
+    }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download =
+      market === 'entsoe'
+        ? `dam-prices-entsoe-${zone}-${year}.xlsx`
+        : `dam-prices-oree-${year}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const startDamXlsxPayment = async () => {
+    writeDamXlsxDraft({ year: damXlsxYear, market: damMarket, zone: entsoeZone });
+    const res = await fetch(apiUrl('/api/dam/xlsx-pay'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ redirect_url: damXlsxRedirectUrl() }),
+    });
+    if (!res.ok) throw new Error(`pay ${res.status}`);
+    const data = await res.json();
+    if (!data?.page_url) throw new Error('missing page_url');
+    writeDamXlsxDraft({
+      year: damXlsxYear,
+      market: damMarket,
+      zone: entsoeZone,
+      paymentId: data.payment_id,
+      invoiceId: data.invoice_id,
+    });
+    window.location.assign(data.page_url);
+  };
+
   const downloadDamPricesXlsx = async () => {
+    if (!damXlsxYearList.length) return;
     setDamXlsxBusy(true);
     setDamXlsxError('');
     try {
-      const q = new URLSearchParams({
-        year: String(damXlsxYear),
-        market: damMarket,
-      });
-      if (damMarket === 'entsoe') q.set('zone', entsoeZone);
-      const r = await fetch(apiUrl(`/api/dam/prices.xlsx?${q}`), { cache: 'no-store' });
-      if (!r.ok) {
-        let msg = r.statusText || String(r.status);
-        const txt = await r.text();
-        try {
-          const j = JSON.parse(txt);
-          if (j?.detail) msg = String(j.detail);
-        } catch {
-          if (txt) msg = txt;
-        }
-        throw new Error(msg);
+      if (damXlsxPaymentId) {
+        await fetchPaidDamXlsxFile(damXlsxPaymentId);
+        return;
       }
-      const blob = await r.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download =
-        damMarket === 'entsoe'
-          ? `dam-prices-entsoe-${entsoeZone}-${damXlsxYear}.xlsx`
-          : `dam-prices-oree-${damXlsxYear}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      await startDamXlsxPayment();
+    } catch (e) {
+      setDamXlsxError(e instanceof Error ? e.message : String(e));
+      setDamXlsxBusy(false);
+    }
+  };
+
+  const skipDamXlsxPaymentTest = async () => {
+    if (damXlsxBusy || !isLocalhostDev()) return;
+    setDamXlsxBusy(true);
+    setDamXlsxError('');
+    try {
+      const res = await fetch(apiUrl('/api/dam/xlsx-pay-test'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) throw new Error(`pay-test ${res.status}`);
+      const data = await res.json();
+      if (String(data.status || '').toUpperCase() !== 'SUCCESS' || !data.payment_id) {
+        throw new Error('pay-test not success');
+      }
+      writeDamXlsxPaidId(data.payment_id);
+      setDamXlsxPaymentId(data.payment_id);
+      await fetchPaidDamXlsxFile(data.payment_id);
     } catch (e) {
       setDamXlsxError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -1888,33 +2158,61 @@ export default function DamChartPanel({
 
   const downloadBar = (
     <div className="dam-xlsx-toolbar">
-      <div className="dam-xlsx-years" role="group" aria-label={t('damDownloadYearSwitcherAria')}>
-        <button
-          type="button"
-          className={`dam-xlsx-year${damXlsxYear === damCalendarYear ? ' is-active' : ''}`}
-          aria-pressed={damXlsxYear === damCalendarYear}
-          onClick={() => setDamXlsxYear(damCalendarYear)}
-        >
-          {damCalendarYear}
-        </button>
-        <button
-          type="button"
-          className={`dam-xlsx-year${damXlsxYear === damPrevYear ? ' is-active' : ''}`}
-          aria-pressed={damXlsxYear === damPrevYear}
-          onClick={() => setDamXlsxYear(damPrevYear)}
-        >
-          {damPrevYear}
-        </button>
-      </div>
+      {damXlsxYearList.length > 0 ? (
+        <div className="dam-xlsx-years" role="group" aria-label={t('damDownloadYearSwitcherAria')}>
+          <button
+            type="button"
+            className="dam-date-btn"
+            onClick={goPrevXlsxYear}
+            disabled={damXlsxYearIdx <= 0}
+            aria-label={t('damPrevYear')}
+          >
+            ‹
+          </button>
+          <span className="dam-xlsx-year-value">{damXlsxYear}</span>
+          <button
+            type="button"
+            className="dam-date-btn"
+            onClick={goNextXlsxYear}
+            disabled={damXlsxYearIdx < 0 || damXlsxYearIdx >= damXlsxYearList.length - 1}
+            aria-label={t('damNextYear')}
+          >
+            ›
+          </button>
+        </div>
+      ) : null}
       <button
         type="button"
         className="dam-xlsx-download"
         onClick={() => void downloadDamPricesXlsx()}
-        disabled={damXlsxBusy}
-        aria-label={t('damDownloadPrices')}
+        disabled={damXlsxBusy || damXlsxYearList.length === 0}
+        aria-label={
+          damXlsxPaymentId
+            ? t('damDownloadPrices')
+            : t('damDownloadPricesPay', { amount: DAM_XLSX_AMOUNT_UAH })
+        }
       >
-        {damXlsxBusy ? t('damDownloadPricesBusy') : t('damDownloadPrices')}
+        {damXlsxBusy
+          ? damXlsxPaymentId
+            ? t('damDownloadPricesBusy')
+            : t('damDownloadPricesPaying')
+          : damXlsxPaymentId
+            ? t('damDownloadPrices')
+            : t('damDownloadPricesPay', { amount: DAM_XLSX_AMOUNT_UAH })}
       </button>
+      {!damXlsxPaymentId && isLocalhostDev() ? (
+        <button
+          type="button"
+          className="dam-xlsx-download dam-xlsx-download--test"
+          onClick={() => void skipDamXlsxPaymentTest()}
+          disabled={damXlsxBusy || damXlsxYearList.length === 0}
+        >
+          {t('rdnCallbackPayTestSkip')}
+        </button>
+      ) : null}
+      {!damXlsxPaymentId ? (
+        <p className="dam-xlsx-pay-hint">{t('damDownloadPricesPayHint', { amount: DAM_XLSX_AMOUNT_UAH })}</p>
+      ) : null}
       {damXlsxError ? (
         <p className="dam-xlsx-error" role="alert">
           {t('damError')}: {damXlsxError}

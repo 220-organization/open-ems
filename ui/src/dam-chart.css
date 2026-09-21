@@ -229,6 +229,114 @@
   box-shadow: 0 0 0 2px rgba(255, 180, 84, 0.35);
 }
 
+.rdn-callback-card__schedule {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rdn-callback-card__schedule--needs-fill {
+  outline: 2px solid rgba(255, 180, 84, 0.85);
+  outline-offset: 4px;
+  border-radius: 12px;
+}
+
+.rdn-callback-card__schedule-month {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-transform: capitalize;
+  color: var(--pf-label, #f5e6ff);
+}
+
+.rdn-slot-cal {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rdn-slot-cal__weekdays,
+.rdn-slot-cal__week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.rdn-slot-cal__wd {
+  text-align: center;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--pf-text-hint, rgba(255, 255, 255, 0.52));
+  text-transform: lowercase;
+}
+
+.rdn-slot-cal__day {
+  appearance: none;
+  min-height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--pf-border, rgba(255, 255, 255, 0.14));
+  background: rgba(0, 0, 0, 0.28);
+  color: var(--pf-label, #f5e6ff);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.rdn-slot-cal__day.is-selected {
+  border-color: rgba(252, 1, 155, 0.65);
+  background: rgba(252, 1, 155, 0.2);
+}
+
+.rdn-slot-cal__day.is-muted,
+.rdn-slot-cal__day:disabled {
+  opacity: 0.34;
+  cursor: not-allowed;
+}
+
+.rdn-slot-windows {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.rdn-slot-windows__btn {
+  appearance: none;
+  min-height: 46px;
+  padding: 6px 4px;
+  border-radius: 10px;
+  border: 1px solid var(--pf-border, rgba(255, 255, 255, 0.14));
+  background: rgba(0, 0, 0, 0.28);
+  color: var(--pf-label, #f5e6ff);
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.rdn-slot-windows__btn.is-selected {
+  border-color: rgba(252, 1, 155, 0.65);
+  background: rgba(252, 1, 155, 0.2);
+}
+
+.rdn-slot-windows__btn.is-busy,
+.rdn-slot-windows__btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.rdn-slot-windows__busy {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--pf-text-hint, rgba(255, 255, 255, 0.62));
+}
+
 .rdn-callback-card__amount-block {
   display: flex;
   flex-direction: column;
@@ -406,37 +514,24 @@
 
 .dam-xlsx-years {
   display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dam-xlsx-year-value {
+  min-width: 72px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
   border-radius: 10px;
   border: 1px solid var(--pf-border);
-  overflow: hidden;
   background: var(--pf-surface);
-}
-
-.dam-xlsx-year {
-  appearance: none;
-  border: none;
-  background: transparent;
-  color: var(--pf-text-secondary, rgba(245, 230, 255, 0.78));
-  min-width: 64px;
-  height: 36px;
-  padding: 0 12px;
-  font-size: 13px;
+  color: var(--pf-label);
+  font-size: 14px;
   font-weight: 600;
-  cursor: pointer;
-  touch-action: manipulation;
-}
-
-.dam-xlsx-year + .dam-xlsx-year {
-  border-left: 1px solid var(--pf-border);
-}
-
-.dam-xlsx-year.is-active {
-  background: rgba(252, 1, 155, 0.18);
-  color: var(--pf-label);
-}
-
-.dam-xlsx-year:hover:not(.is-active) {
-  color: var(--pf-label);
+  font-variant-numeric: tabular-nums;
 }
 
 .dam-xlsx-download {
@@ -460,6 +555,20 @@
 .dam-xlsx-download:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+.dam-xlsx-download--test {
+  font-size: 12px;
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+.dam-xlsx-pay-hint {
+  margin: 0;
+  flex: 1 1 100%;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--pf-text-secondary, rgba(245, 230, 255, 0.78));
 }
 
 .dam-xlsx-error {
@@ -1326,10 +1435,6 @@ a.dam-oree-embed-external:hover {
   color: #b91c1c;
 }
 
-[data-theme="light"] .dam-xlsx-year.is-active {
-  background: rgba(193, 0, 185, 0.12);
-}
-
 [data-theme="light"] .dam-banner-warn {
   color: #78470a;
   background: rgba(234, 179, 8, 0.08);
@@ -1365,10 +1470,6 @@ a.dam-oree-embed-external:hover {
 @media (prefers-color-scheme: light) {
   :root:not([data-theme]) .dam-xlsx-error {
     color: #b91c1c;
-  }
-
-  :root:not([data-theme]) .dam-xlsx-year.is-active {
-    background: rgba(193, 0, 185, 0.12);
   }
 
   :root:not([data-theme]) .dam-banner-warn {
@@ -1717,6 +1818,25 @@ a.dam-oree-embed-external:hover {
   background: #ffffff;
   color: #2a0a38;
   border-color: rgba(193, 0, 185, 0.18);
+}
+
+[data-theme="light"] .rdn-slot-cal__day,
+[data-theme="light"] .rdn-slot-windows__btn {
+  background: #ffffff;
+  color: #2a0a38;
+  border-color: rgba(193, 0, 185, 0.18);
+}
+
+[data-theme="light"] .rdn-slot-cal__day.is-selected,
+[data-theme="light"] .rdn-slot-windows__btn.is-selected {
+  background: rgba(252, 1, 155, 0.12);
+  color: #3a1048;
+  border-color: rgba(252, 1, 155, 0.45);
+}
+
+[data-theme="light"] .rdn-callback-card__schedule-month,
+[data-theme="light"] .rdn-slot-cal__wd {
+  color: rgba(40, 10, 55, 0.62);
 }
 
 @media (prefers-color-scheme: light) {

@@ -18,6 +18,7 @@ from app.rdn_consultation_payment import (
     is_valid_amount_uah,
     with_query,
 )
+from app.rdn_consultation_slots import list_consultation_days, require_available_slot, slot_label_uk
 from app.telegram_notify import (
     format_rdn_consultation_callback_message,
     format_rdn_consultation_paid_message,
@@ -41,6 +42,7 @@ class PayCreateRequest(BaseModel):
     redirect_url: str = Field(..., min_length=8, max_length=2000)
     name: Optional[str] = Field(None, max_length=200)
     phone: Optional[str] = Field(None, max_length=40)
+    slot_id: Optional[str] = Field(None, max_length=32)
 
 
 class PayCreateResponse(BaseModel):
@@ -57,6 +59,8 @@ class PayStatusResponse(BaseModel):
     amount_uah: int
     name: Optional[str] = None
     phone: Optional[str] = None
+    slot_id: Optional[str] = None
+    slot_label: Optional[str] = None
 
 
 class PayTestRequest(BaseModel):
@@ -66,6 +70,7 @@ class PayTestRequest(BaseModel):
     )
     name: Optional[str] = Field(None, max_length=200)
     phone: Optional[str] = Field(None, max_length=40)
+    slot_id: Optional[str] = Field(None, max_length=32)
 
 
 def _public_webhook_url(request: Request) -> Optional[str]:
@@ -76,6 +81,18 @@ def _public_webhook_url(request: Request) -> Optional[str]:
     return f"{proto}://{host}/api/rdn-consultation/webhook"
 
 
+def _require_slot(slot_id: Optional[str]) -> tuple[str, str]:
+    raw = (slot_id or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Choose a consultation date and time")
+    try:
+        window = require_available_slot(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    sid = str(window["id"])
+    return sid, slot_label_uk(sid)
+
+
 def _status_response(payment_id: str, row: dict) -> PayStatusResponse:
     return PayStatusResponse(
         payment_id=payment_id,
@@ -84,6 +101,8 @@ def _status_response(payment_id: str, row: dict) -> PayStatusResponse:
         amount_uah=int(row["amount_uah"]),
         name=row.get("name"),
         phone=row.get("phone"),
+        slot_id=row.get("slot_id"),
+        slot_label=row.get("slot_label"),
     )
 
 
@@ -97,6 +116,7 @@ async def _notify_rdn_paid(row: dict) -> None:
         name=row.get("name") or "",
         phone=row.get("phone") or "",
         amount_uah=int(row.get("amount_uah") or 0),
+        slot_label=row.get("slot_label"),
     )
     ok = await send_telegram_message(msg)
     if ok:
@@ -114,6 +134,7 @@ async def create_pay(payload: PayCreateRequest, request: Request) -> PayCreateRe
             status_code=400,
             detail=f"amount_uah must be between {MIN_AMOUNT_UAH} and {MAX_AMOUNT_UAH}",
         )
+    slot_id, slot_label = _require_slot(payload.slot_id)
     payment_id = str(uuid.uuid4())
     redirect_url = with_query(payload.redirect_url, rdnConsultPayment=payment_id)
     try:
@@ -139,6 +160,8 @@ async def create_pay(payload: PayCreateRequest, request: Request) -> PayCreateRe
         "amount_uah": payload.amount_uah,
         "name": (payload.name or "").strip() or None,
         "phone": (payload.phone or "").strip() or None,
+        "slot_id": slot_id,
+        "slot_label": slot_label,
         "status": "created",
     }
     return PayCreateResponse(
@@ -173,6 +196,7 @@ class InvoiceStatusRequest(BaseModel):
     )
     name: Optional[str] = Field(None, max_length=200)
     phone: Optional[str] = Field(None, max_length=40)
+    slot_id: Optional[str] = Field(None, max_length=32)
 
 
 @router.post("/invoice-status", response_model=PayStatusResponse)
@@ -189,11 +213,14 @@ async def post_invoice_status(payload: InvoiceStatusRequest) -> PayStatusRespons
         raise HTTPException(status_code=502, detail="Unable to fetch invoice status")
     row = next((r for r in _PENDING.values() if r.get("invoice_id") == invoice_id), None)
     if row is None:
+        slot_id = (payload.slot_id or "").strip() or None
         row = {
             "invoice_id": invoice_id,
             "amount_uah": payload.amount_uah,
             "name": (payload.name or "").strip() or None,
             "phone": (payload.phone or "").strip() or None,
+            "slot_id": slot_id,
+            "slot_label": slot_label_uk(slot_id) if slot_id else None,
             "status": remote,
         }
         _PENDING[f"invoice:{invoice_id}"] = row
@@ -203,16 +230,13 @@ async def post_invoice_status(payload: InvoiceStatusRequest) -> PayStatusRespons
             row["name"] = payload.name.strip()
         if payload.phone:
             row["phone"] = payload.phone.strip()
+        if payload.slot_id:
+            sid = payload.slot_id.strip()
+            row["slot_id"] = sid
+            row["slot_label"] = slot_label_uk(sid)
     if remote in SUCCESS_STATUSES:
         await _notify_rdn_paid(row)
-    return PayStatusResponse(
-        payment_id="",
-        invoice_id=invoice_id,
-        status=remote,
-        amount_uah=int(row["amount_uah"]),
-        name=row.get("name"),
-        phone=row.get("phone"),
-    )
+    return _status_response("", row)
 
 
 @router.post("/webhook")
@@ -248,6 +272,7 @@ async def create_test_pay(payload: PayTestRequest) -> PayStatusResponse:
             status_code=400,
             detail=f"amount_uah must be between {MIN_AMOUNT_UAH} and {MAX_AMOUNT_UAH}",
         )
+    slot_id, slot_label = _require_slot(payload.slot_id)
     payment_id = str(uuid.uuid4())
     invoice_id = f"local-test-{payment_id}"
     _PENDING[payment_id] = {
@@ -255,6 +280,8 @@ async def create_test_pay(payload: PayTestRequest) -> PayStatusResponse:
         "amount_uah": payload.amount_uah,
         "name": (payload.name or "").strip() or None,
         "phone": (payload.phone or "").strip() or None,
+        "slot_id": slot_id,
+        "slot_label": slot_label,
         "status": "SUCCESS",
     }
     await _notify_rdn_paid(_PENDING[payment_id])
@@ -264,11 +291,19 @@ async def create_test_pay(payload: PayTestRequest) -> PayStatusResponse:
 class CallbackRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     phone: str = Field(..., min_length=5, max_length=40)
+    slot_id: str = Field(..., min_length=8, max_length=32)
 
 
 class CallbackResponse(BaseModel):
     ok: bool = True
     notified: bool = False
+
+
+@router.get("/slots")
+async def get_consultation_slots() -> dict[str, Any]:
+    """Next 14 Kyiv days × 3 windows; ~20% of future slots are emulated busy."""
+    days = list_consultation_days()
+    return {"ok": True, "days": days}
 
 
 @router.post("/callback", response_model=CallbackResponse)
@@ -278,9 +313,10 @@ async def create_callback(payload: CallbackRequest) -> CallbackResponse:
     phone = payload.phone.strip()
     if len(name) < 1 or len(phone) < 5:
         raise HTTPException(status_code=400, detail="name and phone are required")
-    msg = format_rdn_consultation_callback_message(name=name, phone=phone)
+    _slot_id, slot_label = _require_slot(payload.slot_id)
+    msg = format_rdn_consultation_callback_message(name=name, phone=phone, slot_label=slot_label)
     notified = await send_telegram_message(msg)
     if not notified:
         raise HTTPException(status_code=502, detail="Unable to notify support")
-    logger.info("RDN consultation callback notified name=%s", name)
+    logger.info("RDN consultation callback notified name=%s slot=%s", name, _slot_id)
     return CallbackResponse(ok=True, notified=True)

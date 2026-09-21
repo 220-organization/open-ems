@@ -9,7 +9,7 @@ from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 import httpx
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import settings
@@ -294,6 +294,20 @@ async def list_entsoe_dam_prices_for_year(
         if 1 <= p <= 24:
             out.append((trade_day, p, float(price)))
     return out
+
+
+async def list_entsoe_dam_years(session: AsyncSession, zone_eic: str) -> list[int]:
+    """Calendar years that have at least one ENTSO-E DAM row for ``zone_eic`` (ascending)."""
+    year_col = func.extract("year", EntsoeDamPrice.trade_day)
+    result = await session.execute(
+        select(year_col).where(EntsoeDamPrice.zone_eic == zone_eic).distinct().order_by(year_col)
+    )
+    years: list[int] = []
+    for (raw,) in result.all():
+        if raw is None:
+            continue
+        years.append(int(raw))
+    return years
 
 
 def resolve_zone_eic(zone: str) -> Optional[str]:

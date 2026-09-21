@@ -6762,7 +6762,7 @@ export default function PowerFlowPage({
               className="pf-rdn-callback-section pf-rdn-callback-section--page-end"
               aria-label={t('rdnCallbackSectionAria')}
             >
-              <RdnConsultationCallback t={t} />
+              <RdnConsultationCallback t={t} getBcp47Locale={getBcp47Locale} />
             </section>
           </div>
 
