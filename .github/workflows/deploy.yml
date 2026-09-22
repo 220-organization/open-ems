@@ -236,9 +236,6 @@ jobs:
             docker compose up -d --build --remove-orphans
             chmod +x scripts/setup-host-nginx-9220.sh
             ./scripts/setup-host-nginx-9220.sh
-            # One-shot (marker + empty-table guard): copy marketplace rows/photos from admin-portal.
-            chmod +x scripts/migrate_marketplace_from_admin_portal.sh
-            ./scripts/migrate_marketplace_from_admin_portal.sh
           host: ${{ secrets.DEPLOY_HOST }}
           user: root
           key: ${{ secrets.PRIVATE_KEY }}
