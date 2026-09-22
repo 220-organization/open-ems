@@ -16,13 +16,12 @@ export function resolveMarketplaceAssetUrl(pathOrUrl) {
   if (!pathOrUrl) return pathOrUrl;
   if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
   const base = apiBase();
-  if (!base) return pathOrUrl;
+  if (!base) return pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`;
   return `${base}${pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`}`;
 }
 
 export async function uploadMarketplaceFile(file) {
-  const base = apiBase();
-  if (!base || !file) return null;
+  if (!file) return null;
 
   const formData = new FormData();
   formData.append("file", file);
@@ -60,9 +59,6 @@ export async function uploadMarketplaceFile(file) {
 }
 
 export async function submitMarketplaceLocation(payload) {
-  const base = apiBase();
-  if (!base) return null;
-
   const response = await fetch(`${marketplaceApiRoot()}/locations`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -77,9 +73,6 @@ export async function submitMarketplaceLocation(payload) {
 }
 
 export async function fetchMarketplaceLocations(requestType) {
-  const base = apiBase();
-  if (!base) return [];
-
   const query = requestType
     ? `?request_type=${encodeURIComponent(requestType)}`
     : "";
@@ -95,9 +88,6 @@ export async function fetchMarketplaceLocations(requestType) {
 
 /** Submissions awaiting moderation: map point and kW only. */
 export async function fetchPendingMarketplaceLocations() {
-  const base = apiBase();
-  if (!base) return [];
-
   const response = await fetch(`${marketplaceApiRoot()}/locations/pending`);
 
   if (!response.ok) {
@@ -109,8 +99,7 @@ export async function fetchPendingMarketplaceLocations() {
 }
 
 export async function requestMarketplaceLocationInfo(locationId) {
-  const base = apiBase();
-  if (!base || !locationId) return null;
+  if (!locationId) return null;
 
   const response = await fetch(
     `${marketplaceApiRoot()}/locations/${locationId}/request-info`,
@@ -130,8 +119,7 @@ export async function createMarketplaceInfoPayment(
   locationId,
   { redirectBaseUrl, clientUiId } = {},
 ) {
-  const base = apiBase();
-  if (!base || !locationId) return null;
+  if (!locationId) return null;
 
   const response = await fetch(
     `${marketplaceApiRoot()}/locations/${locationId}/pay`,
@@ -156,8 +144,7 @@ export async function createMarketplaceTestPayment(
   locationId,
   { clientUiId } = {},
 ) {
-  const base = apiBase();
-  if (!base || !locationId) return null;
+  if (!locationId) return null;
 
   const response = await fetch(
     `${marketplaceApiRoot()}/locations/${locationId}/pay-test`,
@@ -181,9 +168,6 @@ export async function createHeatmapZoomPayment({
   redirectBaseUrl,
   clientUiId,
 } = {}) {
-  const base = apiBase();
-  if (!base) return null;
-
   const response = await fetch(`${marketplaceApiRoot()}/heatmap/pay`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -201,9 +185,6 @@ export async function createHeatmapZoomPayment({
 }
 
 export async function createHeatmapZoomTestPayment({ clientUiId } = {}) {
-  const base = apiBase();
-  if (!base) return null;
-
   const response = await fetch(`${marketplaceApiRoot()}/heatmap/pay-test`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -246,8 +227,7 @@ export function isMarketplaceLocalTestPaymentEnabled() {
 }
 
 export async function fetchMarketplacePaymentStatus(paymentId) {
-  const base = apiBase();
-  if (!base || !paymentId) return null;
+  if (!paymentId) return null;
 
   const response = await fetch(`${marketplaceApiRoot()}/payments/${paymentId}`);
 
