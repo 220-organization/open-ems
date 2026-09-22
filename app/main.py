@@ -25,6 +25,7 @@ from app.routers import (
     ev_driver_tracker,
     gridlab_proxy,
     huawei_proxy,
+    marketplace,
     nbu_fx,
     power_flow_totals,
     rdn_consultation,
@@ -461,6 +462,17 @@ app.include_router(bess_order.router)
 app.include_router(home_chargers.router)
 app.include_router(commercial_chargers.router)
 app.include_router(charger_buy_request.router)
+app.include_router(marketplace.router)
+app.include_router(marketplace.admin_router)
+
+# Marketplace photo uploads — named volume in docker-compose so deploys cannot wipe files.
+_marketplace_files_dir = Path(settings.MARKETPLACE_DATA_DIR)
+_marketplace_files_dir.mkdir(parents=True, exist_ok=True)
+app.mount(
+    "/api/marketplace-files",
+    StaticFiles(directory=str(_marketplace_files_dir)),
+    name="marketplace-files",
+)
 
 # Production / `npm run build`: serve CRA output only (no legacy static HTML).
 # Local dev: OPEN_EMS_SERVE_SPA=0 — API only; UI from `npm start`.
@@ -492,6 +504,10 @@ if settings.OPEN_EMS_SERVE_SPA:
 
     @app.get("/marketplace", include_in_schema=False)
     async def marketplace_page() -> FileResponse:
+        return _react_spa_index()
+
+    @app.get("/admin", include_in_schema=False)
+    async def admin_page() -> FileResponse:
         return _react_spa_index()
 
     @app.get("/ev-tv", include_in_schema=False)

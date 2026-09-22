@@ -149,6 +149,9 @@ jobs:
           TELEGRAM_API_TOKEN: ${{ secrets.TELEGRAM_API_TOKEN }}
           TELEGRAM_SUPPORT_CHAT_ID: ${{ secrets.TELEGRAM_SUPPORT_CHAT_ID }}
           TELEGRAM_BESS_CHAT_ID: ${{ secrets.TELEGRAM_BESS_CHAT_ID }}
+          MARKETPLACE_PAYMENT_TOKEN: ${{ secrets.MARKETPLACE_PAYMENT_TOKEN }}
+          OPEN_EMS_ADMIN_PASSWORD: ${{ secrets.OPEN_EMS_ADMIN_PASSWORD }}
+          OPEN_EMS_ADMIN_TOKEN: ${{ secrets.OPEN_EMS_ADMIN_TOKEN }}
         run: |
           set -e
           umask 077
@@ -189,6 +192,13 @@ jobs:
             printf '%s\n' "TELEGRAM_API_TOKEN=${TELEGRAM_API_TOKEN:-}"
             printf '%s\n' "TELEGRAM_SUPPORT_CHAT_ID=${TELEGRAM_SUPPORT_CHAT_ID:-}"
             printf '%s\n' "TELEGRAM_BESS_CHAT_ID=${TELEGRAM_BESS_CHAT_ID:-}"
+            printf '%s\n' "MARKETPLACE_PAYMENT_CALLBACK_BASE=https://220-km.com:9220"
+            printf '%s\n' "MARKETPLACE_PAY_REDIRECT_BASE=https://220-km.com:9220/marketplace"
+            printf '%s\n' "MARKETPLACE_PUBLIC_BASE_URL=https://220-km.com:9220"
+            printf '%s\n' "MARKETPLACE_ADMIN_UI_URL=https://220-km.com:9220/admin"
+            printf '%s\n' "MARKETPLACE_PAYMENT_TOKEN=${MARKETPLACE_PAYMENT_TOKEN:-}"
+            printf '%s\n' "OPEN_EMS_ADMIN_PASSWORD=${OPEN_EMS_ADMIN_PASSWORD:-220220Ma}"
+            printf '%s\n' "OPEN_EMS_ADMIN_TOKEN=${OPEN_EMS_ADMIN_TOKEN:-openEmsAdminToken220220Ma}"
           } > /tmp/open-ems-deploy.env
           test -s /tmp/open-ems-deploy.env
       # appleboy/scp-action often creates a *directory* named like the target and nests the file

@@ -37,10 +37,12 @@ Usage: ./run-local.sh [options]
 
 Environment: UI_PORT, API_PORT, DATABASE_URL, UVICORN_RELOAD, REACT_APP_API_BASE_URL, ...
 
-  Marketplace (http://localhost:9220/marketplace) uses prod backends by default:
-  REACT_APP_ADMIN_PORTAL_API_URL=https://220-km.com:8090, REACT_APP_B2B_API_URL=https://220-km.com:8080.
-  Override to http://127.0.0.1:8090 / :8080 when running admin-portal locally (run-admin-local.sh).
-  Heatmap zoom test payment: localhost UI shows «Test heatmap payment»; with local admin-portal + MARKETPLACE_ALLOW_TEST_PAYMENT=1 it hits /marketplace/heatmap/pay-test, otherwise unlocks in-browser for dev.
+  Marketplace (http://localhost:9220/marketplace) uses the local Open EMS API
+  (REACT_APP_API_BASE_URL → /api/marketplace). Heatmap EVUA still uses
+  REACT_APP_B2B_API_URL=https://220-km.com:8080 by default.
+  Heatmap zoom test payment: localhost UI shows «Test heatmap payment»; with
+  MARKETPLACE_ALLOW_TEST_PAYMENT=1 (or OPEN_EMS_SERVE_SPA=0) it hits
+  /api/marketplace/heatmap/pay-test.
 
   OPENEMS_OPEN_SWAGGER=0 (default) — set to 1 to also open API Swagger /docs in the default browser after startup.
   The UI does not auto-open a browser; the URL is printed when CRA is ready.
@@ -317,8 +319,6 @@ fi
 (
   cd ui
   export REACT_APP_API_BASE_URL="${REACT_APP_API_BASE_URL:-http://127.0.0.1:${API_PORT}}"
-  # Marketplace + EVUA heatmap: use prod admin-portal / B2B APIs (local :8090/:8080 usually not running).
-  export REACT_APP_ADMIN_PORTAL_API_URL="${REACT_APP_ADMIN_PORTAL_API_URL:-https://220-km.com:8090}"
   export REACT_APP_B2B_API_URL="${REACT_APP_B2B_API_URL:-https://220-km.com:8080}"
   export PORT="${UI_PORT}"
   export FAST_REFRESH=true

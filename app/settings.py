@@ -524,3 +524,41 @@ TELEGRAM_SUPPORT_CHAT_ID: str = (
     or (os.environ.get("TELEGRAM_BESS_CHAT_ID") or "").strip()
     or "-1002241228588"
 )
+
+# Open EMS admin (marketplace moderation). Defaults committed like activecharge admin-portal.
+OPEN_EMS_ADMIN_PASSWORD: str = (os.environ.get("OPEN_EMS_ADMIN_PASSWORD") or "220220Ma").strip()
+OPEN_EMS_ADMIN_TOKEN: str = (
+    os.environ.get("OPEN_EMS_ADMIN_TOKEN") or "openEmsAdminToken220220Ma"
+).strip()
+
+# Marketplace uploads + Monobank (info unlock / publication / heatmap).
+MARKETPLACE_DATA_DIR: str = (
+    os.environ.get("MARKETPLACE_DATA_DIR") or "/app/data/marketplace"
+).strip()
+MARKETPLACE_PUBLIC_BASE_URL: str = (os.environ.get("MARKETPLACE_PUBLIC_BASE_URL") or "").rstrip("/")
+MARKETPLACE_PAYMENT_TOKEN: str = (os.environ.get("MARKETPLACE_PAYMENT_TOKEN") or "").strip()
+MARKETPLACE_PROPOSE_INFO_PAYMENT_CENTS: int = _env_int(
+    "MARKETPLACE_PROPOSE_INFO_PAYMENT_CENTS", 99900, 100, 10_000_000
+)
+MARKETPLACE_LOOKING_INFO_PAYMENT_CENTS: int = _env_int(
+    "MARKETPLACE_LOOKING_INFO_PAYMENT_CENTS", 9900, 100, 10_000_000
+)
+MARKETPLACE_PUBLICATION_PAYMENT_CENTS: int = _env_int(
+    "MARKETPLACE_PUBLICATION_PAYMENT_CENTS", 99900, 100, 10_000_000
+)
+MARKETPLACE_HEATMAP_PAYMENT_CENTS: int = _env_int(
+    "MARKETPLACE_HEATMAP_PAYMENT_CENTS", 4400, 100, 10_000_000
+)
+MARKETPLACE_PAYMENT_CALLBACK_BASE: str = (
+    os.environ.get("MARKETPLACE_PAYMENT_CALLBACK_BASE") or "https://220-km.com:9220"
+).rstrip("/")
+MARKETPLACE_PAY_REDIRECT_BASE: str = (
+    os.environ.get("MARKETPLACE_PAY_REDIRECT_BASE") or "https://220-km.com:9220/marketplace"
+).rstrip("/")
+MARKETPLACE_ADMIN_UI_URL: str = (
+    os.environ.get("MARKETPLACE_ADMIN_UI_URL") or "https://220-km.com:9220/admin"
+).rstrip("/")
+MARKETPLACE_ALLOW_TEST_PAYMENT: bool = _env_bool("MARKETPLACE_ALLOW_TEST_PAYMENT", False)
+MARKETPLACE_MAX_UPLOAD_BYTES: int = _env_int(
+    "MARKETPLACE_MAX_UPLOAD_BYTES", 8 * 1024 * 1024, 1024, 50 * 1024 * 1024
+)
