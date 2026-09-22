@@ -1,8 +1,8 @@
 const ADMIN_PORTAL_API_URL =
-  process.env.REACT_APP_ADMIN_PORTAL_API_URL || 'https://220-km.com:8090';
+  process.env.REACT_APP_ADMIN_PORTAL_API_URL || "https://220-km.com:8090";
 
 function apiBase() {
-  return (ADMIN_PORTAL_API_URL || '').replace(/\/$/, '');
+  return (ADMIN_PORTAL_API_URL || "").replace(/\/$/, "");
 }
 
 export function isMarketplaceApiConfigured() {
@@ -14,7 +14,7 @@ export function resolveMarketplaceAssetUrl(pathOrUrl) {
   if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
   const base = apiBase();
   if (!base) return pathOrUrl;
-  return `${base}${pathOrUrl.startsWith('/') ? pathOrUrl : `/${pathOrUrl}`}`;
+  return `${base}${pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`}`;
 }
 
 export async function uploadMarketplaceFile(file) {
@@ -22,19 +22,38 @@ export async function uploadMarketplaceFile(file) {
   if (!base || !file) return null;
 
   const formData = new FormData();
-  formData.append('file', file);
+  formData.append("file", file);
 
   const response = await fetch(`${base}/marketplace/uploads`, {
-    method: 'POST',
+    method: "POST",
     body: formData,
   });
 
   if (!response.ok) {
-    throw new Error(`Upload failed (${response.status})`);
+    let detail = "";
+    try {
+      const errBody = await response.json();
+      detail = errBody?.detail ? `: ${errBody.detail}` : "";
+    } catch {
+      /* ignore */
+    }
+    throw new Error(`Upload failed (${response.status})${detail}`);
   }
 
   const data = await response.json();
-  return resolveMarketplaceAssetUrl(data.url);
+  // Keep relative /marketplace-files/... paths in form state / DB when possible.
+  const url = data.url || "";
+  if (!url) return null;
+  if (/^https?:\/\//i.test(url)) {
+    try {
+      const parsed = new URL(url);
+      if (parsed.pathname.includes("/marketplace-files/"))
+        return parsed.pathname;
+    } catch {
+      /* fall through */
+    }
+  }
+  return url.startsWith("/") ? url : resolveMarketplaceAssetUrl(url);
 }
 
 export async function submitMarketplaceLocation(payload) {
@@ -42,8 +61,8 @@ export async function submitMarketplaceLocation(payload) {
   if (!base) return null;
 
   const response = await fetch(`${base}/marketplace/locations`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
 
@@ -58,7 +77,9 @@ export async function fetchMarketplaceLocations(requestType) {
   const base = apiBase();
   if (!base) return [];
 
-  const query = requestType ? `?request_type=${encodeURIComponent(requestType)}` : '';
+  const query = requestType
+    ? `?request_type=${encodeURIComponent(requestType)}`
+    : "";
   const response = await fetch(`${base}/marketplace/locations${query}`);
 
   if (!response.ok) {
@@ -88,9 +109,12 @@ export async function requestMarketplaceLocationInfo(locationId) {
   const base = apiBase();
   if (!base || !locationId) return null;
 
-  const response = await fetch(`${base}/marketplace/locations/${locationId}/request-info`, {
-    method: 'POST',
-  });
+  const response = await fetch(
+    `${base}/marketplace/locations/${locationId}/request-info`,
+    {
+      method: "POST",
+    },
+  );
 
   if (!response.ok) {
     throw new Error(`Request info failed (${response.status})`);
@@ -99,18 +123,24 @@ export async function requestMarketplaceLocationInfo(locationId) {
   return response.json();
 }
 
-export async function createMarketplaceInfoPayment(locationId, { redirectBaseUrl, clientUiId } = {}) {
+export async function createMarketplaceInfoPayment(
+  locationId,
+  { redirectBaseUrl, clientUiId } = {},
+) {
   const base = apiBase();
   if (!base || !locationId) return null;
 
-  const response = await fetch(`${base}/marketplace/locations/${locationId}/pay`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      redirect_base_url: redirectBaseUrl,
-      client_ui_id: clientUiId || null,
-    }),
-  });
+  const response = await fetch(
+    `${base}/marketplace/locations/${locationId}/pay`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        redirect_base_url: redirectBaseUrl,
+        client_ui_id: clientUiId || null,
+      }),
+    },
+  );
 
   if (!response.ok) {
     throw new Error(`Payment init failed (${response.status})`);
@@ -119,17 +149,23 @@ export async function createMarketplaceInfoPayment(locationId, { redirectBaseUrl
   return response.json();
 }
 
-export async function createMarketplaceTestPayment(locationId, { clientUiId } = {}) {
+export async function createMarketplaceTestPayment(
+  locationId,
+  { clientUiId } = {},
+) {
   const base = apiBase();
   if (!base || !locationId) return null;
 
-  const response = await fetch(`${base}/marketplace/locations/${locationId}/pay-test`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      client_ui_id: clientUiId || null,
-    }),
-  });
+  const response = await fetch(
+    `${base}/marketplace/locations/${locationId}/pay-test`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_ui_id: clientUiId || null,
+      }),
+    },
+  );
 
   if (!response.ok) {
     throw new Error(`Test payment failed (${response.status})`);
@@ -138,13 +174,16 @@ export async function createMarketplaceTestPayment(locationId, { clientUiId } = 
   return response.json();
 }
 
-export async function createHeatmapZoomPayment({ redirectBaseUrl, clientUiId } = {}) {
+export async function createHeatmapZoomPayment({
+  redirectBaseUrl,
+  clientUiId,
+} = {}) {
   const base = apiBase();
   if (!base) return null;
 
   const response = await fetch(`${base}/marketplace/heatmap/pay`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       redirect_base_url: redirectBaseUrl,
       client_ui_id: clientUiId || null,
@@ -163,8 +202,8 @@ export async function createHeatmapZoomTestPayment({ clientUiId } = {}) {
   if (!base) return null;
 
   const response = await fetch(`${base}/marketplace/heatmap/pay-test`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       client_ui_id: clientUiId || null,
     }),
@@ -178,12 +217,19 @@ export async function createHeatmapZoomTestPayment({ clientUiId } = {}) {
 }
 
 function isLocalHostname(hostname) {
-  return hostname === 'localhost' || hostname === '127.0.0.1';
+  return hostname === "localhost" || hostname === "127.0.0.1";
 }
 
 export function isMarketplaceLocalTestPaymentEnabled() {
-  if (process.env.NODE_ENV === 'production' && process.env.REACT_APP_ENV !== 'local') return false;
-  if (typeof window !== 'undefined' && isLocalHostname(window.location.hostname)) {
+  if (
+    process.env.NODE_ENV === "production" &&
+    process.env.REACT_APP_ENV !== "local"
+  )
+    return false;
+  if (
+    typeof window !== "undefined" &&
+    isLocalHostname(window.location.hostname)
+  ) {
     return true;
   }
   const base = apiBase();
@@ -209,12 +255,14 @@ export async function fetchMarketplacePaymentStatus(paymentId) {
   return response.json();
 }
 
-const UNLOCK_STORAGE_KEY = 'marketplaceUnlockedPayments';
+const UNLOCK_STORAGE_KEY = "marketplaceUnlockedPayments";
 
 export function getStoredMarketplacePaymentId(locationId) {
-  if (!locationId || typeof window === 'undefined') return null;
+  if (!locationId || typeof window === "undefined") return null;
   try {
-    const map = JSON.parse(window.localStorage.getItem(UNLOCK_STORAGE_KEY) || '{}');
+    const map = JSON.parse(
+      window.localStorage.getItem(UNLOCK_STORAGE_KEY) || "{}",
+    );
     return map[String(locationId)] || null;
   } catch {
     return null;
@@ -222,9 +270,11 @@ export function getStoredMarketplacePaymentId(locationId) {
 }
 
 export function storeMarketplaceUnlockedPayment(locationId, paymentId) {
-  if (!locationId || !paymentId || typeof window === 'undefined') return;
+  if (!locationId || !paymentId || typeof window === "undefined") return;
   try {
-    const map = JSON.parse(window.localStorage.getItem(UNLOCK_STORAGE_KEY) || '{}');
+    const map = JSON.parse(
+      window.localStorage.getItem(UNLOCK_STORAGE_KEY) || "{}",
+    );
     map[String(locationId)] = String(paymentId);
     window.localStorage.setItem(UNLOCK_STORAGE_KEY, JSON.stringify(map));
   } catch {

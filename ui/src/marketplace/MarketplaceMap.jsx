@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import * as maptilersdk from '@maptiler/sdk';
-import maplibregl from 'maplibre-gl';
-import '@maptiler/sdk/dist/maptiler-sdk.css';
-import { getClientId } from './clientId';
-import { formatDistanceMeters, buildGoogleMapsPointUrl } from './messengerLinks';
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import * as maptilersdk from "@maptiler/sdk";
+import maplibregl from "maplibre-gl";
+import "@maptiler/sdk/dist/maptiler-sdk.css";
+import { getClientId } from "./clientId";
+import {
+  formatDistanceMeters,
+  buildGoogleMapsPointUrl,
+} from "./messengerLinks";
 import {
   createHeatmapZoomPayment,
   createHeatmapZoomTestPayment,
@@ -17,36 +20,46 @@ import {
   isMarketplaceLocalTestPaymentEnabled,
   resolveMarketplaceAssetUrl,
   storeMarketplaceUnlockedPayment,
-} from './marketplaceApi';
+} from "./marketplaceApi";
 import {
   isHeatmapZoomUnlocked,
   isMarketplaceUiLocalDev,
   storeHeatmapZoomUnlock,
   storeHeatmapZoomUnlockLocalDev,
-} from './marketplaceHeatmapAccess';
-import { useEvua80KwStations } from './useEvua80KwStations';
-import { useGovmapHeatmapPoints } from './useGovmapHeatmapPoints';
-import { useDriverGpsHeatmapPoints } from './useDriverGpsHeatmapPoints';
-import { aggregateHeatmapPoints, buildHeatmapWeightedPoints, HEATMAP_INTENSITY_SCALE, HEATMAP_LAYER_OPACITY, precisionForZoom } from './marketplaceHeatmapPoints';
-import { downloadContractPhotosAsPdf } from './marketplaceContractPdf';
-import { formatKwLabel, markerFontPxForKw, markerSizePxForKw } from './marketplaceKw';
-import { buildMarketplacePayRedirectBase } from './marketplacePayRedirect';
-import { infoPaymentAmountUah } from './marketplacePaymentAmounts';
-import MarketplaceModal from './MarketplaceModal';
-import styles from './MarketplaceMap.module.css';
+} from "./marketplaceHeatmapAccess";
+import { useEvua80KwStations } from "./useEvua80KwStations";
+import { useGovmapHeatmapPoints } from "./useGovmapHeatmapPoints";
+import { useDriverGpsHeatmapPoints } from "./useDriverGpsHeatmapPoints";
+import {
+  aggregateHeatmapPoints,
+  buildHeatmapWeightedPoints,
+  HEATMAP_INTENSITY_SCALE,
+  HEATMAP_LAYER_OPACITY,
+  precisionForZoom,
+} from "./marketplaceHeatmapPoints";
+import { downloadContractPhotosAsPdf } from "./marketplaceContractPdf";
+import {
+  formatKwLabel,
+  markerFontPxForKw,
+  markerSizePxForKw,
+} from "./marketplaceKw";
+import { buildMarketplacePayRedirectBase } from "./marketplacePayRedirect";
+import { infoPaymentAmountUah } from "./marketplacePaymentAmounts";
+import MarketplaceModal from "./MarketplaceModal";
+import styles from "./MarketplaceMap.module.css";
 
-const MAPTILER_API_KEY = '1Lk2s9HJjoiXBR1oqw5a';
-const MAPLIBRE_WORKER_URL = `${process.env.PUBLIC_URL || ''}/maplibre-gl-csp-worker.js`;
+const MAPTILER_API_KEY = "1Lk2s9HJjoiXBR1oqw5a";
+const MAPLIBRE_WORKER_URL = `${process.env.PUBLIC_URL || ""}/maplibre-gl-csp-worker.js`;
 const UKRAINE_CENTER = [31.223, 49.454];
 const DEFAULT_ZOOM = 6;
-const HEATMAP_SOURCE_ID = 'b2b-marketplace-looking-heatmap';
-const HEATMAP_LAYER_ID = 'b2b-marketplace-looking-heatmap-layer';
+const HEATMAP_SOURCE_ID = "b2b-marketplace-looking-heatmap";
+const HEATMAP_LAYER_ID = "b2b-marketplace-looking-heatmap-layer";
 const HEATMAP_SCALE_BAR_MAX_PX = 120;
 /** Hide heatmap when scale bar would read below 3 km (street-level zoom) unless zoom is paid for today. */
 const HEATMAP_MIN_SCALE_KM = 3;
 const HEATMAP_PAY_AMOUNT_UAH = 44;
 
-if (typeof maplibregl.setWorkerUrl === 'function') {
+if (typeof maplibregl.setWorkerUrl === "function") {
   maplibregl.setWorkerUrl(MAPLIBRE_WORKER_URL);
 }
 
@@ -54,9 +67,11 @@ function buildHybridStyle(apiKey) {
   return {
     version: 8,
     sources: {
-      'maptiler-raster': {
-        type: 'raster',
-        tiles: [`https://api.maptiler.com/maps/hybrid/256/{z}/{x}/{y}.jpg?key=${apiKey}`],
+      "maptiler-raster": {
+        type: "raster",
+        tiles: [
+          `https://api.maptiler.com/maps/hybrid/256/{z}/{x}/{y}.jpg?key=${apiKey}`,
+        ],
         tileSize: 256,
         attribution:
           '<a href="https://www.maptiler.com/copyright/" target="_blank" rel="noreferrer">© MapTiler</a> ' +
@@ -65,9 +80,9 @@ function buildHybridStyle(apiKey) {
     },
     layers: [
       {
-        id: 'maptiler-raster',
-        type: 'raster',
-        source: 'maptiler-raster',
+        id: "maptiler-raster",
+        type: "raster",
+        source: "maptiler-raster",
         minzoom: 0,
         maxzoom: 22,
       },
@@ -77,11 +92,15 @@ function buildHybridStyle(apiKey) {
 
 function flattenLocations(items) {
   const points = [];
-  (items || []).forEach(item => {
-    const requestType = item.request_type === 'LOOKING' ? 'LOOKING' : 'PROPOSE';
-    const pending = item.status === 'PENDING';
+  (items || []).forEach((item) => {
+    const requestType = item.request_type === "LOOKING" ? "LOOKING" : "PROPOSE";
+    const pending = item.status === "PENDING";
     const hasContract =
-      item.distribution_contract === true ? 1 : item.distribution_contract === false ? 0 : -1;
+      item.distribution_contract === true
+        ? 1
+        : item.distribution_contract === false
+          ? 0
+          : -1;
     (item.locations || []).forEach((loc, index) => {
       points.push({
         id: `${item.id}-${index}`,
@@ -101,23 +120,27 @@ function flattenLocations(items) {
 
 function markerClassForPoint(point, styles) {
   if (point.pending) return styles.mapMarkerPending;
-  return point.requestType === 'LOOKING' ? styles.mapMarkerLooking : styles.mapMarkerPropose;
+  return point.requestType === "LOOKING"
+    ? styles.mapMarkerLooking
+    : styles.mapMarkerPropose;
 }
 
 function createMarketplaceMarkerElement(point, styles) {
-  const el = document.createElement('button');
-  el.type = 'button';
-  el.className = [styles.mapMarker, markerClassForPoint(point, styles)].join(' ');
+  const el = document.createElement("button");
+  el.type = "button";
+  el.className = [styles.mapMarker, markerClassForPoint(point, styles)].join(
+    " ",
+  );
   el.textContent = formatKwLabel(point.kw);
   const size = markerSizePxForKw(point.kw);
-  el.style.setProperty('--mp-marker-size', `${size}px`);
-  el.style.setProperty('--mp-marker-font', `${markerFontPxForKw(point.kw)}px`);
+  el.style.setProperty("--mp-marker-size", `${size}px`);
+  el.style.setProperty("--mp-marker-font", `${markerFontPxForKw(point.kw)}px`);
   el.style.zIndex = String(Math.max(1, 160 - size));
   return el;
 }
 
 function removeMarketplaceMarkers(markersRef) {
-  markersRef.current.forEach(marker => marker.remove());
+  markersRef.current.forEach((marker) => marker.remove());
   markersRef.current = [];
 }
 
@@ -125,13 +148,13 @@ function syncMarketplaceMarkers(map, points, onSelect, markersRef, styles) {
   removeMarketplaceMarkers(markersRef);
   if (!map || !points?.length) return;
 
-  points.forEach(point => {
+  points.forEach((point) => {
     const el = createMarketplaceMarkerElement(point, styles);
-    el.addEventListener('click', event => {
+    el.addEventListener("click", (event) => {
       event.stopPropagation();
       onSelect(point);
     });
-    const marker = new maptilersdk.Marker({ element: el, anchor: 'center' })
+    const marker = new maptilersdk.Marker({ element: el, anchor: "center" })
       .setLngLat([point.lng, point.lat])
       .addTo(map);
     markersRef.current.push(marker);
@@ -140,10 +163,10 @@ function syncMarketplaceMarkers(map, points, onSelect, markersRef, styles) {
 
 function heatmapPointsToGeoJson(regions) {
   return {
-    type: 'FeatureCollection',
-    features: (regions || []).map(region => ({
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [region.lng, region.lat] },
+    type: "FeatureCollection",
+    features: (regions || []).map((region) => ({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [region.lng, region.lat] },
       properties: { weight: region.weight },
     })),
   };
@@ -154,11 +177,23 @@ function heatmapSyncKey(zoom, pointCount) {
 }
 
 const HEATMAP_PAINT = {
-  'heatmap-weight': ['interpolate', ['linear'], ['get', 'weight'], 0, 0, 0.4, 0.5, 0.75, 0.75, 1, 1],
-  'heatmap-intensity': [
-    'interpolate',
-    ['linear'],
-    ['zoom'],
+  "heatmap-weight": [
+    "interpolate",
+    ["linear"],
+    ["get", "weight"],
+    0,
+    0,
+    0.4,
+    0.5,
+    0.75,
+    0.75,
+    1,
+    1,
+  ],
+  "heatmap-intensity": [
+    "interpolate",
+    ["linear"],
+    ["zoom"],
     4,
     0.45 * HEATMAP_INTENSITY_SCALE,
     6,
@@ -170,25 +205,39 @@ const HEATMAP_PAINT = {
     13,
     2.6 * HEATMAP_INTENSITY_SCALE,
   ],
-  'heatmap-color': [
-    'interpolate',
-    ['linear'],
-    ['heatmap-density'],
+  "heatmap-color": [
+    "interpolate",
+    ["linear"],
+    ["heatmap-density"],
     0,
-    'rgba(33, 102, 172, 0)',
+    "rgba(33, 102, 172, 0)",
     0.08,
-    'rgba(103, 169, 207, 0.5)',
+    "rgba(103, 169, 207, 0.5)",
     0.18,
-    'rgb(140, 211, 175)',
+    "rgb(140, 211, 175)",
     0.3,
-    'rgb(253, 219, 99)',
+    "rgb(253, 219, 99)",
     0.42,
-    'rgb(244, 109, 67)',
+    "rgb(244, 109, 67)",
     0.52,
-    'rgb(215, 25, 28)',
+    "rgb(215, 25, 28)",
   ],
-  'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 4, 12, 6, 18, 9, 28, 11, 38, 13, 52],
-  'heatmap-opacity': HEATMAP_LAYER_OPACITY,
+  "heatmap-radius": [
+    "interpolate",
+    ["linear"],
+    ["zoom"],
+    4,
+    12,
+    6,
+    18,
+    9,
+    28,
+    11,
+    38,
+    13,
+    52,
+  ],
+  "heatmap-opacity": HEATMAP_LAYER_OPACITY,
 };
 
 function removeHeatmapLayer(map) {
@@ -202,7 +251,7 @@ function removeHeatmapLayer(map) {
 }
 
 function isMapHeatmapReady(map) {
-  return Boolean(map && typeof map.loaded === 'function' && map.loaded());
+  return Boolean(map && typeof map.loaded === "function" && map.loaded());
 }
 
 function upsertHeatmapLayer(map, regions) {
@@ -214,22 +263,28 @@ function upsertHeatmapLayer(map, regions) {
 
   const data = heatmapPointsToGeoJson(regions);
   const existingSource = map.getSource(HEATMAP_SOURCE_ID);
-  if (existingSource && typeof existingSource.setData === 'function') {
+  if (existingSource && typeof existingSource.setData === "function") {
     existingSource.setData(data);
     return;
   }
 
   removeHeatmapLayer(map);
-  map.addSource(HEATMAP_SOURCE_ID, { type: 'geojson', data });
+  map.addSource(HEATMAP_SOURCE_ID, { type: "geojson", data });
   map.addLayer({
     id: HEATMAP_LAYER_ID,
-    type: 'heatmap',
+    type: "heatmap",
     source: HEATMAP_SOURCE_ID,
     paint: HEATMAP_PAINT,
   });
 }
 
-function syncHeatmapLayerData(map, heatmapPoints, zoom, zoomUnlocked = false, lastSyncKeyRef = null) {
+function syncHeatmapLayerData(
+  map,
+  heatmapPoints,
+  zoom,
+  zoomUnlocked = false,
+  lastSyncKeyRef = null,
+) {
   const regions = aggregateHeatmapPoints(heatmapPoints, precisionForZoom(zoom));
   if (!isMapHeatmapReady(map)) {
     return regions;
@@ -237,7 +292,7 @@ function syncHeatmapLayerData(map, heatmapPoints, zoom, zoomUnlocked = false, la
 
   if (!isHeatmapVisibleAtMapScale(map, zoomUnlocked) || !regions.length) {
     removeHeatmapLayer(map);
-    if (lastSyncKeyRef) lastSyncKeyRef.current = '';
+    if (lastSyncKeyRef) lastSyncKeyRef.current = "";
     return regions;
   }
 
@@ -251,13 +306,17 @@ function syncHeatmapLayerData(map, heatmapPoints, zoom, zoomUnlocked = false, la
     if (lastSyncKeyRef) lastSyncKeyRef.current = syncKey;
   } catch {
     removeHeatmapLayer(map);
-    if (lastSyncKeyRef) lastSyncKeyRef.current = '';
+    if (lastSyncKeyRef) lastSyncKeyRef.current = "";
   }
   return regions;
 }
 
 function getMapScaleBarKm(map, scaleBarCssPx = HEATMAP_SCALE_BAR_MAX_PX) {
-  if (!map || typeof map.getCenter !== 'function' || typeof map.getZoom !== 'function') {
+  if (
+    !map ||
+    typeof map.getCenter !== "function" ||
+    typeof map.getZoom !== "function"
+  ) {
     return Number.POSITIVE_INFINITY;
   }
   const center = map.getCenter();
@@ -277,114 +336,167 @@ function isHeatmapVisibleAtMapScale(map, zoomUnlocked) {
 }
 
 function formatContract(value, t) {
-  if (value === true) return t('marketplaceLeadFormYes');
-  if (value === false) return t('marketplaceLeadFormNo');
-  return '—';
+  if (value === true) return t("marketplaceLeadFormYes");
+  if (value === false) return t("marketplaceLeadFormNo");
+  return "—";
 }
 
 function marketplaceRelativeTimeLocale(language) {
-  const lang = String(language || '').toLowerCase();
-  if (lang.startsWith('uk') || lang.startsWith('ua')) return 'uk';
-  if (lang.startsWith('es')) return 'es';
-  if (lang.startsWith('ru')) return 'ru';
-  return 'en';
+  const lang = String(language || "").toLowerCase();
+  if (lang.startsWith("uk") || lang.startsWith("ua")) return "uk";
+  if (lang.startsWith("es")) return "es";
+  if (lang.startsWith("ru")) return "ru";
+  return "en";
 }
 
 function formatMarketplacePublicationRelative(isoDate, language) {
-  if (!isoDate) return '';
+  if (!isoDate) return "";
   const date = new Date(isoDate);
-  if (Number.isNaN(date.getTime())) return '';
+  if (Number.isNaN(date.getTime())) return "";
 
   const diffMs = Date.now() - date.getTime();
-  if (diffMs < 0) return '';
+  if (diffMs < 0) return "";
 
-  const rtf = new Intl.RelativeTimeFormat(marketplaceRelativeTimeLocale(language), { numeric: 'always' });
+  const rtf = new Intl.RelativeTimeFormat(
+    marketplaceRelativeTimeLocale(language),
+    { numeric: "always" },
+  );
   const diffMinutes = Math.floor(diffMs / (1000 * 60));
   const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
   if (diffDays >= 365) {
-    return rtf.format(-Math.floor(diffDays / 365), 'year');
+    return rtf.format(-Math.floor(diffDays / 365), "year");
   }
   if (diffDays >= 30) {
-    return rtf.format(-Math.floor(diffDays / 30), 'month');
+    return rtf.format(-Math.floor(diffDays / 30), "month");
   }
   if (diffDays >= 1) {
-    return rtf.format(-diffDays, 'day');
+    return rtf.format(-diffDays, "day");
   }
   if (diffHours >= 1) {
-    return rtf.format(-diffHours, 'hour');
+    return rtf.format(-diffHours, "hour");
   }
-  return rtf.format(-Math.max(1, diffMinutes), 'minute');
+  return rtf.format(-Math.max(1, diffMinutes), "minute");
 }
 
-function MarketplaceDetailsBody({ item, t, variant = 'full', language = 'ua' }) {
+function MarketplaceDetailsBody({
+  item,
+  t,
+  variant = "full",
+  language = "ua",
+}) {
   const photoSections =
-    variant === 'map'
+    variant === "map"
       ? [
           {
-            key: 'connection',
+            key: "connection",
             photos: item.connection_point_photos,
-            label: t('marketplaceMapConnectionPhotos'),
+            label: t("marketplaceMapConnectionPhotos"),
           },
           {
-            key: 'parking',
+            key: "parking",
             photos: item.parking_photos,
-            label: t('marketplaceMapParkingPhotos'),
+            label: t("marketplaceMapParkingPhotos"),
           },
         ]
       : [
           {
-            key: 'parking',
+            key: "parking",
             photos: item.parking_photos,
-            label: t('marketplaceLeadFormParkingPhotosLabel'),
+            label: t("marketplaceLeadFormParkingPhotosLabel"),
           },
           {
-            key: 'connection',
+            key: "connection",
             photos: item.connection_point_photos,
-            label: t('marketplaceLeadFormConnectionPhotosLabel'),
+            label: t("marketplaceLeadFormConnectionPhotosLabel"),
           },
           {
-            key: 'distribution',
+            key: "distribution",
             photos: item.distribution_contract_photos,
-            label: t('marketplaceDistributionContractPhotosLabel'),
+            label: t("marketplaceDistributionContractPhotosLabel"),
           },
         ];
-  const visiblePhotoSections = photoSections.filter(section => section.photos?.length > 0);
-  const publicationRelative = formatMarketplacePublicationRelative(item.published_on || item.created_on, language);
+  const visiblePhotoSections = photoSections.filter(
+    (section) => section.photos?.length > 0,
+  );
+  const publicationRelative = formatMarketplacePublicationRelative(
+    item.published_on || item.created_on,
+    language,
+  );
+
+  const photoBlock =
+    visiblePhotoSections.length > 0 ? (
+      <div className={styles.photoGroups}>
+        {visiblePhotoSections.map((section) => (
+          <div key={section.key} className={styles.photoGroup}>
+            <span className={styles.photoGroupLabel}>{section.label}</span>
+            <div className={styles.photoRow}>
+              {section.photos.map((url) => (
+                <a
+                  key={url}
+                  href={resolveMarketplaceAssetUrl(url)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <img
+                    src={resolveMarketplaceAssetUrl(url)}
+                    alt=""
+                    className={styles.photoThumb}
+                  />
+                </a>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    ) : null;
 
   return (
     <>
+      {/* Photos first so investors see the site before paying for contacts. */}
+      {photoBlock}
+
       <div className={styles.detailBadges}>
-        <span className={styles.kwBadge}>{formatKwLabel(item.kw_available)}</span>
+        <span className={styles.kwBadge}>
+          {formatKwLabel(item.kw_available)}
+        </span>
         {item.distribution_contract != null ? (
           <span
             className={`${styles.contractBadge} ${
-              item.distribution_contract ? styles.contractBadgeYes : styles.contractBadgeNo
+              item.distribution_contract
+                ? styles.contractBadgeYes
+                : styles.contractBadgeNo
             }`}
           >
-            {t('marketplaceLeadFormDistributionLabel')}: {formatContract(item.distribution_contract, t)}
+            {t("marketplaceLeadFormDistributionLabel")}:{" "}
+            {formatContract(item.distribution_contract, t)}
           </span>
         ) : null}
         {item.distance_meters != null ? (
           <span className={styles.distanceBadge}>
-            {t('marketplaceLeadFormDistanceLabel')}: {formatDistanceMeters(item.distance_meters, t)}
+            {t("marketplaceLeadFormDistanceLabel")}:{" "}
+            {formatDistanceMeters(item.distance_meters, t)}
           </span>
         ) : null}
         {item.price_per_kwh_extra != null ? (
           <span className={styles.distanceBadge}>
-            {t('marketplaceLeadFormPriceKwhExtraLabel')}: {Number(item.price_per_kwh_extra).toFixed(1)} ₴
+            {t("marketplaceLeadFormPriceKwhExtraLabel")}:{" "}
+            {Number(item.price_per_kwh_extra).toFixed(1)} ₴
           </span>
         ) : null}
         {item.monthly_price_parking != null ? (
           <span className={styles.distanceBadge}>
-            {t('marketplaceLeadFormMonthlyParkingLabel')}: {item.monthly_price_parking} ₴
+            {t("marketplaceLeadFormMonthlyParkingLabel")}:{" "}
+            {item.monthly_price_parking} ₴
           </span>
         ) : null}
       </div>
 
       {publicationRelative ? (
-        <p className={styles.publicationDate}>{t('marketplacePublishedOn', { timeAgo: publicationRelative })}</p>
+        <p className={styles.publicationDate}>
+          {t("marketplacePublishedOn", { timeAgo: publicationRelative })}
+        </p>
       ) : null}
 
       <ul className={styles.locationList}>
@@ -401,23 +513,6 @@ function MarketplaceDetailsBody({ item, t, variant = 'full', language = 'ua' }) 
           </li>
         ))}
       </ul>
-
-      {visiblePhotoSections.length > 0 ? (
-        <div className={styles.photoGroups}>
-          {visiblePhotoSections.map(section => (
-            <div key={section.key} className={styles.photoGroup}>
-              <span className={styles.photoGroupLabel}>{section.label}</span>
-              <div className={styles.photoRow}>
-                {section.photos.map(url => (
-                  <a key={url} href={resolveMarketplaceAssetUrl(url)} target="_blank" rel="noopener noreferrer">
-                    <img src={resolveMarketplaceAssetUrl(url)} alt="" className={styles.photoThumb} />
-                  </a>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : null}
     </>
   );
 }
@@ -425,27 +520,44 @@ function MarketplaceDetailsBody({ item, t, variant = 'full', language = 'ua' }) 
 function OwnerInfoBody({ ownerInfo, t }) {
   if (!ownerInfo) return null;
 
-  const contractPhotos = (ownerInfo.distribution_contract_photos || []).filter(Boolean);
+  const contractPhotos = (ownerInfo.distribution_contract_photos || []).filter(
+    Boolean,
+  );
 
   return (
     <div className={styles.ownerInfoBody}>
       <div className={styles.ownerInfoRow}>
-        <span className={styles.ownerInfoLabel}>{t('marketplaceOwnerName')}</span>
+        <span className={styles.ownerInfoLabel}>
+          {t("marketplaceOwnerName")}
+        </span>
         <span className={styles.ownerInfoValue}>{ownerInfo.name}</span>
       </div>
       <div className={styles.ownerInfoRow}>
-        <span className={styles.ownerInfoLabel}>{t('marketplaceOwnerPhone')}</span>
+        <span className={styles.ownerInfoLabel}>
+          {t("marketplaceOwnerPhone")}
+        </span>
         <a className={styles.ownerInfoPhone} href={`tel:${ownerInfo.phone}`}>
           {ownerInfo.phone}
         </a>
       </div>
       {contractPhotos.length > 0 ? (
         <div className={styles.photoGroup}>
-          <span className={styles.photoGroupLabel}>{t('marketplaceDistributionContractPhotosLabel')}</span>
+          <span className={styles.photoGroupLabel}>
+            {t("marketplaceDistributionContractPhotosLabel")}
+          </span>
           <div className={styles.photoRow}>
-            {contractPhotos.map(url => (
-              <a key={url} href={resolveMarketplaceAssetUrl(url)} target="_blank" rel="noopener noreferrer">
-                <img src={resolveMarketplaceAssetUrl(url)} alt="" className={styles.photoThumbLarge} />
+            {contractPhotos.map((url) => (
+              <a
+                key={url}
+                href={resolveMarketplaceAssetUrl(url)}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <img
+                  src={resolveMarketplaceAssetUrl(url)}
+                  alt=""
+                  className={styles.photoThumbLarge}
+                />
               </a>
             ))}
           </div>
@@ -455,21 +567,21 @@ function OwnerInfoBody({ ownerInfo, t }) {
   );
 }
 
-const PAYMENT_SUCCESS = 'SUCCESS';
-const PAYMENT_FAILED = new Set(['FAILURE', 'EXPIRED', 'REVERSED']);
+const PAYMENT_SUCCESS = "SUCCESS";
+const PAYMENT_FAILED = new Set(["FAILURE", "EXPIRED", "REVERSED"]);
 
 export default function MarketplaceMap({
   t,
-  locale = 'uk',
-  requestType = 'PROPOSE',
+  locale = "uk",
+  requestType = "PROPOSE",
   hideHeader = false,
   showLookingHeatmap = true,
   showLookingMarkers = true,
   loadEvuaHeatmap = false,
-  paymentReturnId = '',
-  paymentReturnLocationId = '',
+  paymentReturnId = "",
+  paymentReturnLocationId = "",
   onPaymentReturnHandled,
-  heatmapPaymentReturnId = '',
+  heatmapPaymentReturnId = "",
   onHeatmapPaymentReturnHandled,
 }) {
   const mapContainerRef = useRef(null);
@@ -480,7 +592,7 @@ export default function MarketplaceMap({
   const heatmapRegionsRef = useRef([]);
   const heatmapPointsRef = useRef([]);
   const heatmapSyncGenerationRef = useRef(0);
-  const lastHeatmapSyncKeyRef = useRef('');
+  const lastHeatmapSyncKeyRef = useRef("");
   const lastAllowedZoomRef = useRef(DEFAULT_ZOOM);
   const heatmapZoomUnlockedRef = useRef(isHeatmapZoomUnlocked());
   const [mapReady, setMapReady] = useState(false);
@@ -492,26 +604,29 @@ export default function MarketplaceMap({
   const { points: govmapPoints } = useGovmapHeatmapPoints(heatmapEnabled);
   const { points: driverGpsPoints } = useDriverGpsHeatmapPoints(heatmapEnabled);
   const heatmapPoints = useMemo(
-    () => buildHeatmapWeightedPoints(evuaStations, govmapPoints, driverGpsPoints),
-    [evuaStations, govmapPoints, driverGpsPoints]
+    () =>
+      buildHeatmapWeightedPoints(evuaStations, govmapPoints, driverGpsPoints),
+    [evuaStations, govmapPoints, driverGpsPoints],
   );
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const [selectedItem, setSelectedItem] = useState(null);
   const [ownerInfo, setOwnerInfo] = useState(null);
   const [ownerModalOpen, setOwnerModalOpen] = useState(false);
   const [requestLoading, setRequestLoading] = useState(false);
-  const [paymentError, setPaymentError] = useState('');
+  const [paymentError, setPaymentError] = useState("");
   const [heatmapAtScale, setHeatmapAtScale] = useState(true);
-  const [heatmapZoomUnlocked, setHeatmapZoomUnlocked] = useState(() => isHeatmapZoomUnlocked());
+  const [heatmapZoomUnlocked, setHeatmapZoomUnlocked] = useState(() =>
+    isHeatmapZoomUnlocked(),
+  );
   const [heatmapPayModalOpen, setHeatmapPayModalOpen] = useState(false);
   const [heatmapPaymentLoading, setHeatmapPaymentLoading] = useState(false);
-  const [heatmapPaymentError, setHeatmapPaymentError] = useState('');
-  const ownerPdfDownloadKeyRef = useRef('');
+  const [heatmapPaymentError, setHeatmapPaymentError] = useState("");
+  const ownerPdfDownloadKeyRef = useRef("");
 
   const allItems = useMemo(
     () => [...items, ...lookingItems, ...pendingItems],
-    [items, lookingItems, pendingItems]
+    [items, lookingItems, pendingItems],
   );
   itemsRef.current = allItems;
   heatmapPointsRef.current = heatmapPoints;
@@ -522,13 +637,13 @@ export default function MarketplaceMap({
       ...flattenLocations(lookingItems),
       ...flattenLocations(pendingItems),
     ],
-    [items, lookingItems, pendingItems]
+    [items, lookingItems, pendingItems],
   );
   pointsRef.current = points;
   const hasHeatmapData = heatmapEnabled && heatmapPoints.length > 0;
   const showHeatmapLegend = hasHeatmapData && heatmapAtScale;
 
-  const openOwnerInfo = useCallback(info => {
+  const openOwnerInfo = useCallback((info) => {
     if (!info) return;
     setOwnerInfo(info);
     setOwnerModalOpen(true);
@@ -536,18 +651,21 @@ export default function MarketplaceMap({
 
   useEffect(() => {
     if (!ownerModalOpen) {
-      ownerPdfDownloadKeyRef.current = '';
+      ownerPdfDownloadKeyRef.current = "";
     }
   }, [ownerModalOpen]);
 
   useEffect(() => {
-    if (!ownerModalOpen || !ownerInfo?.distribution_contract_photos?.length) return undefined;
+    if (!ownerModalOpen || !ownerInfo?.distribution_contract_photos?.length)
+      return undefined;
 
-    const downloadKey = `${ownerInfo.name || ''}:${ownerInfo.distribution_contract_photos.join('|')}`;
+    const downloadKey = `${ownerInfo.name || ""}:${ownerInfo.distribution_contract_photos.join("|")}`;
     if (ownerPdfDownloadKeyRef.current === downloadKey) return undefined;
     ownerPdfDownloadKeyRef.current = downloadKey;
 
-    const photoUrls = ownerInfo.distribution_contract_photos.map(resolveMarketplaceAssetUrl);
+    const photoUrls = ownerInfo.distribution_contract_photos.map(
+      resolveMarketplaceAssetUrl,
+    );
     downloadContractPhotosAsPdf(photoUrls, ownerInfo.name).catch(() => {});
 
     return undefined;
@@ -555,21 +673,30 @@ export default function MarketplaceMap({
 
   const upsertItemViewCount = useCallback((locationId, viewCount) => {
     if (!locationId) return;
-    const patch = row => (String(row.id) === String(locationId) ? { ...row, view_count: viewCount } : row);
-    setItems(prev => prev.map(patch));
-    setLookingItems(prev => prev.map(patch));
-    setSelectedItem(prev =>
-      prev && String(prev.id) === String(locationId) ? { ...prev, view_count: viewCount } : prev
+    const patch = (row) =>
+      String(row.id) === String(locationId)
+        ? { ...row, view_count: viewCount }
+        : row;
+    setItems((prev) => prev.map(patch));
+    setLookingItems((prev) => prev.map(patch));
+    setSelectedItem((prev) =>
+      prev && String(prev.id) === String(locationId)
+        ? { ...prev, view_count: viewCount }
+        : prev,
     );
   }, []);
 
   const resolveOwnerInfoFromPayment = useCallback(
     async (paymentId, locationId) => {
       const status = await fetchMarketplacePaymentStatus(paymentId);
-      if (!status) throw new Error('missing status');
+      if (!status) throw new Error("missing status");
 
-      if (locationId && status.location_id && String(status.location_id) !== String(locationId)) {
-        throw new Error('payment location mismatch');
+      if (
+        locationId &&
+        status.location_id &&
+        String(status.location_id) !== String(locationId)
+      ) {
+        throw new Error("payment location mismatch");
       }
 
       if (status.owner_info?.view_count != null && status.location_id) {
@@ -586,13 +713,13 @@ export default function MarketplaceMap({
       }
 
       if (PAYMENT_FAILED.has(status.status)) {
-        setPaymentError(t('marketplacePayFailed'));
+        setPaymentError(t("marketplacePayFailed"));
         return false;
       }
 
       return null;
     },
-    [openOwnerInfo, t, upsertItemViewCount]
+    [openOwnerInfo, t, upsertItemViewCount],
   );
 
   const pollPaymentUntilDone = useCallback(
@@ -603,16 +730,18 @@ export default function MarketplaceMap({
         const result = await resolveOwnerInfoFromPayment(paymentId, locationId);
         if (result !== null) return result;
         // eslint-disable-next-line no-await-in-loop
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        await new Promise((resolve) => setTimeout(resolve, 1500));
       }
-      setPaymentError(t('marketplacePayProcessing'));
+      setPaymentError(t("marketplacePayProcessing"));
       return false;
     },
-    [resolveOwnerInfoFromPayment, t]
+    [resolveOwnerInfoFromPayment, t],
   );
 
-  const handleMarkerSelect = useCallback(point => {
-    const item = itemsRef.current.find(row => String(row.id) === String(point.itemId));
+  const handleMarkerSelect = useCallback((point) => {
+    const item = itemsRef.current.find(
+      (row) => String(row.id) === String(point.itemId),
+    );
     if (item) setSelectedItem(item);
   }, []);
 
@@ -632,7 +761,7 @@ export default function MarketplaceMap({
           points,
           map.getZoom(),
           heatmapZoomUnlockedRef.current,
-          lastHeatmapSyncKeyRef
+          lastHeatmapSyncKeyRef,
         );
       };
 
@@ -640,15 +769,18 @@ export default function MarketplaceMap({
         run();
         return;
       }
-      map.once('load', run);
+      map.once("load", run);
     },
-    [heatmapEnabled]
+    [heatmapEnabled],
   );
 
   const refreshHeatmapOnMap = useCallback(() => {
     const map = mapRef.current;
     if (!map || !heatmapEnabled) return;
-    const visible = isHeatmapVisibleAtMapScale(map, heatmapZoomUnlockedRef.current);
+    const visible = isHeatmapVisibleAtMapScale(
+      map,
+      heatmapZoomUnlockedRef.current,
+    );
     setHeatmapAtScale(visible);
     if (!visible) {
       removeHeatmapLayer(map);
@@ -663,50 +795,50 @@ export default function MarketplaceMap({
   }, [refreshHeatmapOnMap]);
 
   const applyHeatmapZoomUnlock = useCallback(
-    paymentId => {
+    (paymentId) => {
       storeHeatmapZoomUnlock(paymentId);
       setHeatmapZoomUnlocked(true);
       setHeatmapPayModalOpen(false);
-      setHeatmapPaymentError('');
+      setHeatmapPaymentError("");
       refreshHeatmapOnMap();
     },
-    [refreshHeatmapOnMap]
+    [refreshHeatmapOnMap],
   );
 
   const resolveHeatmapPaymentUnlock = useCallback(
-    async paymentId => {
+    async (paymentId) => {
       const status = await fetchMarketplacePaymentStatus(paymentId);
-      if (!status) throw new Error('missing status');
-      if (status.payment_kind && status.payment_kind !== 'heatmap_zoom') {
-        throw new Error('payment kind mismatch');
+      if (!status) throw new Error("missing status");
+      if (status.payment_kind && status.payment_kind !== "heatmap_zoom") {
+        throw new Error("payment kind mismatch");
       }
       if (status.status === PAYMENT_SUCCESS) {
         applyHeatmapZoomUnlock(status.payment_id || paymentId);
         return true;
       }
       if (PAYMENT_FAILED.has(status.status)) {
-        setHeatmapPaymentError(t('marketplacePayFailed'));
+        setHeatmapPaymentError(t("marketplacePayFailed"));
         return false;
       }
       return null;
     },
-    [applyHeatmapZoomUnlock, t]
+    [applyHeatmapZoomUnlock, t],
   );
 
   const pollHeatmapPaymentUntilDone = useCallback(
-    async paymentId => {
+    async (paymentId) => {
       const maxAttempts = 20;
       for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         // eslint-disable-next-line no-await-in-loop
         const result = await resolveHeatmapPaymentUnlock(paymentId);
         if (result !== null) return result;
         // eslint-disable-next-line no-await-in-loop
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        await new Promise((resolve) => setTimeout(resolve, 1500));
       }
-      setHeatmapPaymentError(t('marketplacePayProcessing'));
+      setHeatmapPaymentError(t("marketplacePayProcessing"));
       return false;
     },
-    [resolveHeatmapPaymentUnlock, t]
+    [resolveHeatmapPaymentUnlock, t],
   );
 
   useEffect(() => {
@@ -714,21 +846,25 @@ export default function MarketplaceMap({
 
     let cancelled = false;
     setLoading(true);
-    setError('');
+    setError("");
 
     const fetches = [fetchMarketplaceLocations(requestType)];
-    if (showLookingMarkers && requestType !== 'LOOKING') {
-      fetches.push(fetchMarketplaceLocations('LOOKING'));
+    if (showLookingMarkers && requestType !== "LOOKING") {
+      fetches.push(fetchMarketplaceLocations("LOOKING"));
     }
 
     Promise.all(fetches)
-      .then(results => {
+      .then((results) => {
         if (cancelled) return;
         setItems(results[0] || []);
-        setLookingItems(showLookingMarkers && requestType !== 'LOOKING' ? results[1] || [] : []);
+        setLookingItems(
+          showLookingMarkers && requestType !== "LOOKING"
+            ? results[1] || []
+            : [],
+        );
       })
       .catch(() => {
-        if (!cancelled) setError(t('marketplaceLoadError'));
+        if (!cancelled) setError(t("marketplaceLoadError"));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -745,7 +881,7 @@ export default function MarketplaceMap({
     let cancelled = false;
     // Pending submissions are a side list: a failure here must not hide published locations.
     fetchPendingMarketplaceLocations()
-      .then(rows => {
+      .then((rows) => {
         if (!cancelled) setPendingItems(rows || []);
       })
       .catch(() => {
@@ -758,7 +894,8 @@ export default function MarketplaceMap({
   }, [loadEvuaHeatmap]);
 
   useEffect(() => {
-    if (!loadEvuaHeatmap || mapRef.current || !mapContainerRef.current) return undefined;
+    if (!loadEvuaHeatmap || mapRef.current || !mapContainerRef.current)
+      return undefined;
 
     maptilersdk.config.apiKey = MAPTILER_API_KEY;
     const map = new maptilersdk.Map({
@@ -779,31 +916,43 @@ export default function MarketplaceMap({
       if (mapRef.current === map) map.resize();
     };
     const resizeObserver =
-      typeof ResizeObserver !== 'undefined' && mapContainerRef.current
+      typeof ResizeObserver !== "undefined" && mapContainerRef.current
         ? new ResizeObserver(resizeMap)
         : null;
     if (resizeObserver && mapContainerRef.current) {
       resizeObserver.observe(mapContainerRef.current);
     }
-    window.addEventListener('resize', resizeMap);
+    window.addEventListener("resize", resizeMap);
 
-    map.addControl(new maplibregl.ScaleControl({ maxWidth: HEATMAP_SCALE_BAR_MAX_PX, unit: 'metric' }), 'bottom-right');
+    map.addControl(
+      new maplibregl.ScaleControl({
+        maxWidth: HEATMAP_SCALE_BAR_MAX_PX,
+        unit: "metric",
+      }),
+      "bottom-right",
+    );
 
     const updateHeatmapLegendVisibility = () => {
-      const visible = isHeatmapVisibleAtMapScale(map, heatmapZoomUnlockedRef.current);
+      const visible = isHeatmapVisibleAtMapScale(
+        map,
+        heatmapZoomUnlockedRef.current,
+      );
       setHeatmapAtScale(visible);
       if (!visible) {
         removeHeatmapLayer(map);
-        lastHeatmapSyncKeyRef.current = '';
+        lastHeatmapSyncKeyRef.current = "";
       }
     };
 
     const syncHeatmapAfterZoom = () => {
-      const visible = isHeatmapVisibleAtMapScale(map, heatmapZoomUnlockedRef.current);
+      const visible = isHeatmapVisibleAtMapScale(
+        map,
+        heatmapZoomUnlockedRef.current,
+      );
       setHeatmapAtScale(visible);
       if (!visible) {
         removeHeatmapLayer(map);
-        lastHeatmapSyncKeyRef.current = '';
+        lastHeatmapSyncKeyRef.current = "";
         return;
       }
       requestHeatmapSync(map, heatmapPointsRef.current);
@@ -820,41 +969,53 @@ export default function MarketplaceMap({
       setHeatmapPayModalOpen(true);
       requestAnimationFrame(() => {
         if (mapRef.current !== map) return;
-        if (typeof map.stop === 'function') map.stop();
+        if (typeof map.stop === "function") map.stop();
         map.setZoom(restoreZoom);
         syncHeatmapAfterZoom();
       });
     };
 
-    map.on('load', () => {
+    map.on("load", () => {
       setMapReady(true);
       lastAllowedZoomRef.current = map.getZoom();
       resizeMap();
-      syncMarketplaceMarkers(map, pointsRef.current, handleMarkerSelect, htmlMarkersRef, styles);
+      syncMarketplaceMarkers(
+        map,
+        pointsRef.current,
+        handleMarkerSelect,
+        htmlMarkersRef,
+        styles,
+      );
       syncHeatmapAfterZoom();
     });
 
-    map.on('zoom', updateHeatmapLegendVisibility);
+    map.on("zoom", updateHeatmapLegendVisibility);
     const onZoomEnd = () => {
       enforceHeatmapZoomPaywall();
       syncHeatmapAfterZoom();
     };
-    map.on('zoomend', onZoomEnd);
+    map.on("zoomend", onZoomEnd);
 
     return () => {
       heatmapSyncGenerationRef.current += 1;
-      lastHeatmapSyncKeyRef.current = '';
+      lastHeatmapSyncKeyRef.current = "";
       resizeObserver?.disconnect();
-      window.removeEventListener('resize', resizeMap);
-      map.off('zoom', updateHeatmapLegendVisibility);
-      map.off('zoomend', onZoomEnd);
+      window.removeEventListener("resize", resizeMap);
+      map.off("zoom", updateHeatmapLegendVisibility);
+      map.off("zoomend", onZoomEnd);
       removeHeatmapLayer(map);
       removeMarketplaceMarkers(htmlMarkersRef);
       setMapReady(false);
       map.remove();
       mapRef.current = null;
     };
-  }, [loadEvuaHeatmap, handleMarkerSelect, showLookingHeatmap, requestHeatmapSync, heatmapEnabled]);
+  }, [
+    loadEvuaHeatmap,
+    handleMarkerSelect,
+    showLookingHeatmap,
+    requestHeatmapSync,
+    heatmapEnabled,
+  ]);
 
   useEffect(() => {
     if (!mapReady) return;
@@ -864,7 +1025,13 @@ export default function MarketplaceMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!loadEvuaHeatmap || !mapReady || !map) return;
-    syncMarketplaceMarkers(map, points, handleMarkerSelect, htmlMarkersRef, styles);
+    syncMarketplaceMarkers(
+      map,
+      points,
+      handleMarkerSelect,
+      htmlMarkersRef,
+      styles,
+    );
   }, [loadEvuaHeatmap, mapReady, points, handleMarkerSelect]);
 
   useEffect(() => {
@@ -873,7 +1040,7 @@ export default function MarketplaceMap({
       if (mapReady && map) removeHeatmapLayer(map);
       return;
     }
-    lastHeatmapSyncKeyRef.current = '';
+    lastHeatmapSyncKeyRef.current = "";
     requestHeatmapSync(map, heatmapPoints);
   }, [heatmapPoints, heatmapEnabled, mapReady, requestHeatmapSync]);
 
@@ -885,17 +1052,23 @@ export default function MarketplaceMap({
       setSelectedItem(null);
     };
 
-    map.on('click', onMapClick);
+    map.on("click", onMapClick);
     return () => {
-      map.off('click', onMapClick);
+      map.off("click", onMapClick);
     };
   }, [selectedItem]);
 
   useEffect(() => {
-    if (!paymentReturnLocationId || (items.length === 0 && lookingItems.length === 0)) return;
+    if (
+      !paymentReturnLocationId ||
+      (items.length === 0 && lookingItems.length === 0)
+    )
+      return;
     const item =
-      items.find(row => String(row.id) === String(paymentReturnLocationId)) ||
-      lookingItems.find(row => String(row.id) === String(paymentReturnLocationId));
+      items.find((row) => String(row.id) === String(paymentReturnLocationId)) ||
+      lookingItems.find(
+        (row) => String(row.id) === String(paymentReturnLocationId),
+      );
     if (item) setSelectedItem(item);
   }, [paymentReturnLocationId, items, lookingItems]);
 
@@ -904,14 +1077,14 @@ export default function MarketplaceMap({
 
     let cancelled = false;
     setRequestLoading(true);
-    setPaymentError('');
+    setPaymentError("");
 
     pollPaymentUntilDone(paymentReturnId, paymentReturnLocationId)
       .then(() => {
         if (!cancelled) onPaymentReturnHandled?.();
       })
       .catch(() => {
-        if (!cancelled) setPaymentError(t('marketplacePayFailed'));
+        if (!cancelled) setPaymentError(t("marketplacePayFailed"));
       })
       .finally(() => {
         if (!cancelled) setRequestLoading(false);
@@ -920,21 +1093,28 @@ export default function MarketplaceMap({
     return () => {
       cancelled = true;
     };
-  }, [paymentReturnId, paymentReturnLocationId, onPaymentReturnHandled, pollPaymentUntilDone, t]);
+  }, [
+    paymentReturnId,
+    paymentReturnLocationId,
+    onPaymentReturnHandled,
+    pollPaymentUntilDone,
+    t,
+  ]);
 
   useEffect(() => {
-    if (!heatmapPaymentReturnId || !isMarketplaceApiConfigured()) return undefined;
+    if (!heatmapPaymentReturnId || !isMarketplaceApiConfigured())
+      return undefined;
 
     let cancelled = false;
     setHeatmapPaymentLoading(true);
-    setHeatmapPaymentError('');
+    setHeatmapPaymentError("");
 
     pollHeatmapPaymentUntilDone(heatmapPaymentReturnId)
       .then(() => {
         if (!cancelled) onHeatmapPaymentReturnHandled?.();
       })
       .catch(() => {
-        if (!cancelled) setHeatmapPaymentError(t('marketplacePayFailed'));
+        if (!cancelled) setHeatmapPaymentError(t("marketplacePayFailed"));
       })
       .finally(() => {
         if (!cancelled) setHeatmapPaymentLoading(false);
@@ -943,17 +1123,25 @@ export default function MarketplaceMap({
     return () => {
       cancelled = true;
     };
-  }, [heatmapPaymentReturnId, onHeatmapPaymentReturnHandled, pollHeatmapPaymentUntilDone, t]);
+  }, [
+    heatmapPaymentReturnId,
+    onHeatmapPaymentReturnHandled,
+    pollHeatmapPaymentUntilDone,
+    t,
+  ]);
 
   const handleRequestInfo = async () => {
     if (!selectedItem || requestLoading) return;
     setRequestLoading(true);
-    setPaymentError('');
+    setPaymentError("");
 
     const storedPaymentId = getStoredMarketplacePaymentId(selectedItem.id);
     if (storedPaymentId) {
       try {
-        const unlocked = await resolveOwnerInfoFromPayment(storedPaymentId, selectedItem.id);
+        const unlocked = await resolveOwnerInfoFromPayment(
+          storedPaymentId,
+          selectedItem.id,
+        );
         if (unlocked) {
           setRequestLoading(false);
           return;
@@ -972,9 +1160,9 @@ export default function MarketplaceMap({
         window.location.href = payment.page_url;
         return;
       }
-      setPaymentError(t('marketplacePayFailed'));
+      setPaymentError(t("marketplacePayFailed"));
     } catch {
-      setPaymentError(t('marketplacePayFailed'));
+      setPaymentError(t("marketplacePayFailed"));
     } finally {
       setRequestLoading(false);
     }
@@ -983,21 +1171,24 @@ export default function MarketplaceMap({
   const handleSkipPaymentTest = async () => {
     if (!selectedItem || requestLoading) return;
     setRequestLoading(true);
-    setPaymentError('');
+    setPaymentError("");
     try {
       const status = await createMarketplaceTestPayment(selectedItem.id, {
         clientUiId: getClientId(),
       });
       if (status?.payment_id) {
-        const unlocked = await resolveOwnerInfoFromPayment(status.payment_id, selectedItem.id);
+        const unlocked = await resolveOwnerInfoFromPayment(
+          status.payment_id,
+          selectedItem.id,
+        );
         if (!unlocked) {
-          setPaymentError(t('marketplacePayFailed'));
+          setPaymentError(t("marketplacePayFailed"));
         }
         return;
       }
-      setPaymentError(t('marketplacePayFailed'));
+      setPaymentError(t("marketplacePayFailed"));
     } catch {
-      setPaymentError(t('marketplacePayFailed'));
+      setPaymentError(t("marketplacePayFailed"));
     } finally {
       setRequestLoading(false);
     }
@@ -1006,7 +1197,7 @@ export default function MarketplaceMap({
   const handleHeatmapPay = async () => {
     if (heatmapPaymentLoading) return;
     setHeatmapPaymentLoading(true);
-    setHeatmapPaymentError('');
+    setHeatmapPaymentError("");
     try {
       const payment = await createHeatmapZoomPayment({
         redirectBaseUrl: buildMarketplacePayRedirectBase(),
@@ -1016,9 +1207,9 @@ export default function MarketplaceMap({
         window.location.href = payment.page_url;
         return;
       }
-      setHeatmapPaymentError(t('marketplacePayFailed'));
+      setHeatmapPaymentError(t("marketplacePayFailed"));
     } catch {
-      setHeatmapPaymentError(t('marketplacePayFailed'));
+      setHeatmapPaymentError(t("marketplacePayFailed"));
     } finally {
       setHeatmapPaymentLoading(false);
     }
@@ -1027,37 +1218,39 @@ export default function MarketplaceMap({
   const handleHeatmapPayTest = async () => {
     if (heatmapPaymentLoading) return;
     setHeatmapPaymentLoading(true);
-    setHeatmapPaymentError('');
+    setHeatmapPaymentError("");
     try {
-      const status = await createHeatmapZoomTestPayment({ clientUiId: getClientId() });
+      const status = await createHeatmapZoomTestPayment({
+        clientUiId: getClientId(),
+      });
       if (status?.status === PAYMENT_SUCCESS && status?.payment_id) {
         applyHeatmapZoomUnlock(status.payment_id);
         return;
       }
-      setHeatmapPaymentError(t('marketplacePayFailed'));
+      setHeatmapPaymentError(t("marketplacePayFailed"));
     } catch {
       if (isMarketplaceUiLocalDev()) {
         storeHeatmapZoomUnlockLocalDev();
-        applyHeatmapZoomUnlock('local-dev');
+        applyHeatmapZoomUnlock("local-dev");
         return;
       }
-      setHeatmapPaymentError(t('marketplacePayFailed'));
+      setHeatmapPaymentError(t("marketplacePayFailed"));
     } finally {
       setHeatmapPaymentLoading(false);
     }
   };
 
   const showLocalTestPayment = isMarketplaceLocalTestPaymentEnabled();
-  const selectedIsPending = selectedItem?.status === 'PENDING';
-  const selectedIsLooking = selectedItem?.request_type === 'LOOKING';
+  const selectedIsPending = selectedItem?.status === "PENDING";
+  const selectedIsLooking = selectedItem?.request_type === "LOOKING";
   const selectedDetailTitleKey = selectedIsPending
-    ? 'marketplaceDetailTitlePending'
+    ? "marketplaceDetailTitlePending"
     : selectedIsLooking
-      ? 'marketplaceDetailTitleLooking'
-      : 'marketplaceDetailTitlePropose';
+      ? "marketplaceDetailTitleLooking"
+      : "marketplaceDetailTitlePropose";
   const selectedRequestInfoKey = selectedIsLooking
-    ? 'marketplaceRequestInvestorInfoPayButton'
-    : 'marketplaceRequestInfoPayButton';
+    ? "marketplaceRequestInvestorInfoPayButton"
+    : "marketplaceRequestInfoPayButton";
 
   if (!isMarketplaceApiConfigured()) {
     return null;
@@ -1065,31 +1258,43 @@ export default function MarketplaceMap({
 
   return (
     <section
-      className={`${styles.root}${hideHeader ? ` ${styles.rootEmbedded}` : ''}`}
-      aria-labelledby={hideHeader ? undefined : 'marketplace-map-title'}
+      className={`${styles.root}${hideHeader ? ` ${styles.rootEmbedded}` : ""}`}
+      aria-labelledby={hideHeader ? undefined : "marketplace-map-title"}
     >
       {hideHeader ? null : (
         <>
           <h2 id="marketplace-map-title" className={styles.title}>
-            {t('marketplaceTitle')}
+            {t("marketplaceTitle")}
           </h2>
-          <p className={styles.subtitle}>{t('marketplaceMapHint')}</p>
+          <p className={styles.subtitle}>{t("marketplaceMapHint")}</p>
         </>
       )}
 
-      {loading ? <p className={styles.status}>{t('marketplaceLeadFormMapLoading')}</p> : null}
+      {loading ? (
+        <p className={styles.status}>{t("marketplaceLeadFormMapLoading")}</p>
+      ) : null}
       {error ? <p className={styles.error}>{error}</p> : null}
 
       <div className={styles.mapWrap}>
-        <div ref={mapContainerRef} className={styles.map} aria-label={t('marketplaceMapAria')} />
+        <div
+          ref={mapContainerRef}
+          className={styles.map}
+          aria-label={t("marketplaceMapAria")}
+        />
 
         {showHeatmapLegend ? (
           <div className={styles.heatmapLegend} aria-hidden>
-            <span className={styles.heatmapLegendTitle}>{t('marketplaceHeatmapLegendTitle')}</span>
+            <span className={styles.heatmapLegendTitle}>
+              {t("marketplaceHeatmapLegendTitle")}
+            </span>
             <div className={styles.heatmapLegendScale}>
-              <span className={styles.heatmapLegendLow}>{t('marketplaceHeatmapLegendLow')}</span>
+              <span className={styles.heatmapLegendLow}>
+                {t("marketplaceHeatmapLegendLow")}
+              </span>
               <span className={styles.heatmapLegendBar} />
-              <span className={styles.heatmapLegendHigh}>{t('marketplaceHeatmapLegendHigh')}</span>
+              <span className={styles.heatmapLegendHigh}>
+                {t("marketplaceHeatmapLegendHigh")}
+              </span>
             </div>
           </div>
         ) : null}
@@ -1099,15 +1304,17 @@ export default function MarketplaceMap({
             className={styles.detailPanel}
             role="dialog"
             aria-label={t(selectedDetailTitleKey)}
-            onClick={e => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
           >
             <div className={styles.detailHeader}>
-              <h3 className={styles.detailTitle}>{t(selectedDetailTitleKey)}</h3>
+              <h3 className={styles.detailTitle}>
+                {t(selectedDetailTitleKey)}
+              </h3>
               <button
                 type="button"
                 className={styles.detailCloseBtn}
                 onClick={() => setSelectedItem(null)}
-                aria-label={t('marketplaceClose')}
+                aria-label={t("marketplaceClose")}
               >
                 ×
               </button>
@@ -1116,19 +1323,32 @@ export default function MarketplaceMap({
             {selectedIsPending ? (
               <>
                 <div className={styles.detailBadges}>
-                  <span className={styles.kwBadge}>{formatKwLabel(selectedItem.kw_available)}</span>
+                  <span className={styles.kwBadge}>
+                    {formatKwLabel(selectedItem.kw_available)}
+                  </span>
                 </div>
-                <p className={styles.pendingNote}>{t('marketplacePendingReviewNote')}</p>
+                <p className={styles.pendingNote}>
+                  {t("marketplacePendingReviewNote")}
+                </p>
               </>
             ) : (
               <>
-                <MarketplaceDetailsBody item={selectedItem} t={t} language={locale} variant="map" />
+                <MarketplaceDetailsBody
+                  item={selectedItem}
+                  t={t}
+                  language={locale}
+                  variant="map"
+                />
 
                 <p className={styles.viewCount}>
-                  {t('marketplaceViewedTimes', { count: selectedItem.view_count || 0 })}
+                  {t("marketplaceViewedTimes", {
+                    count: selectedItem.view_count || 0,
+                  })}
                 </p>
 
-                {paymentError ? <p className={styles.paymentError}>{paymentError}</p> : null}
+                {paymentError ? (
+                  <p className={styles.paymentError}>{paymentError}</p>
+                ) : null}
 
                 <button
                   type="button"
@@ -1137,7 +1357,7 @@ export default function MarketplaceMap({
                   disabled={requestLoading}
                 >
                   {requestLoading
-                    ? t('marketplaceLeadFormMapLoading')
+                    ? t("marketplaceLeadFormMapLoading")
                     : t(selectedRequestInfoKey, {
                         amount: infoPaymentAmountUah(selectedItem.request_type),
                       })}
@@ -1149,7 +1369,7 @@ export default function MarketplaceMap({
                     onClick={handleSkipPaymentTest}
                     disabled={requestLoading}
                   >
-                    {t('marketplacePayTestSkip')}
+                    {t("marketplacePayTestSkip")}
                   </button>
                 ) : null}
               </>
@@ -1159,17 +1379,19 @@ export default function MarketplaceMap({
       </div>
 
       {!loading && !error && items.length === 0 && lookingItems.length === 0 ? (
-        <p className={styles.empty}>{t('marketplaceEmpty')}</p>
+        <p className={styles.empty}>{t("marketplaceEmpty")}</p>
       ) : null}
 
       <MarketplaceModal
         open={ownerModalOpen}
         onClose={() => setOwnerModalOpen(false)}
-        ariaLabel={t('marketplaceOwnerInfoTitle')}
-        closeAriaLabel={t('marketplaceClose')}
+        ariaLabel={t("marketplaceOwnerInfoTitle")}
+        closeAriaLabel={t("marketplaceClose")}
       >
         <div className={styles.contactModal}>
-          <h3 className={styles.contactTitle}>{t('marketplaceOwnerInfoTitle')}</h3>
+          <h3 className={styles.contactTitle}>
+            {t("marketplaceOwnerInfoTitle")}
+          </h3>
           <OwnerInfoBody ownerInfo={ownerInfo} t={t} />
         </div>
       </MarketplaceModal>
@@ -1177,15 +1399,21 @@ export default function MarketplaceMap({
       <MarketplaceModal
         open={heatmapPayModalOpen}
         onClose={closeHeatmapPayModal}
-        ariaLabel={t('marketplaceHeatmapPayTitle')}
-        closeAriaLabel={t('marketplaceClose')}
+        ariaLabel={t("marketplaceHeatmapPayTitle")}
+        closeAriaLabel={t("marketplaceClose")}
       >
         <div className={styles.heatmapPayModal}>
-          <h3 className={styles.heatmapPayTitle}>{t('marketplaceHeatmapPayTitle')}</h3>
+          <h3 className={styles.heatmapPayTitle}>
+            {t("marketplaceHeatmapPayTitle")}
+          </h3>
           <p className={styles.heatmapPayText}>
-            {t('marketplaceHeatmapPayDescription', { amount: HEATMAP_PAY_AMOUNT_UAH })}
+            {t("marketplaceHeatmapPayDescription", {
+              amount: HEATMAP_PAY_AMOUNT_UAH,
+            })}
           </p>
-          {heatmapPaymentError ? <p className={styles.paymentError}>{heatmapPaymentError}</p> : null}
+          {heatmapPaymentError ? (
+            <p className={styles.paymentError}>{heatmapPaymentError}</p>
+          ) : null}
           <button
             type="button"
             className={styles.requestInfoBtn}
@@ -1193,8 +1421,10 @@ export default function MarketplaceMap({
             disabled={heatmapPaymentLoading}
           >
             {heatmapPaymentLoading
-              ? t('marketplaceLeadFormMapLoading')
-              : t('marketplaceHeatmapPayButton', { amount: HEATMAP_PAY_AMOUNT_UAH })}
+              ? t("marketplaceLeadFormMapLoading")
+              : t("marketplaceHeatmapPayButton", {
+                  amount: HEATMAP_PAY_AMOUNT_UAH,
+                })}
           </button>
           {showLocalTestPayment ? (
             <button
@@ -1203,7 +1433,7 @@ export default function MarketplaceMap({
               onClick={handleHeatmapPayTest}
               disabled={heatmapPaymentLoading}
             >
-              {t('marketplaceHeatmapPayTestSkip')}
+              {t("marketplaceHeatmapPayTestSkip")}
             </button>
           ) : null}
         </div>

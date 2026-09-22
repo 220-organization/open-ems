@@ -1,31 +1,35 @@
-import { useCallback, useEffect, useState } from 'react';
-import './landing.css';
-import './marketplace.css';
-import { useOpenEmsSeo } from './useOpenEmsSeo';
-import { useTheme } from './useTheme';
-import MarketplaceMap from './marketplace/MarketplaceMap';
-import LeadFormModal from './marketplace/LeadFormModal';
-import { isMarketplaceApiConfigured } from './marketplace/marketplaceApi';
+import { useCallback, useEffect, useState } from "react";
+import "./landing.css";
+import "./marketplace.css";
+import { useOpenEmsSeo } from "./useOpenEmsSeo";
+import { useTheme } from "./useTheme";
+import MarketplaceMap from "./marketplace/MarketplaceMap";
+import LeadFormModal from "./marketplace/LeadFormModal";
+import { isMarketplaceApiConfigured } from "./marketplace/marketplaceApi";
 
 function readPaymentReturnFromUrl() {
   try {
     const u = new URLSearchParams(window.location.search);
     return {
-      paymentReturnId: u.get('marketplacePayment') || '',
-      paymentReturnLocationId: u.get('marketplaceLocation') || '',
-      heatmapPaymentReturnId: u.get('marketplaceHeatmapPayment') || '',
+      paymentReturnId: u.get("marketplacePayment") || "",
+      paymentReturnLocationId: u.get("marketplaceLocation") || "",
+      heatmapPaymentReturnId: u.get("marketplaceHeatmapPayment") || "",
     };
   } catch {
-    return { paymentReturnId: '', paymentReturnLocationId: '', heatmapPaymentReturnId: '' };
+    return {
+      paymentReturnId: "",
+      paymentReturnLocationId: "",
+      heatmapPaymentReturnId: "",
+    };
   }
 }
 
 function clearLocationPaymentReturnInUrl() {
   try {
     const u = new URL(window.location.href);
-    u.searchParams.delete('marketplacePayment');
-    u.searchParams.delete('marketplaceLocation');
-    window.history.replaceState({}, '', u);
+    u.searchParams.delete("marketplacePayment");
+    u.searchParams.delete("marketplaceLocation");
+    window.history.replaceState({}, "", u);
   } catch {
     /* ignore */
   }
@@ -34,8 +38,8 @@ function clearLocationPaymentReturnInUrl() {
 function clearHeatmapPaymentReturnInUrl() {
   try {
     const u = new URL(window.location.href);
-    u.searchParams.delete('marketplaceHeatmapPayment');
-    window.history.replaceState({}, '', u);
+    u.searchParams.delete("marketplaceHeatmapPayment");
+    window.history.replaceState({}, "", u);
   } catch {
     /* ignore */
   }
@@ -43,16 +47,16 @@ function clearHeatmapPaymentReturnInUrl() {
 
 export default function LocationMarketplacePage({ t, locale }) {
   useTheme();
-  useOpenEmsSeo(t('marketplacePageTitle'), locale, t, {
-    variant: 'landing',
-    canonicalPath: '/marketplace',
+  useOpenEmsSeo(t("marketplacePageTitle"), locale, t, {
+    variant: "landing",
+    canonicalPath: "/marketplace",
   });
 
   const [publishSuccess, setPublishSuccess] = useState(false);
   const [leadModal, setLeadModal] = useState({
     open: false,
-    message: '',
-    titleKey: 'marketplaceMessengerChoiceTitle',
+    message: "",
+    titleKey: "marketplaceMessengerChoiceTitle",
     formType: null,
   });
   const [paymentReturn, setPaymentReturn] = useState(readPaymentReturnFromUrl);
@@ -62,34 +66,48 @@ export default function LocationMarketplacePage({ t, locale }) {
   };
 
   const closeLeadModal = () => {
-    setLeadModal({ open: false, message: '', titleKey: 'marketplaceMessengerChoiceTitle', formType: null });
+    setLeadModal({
+      open: false,
+      message: "",
+      titleKey: "marketplaceMessengerChoiceTitle",
+      formType: null,
+    });
   };
 
   const handlePaymentReturnHandled = useCallback(() => {
     clearLocationPaymentReturnInUrl();
-    setPaymentReturn(prev => ({ ...prev, paymentReturnId: '', paymentReturnLocationId: '' }));
+    setPaymentReturn((prev) => ({
+      ...prev,
+      paymentReturnId: "",
+      paymentReturnLocationId: "",
+    }));
   }, []);
 
   const handleHeatmapPaymentReturnHandled = useCallback(() => {
     clearHeatmapPaymentReturnInUrl();
-    setPaymentReturn(prev => ({ ...prev, heatmapPaymentReturnId: '' }));
+    setPaymentReturn((prev) => ({ ...prev, heatmapPaymentReturnId: "" }));
   }, []);
 
   useEffect(() => {
     const sync = () => setPaymentReturn(readPaymentReturnFromUrl());
-    window.addEventListener('popstate', sync);
-    return () => window.removeEventListener('popstate', sync);
+    window.addEventListener("popstate", sync);
+    return () => window.removeEventListener("popstate", sync);
   }, []);
 
   if (!isMarketplaceApiConfigured()) {
     return (
       <div className="landing-page marketplace-page">
         <main className="landing-main">
-          <section className="landing-hero" aria-labelledby="marketplace-hero-title">
+          <section
+            className="landing-hero"
+            aria-labelledby="marketplace-hero-title"
+          >
             <h1 id="marketplace-hero-title" className="landing-hero__title">
-              {t('marketplacePageTitle')}
+              {t("marketplacePageTitle")}
             </h1>
-            <p className="landing-hero__subtitle">{t('marketplaceApiNotConfigured')}</p>
+            <p className="landing-hero__subtitle">
+              {t("marketplaceApiNotConfigured")}
+            </p>
           </section>
         </main>
       </div>
@@ -100,42 +118,45 @@ export default function LocationMarketplacePage({ t, locale }) {
     <div className="landing-page marketplace-page marketplace-page--fullscreen">
       <main className="landing-main marketplace-main">
         <h1 id="marketplace-hero-title" className="marketplace-sr-only">
-          {t('marketplacePageTitle')}
+          {t("marketplacePageTitle")}
         </h1>
 
-        <section className="marketplace-stage" aria-label={t('marketplacePageTitle')}>
+        <section
+          className="marketplace-stage"
+          aria-label={t("marketplacePageTitle")}
+        >
           <div className="marketplace-action-buttons">
             <button
               type="button"
               className="marketplace-action-btn marketplace-action-btn--propose"
               onClick={() =>
                 openLeadModal(
-                  `${t('marketplaceTelegramGreeting')}\n\n#ЗапропонуватиЛокацію`,
-                  'marketplaceProposeLocationBtn',
-                  'proposeLocation'
+                  `${t("marketplaceTelegramGreeting")}\n\n#ЗапропонуватиЛокацію`,
+                  "marketplaceProposeLocationTitle",
+                  "proposeLocation",
                 )
               }
             >
-              {t('marketplaceProposeLocationBtn')}
+              {t("marketplaceProposeLocationBtn")}
             </button>
             <button
               type="button"
               className="marketplace-action-btn marketplace-action-btn--looking"
               onClick={() =>
                 openLeadModal(
-                  `${t('marketplaceTelegramLookingForLocationGreeting')}\n\n#ШукаюЛокацію`,
-                  'marketplaceLookingForLocationBtn',
-                  'lookingForLocation'
+                  `${t("marketplaceTelegramLookingForLocationGreeting")}\n\n#ШукаюЛокацію`,
+                  "marketplaceLookingForLocationTitle",
+                  "lookingForLocation",
                 )
               }
             >
-              {t('marketplaceLookingForLocationBtn')}
+              {t("marketplaceLookingForLocationBtn")}
             </button>
           </div>
 
           {publishSuccess ? (
             <p className="marketplace-publish-success" role="status">
-              {t('marketplaceMessengerPublishSuccess')}
+              {t("marketplaceMessengerPublishSuccess")}
             </p>
           ) : null}
 
