@@ -8,13 +8,15 @@ from sqlalchemy import (
     Date,
     DateTime,
     Double,
+    ForeignKey,
     Integer,
+    Numeric,
     SmallInteger,
     String,
     Text,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -588,4 +590,57 @@ class BessDiscountRequest(Base):
     kit_json: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
     created_on: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class MarketplaceLocation(Base):
+    """Public marketplace location offer / looking request (moderation via /admin)."""
+
+    __tablename__ = "marketplace_location"
+
+    id: Mapped[Any] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    request_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    phone: Mapped[str] = mapped_column(Text, nullable=False)
+    kw_available: Mapped[str] = mapped_column(String(16), nullable=False)
+    distribution_contract: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    messenger: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    locations: Mapped[Any] = mapped_column(JSONB, nullable=False, server_default="'[]'::jsonb")
+    parking_photos: Mapped[Any] = mapped_column(JSONB, nullable=False, server_default="'[]'::jsonb")
+    connection_point_photos: Mapped[Any] = mapped_column(JSONB, nullable=False, server_default="'[]'::jsonb")
+    distribution_contract_photos: Mapped[Any] = mapped_column(
+        JSONB, nullable=False, server_default="'[]'::jsonb"
+    )
+    distance_meters: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    price_per_kwh_extra: Mapped[Optional[Any]] = mapped_column(Numeric(4, 2), nullable=True)
+    monthly_price_parking: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    view_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default="'PUBLISHED'")
+    created_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class MarketplaceInfoPayment(Base):
+    """Monobank payment for location info unlock / publication / heatmap zoom."""
+
+    __tablename__ = "marketplace_info_payment"
+
+    id: Mapped[Any] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    location_id: Mapped[Optional[Any]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("marketplace_location.id", ondelete="CASCADE"), nullable=True
+    )
+    payment_kind: Mapped[str] = mapped_column(String(32), nullable=False, server_default="'location_info'")
+    invoice_id: Mapped[str] = mapped_column(Text, nullable=False)
+    amount_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, server_default="'CREATED'")
+    client_ui_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )

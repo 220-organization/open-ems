@@ -1,12 +1,15 @@
-const ADMIN_PORTAL_API_URL =
-  process.env.REACT_APP_ADMIN_PORTAL_API_URL || "https://220-km.com:8090";
-
+/** Same API origin as the rest of Open EMS (empty = same-origin nginx /api proxy). */
 function apiBase() {
-  return (ADMIN_PORTAL_API_URL || "").replace(/\/$/, "");
+  return (process.env.REACT_APP_API_BASE_URL || "").replace(/\/$/, "");
+}
+
+function marketplaceApiRoot() {
+  return `${apiBase()}/api/marketplace`;
 }
 
 export function isMarketplaceApiConfigured() {
-  return Boolean(apiBase());
+  // Same-origin /api proxy (empty REACT_APP_API_BASE_URL) is the production default.
+  return true;
 }
 
 export function resolveMarketplaceAssetUrl(pathOrUrl) {
@@ -24,7 +27,7 @@ export async function uploadMarketplaceFile(file) {
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await fetch(`${base}/marketplace/uploads`, {
+  const response = await fetch(`${marketplaceApiRoot()}/uploads`, {
     method: "POST",
     body: formData,
   });
@@ -41,13 +44,13 @@ export async function uploadMarketplaceFile(file) {
   }
 
   const data = await response.json();
-  // Keep relative /marketplace-files/... paths in form state / DB when possible.
+  // Keep relative /api/marketplace-files/... paths in form state / DB when possible.
   const url = data.url || "";
   if (!url) return null;
   if (/^https?:\/\//i.test(url)) {
     try {
       const parsed = new URL(url);
-      if (parsed.pathname.includes("/marketplace-files/"))
+      if (parsed.pathname.includes("/api/marketplace-files/"))
         return parsed.pathname;
     } catch {
       /* fall through */
@@ -60,7 +63,7 @@ export async function submitMarketplaceLocation(payload) {
   const base = apiBase();
   if (!base) return null;
 
-  const response = await fetch(`${base}/marketplace/locations`, {
+  const response = await fetch(`${marketplaceApiRoot()}/locations`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -80,7 +83,7 @@ export async function fetchMarketplaceLocations(requestType) {
   const query = requestType
     ? `?request_type=${encodeURIComponent(requestType)}`
     : "";
-  const response = await fetch(`${base}/marketplace/locations${query}`);
+  const response = await fetch(`${marketplaceApiRoot()}/locations${query}`);
 
   if (!response.ok) {
     throw new Error(`Fetch failed (${response.status})`);
@@ -95,7 +98,7 @@ export async function fetchPendingMarketplaceLocations() {
   const base = apiBase();
   if (!base) return [];
 
-  const response = await fetch(`${base}/marketplace/locations/pending`);
+  const response = await fetch(`${marketplaceApiRoot()}/locations/pending`);
 
   if (!response.ok) {
     throw new Error(`Fetch failed (${response.status})`);
@@ -110,7 +113,7 @@ export async function requestMarketplaceLocationInfo(locationId) {
   if (!base || !locationId) return null;
 
   const response = await fetch(
-    `${base}/marketplace/locations/${locationId}/request-info`,
+    `${marketplaceApiRoot()}/locations/${locationId}/request-info`,
     {
       method: "POST",
     },
@@ -131,7 +134,7 @@ export async function createMarketplaceInfoPayment(
   if (!base || !locationId) return null;
 
   const response = await fetch(
-    `${base}/marketplace/locations/${locationId}/pay`,
+    `${marketplaceApiRoot()}/locations/${locationId}/pay`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -157,7 +160,7 @@ export async function createMarketplaceTestPayment(
   if (!base || !locationId) return null;
 
   const response = await fetch(
-    `${base}/marketplace/locations/${locationId}/pay-test`,
+    `${marketplaceApiRoot()}/locations/${locationId}/pay-test`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -181,7 +184,7 @@ export async function createHeatmapZoomPayment({
   const base = apiBase();
   if (!base) return null;
 
-  const response = await fetch(`${base}/marketplace/heatmap/pay`, {
+  const response = await fetch(`${marketplaceApiRoot()}/heatmap/pay`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -201,7 +204,7 @@ export async function createHeatmapZoomTestPayment({ clientUiId } = {}) {
   const base = apiBase();
   if (!base) return null;
 
-  const response = await fetch(`${base}/marketplace/heatmap/pay-test`, {
+  const response = await fetch(`${marketplaceApiRoot()}/heatmap/pay-test`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -246,7 +249,7 @@ export async function fetchMarketplacePaymentStatus(paymentId) {
   const base = apiBase();
   if (!base || !paymentId) return null;
 
-  const response = await fetch(`${base}/marketplace/payments/${paymentId}`);
+  const response = await fetch(`${marketplaceApiRoot()}/payments/${paymentId}`);
 
   if (!response.ok) {
     throw new Error(`Payment status failed (${response.status})`);

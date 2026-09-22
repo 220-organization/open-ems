@@ -1,0 +1,123 @@
+.section {
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid #c9d5ce;
+  border-radius: 12px;
+  padding: 1rem 1.1rem 1.4rem;
+}
+
+.heading {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.subtitle {
+  margin: 0.35rem 0 1rem;
+  color: #4a5c52;
+  font-size: 0.9rem;
+}
+
+.error {
+  margin-bottom: 0.85rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 8px;
+  background: #fde8e8;
+  color: #8a1f1f;
+}
+
+.editForm {
+  margin-bottom: 1rem;
+  padding: 0.85rem;
+  border: 1px solid #b7c4bc;
+  border-radius: 10px;
+  background: #f7faf8;
+}
+
+.formRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.65rem;
+}
+
+.formRow label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.formRow input,
+.formRow select {
+  font: inherit;
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid #b7c4bc;
+}
+
+.formActions,
+.toolbar,
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.formActions {
+  margin-top: 0.85rem;
+}
+
+.toolbar {
+  margin-bottom: 0.85rem;
+}
+
+.formActions button,
+.toolbar button,
+.actions button {
+  border: 1px solid #b7c4bc;
+  background: #fff;
+  border-radius: 6px;
+  padding: 0.35rem 0.65rem;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.table th,
+.table td {
+  border-bottom: 1px solid #d5ddd8;
+  padding: 0.45rem 0.4rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.table th {
+  font-weight: 650;
+  white-space: nowrap;
+  color: #3a4a42;
+}
+
+.editingRow {
+  background: rgba(31, 107, 74, 0.08);
+}
+
+.photos {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.photos img {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 4px;
+}

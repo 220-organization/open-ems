@@ -1,22 +1,26 @@
-import { useEffect, useState } from 'react';
-import { trackPageView } from './analytics';
-import LandingPage from './LandingPage';
-import EvTvPage from './EvTvPage';
-import LocationMarketplacePage from './LocationMarketplacePage';
-import OrderBessPage from './OrderBessPage';
-import BuyHomeChargerPage from './BuyHomeChargerPage';
-import BuyCommercialChargerPage from './BuyCommercialChargerPage';
-import RdnConsultationPage from './RdnConsultationPage';
-import OpenEmsHeader from './OpenEmsHeader';
-import PowerFlowPage from './PowerFlowPage';
-import ServerMetricsBar from './ServerMetricsBar';
-import AndroidInstallBanner from './AndroidInstallBanner';
-import DeployMaintenanceOverlay from './DeployMaintenanceOverlay';
-import { isOpenEmsKioskUrl } from './openEmsKiosk';
-import { redirectLegacyDamChartPath, resolveOpenEmsPage } from './openEmsRoutes';
-import { useAutoHideChrome } from './useAutoHideChrome';
-import { useI18n } from './useI18n';
-import { useTheme } from './useTheme';
+import { useEffect, useState } from "react";
+import { trackPageView } from "./analytics";
+import LandingPage from "./LandingPage";
+import EvTvPage from "./EvTvPage";
+import LocationMarketplacePage from "./LocationMarketplacePage";
+import AdminPage from "./AdminPage";
+import OrderBessPage from "./OrderBessPage";
+import BuyHomeChargerPage from "./BuyHomeChargerPage";
+import BuyCommercialChargerPage from "./BuyCommercialChargerPage";
+import RdnConsultationPage from "./RdnConsultationPage";
+import OpenEmsHeader from "./OpenEmsHeader";
+import PowerFlowPage from "./PowerFlowPage";
+import ServerMetricsBar from "./ServerMetricsBar";
+import AndroidInstallBanner from "./AndroidInstallBanner";
+import DeployMaintenanceOverlay from "./DeployMaintenanceOverlay";
+import { isOpenEmsKioskUrl } from "./openEmsKiosk";
+import {
+  redirectLegacyDamChartPath,
+  resolveOpenEmsPage,
+} from "./openEmsRoutes";
+import { useAutoHideChrome } from "./useAutoHideChrome";
+import { useI18n } from "./useI18n";
+import { useTheme } from "./useTheme";
 
 function readCurrentPage() {
   redirectLegacyDamChartPath();
@@ -39,8 +43,12 @@ export default function App() {
   const chromeHidden = useAutoHideChrome();
 
   useEffect(() => {
-    document.documentElement.classList.toggle('open-ems-chrome-hidden', chromeHidden);
-    return () => document.documentElement.classList.remove('open-ems-chrome-hidden');
+    document.documentElement.classList.toggle(
+      "open-ems-chrome-hidden",
+      chromeHidden,
+    );
+    return () =>
+      document.documentElement.classList.remove("open-ems-chrome-hidden");
   }, [chromeHidden]);
 
   useEffect(() => {
@@ -49,16 +57,17 @@ export default function App() {
       setPage(readCurrentPage());
       setKioskMode(readKioskMode());
     };
-    window.addEventListener('popstate', syncPage);
-    return () => window.removeEventListener('popstate', syncPage);
+    window.addEventListener("popstate", syncPage);
+    return () => window.removeEventListener("popstate", syncPage);
   }, []);
 
   useEffect(() => {
     trackPageView(page, window.location.pathname);
   }, [page]);
 
-  const showKiosk = kioskMode && page === 'power';
-  const hideChromeFooter = showKiosk || page === 'marketplace';
+  const showKiosk = kioskMode && page === "power";
+  const hideChromeFooter =
+    showKiosk || page === "marketplace" || page === "admin";
 
   return (
     <div className="app-root-layout">
@@ -74,19 +83,21 @@ export default function App() {
         />
       )}
       <div className="app-root-layout__main">
-        {page === 'landing' ? (
+        {page === "landing" ? (
           <LandingPage {...i18n} />
-        ) : page === 'evTv' ? (
+        ) : page === "evTv" ? (
           <EvTvPage {...i18n} />
-        ) : page === 'marketplace' ? (
+        ) : page === "marketplace" ? (
           <LocationMarketplacePage {...i18n} />
-        ) : page === 'orderBess' ? (
+        ) : page === "admin" ? (
+          <AdminPage {...i18n} />
+        ) : page === "orderBess" ? (
           <OrderBessPage {...i18n} />
-        ) : page === 'buyHomeCharger' ? (
+        ) : page === "buyHomeCharger" ? (
           <BuyHomeChargerPage {...i18n} />
-        ) : page === 'buyCommercialCharger' ? (
+        ) : page === "buyCommercialCharger" ? (
           <BuyCommercialChargerPage {...i18n} />
-        ) : page === 'rdnConsultation' ? (
+        ) : page === "rdnConsultation" ? (
           <RdnConsultationPage {...i18n} />
         ) : (
           <PowerFlowPage {...i18n} isDark={isDark} kioskMode={showKiosk} />

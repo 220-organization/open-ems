@@ -95,6 +95,17 @@ services:
       TELEGRAM_API_TOKEN: ${TELEGRAM_API_TOKEN:-}
       TELEGRAM_SUPPORT_CHAT_ID: ${TELEGRAM_SUPPORT_CHAT_ID:-}
       TELEGRAM_BESS_CHAT_ID: ${TELEGRAM_BESS_CHAT_ID:-}
+      OPEN_EMS_ADMIN_PASSWORD: ${OPEN_EMS_ADMIN_PASSWORD:-220220Ma}
+      OPEN_EMS_ADMIN_TOKEN: ${OPEN_EMS_ADMIN_TOKEN:-openEmsAdminToken220220Ma}
+      MARKETPLACE_DATA_DIR: /app/data/marketplace
+      MARKETPLACE_PUBLIC_BASE_URL: ${MARKETPLACE_PUBLIC_BASE_URL:-https://220-km.com:9220}
+      MARKETPLACE_PAYMENT_TOKEN: ${MARKETPLACE_PAYMENT_TOKEN:-}
+      MARKETPLACE_PAYMENT_CALLBACK_BASE: ${MARKETPLACE_PAYMENT_CALLBACK_BASE:-https://220-km.com:9220}
+      MARKETPLACE_PAY_REDIRECT_BASE: ${MARKETPLACE_PAY_REDIRECT_BASE:-https://220-km.com:9220/marketplace}
+      MARKETPLACE_ADMIN_UI_URL: ${MARKETPLACE_ADMIN_UI_URL:-https://220-km.com:9220/admin}
+      MARKETPLACE_ALLOW_TEST_PAYMENT: ${MARKETPLACE_ALLOW_TEST_PAYMENT:-0}
+    volumes:
+      - open_ems_marketplace_files:/app/data/marketplace
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -117,3 +128,4 @@ services:
 
 volumes:
   open_ems_pgdata:
+  open_ems_marketplace_files:
