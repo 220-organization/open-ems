@@ -3128,8 +3128,8 @@ export default function PowerFlowPage({
       return undefined;
     }
     let cancelled = false;
-    const loadSocs = async () => {
-      setSocListLoading(true);
+    const loadSocs = async initial => {
+      if (initial) setSocListLoading(true);
       try {
         const r = await fetch(apiUrl('/api/deye/inverter-socs'), {
           method: 'POST',
@@ -3152,11 +3152,13 @@ export default function PowerFlowPage({
       } catch {
         if (!cancelled) setSocBySn({});
       } finally {
-        if (!cancelled) setSocListLoading(false);
+        if (!cancelled && initial) setSocListLoading(false);
       }
     };
-    loadSocs();
-    const id = setInterval(loadSocs, 300_000);
+    loadSocs(true);
+    const id = setInterval(() => {
+      loadSocs(false);
+    }, 20_000);
     return () => {
       cancelled = true;
       clearInterval(id);
@@ -3234,24 +3236,13 @@ export default function PowerFlowPage({
           const loadW = sumField('loadPowerW', true);
           const pvW = sumField('pvPowerW', true);
           const gridW = sumField('gridPowerW', false);
-          const socPercent = pickClusterSocPercent(uniqRows);
           setDeyeLive({
             batteryPowerW: bat,
             loadPowerW: loadW,
             pvPowerW: pvW,
             gridPowerW: gridW,
-            socPercent,
+            socPercent: pickClusterSocPercent(uniqRows),
           });
-          if (socPercent != null) {
-            setSocBySn(prev => {
-              const next = { ...prev };
-              for (const sn of sns) {
-                const key = String(sn || '').trim();
-                if (key) next[key] = socPercent;
-              }
-              return next;
-            });
-          }
         } else {
           setDeyeLive(null);
         }
@@ -4151,14 +4142,10 @@ export default function PowerFlowPage({
     }
     const sn = selInverterSn.trim();
     if (!sn) return undefined;
-    const liveSoc = deyeLive?.socPercent;
-    if (liveSoc != null && Number.isFinite(Number(liveSoc))) {
-      return Number(liveSoc);
-    }
     const row = deyeCombinedItems.find(r => r.representativeSn === sn);
     if (row) {
       const avg = averageFiniteSocForDeyeRow(row, socBySn);
-      return avg != null ? avg : undefined;
+      if (avg != null) return avg;
     }
     const v = socBySn[sn];
     return v != null && Number.isFinite(Number(v)) ? Number(v) : undefined;
@@ -4168,7 +4155,6 @@ export default function PowerFlowPage({
     selGridlabDeviceId,
     ubetterLive?.socPercent,
     gridlabLive?.socPercent,
-    deyeLive?.socPercent,
     deyeCombinedItems,
     socBySn,
   ]);
@@ -6109,6 +6095,11 @@ export default function PowerFlowPage({
               <section className="pf-dam-section" aria-label={t('damChartHeading')}>
                 <DamChartPanel
                   variant="embedded"
+                  liveSocPercent={
+                    essSocPercent != null && Number.isFinite(Number(essSocPercent))
+                      ? Number(essSocPercent)
+                      : undefined
+                  }
                   inverterSn={essSel.provider === 'deye' ? selInverterSn || undefined : undefined}
                   huaweiStationCode={
                     essSel.provider === 'huawei' && huaweiListReady && !huaweiRows.error

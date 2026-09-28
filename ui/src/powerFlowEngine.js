@@ -293,8 +293,8 @@ export function computeSimulatedSources(consumptionMw, liveMinerW) {
 }
 
 /**
- * Plant SoC from /api/deye/ess-power rows. Do not sum — station batterySOC is the same on every
- * cluster serial. If values differ, average the finite readings.
+ * Plant SoC from /api/deye/ess-power rows. Do not sum — the cluster-mean inverter SoC is the
+ * same on every serial. If values differ, average the finite readings.
  */
 export function pickClusterSocPercent(rows) {
   const socs = [];

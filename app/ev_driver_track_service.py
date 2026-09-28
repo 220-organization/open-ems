@@ -625,3 +625,110 @@ async def aggregate_charging_demand(session: AsyncSession, days: int = 30) -> li
         }
         for r in rows.mappings().all()
     ]
+
+
+_TRACK_MAX_DRIVERS = 250
+_TRACK_MAX_POINTS = 80
+
+
+def build_track_payloads(rows: Sequence[Any]) -> list[dict[str, Any]]:
+    """Group ordered raw pings into anonymous polylines. Does not return driver ids."""
+    tracks: list[dict[str, Any]] = []
+    current_id: Optional[str] = None
+    bucket: list[Any] = []
+
+    def flush() -> None:
+        if not bucket:
+            return
+        path: list[list[float]] = []
+        best_source = "ip"
+        best_rank = 0
+        for row in bucket:
+            lat = round(float(row.lat), 5)
+            lng = round(float(row.lon), 5)
+            if not path or path[-1][0] != lat or path[-1][1] != lng:
+                path.append([lat, lng])
+            rank = SOURCE_RANK.get(str(row.source), 0)
+            if rank >= best_rank:
+                best_rank = rank
+                best_source = str(row.source)
+        if not path:
+            return
+        tracks.append(
+            {
+                "id": f"t{len(tracks) + 1}",
+                "source": best_source,
+                "points": len(bucket),
+                "path": path,
+            }
+        )
+
+    for row in rows:
+        driver_id = str(row.driver_id)
+        if current_id is not None and driver_id != current_id:
+            flush()
+            bucket = []
+        current_id = driver_id
+        bucket.append(row)
+    flush()
+    return tracks
+
+
+async def list_driver_tracks(session: AsyncSession, hours: int = 24) -> dict[str, Any]:
+    """Anonymous polylines from raw GPS pings in the last ``hours`` (default 24)."""
+    hours = max(1, min(int(hours), 24 * 90))
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    drivers_in_window = await session.scalar(
+        select(func.count(func.distinct(EvDriverGpsRaw.driver_id))).where(EvDriverGpsRaw.recorded_at >= since)
+    )
+    sql = text(
+        """
+        WITH windowed AS (
+            SELECT driver_id, recorded_at, lat, lon, source
+            FROM ev_driver_gps_raw
+            WHERE recorded_at >= :since
+        ),
+        top_drivers AS (
+            SELECT driver_id
+            FROM windowed
+            GROUP BY driver_id
+            ORDER BY COUNT(*) DESC, driver_id
+            LIMIT :max_drivers
+        ),
+        ranked AS (
+            SELECT
+                w.driver_id,
+                w.recorded_at,
+                w.lat,
+                w.lon,
+                w.source,
+                ROW_NUMBER() OVER (PARTITION BY w.driver_id ORDER BY w.recorded_at) AS rn,
+                COUNT(*) OVER (PARTITION BY w.driver_id) AS cnt
+            FROM windowed w
+            INNER JOIN top_drivers t ON t.driver_id = w.driver_id
+        )
+        SELECT driver_id, lat, lon, source
+        FROM ranked
+        WHERE rn = 1
+           OR rn = cnt
+           OR cnt <= :max_points
+           OR MOD(rn, GREATEST(1, (cnt / :max_points))) = 0
+        ORDER BY driver_id, recorded_at
+        """
+    )
+    result = await session.execute(
+        sql,
+        {
+            "since": since,
+            "max_drivers": _TRACK_MAX_DRIVERS,
+            "max_points": _TRACK_MAX_POINTS,
+        },
+    )
+    tracks = build_track_payloads(result.mappings().all())
+    return {
+        "hours": hours,
+        "driversInWindow": int(drivers_in_window or 0),
+        "trackCount": len(tracks),
+        "truncated": int(drivers_in_window or 0) > _TRACK_MAX_DRIVERS,
+        "tracks": tracks,
+    }

@@ -21,6 +21,7 @@ from app.ev_driver_track_service import (
     aggregate_heatmap_points,
     aggregate_open_data_summary,
     aggregate_popular_routes,
+    list_driver_tracks,
 )
 from app.ev_driver_tracker_schemas import EvDriverPointsIn
 from app.models import EvDriverGpsRaw
@@ -31,7 +32,7 @@ router = APIRouter(prefix="/api/ev-driver-tracker", tags=["ev-driver-tracker"])
 
 _NO_STORE = {"Cache-Control": "no-store, max-age=0, must-revalidate"}
 _OPEN_CACHE: dict[str, tuple[float, Any]] = {}
-_DRIVER_ID_RE = re.compile(r"^[A-Za-z0-9-]{8,64}$")
+_DRIVER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 
 
 def _cache_get(key: str) -> Optional[Any]:
@@ -120,6 +121,22 @@ async def ingest_points(
         await db.commit()
 
     return JSONResponse(content={"ok": True, "accepted": accepted, "dropped": dropped}, headers=_NO_STORE)
+
+
+@router.get("/tracks")
+async def driver_tracks(
+    hours: int = Query(default=24, ge=1, le=24 * 90),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Anonymous driver polylines for the last N hours. Default is the last 24 hours."""
+    cache_key = f"tracks:{hours}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return JSONResponse(content=cached, headers=_NO_STORE)
+
+    payload = {"ok": True, **(await list_driver_tracks(db, hours=hours))}
+    _cache_set(cache_key, payload)
+    return JSONResponse(content=payload, headers=_NO_STORE)
 
 
 @router.get("/heatmap-points")

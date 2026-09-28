@@ -229,31 +229,42 @@ class TestDisplayStationSoc(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         deye_api._station_live_cache.clear()
         deye_api._soc_cache.clear()
+        deye_api._display_soc_cache.clear()
 
-    async def test_prefers_plant_battery_soc_over_device(self) -> None:
-        deye_api._station_live_cache["62272856"] = (
-            38.666667,
-            6580.0,
-            11792.0,
-            8090.0,
-            -265.0,
-            50.0,
-            time.monotonic(),
-        )
-        deye_api._soc_cache["2503291038"] = (47.0, time.monotonic())
+    async def test_uses_inverter_mean_not_plant_battery_soc(self) -> None:
+        """DAM chart / tariff SoC is the mean of inverter readings, not plant batterySOC."""
+        cluster = ["2503291038", "2503291040", "2503291041", "2509160557"]
+        # (100 + 90 + 88.4 + 88.4) / 4 = 91.7; plant batterySOC 96.8 must not win.
+        merged = {
+            "2503291038": (100.0, None, None, None, None, None),
+            "2503291040": (90.0, None, None, None, None, None),
+            "2503291041": (88.4, None, None, None, None, None),
+            "2509160557": (88.4, None, None, None, None, None),
+        }
         with patch.object(deye_api, "deye_configured", return_value=True), patch.object(
+            deye_api, "station_cluster_device_sns", new=AsyncMock(return_value=cluster)
+        ), patch.object(
+            deye_api, "refresh_device_latest_batches", new=AsyncMock(return_value=merged)
+        ):
+            soc = await get_display_soc_percent_cached("2503291038")
+        self.assertAlmostEqual(soc, 91.7, places=4)
+
+    async def test_falls_back_to_plant_battery_soc_when_inverters_have_none(self) -> None:
+        cluster = ["2503291038"]
+        merged = {"2503291038": (None, None, None, None, None, None)}
+        with patch.object(deye_api, "deye_configured", return_value=True), patch.object(
+            deye_api, "station_cluster_device_sns", new=AsyncMock(return_value=cluster)
+        ), patch.object(
+            deye_api, "refresh_device_latest_batches", new=AsyncMock(return_value=merged)
+        ), patch.object(
             deye_api, "_station_id_for_device_sn", new=AsyncMock(return_value="62272856")
+        ), patch.object(
+            deye_api,
+            "_station_live_metrics_cached",
+            new=AsyncMock(return_value=(96.8, None, None, None, None, None)),
         ):
             soc = await get_display_soc_percent_cached("2503291038")
-        self.assertAlmostEqual(soc, 38.666667, places=4)
-
-    async def test_falls_back_to_device_soc_without_station(self) -> None:
-        deye_api._soc_cache["2503291038"] = (47.0, time.monotonic())
-        with patch.object(deye_api, "deye_configured", return_value=True), patch.object(
-            deye_api, "_station_id_for_device_sn", new=AsyncMock(return_value=None)
-        ):
-            soc = await get_display_soc_percent_cached("2503291038")
-        self.assertEqual(soc, 47.0)
+        self.assertAlmostEqual(soc, 96.8, places=4)
 
 
 if __name__ == "__main__":

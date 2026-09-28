@@ -37,7 +37,7 @@ class EvDriverTrackPointIn(BaseModel):
 
 
 class EvDriverPointsIn(BaseModel):
-    driverId: str = Field(..., min_length=8, max_length=64, pattern=r"^[A-Za-z0-9-]+$")
+    driverId: str = Field(..., min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
     points: list[EvDriverTrackPointIn] = Field(..., min_length=1, max_length=200)
 
 

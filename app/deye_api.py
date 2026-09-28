@@ -54,6 +54,9 @@ _station_live_cache: dict[
 _soc_lock = asyncio.Lock()
 # Serialize /station/latest fetches so a 3-inverter cluster poll does not stampede Deye.
 _station_fetch_lock = asyncio.Lock()
+# Cluster-mean display SoC (same figure as the DAM chart), keyed by sorted serials.
+_display_soc_cache: dict[str, tuple[Optional[float], float]] = {}
+_display_soc_lock = asyncio.Lock()
 _inverter_rows_cache: Optional[list["_InverterListRow"]] = None
 _inverter_rows_cache_at_mono: float = 0.0
 _inverter_rows_lock = asyncio.Lock()
@@ -691,24 +694,55 @@ async def _station_live_metrics_cached(
         return st_soc, st_bat, st_load, st_pv, st_grid, st_freq
 
 
-async def get_display_soc_percent_cached(device_sn: str) -> Optional[float]:
-    """SoC shown in the UI: plant ``batterySOC`` from /station/latest (matches the Deye app).
+def mean_cluster_soc_percent(values: list[Optional[float]]) -> Optional[float]:
+    """Arithmetic mean of inverter SoC readings. Ignores missing values.
 
-    Charge/discharge commands still use per-inverter /device/latest SoC. Falls back to the
-    device cache when the plant has no station id or station SoC is missing.
+    This is the DAM-chart SoC (per-inverter ``/device/latest``, averaged across the plant).
+    ``/station/latest`` ``batterySOC`` can sit several points away and is not used here.
+    """
+    nums: list[float] = []
+    for raw in values:
+        n = _to_float_or_none(raw)
+        if n is None or n < 0.0 or n > 100.0:
+            continue
+        nums.append(n)
+    if not nums:
+        return None
+    return sum(nums) / len(nums)
+
+
+async def get_display_soc_percent_cached(device_sn: str) -> Optional[float]:
+    """SoC for the UI and the 220 dynamic tariff.
+
+    Mean of per-inverter ``/device/latest`` SoC on the plant — the same aggregation as the
+    DAM chart. Plant ``batterySOC`` from ``/station/latest`` is only a fallback when every
+    inverter SoC is missing (it can read ~96 while the chart is 91.7). Charge/discharge
+    commands still use the single-inverter SoC from GET /soc.
     """
     sn = (device_sn or "").strip()
     if not sn or not deye_configured():
         return None
-    station_id = await _station_id_for_device_sn(sn)
-    if station_id:
-        st_soc, *_rest = await _station_live_metrics_cached(station_id)
-        if st_soc is not None:
-            return st_soc
-    hit = _soc_cache.get(sn)
-    if hit is not None and hit[0] is not None:
-        return hit[0]
-    return None
+    cluster = await station_cluster_device_sns(sn)
+    if not cluster:
+        return None
+    key = "|".join(cluster)
+    now = time.monotonic()
+    async with _display_soc_lock:
+        hit = _display_soc_cache.get(key)
+        if hit is not None and hit[0] is not None and now - hit[1] < ESS_POWER_CACHE_TTL_SEC:
+            return hit[0]
+
+    merged = await refresh_device_latest_batches(cluster)
+    mean = mean_cluster_soc_percent([merged.get(member, (None,))[0] for member in cluster])
+    if mean is None:
+        station_id = await _station_id_for_device_sn(sn)
+        if station_id:
+            st_soc, *_rest = await _station_live_metrics_cached(station_id)
+            if st_soc is not None:
+                mean = st_soc
+    async with _display_soc_lock:
+        _display_soc_cache[key] = (mean, time.monotonic())
+    return mean
 
 
 _SOC_KEYS_EXACT = frozenset(
