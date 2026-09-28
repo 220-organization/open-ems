@@ -1,12 +1,15 @@
 """Unit tests for EV driver GPS track processing."""
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from typing import Optional
 
 from app.ev_driver_cities import haversine_km, nearest_city
+
 from app.ev_driver_track_service import (
     StayDraft,
     TrackPoint,
+    build_track_payloads,
     build_trips,
     cluster_stays,
     filter_gps_jamming,
@@ -114,6 +117,23 @@ def test_build_trips_kyiv_to_lviv():
     assert trips[0].dest_city == "Lviv"
     assert trips[0].distance_km >= 20
     assert len(trips[0].route_points) >= 2
+
+
+def test_build_track_payloads_hides_driver_id_and_collapses_duplicates():
+    rows = [
+        SimpleNamespace(driver_id="secret-driver-a", lat=50.45, lon=30.52, source="ip"),
+        SimpleNamespace(driver_id="secret-driver-a", lat=50.45, lon=30.52, source="gps"),
+        SimpleNamespace(driver_id="secret-driver-a", lat=50.46, lon=30.53, source="gps"),
+        SimpleNamespace(driver_id="secret-driver-b", lat=49.84, lon=24.03, source="cookie"),
+    ]
+    tracks = build_track_payloads(rows)
+    assert len(tracks) == 2
+    assert tracks[0]["id"] == "t1"
+    assert tracks[0]["source"] == "gps"
+    assert tracks[0]["points"] == 3
+    assert tracks[0]["path"] == [[50.45, 30.52], [50.46, 30.53]]
+    assert tracks[1]["path"] == [[49.84, 24.03]]
+    assert "secret-driver" not in str(tracks)
 
 
 def test_nearest_city_kyiv():
