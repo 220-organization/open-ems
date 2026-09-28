@@ -944,8 +944,9 @@ async def get_ess_power(
     loadPowerW non-negative (home/AC load), pvPowerW non-negative (PV production),
     gridPowerW signed (positive import from grid, negative export). Cached ~25s.
 
-    ``socPercent`` is plant ``batterySOC`` from POST /station/latest (same figure as the Deye app
-    overview). Per-inverter SoC remains on GET /soc and POST /inverter-socs for write commands.
+    ``socPercent`` is the mean of per-inverter SoC on the plant (same figure as the DAM chart).
+    Plant ``batterySOC`` from POST /station/latest is only a fallback when inverter SoC is missing.
+    Per-inverter SoC remains on GET /soc and POST /inverter-socs for write commands.
 
     For multi-inverter (1 MWh-class) Deye stations where /device/latest omits power, values fall
     back to /station/latest plant totals — ``stationFallback=true`` and ``stationId`` mark such

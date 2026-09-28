@@ -185,8 +185,17 @@ def test_flow_balance_skips_derived_grid_when_pv_missing():
     assert grid_w == 0.0
 
 
+def test_mean_cluster_soc_ignores_plant_battery_soc():
+    """Chart SoC is the inverter mean. A lone plant batterySOC of 96.8 is not an input."""
+    from app.deye_api import mean_cluster_soc_percent
+
+    assert abs(mean_cluster_soc_percent([100.0, 90.0, 88.4, 88.4]) - 91.7) < 1e-9
+    assert mean_cluster_soc_percent([100.0, None, 88.4]) == (100.0 + 88.4) / 2
+    assert mean_cluster_soc_percent([None, None]) is None
+
+
 def test_station_payload_battery_soc_matches_deye_app():
-    """Deye app overview uses plant batterySOC (average of parallel inverters)."""
+    """Fallback parser: plant batterySOC when no inverter SoC exists."""
     assert _soc_percent_from_station_payload({"batterySOC": 38.666667}) == 38.666667
     assert _soc_percent_from_station_payload({"batterySoc": 39}) == 39.0
     assert _soc_percent_from_station_payload({"generationPower": 8090.0}) is None

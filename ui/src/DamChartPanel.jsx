@@ -742,6 +742,7 @@ function kyivHourIndexNowForDate(tradeDayIso) {
  * @param {string} [gridlabDeviceId] — GridLab BESS device id; SoC history from `/api/gridlab/soc-history-day`.
  * @param {'dc' | 'ac' | 'bb'} [evPortsAcdc] — EV fleet (fast/slow/BB chargers); grid import bars from DB (`/api/b2b/ev-ports-hourly`).
  * @param {number} [liveEvPortsPowerW] — live aggregate EV power (W) for current-hour overlay when DB samples are sparse.
+ * @param {number} [liveSocPercent] — current SoC (cluster average when several inverters). Replaces today's blue-line point.
  */
 export default function DamChartPanel({
   t,
@@ -758,6 +759,7 @@ export default function DamChartPanel({
   gridlabDeviceId: gridlabDeviceIdProp,
   evPortsAcdc: evPortsAcdcProp,
   liveEvPortsPowerW,
+  liveSocPercent,
 }) {
   const { theme, cycleTheme, isDark } = useTheme();
   const { isApproximate, formatEnergyKwh } = useKwhCalibration();
@@ -1291,9 +1293,11 @@ export default function DamChartPanel({
       return undefined;
     }
     let cancelled = false;
-    const loadSoc = async () => {
-      setSocLoading(true);
-      setSocError('');
+    const loadSoc = async initial => {
+      if (initial) {
+        setSocLoading(true);
+        setSocError('');
+      }
       try {
         let path;
         let q;
@@ -1313,14 +1317,18 @@ export default function DamChartPanel({
         if (cancelled) return;
         setSocPayload(data);
       } catch (e) {
-        if (!cancelled) setSocError(e instanceof Error ? e.message : String(e));
+        if (!cancelled && initial) setSocError(e instanceof Error ? e.message : String(e));
       } finally {
-        if (!cancelled) setSocLoading(false);
+        if (!cancelled && initial) setSocLoading(false);
       }
     };
-    loadSoc();
+    loadSoc(true);
+    const pollId = setInterval(() => {
+      loadSoc(false);
+    }, 60_000);
     return () => {
       cancelled = true;
+      clearInterval(pollId);
     };
   }, [tradeDay, effectiveInverterSn, effectiveUbetterDevice, effectiveGridlabDevice, effectiveHuaweiStation]);
 
@@ -1743,6 +1751,15 @@ export default function DamChartPanel({
         }
       }
     }
+    const liveSocHour = kyivHourIndexNowForDate(tradeDay);
+    if (
+      liveSocHour != null &&
+      liveSocPercent != null &&
+      Number.isFinite(Number(liveSocPercent)) &&
+      out[liveSocHour]
+    ) {
+      out[liveSocHour] = { ...out[liveSocHour], socPercent: Number(liveSocPercent) };
+    }
     if (deyeNoExportMode) {
       return out.map(slot =>
         slot.gridKw != null && Number.isFinite(slot.gridKw) && slot.gridKw < 0 ? { ...slot, gridKw: 0 } : slot
@@ -1766,6 +1783,7 @@ export default function DamChartPanel({
     huaweiHourly,
     evPortsHourly,
     liveEvPortsPowerW,
+    liveSocPercent,
     eurUahRate,
   ]);
 
