@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react';
 
-const HEATMAP_POINTS_URL = '/api/ev-driver-tracker/heatmap-points';
+// Driver GPS aggregates are owned by drivertir and published on 220-km.com.
+const DRIVER_STATS_BASE = (
+  (process.env.REACT_APP_DRIVERTIR_URL && String(process.env.REACT_APP_DRIVERTIR_URL).trim()) ||
+  'https://220-km.com:8090'
+).replace(/\/$/, '');
+
+const HEATMAP_POINTS_URL = `${DRIVER_STATS_BASE}/api/ev-driver-tracker/heatmap-points`;
 
 export function useDriverGpsHeatmapPoints(enabled, days = 90) {
   const [points, setPoints] = useState([]);

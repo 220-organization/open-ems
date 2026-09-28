@@ -22,7 +22,6 @@ from app.routers import (
     dam,
     deye_proxy,
     entsoe_dam,
-    ev_driver_tracker,
     gridlab_proxy,
     huawei_proxy,
     marketplace,
@@ -55,7 +54,6 @@ from app.deye_peak_auto_scheduler import deye_peak_auto_discharge_loop
 from app.deye_ev_port_scheduler import deye_ev_port_export_loop
 from app.deye_self_consumption_auto_dam_scheduler import deye_self_consumption_auto_dam_loop
 from app.deye_smart_load_scheduler import deye_smart_load_loop
-from app.ev_driver_track_scheduler import ev_driver_track_processing_loop
 from app.rate_limit_middleware import InMemoryIpRateLimiter, PerIpRateLimitMiddleware
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -290,16 +288,6 @@ async def lifespan(app: FastAPI):
             settings.DEYE_SMART_LOAD_INTERVAL_SEC,
         )
 
-    stop_ev_driver_track: Optional[asyncio.Event] = None
-    ev_driver_track_task: Optional[asyncio.Task[None]] = None
-    if settings.EV_TRACKER_PROCESSING_ENABLED:
-        stop_ev_driver_track = asyncio.Event()
-        ev_driver_track_task = asyncio.create_task(ev_driver_track_processing_loop(stop_ev_driver_track))
-        logger.info(
-            "EV driver GPS tracker: process raw pings every %ss (EV_TRACKER_PROCESSING_*)",
-            settings.EV_TRACKER_PROCESSING_INTERVAL_SEC,
-        )
-
     yield
 
     if dam_sched_task is not None and stop_dam_sched is not None:
@@ -407,13 +395,6 @@ async def lifespan(app: FastAPI):
             await smart_load_task
         except asyncio.CancelledError:
             pass
-    if ev_driver_track_task is not None and stop_ev_driver_track is not None:
-        stop_ev_driver_track.set()
-        ev_driver_track_task.cancel()
-        try:
-            await ev_driver_track_task
-        except asyncio.CancelledError:
-            pass
     logger.info("Open EMS shutting down")
 
 
@@ -456,7 +437,6 @@ app.include_router(entsoe_dam.router)
 app.include_router(nbu_fx.router)
 app.include_router(server_metrics.router)
 app.include_router(power_flow_totals.router)
-app.include_router(ev_driver_tracker.router)
 app.include_router(rdn_consultation.router)
 app.include_router(bess_order.router)
 app.include_router(home_chargers.router)
