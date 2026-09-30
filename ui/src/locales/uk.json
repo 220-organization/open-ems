@@ -731,6 +731,8 @@
   "marketplaceLeadFormMapSearchPlaceholder": "Пошук за адресою…",
   "marketplaceLeadFormMapSearchAria": "Пошук адреси на карті",
   "marketplaceLeadFormMapSearchNoResults": "Адресу не знайдено",
+  "marketplaceLeadFormMapFullscreen": "На весь екран",
+  "marketplaceLeadFormMapExitFullscreen": "Згорнути карту",
   "marketplaceLeadFormParkingPhotosLabel": "Фото парковки (необовʼязково)",
   "marketplaceLeadFormConnectionPhotosLabel": "Фото точки приєднання (необовʼязково)",
   "marketplaceLeadFormPhotoUploadError": "Не вдалося завантажити фото. Спробуйте JPEG або PNG.",

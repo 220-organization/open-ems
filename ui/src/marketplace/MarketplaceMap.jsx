@@ -49,7 +49,9 @@ import MarketplaceModal from "./MarketplaceModal";
 import styles from "./MarketplaceMap.module.css";
 
 const MAPTILER_API_KEY = "1Lk2s9HJjoiXBR1oqw5a";
-const MAPLIBRE_WORKER_URL = `${process.env.PUBLIC_URL || ""}/maplibre-gl-csp-worker.js`;
+// Must match the installed maplibre-gl. prestart/prebuild copy the package worker into public/.
+// The query string busts a cached MapLibre 4.7 worker, which rejects GeoJSON and hides pins.
+const MAPLIBRE_WORKER_URL = `${process.env.PUBLIC_URL || ""}/maplibre-gl-csp-worker.js?v=5.24.0`;
 const UKRAINE_CENTER = [31.223, 49.454];
 const DEFAULT_ZOOM = 6;
 const HEATMAP_SOURCE_ID = "b2b-marketplace-looking-heatmap";

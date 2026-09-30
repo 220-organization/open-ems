@@ -16,6 +16,8 @@
     "yaml": "^2.4.2"
   },
   "scripts": {
+    "prestart": "cp node_modules/maplibre-gl/dist/maplibre-gl-csp-worker.js public/maplibre-gl-csp-worker.js",
+    "prebuild": "cp node_modules/maplibre-gl/dist/maplibre-gl-csp-worker.js public/maplibre-gl-csp-worker.js",
     "start": "react-scripts start",
     "build": "react-scripts build",
     "lint": "eslint \"src/**/*.{js,jsx}\" --max-warnings 0",
