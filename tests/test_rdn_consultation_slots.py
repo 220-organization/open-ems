@@ -29,11 +29,24 @@ class TestRdnConsultationSlots(unittest.TestCase):
     def test_busy_ratio_on_future_slots(self) -> None:
         now = datetime(2026, 9, 21, 8, 0, tzinfo=__import__("zoneinfo").ZoneInfo("Europe/Kyiv"))
         days = list_consultation_days(now)
-        future = [w for d in days for w in d["windows"] if not w["past"]]
-        busy = [w for w in future if w["busy"]]
-        expected = int(round(len(future) * BUSY_RATIO))
+        closed = {"2026-09-22", "2026-09-26", "2026-09-27", "2026-10-03", "2026-10-04"}
+        open_future = [
+            w for d in days for w in d["windows"] if not w["past"] and d["date"] not in closed
+        ]
+        busy = [w for w in open_future if w["busy"]]
+        expected = int(round(len(open_future) * BUSY_RATIO))
         self.assertEqual(len(busy), expected)
-        self.assertTrue(any(w["available"] for w in future))
+        self.assertTrue(any(w["available"] for w in open_future))
+
+    def test_tomorrow_and_weekend_have_no_times(self) -> None:
+        now = datetime(2026, 10, 1, 16, 40, tzinfo=__import__("zoneinfo").ZoneInfo("Europe/Kyiv"))
+        days = {row["date"]: row for row in list_consultation_days(now)}
+        for closed in ("2026-10-02", "2026-10-03", "2026-10-04"):
+            row = days[closed]
+            self.assertFalse(row["hasAvailable"])
+            self.assertTrue(all(not w["available"] for w in row["windows"]))
+        friday_next = days["2026-10-09"]
+        self.assertTrue(any(w["available"] or w["busy"] for w in friday_next["windows"]))
 
     def test_past_today_windows_not_available(self) -> None:
         now = datetime(2026, 9, 21, 15, 30, tzinfo=__import__("zoneinfo").ZoneInfo("Europe/Kyiv"))

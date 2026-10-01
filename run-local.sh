@@ -138,6 +138,11 @@ fi
 
 docker compose run --rm migrate
 
+echo "Seeding marketplace location points…" >&2
+if ! docker compose exec -T db psql -U openems -d openems -v ON_ERROR_STOP=1 -f - < ./scripts/seed_marketplace_locations.sql; then
+  echo "WARN: marketplace location seed failed (non-fatal)." >&2
+fi
+
 echo "Running ROI dev DB seed for DEVICE_SN=${DEVICE_SN} (./scripts/seed_roi_dev_data.sh)…" >&2
 if ! ./scripts/seed_roi_dev_data.sh; then
   echo "WARN: ROI dev seed failed (non-fatal). Fix DATABASE_URL or run ./scripts/seed_roi_dev_data.sh manually." >&2

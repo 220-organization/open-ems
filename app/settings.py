@@ -411,7 +411,7 @@ DEYE_SMART_LOAD_YESTERDAY_SKIP_MIN_SAMPLES: int = _env_int(
 
 # Per-client IP HTTP rate limit (sliding 60s window, in-process memory). Trust X-Forwarded-For only behind a trusted proxy.
 RATE_LIMIT_ENABLED: bool = _env_bool("RATE_LIMIT_ENABLED", True)
-RATE_LIMIT_PER_IP_PER_MINUTE: int = _env_int("RATE_LIMIT_PER_IP_PER_MINUTE", 600, 1, 10_000)
+RATE_LIMIT_PER_IP_PER_MINUTE: int = _env_int("RATE_LIMIT_PER_IP_PER_MINUTE", 780, 1, 10_000)
 
 
 def _parse_csv_env(name: str) -> list[str]:
@@ -519,8 +519,10 @@ OPEN_EMS_ADMIN_TOKEN: str = (
 ).strip()
 
 # Marketplace uploads + Monobank (info unlock / publication / heatmap).
+# Docker sets MARKETPLACE_DATA_DIR=/app/data/marketplace. Local runs keep files in the repo.
 MARKETPLACE_DATA_DIR: str = (
-    os.environ.get("MARKETPLACE_DATA_DIR") or "/app/data/marketplace"
+    os.environ.get("MARKETPLACE_DATA_DIR")
+    or str(_APP_ROOT / "data" / "marketplace")
 ).strip()
 MARKETPLACE_PUBLIC_BASE_URL: str = (os.environ.get("MARKETPLACE_PUBLIC_BASE_URL") or "").rstrip("/")
 MARKETPLACE_PAYMENT_TOKEN: str = (os.environ.get("MARKETPLACE_PAYMENT_TOKEN") or "").strip()

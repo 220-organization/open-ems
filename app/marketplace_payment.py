@@ -30,7 +30,7 @@ LOOKING_INFO_PAYMENT_DESCRIPTION = (
 )
 PUBLICATION_PAYMENT_DESCRIPTION = "Публікація заявки на маркетплейсі локацій 220-km.com"
 HEATMAP_PAYMENT_DESCRIPTION = (
-    "Доступ до heatmap маркетплейсу 220-km.com (детальний zoom до кінця дня)"
+    "Доступ до heatmap попиту на зарядку маркетплейсу 220-km.com (до кінця дня)"
 )
 
 
@@ -196,7 +196,7 @@ def create_marketplace_heatmap_invoice(
             "comment": HEATMAP_PAYMENT_DESCRIPTION,
             "basketOrder": [
                 {
-                    "name": "Marketplace heatmap zoom access",
+                    "name": "Marketplace charging demand heatmap",
                     "qty": 1,
                     "sum": amount_cents,
                     "total": amount_cents,

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import Header, HTTPException, status
 
 from app import settings
 
 
-def require_admin_token(token: str | None = Header(None, alias="token")) -> str:
+def require_admin_token(token: Optional[str] = Header(None, alias="token")) -> str:
     expected = (settings.OPEN_EMS_ADMIN_TOKEN or "").strip()
     provided = (token or "").strip()
     if not expected or provided != expected:

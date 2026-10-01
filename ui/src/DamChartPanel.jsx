@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Bar,
   CartesianGrid,
@@ -821,6 +822,15 @@ export default function DamChartPanel({
   const [damXlsxBusy, setDamXlsxBusy] = useState(false);
   const [damXlsxError, setDamXlsxError] = useState('');
   const [damXlsxPaymentId, setDamXlsxPaymentId] = useState(() => readDamXlsxPaidId());
+  const [damDownloadHost, setDamDownloadHost] = useState(null);
+  useEffect(() => {
+    if (variant !== 'embedded') {
+      setDamDownloadHost(null);
+      return undefined;
+    }
+    setDamDownloadHost(document.getElementById('pf-dam-download-slot'));
+    return undefined;
+  }, [variant]);
   const [entsoeZone, setEntsoeZone] = useState(damUrlBootstrap.zone);
   const [payload, setPayload] = useState(null);
   /** Per-zone ENTSO-E chart-day payloads when primary market is Ukraine (OREE); keys ES, PL, UA_ENTSO. */
@@ -2317,6 +2327,9 @@ export default function DamChartPanel({
           />
         </div>
       ) : null}
+      {variant === 'embedded' && damDownloadHost
+        ? createPortal(downloadBar, damDownloadHost)
+        : null}
       {variant === 'fullpage' ? (
         <header className="pf-header dam-header">
           {marketControls}
@@ -2357,7 +2370,6 @@ export default function DamChartPanel({
         <div className="dam-embedded-head">
           <div className="dam-embedded-head-main">
             <h2 className="dam-title dam-title-embedded">{t('damChartHeading')}</h2>
-            {downloadBar}
           </div>
           {showEmbeddedHeadDateBar ? dateBar : null}
         </div>
