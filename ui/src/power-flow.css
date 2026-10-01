@@ -169,55 +169,13 @@ body {
   min-height: 0;
 }
 
-.pf-page-rest-pending-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 40;
-  pointer-events: auto;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  background: rgba(11, 13, 16, 0.45);
-  transition: opacity 0.22s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-  padding: 24px 12px;
-}
-
-.pf-page-rest-pending-loader {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  pointer-events: none;
-}
-
-.pf-page-rest-pending-loader__logo {
-  display: block;
-  width: min(108px, 26vw);
-  height: auto;
-  object-fit: contain;
-  opacity: 0.55;
-  animation: pf-page-rest-logo-fade 3.6s ease-in-out infinite;
-}
+/* Page-wide REST overlay removed: pending figures use .pf-node-value--pending instead. */
 
 @keyframes pf-page-rest-logo-fade {
   0%, 100% { opacity: 0.40; }
   50%      { opacity: 0.95; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .pf-page-rest-pending-overlay {
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
-    transition: none;
-  }
-  .pf-page-rest-pending-loader__logo {
-    animation: none;
-    opacity: 0.85;
-  }
-}
 
 /* ─────────────────────────────────────────────────────────────
  * ROI + post-charts column.
@@ -568,7 +526,7 @@ body {
   gap: 0;
 }
 
-.pf-landing-totals__counter-wrap--loading { opacity: 0.7; }
+.pf-landing-totals__counter-wrap--loading { opacity: 0.35; }
 
 .pf-landing-totals__counter {
   display: inline-block;
@@ -1651,6 +1609,10 @@ a.pf-node { cursor: pointer; }
   font-variant-numeric: tabular-nums;
   text-shadow: none;
   line-height: 1.15;
+}
+
+.pf-node-value--pending {
+  opacity: 0.35;
 }
 
 .pf-node-sub {
@@ -3934,10 +3896,6 @@ a.pf-node { cursor: pointer; }
 [data-theme="light"] .pf-graph .pf-node-solar-forecast {
   color: var(--pf-text-muted);
   text-shadow: none;
-}
-
-[data-theme="light"] .pf-page-rest-pending-overlay {
-  background: rgba(247, 245, 241, 0.55);
 }
 
 [data-theme="light"] .pf-roi-bar,

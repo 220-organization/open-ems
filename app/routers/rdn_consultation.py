@@ -7,6 +7,7 @@ import uuid
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from app.rdn_consultation_payment import (
@@ -19,6 +20,7 @@ from app.rdn_consultation_payment import (
     with_query,
 )
 from app.rdn_consultation_slots import list_consultation_days, require_available_slot, slot_label_uk
+from app.tov_invoice_xlsx import build_tov_invoice_xlsx, buyer_from_requisites
 from app.telegram_notify import (
     format_rdn_consultation_callback_message,
     format_rdn_consultation_paid_message,
@@ -61,6 +63,14 @@ class PayStatusResponse(BaseModel):
     phone: Optional[str] = None
     slot_id: Optional[str] = None
     slot_label: Optional[str] = None
+
+
+class TovInvoiceRequest(BaseModel):
+    amount_uah: int = Field(
+        ...,
+        description=f"Invoice amount in UAH ({MIN_AMOUNT_UAH}–{MAX_AMOUNT_UAH})",
+    )
+    requisites: str = Field(..., min_length=8, max_length=2000)
 
 
 class PayTestRequest(BaseModel):
@@ -125,6 +135,26 @@ async def _notify_rdn_paid(row: dict) -> None:
     else:
         row["tg_notify_started"] = False
         logger.warning("RDN consultation TG notify failed invoice=%s", row.get("invoice_id"))
+
+
+@router.post("/tov-invoice")
+async def create_tov_invoice(payload: TovInvoiceRequest) -> Response:
+    if not is_valid_amount_uah(payload.amount_uah):
+        raise HTTPException(
+            status_code=400,
+            detail=f"amount_uah must be between {MIN_AMOUNT_UAH} and {MAX_AMOUNT_UAH}",
+        )
+    try:
+        buyer, edrpou = buyer_from_requisites(payload.requisites)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Paste the buyer name and requisites") from exc
+    content = build_tov_invoice_xlsx(buyer, amount_uah=payload.amount_uah)
+    filename = f"rahunok-tov-{edrpou}.xlsx"
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/pay", response_model=PayCreateResponse)

@@ -36,6 +36,13 @@ def slot_label_uk(slot_id: str) -> str:
         return slot_id
 
 
+def _schedule_closed(day: date, today: date) -> bool:
+    """No bookings on the next Kyiv day, or on Saturday and Sunday."""
+    if day.weekday() >= 5:
+        return True
+    return day == today + timedelta(days=1)
+
+
 def _busy_ids(candidate_ids: list[str]) -> set[str]:
     """Stable ~20% busy set (hash order, not random per request)."""
     if not candidate_ids:
@@ -56,6 +63,7 @@ def list_consultation_days(now: Optional[datetime] = None) -> list[dict[str, Any
     skeleton: list[dict[str, Any]] = []
     for offset in range(SLOT_DAYS):
         day = today + timedelta(days=offset)
+        closed = _schedule_closed(day, today)
         windows: list[dict[str, Any]] = []
         for window in WINDOWS:
             start = datetime.combine(day, window, tzinfo=KYIV)
@@ -67,9 +75,10 @@ def list_consultation_days(now: Optional[datetime] = None) -> list[dict[str, Any
                     "start": start.isoformat(),
                     "label": window.strftime("%H:%M"),
                     "past": past,
+                    "closed": closed,
                 }
             )
-            if not past:
+            if not past and not closed:
                 future_ids.append(sid)
         skeleton.append({"date": day.isoformat(), "windows": windows})
 
@@ -78,8 +87,8 @@ def list_consultation_days(now: Optional[datetime] = None) -> list[dict[str, Any
     for row in skeleton:
         windows_out: list[dict[str, Any]] = []
         for w in row["windows"]:
-            is_busy = (not w["past"]) and w["id"] in busy
-            available = (not w["past"]) and (not is_busy)
+            is_busy = (not w["past"]) and (not w["closed"]) and w["id"] in busy
+            available = (not w["past"]) and (not w["closed"]) and (not is_busy)
             windows_out.append(
                 {
                     "id": w["id"],

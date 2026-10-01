@@ -19,7 +19,15 @@
 
 .pf-rdn-callback-section--page-end {
   margin-top: 24px;
-  margin-bottom: max(24px, env(safe-area-inset-bottom));
+  margin-bottom: 0;
+}
+
+.pf-dam-download-slot {
+  width: 100%;
+  max-width: 1100px;
+  margin: 8px auto 0;
+  padding: 0 4px max(24px, env(safe-area-inset-bottom));
+  align-self: center;
 }
 
 .rdn-consult-page {
@@ -418,6 +426,60 @@
 
 [data-theme="light"] .rdn-callback-card__amount-slider-range {
   color: rgba(60, 40, 80, 0.55);
+}
+
+.rdn-tov-invoice {
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--pf-border, rgba(255, 255, 255, 0.14));
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.rdn-tov-invoice__title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 650;
+  color: var(--pf-label, #f5e6ff);
+  cursor: pointer;
+  list-style: none;
+}
+
+.rdn-tov-invoice__title::-webkit-details-marker {
+  display: none;
+}
+
+.rdn-tov-invoice__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.rdn-tov-invoice__text {
+  min-height: 11rem;
+  resize: vertical;
+  line-height: 1.45;
+  font: inherit;
+}
+
+.rdn-tov-invoice__lead {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--pf-text-secondary, rgba(245, 230, 255, 0.78));
+}
+
+.rdn-tov-invoice__example {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--pf-text-secondary, rgba(245, 230, 255, 0.72));
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .rdn-callback-card__hint {
@@ -1012,11 +1074,11 @@
   min-height: 420px;
 }
 
-.dam-chart-content--loading {
-  filter: none;
-  opacity: 1;
-  pointer-events: auto;
-  transition: none;
+.dam-chart-content--loading .recharts-cartesian-axis-tick-value,
+.dam-chart-content--loading .dam-day-energy-totals__value,
+.dam-energy-bars-details.dam-chart-content--loading .dam-day-energy-totals__value,
+.dam-energy-bars-details.dam-chart-content--loading .dam-day-energy-totals__dam-sub {
+  opacity: 0.35;
 }
 
 /* Legend moved outside LineChart so Recharts does not shrink plot width (keeps X aligned with bar chart). */
@@ -1792,6 +1854,24 @@ a.dam-oree-embed-external:hover {
   );
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.08);
   border-color: rgba(193, 0, 185, 0.18);
+}
+
+[data-theme="light"] .rdn-tov-invoice {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(193, 0, 185, 0.18);
+}
+
+[data-theme="light"] .rdn-tov-invoice__title {
+  color: #3a1048;
+}
+
+[data-theme="light"] .rdn-tov-invoice__lead,
+[data-theme="light"] .rdn-tov-invoice__example {
+  color: rgba(40, 10, 55, 0.72);
+}
+
+[data-theme="light"] .rdn-tov-invoice__example {
+  background: rgba(252, 1, 155, 0.06);
 }
 
 [data-theme="light"] .rdn-callback-card__input {

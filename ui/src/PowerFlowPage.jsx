@@ -664,6 +664,10 @@ function formatLandingKwhCounterText(displayText, t) {
   return `~ ${s} ${t('powerFlowLandingKwhUnit')}`;
 }
 
+function pfNodeValueClass(pending) {
+  return pending ? 'pf-node-value pf-node-value--pending' : 'pf-node-value';
+}
+
 /** Huawei power-flow node: never show stale kW — "no data" when missing or older than live TTL. */
 function formatHuaweiPowerFlowNodeValue(loading, noData, watts, t, bcp47) {
   if (loading) return '…';
@@ -1595,6 +1599,7 @@ export default function PowerFlowPage({
     batteryW: 0,
   });
   const [minerSnap, setMinerSnap] = useState(null);
+  const [minerLoading, setMinerLoading] = useState(true);
   const [inverterRows, setInverterRows] = useState({
     loading: true,
     configured: false,
@@ -2178,15 +2183,19 @@ export default function PowerFlowPage({
   useEffect(() => {
     if (!showMinerNode) {
       setMinerSnap(null);
+      setMinerLoading(false);
       return undefined;
     }
     let cancelled = false;
+    setMinerLoading(true);
     (async () => {
       try {
         const data = await fetchMiner();
         if (!cancelled) setMinerSnap(data);
       } catch {
         /* keep previous */
+      } finally {
+        if (!cancelled) setMinerLoading(false);
       }
     })();
     const id = setInterval(async () => {
@@ -2417,7 +2426,6 @@ export default function PowerFlowPage({
   const [deyeLive, setDeyeLive] = useState(null);
   const [deyeLiveLoading, setDeyeLiveLoading] = useState(false);
   /** Matches `selInverterSn` after Deye ess-power has completed for that SN (avoids blur on 20s poll). */
-  const [deyeHydratedSn, setDeyeHydratedSn] = useState('');
   /** Huawei real power (getDevRealKpi meter + inverter via GET /api/huawei/power-flow). */
   const [huaweiLive, setHuaweiLive] = useState(null);
   const [huaweiLiveLoading, setHuaweiLiveLoading] = useState(false);
@@ -2425,10 +2433,8 @@ export default function PowerFlowPage({
   const [huaweiHydratedCode, setHuaweiHydratedCode] = useState('');
   const [ubetterLive, setUbetterLive] = useState(null);
   const [ubetterLiveLoading, setUbetterLiveLoading] = useState(false);
-  const [ubetterHydratedSn, setUbetterHydratedSn] = useState('');
   const [gridlabLive, setGridlabLive] = useState(null);
   const [gridlabLiveLoading, setGridlabLiveLoading] = useState(false);
-  const [gridlabHydratedId, setGridlabHydratedId] = useState('');
   /** Today/tomorrow insolation % + today cloud icon hint (coordinates never exposed to browser). */
   const [solarForecast, setSolarForecast] = useState({
     loading: false,
@@ -3261,21 +3267,10 @@ export default function PowerFlowPage({
   }, [selInverterSn, selDeyeClusterSns, inverterRows.configured, inverterRows.error]);
 
   useLayoutEffect(() => {
-    setDeyeHydratedSn('');
     if (selInverterSn && inverterRows.configured && !inverterRows.error) {
       setDeyeLiveLoading(true);
     }
   }, [selInverterSn, inverterRows.configured, inverterRows.error]);
-
-  useEffect(() => {
-    if (!selInverterSn || !inverterRows.configured || inverterRows.error) {
-      setDeyeHydratedSn('');
-      return;
-    }
-    if (!deyeLiveLoading) {
-      setDeyeHydratedSn(selInverterSn);
-    }
-  }, [selInverterSn, deyeLiveLoading, inverterRows.configured, inverterRows.error]);
 
   useEffect(() => {
     if (!selHuaweiStationCode || !huaweiRows.configured || huaweiRows.error || huaweiRows.authFailed) {
@@ -3392,21 +3387,10 @@ export default function PowerFlowPage({
   }, [selUbetterSn, ubetterRows.configured, ubetterRows.error, ubetterRows.authFailed]);
 
   useLayoutEffect(() => {
-    setUbetterHydratedSn('');
     if (selUbetterSn && ubetterRows.configured && !ubetterRows.error && !ubetterRows.authFailed) {
       setUbetterLiveLoading(true);
     }
   }, [selUbetterSn, ubetterRows.configured, ubetterRows.error, ubetterRows.authFailed]);
-
-  useEffect(() => {
-    if (!selUbetterSn || !ubetterRows.configured || ubetterRows.error || ubetterRows.authFailed) {
-      setUbetterHydratedSn('');
-      return;
-    }
-    if (!ubetterLiveLoading) {
-      setUbetterHydratedSn(selUbetterSn);
-    }
-  }, [selUbetterSn, ubetterLiveLoading, ubetterRows.configured, ubetterRows.error, ubetterRows.authFailed]);
 
   useEffect(() => {
     if (!selGridlabDeviceId || !gridlabRows.configured || gridlabRows.error || gridlabRows.authFailed) {
@@ -3455,21 +3439,10 @@ export default function PowerFlowPage({
   }, [selGridlabDeviceId, gridlabRows.configured, gridlabRows.error, gridlabRows.authFailed]);
 
   useLayoutEffect(() => {
-    setGridlabHydratedId('');
     if (selGridlabDeviceId && gridlabRows.configured && !gridlabRows.error && !gridlabRows.authFailed) {
       setGridlabLiveLoading(true);
     }
   }, [selGridlabDeviceId, gridlabRows.configured, gridlabRows.error, gridlabRows.authFailed]);
-
-  useEffect(() => {
-    if (!selGridlabDeviceId || !gridlabRows.configured || gridlabRows.error || gridlabRows.authFailed) {
-      setGridlabHydratedId('');
-      return;
-    }
-    if (!gridlabLiveLoading) {
-      setGridlabHydratedId(selGridlabDeviceId);
-    }
-  }, [selGridlabDeviceId, gridlabLiveLoading, gridlabRows.configured, gridlabRows.error, gridlabRows.authFailed]);
 
   useEffect(() => {
     if (!selEvPortsAcdc) {
@@ -4940,40 +4913,18 @@ export default function PowerFlowPage({
     (!ubetterRows.error && (ubetterRows.loading || ubetterRows.configured)) ||
     (!gridlabRows.error && (gridlabRows.loading || gridlabRows.configured));
   const dischargeFeedbackText = discharge2Feedback;
-  /** Blur below the power-flow graph until initial REST payloads are ready — site header and flow stay visible. */
-  const pageRestHydrationPending =
-    inverterRows.loading ||
-    huaweiRows.loading ||
-    ubetterRows.loading ||
-    gridlabRows.loading ||
-    chargingPorts.loading ||
-    (realtimePower === null &&
-      loadError === '' &&
-      !(
-        !essAnySelected &&
-        ((inverterRows.configured && !inverterRows.error && fleetDeyeAggregate.okResponses > 0) ||
-          (huaweiRows.configured &&
-            !huaweiRows.error &&
-            !huaweiRows.authFailed &&
-            fleetHuaweiAggregate.okResponses > 0))
-      )) ||
-    (inverterListReady && landingTotalsLoading) ||
-    (Boolean(selInverterSn) &&
-      deyeListReady &&
-      !inverterRows.error &&
-      (deyeHydratedSn !== selInverterSn || toolbarPrefsLoading || solarForecast.loading)) ||
-    (Boolean(selHuaweiStationCode) &&
-      huaweiListReady &&
-      !huaweiRows.error &&
-      (huaweiHydratedCode !== selHuaweiStationCode || huaweiLiveLoading)) ||
-    (Boolean(selUbetterSn) &&
-      ubetterListReady &&
-      !ubetterRows.error &&
-      (ubetterHydratedSn !== selUbetterSn || ubetterLiveLoading)) ||
-    (Boolean(selGridlabDeviceId) &&
-      gridlabListReady &&
-      !gridlabRows.error &&
-      gridlabHydratedId !== selGridlabDeviceId);
+  const solarGridEssValuePending = selHuaweiStationCode ? huaweiLiveLoading : evOnlyGraphLoading;
+  const loadValuePending = !essAnySelected
+    ? evOnlyFocusMode
+      ? evStationPowerLoading && evStationPowerW == null
+      : fleetDeyePollBusy
+    : selGridlabDeviceId
+      ? gridlabLiveLoading
+      : selUbetterSn
+        ? ubetterLiveLoading
+        : selHuaweiStationCode
+          ? huaweiLiveLoading
+          : deyeLiveLoading;
 
   const noEssListYet =
     (inverterRows.loading || huaweiRows.loading || ubetterRows.loading || gridlabRows.loading) &&
@@ -5149,7 +5100,7 @@ export default function PowerFlowPage({
             </header>
           </div>
 
-          <div className="pf-page-main" aria-busy={pageRestHydrationPending ? 'true' : undefined}>
+          <div className="pf-page-main">
             {isWideViewport && !kioskMode ? (
               <div className="pf-kiosk-wide-actions">
                 <button type="button" className="pf-kiosk-expand-btn" onClick={openKiosk}>
@@ -5318,13 +5269,20 @@ export default function PowerFlowPage({
                             {solarForecastIconChar}
                           </span>
                           {selInverterSn && (solarForecast.loading || solarForecast.todayPct != null) ? (
-                            <span className="pf-solar-today-near-icon" id="pf-solar-insolation-today">
+                            <span
+                              className={
+                                solarForecast.loading
+                                  ? 'pf-solar-today-near-icon pf-node-value--pending'
+                                  : 'pf-solar-today-near-icon'
+                              }
+                              id="pf-solar-insolation-today"
+                            >
                               {solarForecast.loading ? '…' : t('solarInsolationToday', { pct: solarForecast.todayPct })}
                             </span>
                           ) : null}
                         </div>
                         <span className="pf-node-label">{t('nodeSolar')}</span>
-                        <span className="pf-node-value" id="pf-val-solar">
+                        <span className={pfNodeValueClass(solarGridEssValuePending)} id="pf-val-solar">
                           {selHuaweiStationCode
                             ? formatHuaweiPowerFlowNodeValue(
                                 huaweiLiveLoading,
@@ -5382,7 +5340,7 @@ export default function PowerFlowPage({
                             ⚡
                           </span>
                           <span className="pf-node-label">{t('nodeGrid')}</span>
-                          <span className="pf-node-value" id="pf-val-grid">
+                          <span className={pfNodeValueClass(solarGridEssValuePending)} id="pf-val-grid">
                             {selHuaweiStationCode
                               ? formatHuaweiPowerFlowNodeValue(
                                   huaweiLiveLoading,
@@ -5421,7 +5379,7 @@ export default function PowerFlowPage({
                           🏠
                         </span>
                         <span className="pf-node-label">{t('nodeLoad')}</span>
-                        <span className="pf-node-value" id="pf-val-load">
+                        <span className={pfNodeValueClass(loadValuePending)} id="pf-val-load">
                           {!essAnySelected
                             ? evOnlyFocusMode
                               ? evStationPowerLoading && evStationPowerW == null
@@ -5481,7 +5439,7 @@ export default function PowerFlowPage({
                           )}
                         </span>
                         <span className="pf-node-label">{t('nodeEss')}</span>
-                        <span className="pf-node-value" id="pf-val-ess">
+                        <span className={pfNodeValueClass(solarGridEssValuePending)} id="pf-val-ess">
                           {selHuaweiStationCode
                             ? formatHuaweiPowerFlowNodeValue(
                                 huaweiLiveLoading,
@@ -5538,10 +5496,13 @@ export default function PowerFlowPage({
                         <span className="pf-node-label" id="pf-miner-label">
                           {minerLabel}
                         </span>
-                        <span className="pf-node-value" id="pf-val-miner">
+                        <span className={pfNodeValueClass(evOnlyGraphLoading || minerLoading)} id="pf-val-miner">
                           {evOnlyGraphLoading ? '…' : formatPower(graphDisplayMinerW, t, bcp47)}
                         </span>
-                        <div className="pf-node-meta" id="pf-miner-tariff">
+                        <div
+                          className={minerLoading ? 'pf-node-meta pf-node-value--pending' : 'pf-node-meta'}
+                          id="pf-miner-tariff"
+                        >
                           {formatUahPerKwhTariffLine(tf)}
                         </div>
                       </a>
@@ -5571,7 +5532,10 @@ export default function PowerFlowPage({
                                 <EvCarMark className="pf-node-icon__tesla" />
                               </span>
                               <span className="pf-node-label">{t('nodeEv')}</span>
-                              <span className="pf-node-value" id="pf-val-ev">
+                              <span
+                                className={pfNodeValueClass(evStationPowerLoading && evStationPowerW == null)}
+                                id="pf-val-ev"
+                              >
                                 {evStationPowerLoading && evStationPowerW == null
                                   ? '…'
                                   : formatPower(evStationPowerW, t, bcp47)}
@@ -5609,7 +5573,10 @@ export default function PowerFlowPage({
                                 <EvCarMark className="pf-node-icon__tesla" />
                               </span>
                               <span className="pf-node-label">{t('nodeEv')}</span>
-                              <span className="pf-node-value" id="pf-val-ev">
+                              <span
+                                className={pfNodeValueClass(evPortsLive.loading && evPortsDisplayPowerW == null)}
+                                id="pf-val-ev"
+                              >
                                 {evPortsLive.loading && evPortsDisplayPowerW == null
                                   ? '…'
                                   : formatPower(evPortsDisplayPowerW, t, bcp47)}
@@ -5640,7 +5607,7 @@ export default function PowerFlowPage({
                                 <EvCarMark className="pf-node-icon__tesla" />
                               </span>
                               <span className="pf-node-label">{t('nodeEv')}</span>
-                              <span className="pf-node-value" id="pf-val-ev">
+                              <span className={pfNodeValueClass(evBusy)} id="pf-val-ev">
                                 {evBusy ? '…' : formatPower(aggregateEvFlowW, t, bcp47)}
                               </span>
                               <div className="pf-node-meta" id="pf-ev-tariff">
@@ -5886,8 +5853,8 @@ export default function PowerFlowPage({
                           <div className="pf-landing-totals__export">
                             <div className="pf-landing-totals__metric-row">
                               <div className="pf-skeleton-line pf-skeleton-line--metric-select" />
-                              <div className="pf-landing-totals__counter-wrap pf-landing-totals__counter-wrap--skeleton">
-                                <span className="pf-skeleton-line pf-skeleton-line--counter" />
+                              <div className="pf-landing-totals__counter-wrap pf-landing-totals__counter-wrap--loading">
+                                <span className="pf-landing-totals__counter">…</span>
                               </div>
                             </div>
                           </div>
@@ -6733,20 +6700,6 @@ export default function PowerFlowPage({
                 </a>
               </aside>
 
-              {pageRestHydrationPending ? (
-                <div className="pf-page-rest-pending-overlay" aria-hidden="true">
-                  <div className="pf-page-rest-pending-loader">
-                    <img
-                      className="pf-page-rest-pending-loader__logo"
-                      src={VYRIY_EMS_LOGO_SRC}
-                      alt=""
-                      width={120}
-                      height={120}
-                      decoding="async"
-                    />
-                  </div>
-                </div>
-              ) : null}
             </div>
 
             <section
@@ -6755,6 +6708,7 @@ export default function PowerFlowPage({
             >
               <RdnConsultationCallback t={t} getBcp47Locale={getBcp47Locale} />
             </section>
+            <div id="pf-dam-download-slot" className="pf-dam-download-slot" />
           </div>
 
           <SharePageModal

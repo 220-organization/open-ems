@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { OPEN_EMS_ROUTES } from './openEmsRoutes';
 import './dam-chart.css';
 
@@ -74,6 +74,104 @@ function takePaymentIdFromUrl() {
 function buildRedirectUrl() {
   const url = new URL(OPEN_EMS_ROUTES.rdnConsultation, window.location.origin);
   return url.toString();
+}
+
+const TOV_REQUISITES_EXAMPLE = [
+  'ТОВ «Н-***»',
+  'Код 41****62',
+  '46006 м. Тернопіль, вул. Подільська, буд. ** А, офіс ***',
+  'р/р 2600********45 в ТФ КБ «Приватбанк» МФО 33****',
+  'Платник ПДВ – інд. податковий номер 4137****9185',
+  'На загальній системі оподаткування',
+  'Директор – С**** І. М.',
+].join('\n');
+
+function TovInvoiceForm({ t, amountUah, amountOk }) {
+  const requisitesId = useId();
+  const [requisites, setRequisites] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const lines = requisites
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean);
+  const requisitesOk = lines.length >= 2 && lines[0].length >= 2 && lines.slice(1).join('\n').length >= 5;
+
+  const downloadInvoice = async () => {
+    if (busy) return;
+    if (!amountOk) {
+      setError(t('rdnTovInvoiceAmountRequired'));
+      return;
+    }
+    if (!requisitesOk) {
+      setError(t('rdnTovInvoiceFillHint'));
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const res = await fetch(apiUrl('/api/rdn-consultation/tov-invoice'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount_uah: amountUah,
+          requisites: requisites.trim(),
+        }),
+      });
+      if (!res.ok) throw new Error(`tov-invoice ${res.status}`);
+      const blob = await res.blob();
+      const edrpou = (requisites.match(/\d{8}/) || ['tov'])[0];
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `rahunok-tov-${edrpou}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setError(t('rdnTovInvoiceFailed'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <details className="rdn-tov-invoice">
+      <summary className="rdn-tov-invoice__title">{t('rdnTovInvoiceTitle')}</summary>
+      <div className="rdn-tov-invoice__body">
+      <label className="rdn-callback-card__label" htmlFor={requisitesId}>
+        {t('rdnTovInvoiceLead')}
+        <textarea
+          id={requisitesId}
+          className="rdn-callback-card__input rdn-tov-invoice__text"
+          rows={8}
+          value={requisites}
+          placeholder={TOV_REQUISITES_EXAMPLE}
+          autoComplete="off"
+          onChange={e => {
+            setRequisites(e.target.value);
+            if (error) setError('');
+          }}
+        />
+      </label>
+      {error ? (
+        <p className="rdn-callback-card__form-hint" role="alert">
+          {error}
+        </p>
+      ) : null}
+      <button
+        type="button"
+        className="rdn-callback-card__btn rdn-callback-card__btn--pay-test"
+        disabled={busy}
+        onClick={downloadInvoice}
+      >
+        {busy ? t('rdnTovInvoiceBusy') : t('rdnTovInvoiceCreate')}
+      </button>
+      </div>
+    </details>
+  );
 }
 
 function isLocalhostDev() {
@@ -871,6 +969,10 @@ export default function RdnConsultationCallback({
             {callbackBusy ? t('rdnCallbackSubmitBusy') : t('rdnCallbackSubmitBtn')}
           </button>
         </div>
+      ) : null}
+
+      {effectiveMode === 'pay' && !isPaid ? (
+        <TovInvoiceForm t={t} amountUah={amountUah} amountOk={amountOk} />
       ) : null}
     </div>
   );
