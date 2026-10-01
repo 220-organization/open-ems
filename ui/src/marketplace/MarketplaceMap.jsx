@@ -49,7 +49,9 @@ import MarketplaceModal from "./MarketplaceModal";
 import styles from "./MarketplaceMap.module.css";
 
 const MAPTILER_API_KEY = "1Lk2s9HJjoiXBR1oqw5a";
-const MAPLIBRE_WORKER_URL = `${process.env.PUBLIC_URL || ""}/maplibre-gl-csp-worker.js`;
+// Must match the installed maplibre-gl. prestart/prebuild copy the package worker into public/.
+// The query string busts a cached MapLibre 4.7 worker, which rejects GeoJSON and hides pins.
+const MAPLIBRE_WORKER_URL = `${process.env.PUBLIC_URL || ""}/maplibre-gl-csp-worker.js?v=5.24.0`;
 const UKRAINE_CENTER = [31.223, 49.454];
 const DEFAULT_ZOOM = 6;
 const HEATMAP_SOURCE_ID = "b2b-marketplace-looking-heatmap";
@@ -63,31 +65,17 @@ if (typeof maplibregl.setWorkerUrl === "function") {
   maplibregl.setWorkerUrl(MAPLIBRE_WORKER_URL);
 }
 
-function buildHybridStyle(apiKey) {
-  return {
-    version: 8,
-    sources: {
-      "maptiler-raster": {
-        type: "raster",
-        tiles: [
-          `https://api.maptiler.com/maps/hybrid/256/{z}/{x}/{y}.jpg?key=${apiKey}`,
-        ],
-        tileSize: 256,
-        attribution:
-          '<a href="https://www.maptiler.com/copyright/" target="_blank" rel="noreferrer">© MapTiler</a> ' +
-          '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap</a>',
-      },
-    },
-    layers: [
-      {
-        id: "maptiler-raster",
-        type: "raster",
-        source: "maptiler-raster",
-        minzoom: 0,
-        maxzoom: 22,
-      },
-    ],
-  };
+function resolveMapLanguage(locale) {
+  const lang = String(locale || "uk").toLowerCase();
+  if (lang.startsWith("en")) return maptilersdk.Language.ENGLISH;
+  if (lang.startsWith("es")) return maptilersdk.Language.SPANISH;
+  if (lang.startsWith("de")) return maptilersdk.Language.GERMAN;
+  if (lang.startsWith("fr")) return maptilersdk.Language.FRENCH;
+  if (lang.startsWith("pl")) return maptilersdk.Language.POLISH;
+  if (lang.startsWith("nl")) return maptilersdk.Language.DUTCH;
+  if (lang.startsWith("cs")) return maptilersdk.Language.CZECH;
+  if (lang.startsWith("bg")) return maptilersdk.Language.BULGARIAN;
+  return maptilersdk.Language.UKRAINIAN;
 }
 
 function flattenLocations(items) {
@@ -270,12 +258,17 @@ function upsertHeatmapLayer(map, regions) {
 
   removeHeatmapLayer(map);
   map.addSource(HEATMAP_SOURCE_ID, { type: "geojson", data });
-  map.addLayer({
+  const heatmapLayer = {
     id: HEATMAP_LAYER_ID,
     type: "heatmap",
     source: HEATMAP_SOURCE_ID,
     paint: HEATMAP_PAINT,
-  });
+  };
+  try {
+    map.addLayer({ ...heatmapLayer, slot: "top" });
+  } catch {
+    if (!map.getLayer(HEATMAP_LAYER_ID)) map.addLayer(heatmapLayer);
+  }
 }
 
 function syncHeatmapLayerData(
@@ -900,7 +893,9 @@ export default function MarketplaceMap({
     maptilersdk.config.apiKey = MAPTILER_API_KEY;
     const map = new maptilersdk.Map({
       container: mapContainerRef.current,
-      style: buildHybridStyle(MAPTILER_API_KEY),
+      // Satellite plus vector borders, cities, districts, and streets.
+      style: maptilersdk.MapStyle.HYBRID,
+      language: resolveMapLanguage(locale),
       center: UKRAINE_CENTER,
       zoom: DEFAULT_ZOOM,
       geolocateControl: false,
@@ -1015,6 +1010,7 @@ export default function MarketplaceMap({
     showLookingHeatmap,
     requestHeatmapSync,
     heatmapEnabled,
+    locale,
   ]);
 
   useEffect(() => {

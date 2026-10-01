@@ -730,6 +730,8 @@
   "marketplaceLeadFormMapSearchPlaceholder": "Search address…",
   "marketplaceLeadFormMapSearchAria": "Search address on map",
   "marketplaceLeadFormMapSearchNoResults": "No addresses found",
+  "marketplaceLeadFormMapFullscreen": "Full screen",
+  "marketplaceLeadFormMapExitFullscreen": "Exit full screen",
   "marketplaceLeadFormParkingPhotosLabel": "Parking photos (optional)",
   "marketplaceLeadFormConnectionPhotosLabel": "Connection point photos (optional)",
   "marketplaceLeadFormPhotoUploadError": "Could not upload the photo. Try JPEG or PNG.",

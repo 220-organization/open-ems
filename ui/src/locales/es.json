@@ -730,6 +730,8 @@
   "marketplaceLeadFormMapSearchPlaceholder": "Buscar dirección…",
   "marketplaceLeadFormMapSearchAria": "Buscar dirección en el mapa",
   "marketplaceLeadFormMapSearchNoResults": "No se encontraron direcciones",
+  "marketplaceLeadFormMapFullscreen": "Pantalla completa",
+  "marketplaceLeadFormMapExitFullscreen": "Salir de pantalla completa",
   "marketplaceLeadFormParkingPhotosLabel": "Fotos del aparcamiento (opcional)",
   "marketplaceLeadFormConnectionPhotosLabel": "Fotos del punto de conexión (opcional)",
   "marketplaceLeadFormPhotoUploadError": "No se pudo subir la foto. Pruebe JPEG o PNG.",

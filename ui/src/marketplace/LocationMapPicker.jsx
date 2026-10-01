@@ -21,29 +21,35 @@ const REGION_OUTLINE_LAYER_ID = 'b2b-location-region-outline';
 const REGION_CENTER_SOURCE_ID = 'b2b-location-region-center';
 const REGION_CENTER_LAYER_ID = 'b2b-location-region-center-layer';
 
-function buildHybridStyle(apiKey) {
-  return {
-    version: 8,
-    sources: {
-      'maptiler-raster': {
-        type: 'raster',
-        tiles: [`https://api.maptiler.com/maps/hybrid/256/{z}/{x}/{y}.jpg?key=${apiKey}`],
-        tileSize: 256,
-        attribution:
-          '<a href="https://www.maptiler.com/copyright/" target="_blank" rel="noreferrer">© MapTiler</a> ' +
-          '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap</a>',
-      },
-    },
-    layers: [
-      {
-        id: 'maptiler-raster',
-        type: 'raster',
-        source: 'maptiler-raster',
-        minzoom: 0,
-        maxzoom: 22,
-      },
-    ],
-  };
+function resolveMapLanguage(locale) {
+  const lang = String(locale || 'uk').toLowerCase();
+  if (lang.startsWith('en')) return maptilersdk.Language.ENGLISH;
+  if (lang.startsWith('es')) return maptilersdk.Language.SPANISH;
+  if (lang.startsWith('de')) return maptilersdk.Language.GERMAN;
+  if (lang.startsWith('fr')) return maptilersdk.Language.FRENCH;
+  if (lang.startsWith('pl')) return maptilersdk.Language.POLISH;
+  if (lang.startsWith('nl')) return maptilersdk.Language.DUTCH;
+  if (lang.startsWith('cs')) return maptilersdk.Language.CZECH;
+  if (lang.startsWith('bg')) return maptilersdk.Language.BULGARIAN;
+  return maptilersdk.Language.UKRAINIAN;
+}
+
+function fullscreenElement() {
+  return document.fullscreenElement || document.webkitFullscreenElement || null;
+}
+
+function requestElementFullscreen(element) {
+  if (typeof element.requestFullscreen === 'function') return element.requestFullscreen();
+  if (typeof element.webkitRequestFullscreen === 'function') return element.webkitRequestFullscreen();
+  return Promise.reject(new Error('fullscreen unsupported'));
+}
+
+function exitElementFullscreen() {
+  if (document.fullscreenElement && typeof document.exitFullscreen === 'function') return document.exitFullscreen();
+  if (document.webkitFullscreenElement && typeof document.webkitExitFullscreen === 'function') {
+    return document.webkitExitFullscreen();
+  }
+  return Promise.resolve();
 }
 
 function locationsToGeoJson(locations) {
@@ -239,6 +245,8 @@ async function reverseGeocodeRegion(lng, lat, language) {
 
 export default function LocationMapPicker({ t, locale = 'uk', locations, onChange, selectionMode = 'point' }) {
   const mapContainerRef = useRef(null);
+  const mapShellRef = useRef(null);
+  const nativeFullscreenRef = useRef(false);
   const mapRef = useRef(null);
   const locationsRef = useRef(locations);
   const onChangeRef = useRef(onChange);
@@ -253,6 +261,7 @@ export default function LocationMapPicker({ t, locale = 'uk', locations, onChang
   const [searchResults, setSearchResults] = useState([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [isMapWindow, setIsMapWindow] = useState(false);
 
   const isRegionMode = selectionMode === 'region';
 
@@ -326,24 +335,43 @@ export default function LocationMapPicker({ t, locale = 'uk', locations, onChang
 
     const map = new maptilersdk.Map({
       container: mapContainerRef.current,
-      style: buildHybridStyle(MAPTILER_API_KEY),
+      // Vector hybrid: satellite imagery plus place, road, and boundary names.
+      style: maptilersdk.MapStyle.HYBRID,
+      language: resolveMapLanguage(locale),
       center: UKRAINE_CENTER,
       zoom: DEFAULT_ZOOM,
       geolocateControl: false,
       navigationControl: false,
       maptilerLogo: false,
       attributionControl: false,
-      maxZoom: 21,
+      maxZoom: 22,
     });
 
     mapRef.current = map;
 
-    map.on('load', () => {
-      map.addSource(MARKERS_SOURCE_ID, {
-        type: 'geojson',
-        data: locationsToGeoJson([]),
-      });
-      map.addLayer({
+    map.addControl(
+      new maptilersdk.NavigationControl({ showCompass: false, visualizePitch: false }),
+      'top-right'
+    );
+
+    const addOverlayLayer = layer => {
+      const withSlot = { ...layer, slot: 'top' };
+      try {
+        if (map.getLayer(layer.id)) return;
+        map.addLayer(withSlot);
+      } catch {
+        if (!map.getLayer(layer.id)) map.addLayer(layer);
+      }
+    };
+
+    const installOverlayLayers = () => {
+      if (!map.getSource(MARKERS_SOURCE_ID)) {
+        map.addSource(MARKERS_SOURCE_ID, {
+          type: 'geojson',
+          data: locationsToGeoJson([]),
+        });
+      }
+      addOverlayLayer({
         id: MARKERS_LAYER_ID,
         type: 'circle',
         source: MARKERS_SOURCE_ID,
@@ -355,11 +383,13 @@ export default function LocationMapPicker({ t, locale = 'uk', locations, onChang
         },
       });
 
-      map.addSource(REGION_SOURCE_ID, {
-        type: 'geojson',
-        data: regionToGeoJson([]),
-      });
-      map.addLayer({
+      if (!map.getSource(REGION_SOURCE_ID)) {
+        map.addSource(REGION_SOURCE_ID, {
+          type: 'geojson',
+          data: regionToGeoJson([]),
+        });
+      }
+      addOverlayLayer({
         id: REGION_FILL_LAYER_ID,
         type: 'fill',
         source: REGION_SOURCE_ID,
@@ -368,7 +398,7 @@ export default function LocationMapPicker({ t, locale = 'uk', locations, onChang
           'fill-opacity': 0.22,
         },
       });
-      map.addLayer({
+      addOverlayLayer({
         id: REGION_OUTLINE_LAYER_ID,
         type: 'line',
         source: REGION_SOURCE_ID,
@@ -378,11 +408,13 @@ export default function LocationMapPicker({ t, locale = 'uk', locations, onChang
         },
       });
 
-      map.addSource(REGION_CENTER_SOURCE_ID, {
-        type: 'geojson',
-        data: regionCenterToGeoJson([]),
-      });
-      map.addLayer({
+      if (!map.getSource(REGION_CENTER_SOURCE_ID)) {
+        map.addSource(REGION_CENTER_SOURCE_ID, {
+          type: 'geojson',
+          data: regionCenterToGeoJson([]),
+        });
+      }
+      addOverlayLayer({
         id: REGION_CENTER_LAYER_ID,
         type: 'circle',
         source: REGION_CENTER_SOURCE_ID,
@@ -395,7 +427,10 @@ export default function LocationMapPicker({ t, locale = 'uk', locations, onChang
       });
 
       syncMapLayers(locationsRef.current);
-    });
+    };
+
+    map.on('load', installOverlayLayers);
+    map.on('style.load', installOverlayLayers);
 
     map.on('click', e => {
       if (selectionModeRef.current === 'region') {
@@ -409,7 +444,65 @@ export default function LocationMapPicker({ t, locale = 'uk', locations, onChang
       map.remove();
       mapRef.current = null;
     };
-  }, [addPointLocation, addRegionLocation, syncMapLayers]);
+  }, [addPointLocation, addRegionLocation, locale, syncMapLayers]);
+
+  useEffect(() => {
+    const syncFullscreen = () => {
+      const shell = mapShellRef.current;
+      const active = fullscreenElement() === shell;
+      if (nativeFullscreenRef.current && !active) setIsMapWindow(false);
+      nativeFullscreenRef.current = active;
+      requestAnimationFrame(() => mapRef.current?.resize());
+    };
+    document.addEventListener('fullscreenchange', syncFullscreen);
+    document.addEventListener('webkitfullscreenchange', syncFullscreen);
+    return () => {
+      document.removeEventListener('fullscreenchange', syncFullscreen);
+      document.removeEventListener('webkitfullscreenchange', syncFullscreen);
+    };
+  }, []);
+
+  useEffect(() => {
+    document.body.classList.toggle('mp-map-window', isMapWindow);
+    const frame = requestAnimationFrame(() => mapRef.current?.resize());
+    return () => {
+      cancelAnimationFrame(frame);
+      document.body.classList.remove('mp-map-window');
+    };
+  }, [isMapWindow]);
+
+  useEffect(() => {
+    if (!isMapWindow) return undefined;
+    const onKey = event => {
+      if (event.key !== 'Escape') return;
+      event.stopPropagation();
+      nativeFullscreenRef.current = false;
+      setIsMapWindow(false);
+      exitElementFullscreen().catch(() => {});
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [isMapWindow]);
+
+  const toggleMapFullscreen = () => {
+    const shell = mapShellRef.current;
+    if (!shell) return;
+    if (isMapWindow || fullscreenElement() === shell) {
+      nativeFullscreenRef.current = false;
+      setIsMapWindow(false);
+      exitElementFullscreen().catch(() => {});
+      return;
+    }
+    setIsMapWindow(true);
+    requestElementFullscreen(shell)
+      .then(() => {
+        nativeFullscreenRef.current = fullscreenElement() === shell;
+        requestAnimationFrame(() => mapRef.current?.resize());
+      })
+      .catch(() => {
+        requestAnimationFrame(() => mapRef.current?.resize());
+      });
+  };
 
   useEffect(() => {
     syncMapLayers(locations);
@@ -537,7 +630,10 @@ export default function LocationMapPicker({ t, locale = 'uk', locations, onChang
           </div>
         </div>
       ) : null}
-      <div className={styles.mapWrap}>
+      <div
+        ref={mapShellRef}
+        className={`${styles.mapWrap}${isMapWindow ? ` ${styles.mapWrapWindow}` : ''}`}
+      >
         <form className={styles.mapToolbar} onSubmit={handleSearchSubmit}>
           <div className={styles.searchWrap}>
             <input
@@ -587,12 +683,22 @@ export default function LocationMapPicker({ t, locale = 'uk', locations, onChang
             {t('marketplaceLeadFormMapGeolocate')}
           </button>
         </form>
-        <div
-          ref={mapContainerRef}
-          className={`${styles.map}${isRegionMode ? ` ${styles.mapRegionMode}` : ''}`}
-          aria-label={t(ariaKey)}
-        />
-        {resolving ? <div className={styles.resolving}>{t('marketplaceLeadFormMapLoading')}</div> : null}
+        <div className={styles.mapStage}>
+          <div
+            ref={mapContainerRef}
+            className={`${styles.map}${isRegionMode ? ` ${styles.mapRegionMode}` : ''}`}
+            aria-label={t(ariaKey)}
+          />
+          <button
+            type="button"
+            className={styles.fullscreenBtn}
+            onClick={toggleMapFullscreen}
+            aria-pressed={isMapWindow}
+          >
+            {t(isMapWindow ? 'marketplaceLeadFormMapExitFullscreen' : 'marketplaceLeadFormMapFullscreen')}
+          </button>
+          {resolving ? <div className={styles.resolving}>{t('marketplaceLeadFormMapLoading')}</div> : null}
+        </div>
       </div>
       {locations.length > 0 ? (
         <ul className={styles.locationList}>
