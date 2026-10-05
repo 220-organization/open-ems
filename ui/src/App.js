@@ -13,6 +13,7 @@ import PowerFlowPage from "./PowerFlowPage";
 import ServerMetricsBar from "./ServerMetricsBar";
 import AndroidInstallBanner from "./AndroidInstallBanner";
 import DeployMaintenanceOverlay from "./DeployMaintenanceOverlay";
+import SlowInternetNotice from "./SlowInternetNotice";
 import { isOpenEmsKioskUrl } from "./openEmsKiosk";
 import {
   redirectLegacyDamChartPath,
@@ -41,6 +42,12 @@ export default function App() {
   const [page, setPage] = useState(readCurrentPage);
   const [kioskMode, setKioskMode] = useState(readKioskMode);
   const chromeHidden = useAutoHideChrome();
+
+  useEffect(() => {
+    window.__OPEN_EMS_APP_MOUNTED = true;
+    document.getElementById("slow-net-notice")?.remove();
+    document.documentElement.classList.remove("slow-net-light");
+  }, []);
 
   useEffect(() => {
     document.documentElement.classList.toggle(
@@ -72,6 +79,7 @@ export default function App() {
   return (
     <div className="app-root-layout">
       <DeployMaintenanceOverlay t={i18n.t} />
+      <SlowInternetNotice t={i18n.t} />
       {showKiosk ? null : <AndroidInstallBanner t={i18n.t} />}
       {showKiosk ? null : (
         <OpenEmsHeader

@@ -49,7 +49,9 @@
         if (r.ok) hide();
         else show();
       })
-      .catch(show);
+      .catch(function () {
+        /* Unreachable host is a connectivity problem. The slow-net splash owns that case. */
+      });
   }
 
   check();

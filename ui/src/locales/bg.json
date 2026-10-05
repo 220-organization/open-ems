@@ -1,5 +1,8 @@
 {
   "deployMaintenanceMessage": "Всичко е наред, обновяваме — ще е достъпно след ~ 2 мин",
+  "slowInternetLoading": "Зареждане…",
+  "slowInternetMessage": "Интернетът е бавен. Намерете по-добър интернет и се свържете отново.",
+  "slowInternetReconnect": "Свържи отново",
   "pageTitle": "Open EMS — Поток на мощността",
   "stationLabel": "Порт №",
   "stationPlaceholder": "Изберете EV порт",

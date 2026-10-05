@@ -1,5 +1,8 @@
 {
   "deployMaintenanceMessage": "Wszystko w porządku, aktualizujemy system — będzie dostępny za ok. 2 min",
+  "slowInternetLoading": "Ładowanie…",
+  "slowInternetMessage": "Internet jest wolny. Znajdź lepszy internet i połącz się ponownie.",
+  "slowInternetReconnect": "Połącz ponownie",
   "pageTitle": "Open EMS — Przepływ mocy",
   "stationLabel": "Port nr",
   "stationPlaceholder": "Wybierz port EV",

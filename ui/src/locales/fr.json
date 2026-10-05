@@ -1,5 +1,8 @@
 {
   "deployMaintenanceMessage": "Tout va bien, mise à jour en cours — disponible dans ~ 2 min",
+  "slowInternetLoading": "Chargement…",
+  "slowInternetMessage": "Internet est lent. Trouvez un meilleur accès et reconnectez-vous.",
+  "slowInternetReconnect": "Reconnecter",
   "pageTitle": "Open EMS — Flux de puissance",
   "stationLabel": "Port n°",
   "stationPlaceholder": "Sélectionner le port EV",

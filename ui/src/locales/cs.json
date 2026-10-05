@@ -1,5 +1,8 @@
 {
   "deployMaintenanceMessage": "Vše v pořádku, právě aktualizujeme — bude k dispozici za ~ 2 min",
+  "slowInternetLoading": "Načítání…",
+  "slowInternetMessage": "Internet je pomalý. Najděte lepší připojení a připojte se znovu.",
+  "slowInternetReconnect": "Znovu připojit",
   "pageTitle": "Open EMS — Tok výkonu",
   "stationLabel": "Port č.",
   "stationPlaceholder": "Vyberte EV port",
