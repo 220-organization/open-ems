@@ -78,6 +78,8 @@ def _build_submission_message(row) -> str:
             f'<a href="{html.escape(admin_url)}">Відкрити модерацію</a>',
         ]
     )
+    if str(row.request_type or "").upper() == "PROPOSE":
+        lines.extend(["", "#new_location_proposed"])
     return "\n".join(lines)
 
 
