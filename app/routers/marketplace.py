@@ -60,13 +60,95 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/marketplace", tags=["marketplace"])
 admin_router = APIRouter(prefix="/api/admin", tags=["admin"])
 
-ALLOWED_UPLOAD_TYPES = {
-    "image/jpeg",
-    "image/jpg",
-    "image/pjpeg",
-    "image/png",
-    "image/webp",
+# Stored extension for phone camera rolls. Sniffed bytes win over the browser MIME type,
+# because iOS often labels HEIC as application/octet-stream.
+_IMAGE_EXTENSION_BY_SUFFIX = {
+    "jpg": "jpg",
+    "jpeg": "jpg",
+    "jpe": "jpg",
+    "png": "png",
+    "webp": "webp",
+    "gif": "gif",
+    "bmp": "bmp",
+    "tif": "tif",
+    "tiff": "tif",
+    "heic": "heic",
+    "heif": "heif",
+    "avif": "avif",
+    "dng": "dng",
 }
+_HEIF_BRANDS = {
+    b"heic",
+    b"heix",
+    b"hevc",
+    b"hevx",
+    b"heim",
+    b"heis",
+    b"hevm",
+    b"hevs",
+    b"mif1",
+    b"msf1",
+}
+_AVIF_BRANDS = {b"avif", b"avis"}
+
+
+def _sniff_image_extension(data: bytes) -> Optional[str]:
+    if data.startswith(b"\xff\xd8\xff"):
+        return "jpg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if data.startswith((b"GIF87a", b"GIF89a")):
+        return "gif"
+    if data.startswith(b"BM"):
+        return "bmp"
+    if data.startswith((b"II*\x00", b"MM\x00*")):
+        return "tif"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    if len(data) >= 12 and data[4:8] == b"ftyp":
+        brand = data[8:12]
+        if brand in _AVIF_BRANDS:
+            return "avif"
+        if brand in _HEIF_BRANDS:
+            return "heic"
+    return None
+
+
+def _extension_from_image_mime(content_type: str) -> Optional[str]:
+    mime = (content_type or "").split(";", 1)[0].strip().lower()
+    if mime in {"image/jpeg", "image/jpg", "image/pjpeg"}:
+        return "jpg"
+    if mime == "image/png":
+        return "png"
+    if mime == "image/webp":
+        return "webp"
+    if mime == "image/gif":
+        return "gif"
+    if mime in {"image/bmp", "image/x-ms-bmp"}:
+        return "bmp"
+    if mime in {"image/tiff", "image/tif"}:
+        return "tif"
+    if mime in {"image/heic", "image/heif", "image/heic-sequence", "image/heif-sequence"}:
+        return "heic"
+    if mime == "image/avif":
+        return "avif"
+    if mime in {"image/x-adobe-dng", "image/dng"}:
+        return "dng"
+    if mime.startswith("image/"):
+        return "img"
+    return None
+
+
+def image_extension_for_upload(data: bytes, content_type: str, filename: str) -> Optional[str]:
+    """Return a storage extension for a phone or desktop image, or None if it is not an image."""
+    sniffed = _sniff_image_extension(data)
+    if sniffed:
+        return sniffed
+    mime_ext = _extension_from_image_mime(content_type)
+    if mime_ext:
+        suffix = Path(filename or "").suffix.lower().lstrip(".")
+        return _IMAGE_EXTENSION_BY_SUFFIX.get(suffix) or mime_ext
+    return None
 FILES_MARKER = "/api/marketplace-files/"
 
 
@@ -256,22 +338,13 @@ async def admin_login(payload: AdminLoginRequest):
 
 @router.post("/uploads", response_model=MarketplaceUploadResponse, status_code=status.HTTP_201_CREATED)
 async def upload_marketplace_file(file: UploadFile = File(...)):
-    content_type = (file.content_type or "").lower()
-    if content_type not in ALLOWED_UPLOAD_TYPES:
-        raise HTTPException(status_code=400, detail="Unsupported image type")
-
     data = await file.read()
     if len(data) > settings.MARKETPLACE_MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="File too large")
 
-    ext_map = {
-        "image/jpeg": "jpg",
-        "image/jpg": "jpg",
-        "image/pjpeg": "jpg",
-        "image/png": "png",
-        "image/webp": "webp",
-    }
-    ext = ext_map.get(content_type, "jpg")
+    ext = image_extension_for_upload(data, file.content_type or "", file.filename or "")
+    if not ext:
+        raise HTTPException(status_code=400, detail="Unsupported image type")
     filename = f"{uuid.uuid4()}.{ext}"
     target = marketplace_data_dir() / filename
     target.write_bytes(data)

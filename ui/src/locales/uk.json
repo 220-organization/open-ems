@@ -749,7 +749,7 @@
   "marketplaceLeadFormMapExitFullscreen": "Згорнути карту",
   "marketplaceLeadFormParkingPhotosLabel": "Фото парковки",
   "marketplaceLeadFormConnectionPhotosLabel": "Фото точки приєднання (необовʼязково)",
-  "marketplaceLeadFormPhotoUploadError": "Не вдалося завантажити фото. Спробуйте JPEG або PNG.",
+  "marketplaceLeadFormPhotoUploadError": "Не вдалося завантажити фото. Оберіть файл зображення.",
   "marketplaceMapConnectionPhotos": "Фото точки приєднання",
   "marketplaceMapParkingPhotos": "Парковка",
   "marketplaceMapKw": "Потужність, {{value}} кВт",

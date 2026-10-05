@@ -1,3 +1,7 @@
+/** Camera-roll images: JPEG/PNG/WebP plus iPhone HEIC/HEIF and Android AVIF/DNG. */
+export const MARKETPLACE_IMAGE_ACCEPT =
+  "image/*,.heic,.heif,.jpg,.jpeg,.png,.webp,.gif,.bmp,.tif,.tiff,.avif,.dng";
+
 /** Same API origin as the rest of Open EMS (empty = same-origin nginx /api proxy). */
 function apiBase() {
   return (process.env.REACT_APP_API_BASE_URL || "").replace(/\/$/, "");

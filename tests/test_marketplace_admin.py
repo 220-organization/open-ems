@@ -16,6 +16,7 @@ from app.marketplace_payment import (
     publication_payment_amount_cents,
     resolve_marketplace_pay_redirect_base,
 )
+from app.routers.marketplace import image_extension_for_upload
 from app.marketplace_schemas import (
     LandlordLegalForm,
     LocationPoint,
@@ -25,6 +26,19 @@ from app.marketplace_schemas import (
     MarketplaceStatus,
     MinRentYears,
 )
+
+
+def test_image_upload_accepts_iphone_and_android_formats():
+    jpeg = b"\xff\xd8\xff\xe0" + b"\x00" * 8
+    assert image_extension_for_upload(jpeg, "application/octet-stream", "IMG.HEIC") == "jpg"
+    heic = b"\x00\x00\x00\x18ftypheic" + b"\x00" * 8
+    assert image_extension_for_upload(heic, "", "IMG_0001.HEIC") == "heic"
+    avif = b"\x00\x00\x00\x18ftypavif" + b"\x00" * 4
+    assert image_extension_for_upload(avif, "image/avif", "shot.avif") == "avif"
+    webp = b"RIFF" + b"\x00\x00\x00\x00" + b"WEBP"
+    assert image_extension_for_upload(webp, "image/webp", "android.webp") == "webp"
+    assert image_extension_for_upload(b"plain", "image/heic", "photo.heic") == "heic"
+    assert image_extension_for_upload(b"%PDF-1.4", "application/pdf", "scan.jpg") is None
 
 
 def test_admin_password_default_matches_committed_secret():

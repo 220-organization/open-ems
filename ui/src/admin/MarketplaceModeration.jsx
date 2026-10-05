@@ -5,7 +5,10 @@ import {
   formatLandlordLegalForm,
   formatMinRentYears,
 } from "../marketplace/marketplaceLease";
-import { uploadMarketplaceFile } from "../marketplace/marketplaceApi";
+import {
+  MARKETPLACE_IMAGE_ACCEPT,
+  uploadMarketplaceFile,
+} from "../marketplace/marketplaceApi";
 import styles from "./MarketplaceModeration.module.css";
 
 const PHOTO_FIELDS = [
@@ -127,7 +130,7 @@ function PhotoEditor({
       ) : null}
       <input
         type="file"
-        accept="image/jpeg,image/png,image/webp,image/*"
+        accept={MARKETPLACE_IMAGE_ACCEPT}
         multiple
         disabled={uploading}
         onChange={(event) => {
