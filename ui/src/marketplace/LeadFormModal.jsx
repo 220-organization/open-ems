@@ -24,6 +24,12 @@ import {
   kwFromSliderIndex,
   sliderIndexFromKw,
 } from "./marketplaceKw";
+import {
+  LANDLORD_LEGAL_FORMS,
+  MIN_RENT_YEAR_OPTIONS,
+  formatLandlordLegalForm,
+  formatMinRentYears,
+} from "./marketplaceLease";
 const PRICE_KWH_EXTRA_MIN = 0.5;
 const PRICE_KWH_EXTRA_MAX = 5;
 const PRICE_KWH_EXTRA_STEP = 0.1;
@@ -37,6 +43,39 @@ const formatCount = (value) =>
   Number.isFinite(value)
     ? new Intl.NumberFormat("uk-UA", { maximumFractionDigits: 0 }).format(value)
     : "";
+
+function ChoiceField({ id, label, value, options, error, onChange }) {
+  return (
+    <fieldset
+      id={id}
+      className={`marketplace-lead-fieldset${error ? " marketplace-lead-fieldset--error" : ""}`}
+    >
+      <legend className="marketplace-lead-label">
+        {label}
+        <span className="marketplace-lead-required">*</span>
+      </legend>
+      <div
+        className="marketplace-lead-options"
+        role="radiogroup"
+        aria-label={label}
+      >
+        {options.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={value === option.value}
+            className={`marketplace-lead-option${value === option.value ? " marketplace-lead-option--active" : ""}`}
+            onClick={() => onChange(option.value)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      {error ? <p className="marketplace-lead-error">{error}</p> : null}
+    </fieldset>
+  );
+}
 
 export default function LeadFormModal({
   t,
@@ -64,6 +103,12 @@ export default function LeadFormModal({
   const [leadMonthlyParkingPrice, setLeadMonthlyParkingPrice] = useState(
     MONTHLY_PARKING_DEFAULT,
   );
+  const [leadMinRentYears, setLeadMinRentYears] = useState("");
+  const [leadRestroomCoffee, setLeadRestroomCoffee] = useState("");
+  const [leadMoreStations, setLeadMoreStations] = useState("");
+  const [leadParkingSpacesNow, setLeadParkingSpacesNow] = useState("");
+  const [leadParkingSpacesFuture, setLeadParkingSpacesFuture] = useState("");
+  const [leadLandlord, setLeadLandlord] = useState("");
   const [leadPhotoUploading, setLeadPhotoUploading] = useState(false);
   const [leadPhotoError, setLeadPhotoError] = useState("");
   const [leadFormErrors, setLeadFormErrors] = useState({});
@@ -90,6 +135,12 @@ export default function LeadFormModal({
     setLeadDistanceMeters("");
     setLeadPriceKwhExtra(PRICE_KWH_EXTRA_DEFAULT);
     setLeadMonthlyParkingPrice(MONTHLY_PARKING_DEFAULT);
+    setLeadMinRentYears("");
+    setLeadRestroomCoffee("");
+    setLeadMoreStations("");
+    setLeadParkingSpacesNow("");
+    setLeadParkingSpacesFuture("");
+    setLeadLandlord("");
     setLeadPhotoUploading(false);
     setLeadPhotoError("");
     setLeadFormErrors({});
@@ -162,6 +213,36 @@ export default function LeadFormModal({
         lines.push(
           `${t("marketplaceLeadFormMonthlyParkingLabel")}: ${formatCount(leadMonthlyParkingPrice)} ₴`,
         );
+        if (leadMinRentYears) {
+          lines.push(
+            `${t("marketplaceLeadFormMinRentLabel")}: ${formatMinRentYears(leadMinRentYears, t)}`,
+          );
+        }
+        if (leadRestroomCoffee) {
+          lines.push(
+            `${t("marketplaceLeadFormRestroomCoffeeLabel")}: ${leadRestroomCoffee === "yes" ? t("marketplaceLeadFormYes") : t("marketplaceLeadFormNo")}`,
+          );
+        }
+        if (leadMoreStations) {
+          lines.push(
+            `${t("marketplaceLeadFormMoreStationsLabel")}: ${leadMoreStations === "yes" ? t("marketplaceLeadFormYes") : t("marketplaceLeadFormNo")}`,
+          );
+        }
+        if (leadParkingSpacesNow) {
+          lines.push(
+            `${t("marketplaceLeadFormParkingSpacesNowLabel")}: ${leadParkingSpacesNow}`,
+          );
+        }
+        if (leadParkingSpacesFuture) {
+          lines.push(
+            `${t("marketplaceLeadFormParkingSpacesFutureLabel")}: ${leadParkingSpacesFuture}`,
+          );
+        }
+        if (leadLandlord) {
+          lines.push(
+            `${t("marketplaceLeadFormLandlordLabel")}: ${formatLandlordLegalForm(leadLandlord, t)}`,
+          );
+        }
       }
     }
     return lines.length ? `\n\n${lines.join("\n")}` : "";
@@ -185,6 +266,28 @@ export default function LeadFormModal({
             : "marketplaceLeadFormLocationsRequired",
         );
       }
+      if (formType === "proposeLocation") {
+        if (!leadParkingPhotos.length) {
+          errors.parkingPhotos = t("marketplaceLeadFormRequired");
+        }
+        if (!leadMinRentYears)
+          errors.minRent = t("marketplaceLeadFormRequired");
+        if (!leadRestroomCoffee)
+          errors.restroomCoffee = t("marketplaceLeadFormRequired");
+        if (!leadMoreStations)
+          errors.moreStations = t("marketplaceLeadFormRequired");
+        const spacesNow = Number.parseInt(leadParkingSpacesNow, 10);
+        const spacesFuture = Number.parseInt(leadParkingSpacesFuture, 10);
+        if (!Number.isFinite(spacesNow) || spacesNow < 1) {
+          errors.parkingNow = t("marketplaceLeadFormRequired");
+        }
+        if (!Number.isFinite(spacesFuture) || spacesFuture < 1) {
+          errors.parkingFuture = t("marketplaceLeadFormRequired");
+        } else if (Number.isFinite(spacesNow) && spacesFuture < spacesNow) {
+          errors.parkingFuture = t("marketplaceLeadFormParkingFutureTooSmall");
+        }
+        if (!leadLandlord) errors.landlord = t("marketplaceLeadFormRequired");
+      }
     }
     return errors;
   };
@@ -193,7 +296,20 @@ export default function LeadFormModal({
     `${message || ""}${buildLeadContactSuffix()}`;
 
   const scrollToFirstLeadFormError = (errors) => {
-    const order = ["name", "phone", "kw", "distribution", "locations"];
+    const order = [
+      "name",
+      "phone",
+      "kw",
+      "distribution",
+      "locations",
+      "parkingPhotos",
+      "minRent",
+      "restroomCoffee",
+      "moreStations",
+      "parkingNow",
+      "parkingFuture",
+      "landlord",
+    ];
     const targetKey = order.find((key) => errors[key]);
     const targetId =
       targetKey === "name"
@@ -206,7 +322,21 @@ export default function LeadFormModal({
               ? "marketplace-lead-distribution"
               : targetKey === "locations"
                 ? "marketplace-lead-locations"
-                : null;
+                : targetKey === "parkingPhotos"
+                  ? "marketplace-lead-parking-photos-field"
+                  : targetKey === "minRent"
+                    ? "marketplace-lead-min-rent"
+                    : targetKey === "restroomCoffee"
+                      ? "marketplace-lead-restroom-coffee"
+                      : targetKey === "moreStations"
+                        ? "marketplace-lead-more-stations"
+                        : targetKey === "parkingNow"
+                          ? "marketplace-lead-parking-now"
+                          : targetKey === "parkingFuture"
+                            ? "marketplace-lead-parking-future"
+                            : targetKey === "landlord"
+                              ? "marketplace-lead-landlord"
+                              : null;
     if (!targetId) return;
     document
       .getElementById(targetId)
@@ -224,7 +354,17 @@ export default function LeadFormModal({
         const url = await uploadMarketplaceFile(file);
         if (url) uploaded.push(url);
       }
-      if (uploaded.length) setter((prev) => [...prev, ...uploaded]);
+      if (uploaded.length) {
+        setter((prev) => [...prev, ...uploaded]);
+        if (setter === setLeadParkingPhotos) {
+          setLeadFormErrors((prev) => {
+            if (!prev.parkingPhotos) return prev;
+            const next = { ...prev };
+            delete next.parkingPhotos;
+            return next;
+          });
+        }
+      }
       if (!uploaded.length) {
         setLeadPhotoError(t("marketplaceLeadFormPhotoUploadError"));
       }
@@ -265,6 +405,20 @@ export default function LeadFormModal({
         formType === "proposeLocation" ? leadPriceKwhExtra : null,
       monthly_price_parking:
         formType === "proposeLocation" ? leadMonthlyParkingPrice : null,
+      min_rent_years: formType === "proposeLocation" ? leadMinRentYears : null,
+      restroom_coffee_nearby:
+        formType === "proposeLocation" ? leadRestroomCoffee === "yes" : null,
+      more_stations_possible:
+        formType === "proposeLocation" ? leadMoreStations === "yes" : null,
+      parking_spaces_now:
+        formType === "proposeLocation"
+          ? Number.parseInt(leadParkingSpacesNow, 10)
+          : null,
+      parking_spaces_future:
+        formType === "proposeLocation"
+          ? Number.parseInt(leadParkingSpacesFuture, 10)
+          : null,
+      landlord_legal_form: formType === "proposeLocation" ? leadLandlord : null,
     };
   };
 
@@ -535,12 +689,16 @@ export default function LeadFormModal({
 
               {formType === "proposeLocation" ? (
                 <>
-                  <div className="marketplace-lead-fieldset">
+                  <div
+                    id="marketplace-lead-parking-photos-field"
+                    className={`marketplace-lead-fieldset${leadFormErrors.parkingPhotos ? " marketplace-lead-fieldset--error" : ""}`}
+                  >
                     <label
                       className="marketplace-lead-label"
                       htmlFor="marketplace-lead-parking-photos"
                     >
                       {t("marketplaceLeadFormParkingPhotosLabel")}
+                      <span className="marketplace-lead-required">*</span>
                     </label>
                     <input
                       id="marketplace-lead-parking-photos"
@@ -579,6 +737,11 @@ export default function LeadFormModal({
                           </div>
                         ))}
                       </div>
+                    ) : null}
+                    {leadFormErrors.parkingPhotos ? (
+                      <p className="marketplace-lead-error">
+                        {leadFormErrors.parkingPhotos}
+                      </p>
                     ) : null}
                   </div>
 
@@ -738,6 +901,69 @@ export default function LeadFormModal({
                     </div>
                   </div>
 
+                  <ChoiceField
+                    id="marketplace-lead-min-rent"
+                    label={t("marketplaceLeadFormMinRentLabel")}
+                    value={leadMinRentYears}
+                    error={leadFormErrors.minRent}
+                    options={MIN_RENT_YEAR_OPTIONS.map((value) => ({
+                      value,
+                      label: formatMinRentYears(value, t),
+                    }))}
+                    onChange={(value) => {
+                      setLeadMinRentYears(value);
+                      if (leadFormErrors.minRent) {
+                        setLeadFormErrors((prev) => {
+                          const next = { ...prev };
+                          delete next.minRent;
+                          return next;
+                        });
+                      }
+                    }}
+                  />
+
+                  <ChoiceField
+                    id="marketplace-lead-restroom-coffee"
+                    label={t("marketplaceLeadFormRestroomCoffeeLabel")}
+                    value={leadRestroomCoffee}
+                    error={leadFormErrors.restroomCoffee}
+                    options={[
+                      { value: "yes", label: t("marketplaceLeadFormYes") },
+                      { value: "no", label: t("marketplaceLeadFormNo") },
+                    ]}
+                    onChange={(value) => {
+                      setLeadRestroomCoffee(value);
+                      if (leadFormErrors.restroomCoffee) {
+                        setLeadFormErrors((prev) => {
+                          const next = { ...prev };
+                          delete next.restroomCoffee;
+                          return next;
+                        });
+                      }
+                    }}
+                  />
+
+                  <ChoiceField
+                    id="marketplace-lead-more-stations"
+                    label={t("marketplaceLeadFormMoreStationsLabel")}
+                    value={leadMoreStations}
+                    error={leadFormErrors.moreStations}
+                    options={[
+                      { value: "yes", label: t("marketplaceLeadFormYes") },
+                      { value: "no", label: t("marketplaceLeadFormNo") },
+                    ]}
+                    onChange={(value) => {
+                      setLeadMoreStations(value);
+                      if (leadFormErrors.moreStations) {
+                        setLeadFormErrors((prev) => {
+                          const next = { ...prev };
+                          delete next.moreStations;
+                          return next;
+                        });
+                      }
+                    }}
+                  />
+
                   <div className="marketplace-lead-fieldset">
                     <label
                       className="marketplace-lead-slider-header"
@@ -769,6 +995,91 @@ export default function LeadFormModal({
                       <span>{formatCount(MONTHLY_PARKING_MAX)} ₴</span>
                     </div>
                   </div>
+
+                  <label
+                    className="marketplace-lead-label"
+                    htmlFor="marketplace-lead-parking-now"
+                  >
+                    {t("marketplaceLeadFormParkingSpacesNowLabel")}
+                    <span className="marketplace-lead-required">*</span>
+                  </label>
+                  <input
+                    id="marketplace-lead-parking-now"
+                    className={`marketplace-lead-input${leadFormErrors.parkingNow ? " marketplace-lead-input--error" : ""}`}
+                    type="number"
+                    min={1}
+                    step={1}
+                    inputMode="numeric"
+                    value={leadParkingSpacesNow}
+                    onChange={(e) => {
+                      setLeadParkingSpacesNow(e.target.value);
+                      if (leadFormErrors.parkingNow) {
+                        setLeadFormErrors((prev) => {
+                          const next = { ...prev };
+                          delete next.parkingNow;
+                          return next;
+                        });
+                      }
+                    }}
+                  />
+                  {leadFormErrors.parkingNow ? (
+                    <p className="marketplace-lead-error">
+                      {leadFormErrors.parkingNow}
+                    </p>
+                  ) : null}
+
+                  <label
+                    className="marketplace-lead-label"
+                    htmlFor="marketplace-lead-parking-future"
+                  >
+                    {t("marketplaceLeadFormParkingSpacesFutureLabel")}
+                    <span className="marketplace-lead-required">*</span>
+                  </label>
+                  <input
+                    id="marketplace-lead-parking-future"
+                    className={`marketplace-lead-input${leadFormErrors.parkingFuture ? " marketplace-lead-input--error" : ""}`}
+                    type="number"
+                    min={1}
+                    step={1}
+                    inputMode="numeric"
+                    value={leadParkingSpacesFuture}
+                    onChange={(e) => {
+                      setLeadParkingSpacesFuture(e.target.value);
+                      if (leadFormErrors.parkingFuture) {
+                        setLeadFormErrors((prev) => {
+                          const next = { ...prev };
+                          delete next.parkingFuture;
+                          return next;
+                        });
+                      }
+                    }}
+                  />
+                  {leadFormErrors.parkingFuture ? (
+                    <p className="marketplace-lead-error">
+                      {leadFormErrors.parkingFuture}
+                    </p>
+                  ) : null}
+
+                  <ChoiceField
+                    id="marketplace-lead-landlord"
+                    label={t("marketplaceLeadFormLandlordLabel")}
+                    value={leadLandlord}
+                    error={leadFormErrors.landlord}
+                    options={LANDLORD_LEGAL_FORMS.map((value) => ({
+                      value,
+                      label: formatLandlordLegalForm(value, t),
+                    }))}
+                    onChange={(value) => {
+                      setLeadLandlord(value);
+                      if (leadFormErrors.landlord) {
+                        setLeadFormErrors((prev) => {
+                          const next = { ...prev };
+                          delete next.landlord;
+                          return next;
+                        });
+                      }
+                    }}
+                  />
                 </>
               ) : null}
             </>

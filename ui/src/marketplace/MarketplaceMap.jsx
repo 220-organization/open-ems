@@ -39,6 +39,10 @@ import {
 } from "./marketplaceHeatmapPoints";
 import { downloadContractPhotosAsPdf } from "./marketplaceContractPdf";
 import {
+  formatLandlordLegalForm,
+  formatMinRentYears,
+} from "./marketplaceLease";
+import {
   formatKwLabel,
   markerFontPxForKw,
   markerSizePxForKw,
@@ -78,7 +82,11 @@ function zoomForGroundSpan(latDeg, meters, px) {
 
 function heatmapLockMaxZoom(map) {
   const lat = map.getCenter?.()?.lat ?? UKRAINE_CENTER[1];
-  const zoom = zoomForGroundSpan(lat, HEATMAP_SHOW_MAX_METERS, HEATMAP_SHOW_SPAN_PX);
+  const zoom = zoomForGroundSpan(
+    lat,
+    HEATMAP_SHOW_MAX_METERS,
+    HEATMAP_SHOW_SPAN_PX,
+  );
   return Math.min(21, Math.max(DEFAULT_ZOOM, zoom));
 }
 
@@ -391,11 +399,6 @@ function MarketplaceDetailsBody({
     variant === "map"
       ? [
           {
-            key: "connection",
-            photos: item.connection_point_photos,
-            label: t("marketplaceMapConnectionPhotos"),
-          },
-          {
             key: "parking",
             photos: item.parking_photos,
             label: t("marketplaceMapParkingPhotos"),
@@ -490,6 +493,42 @@ function MarketplaceDetailsBody({
           <span className={styles.distanceBadge}>
             {t("marketplaceLeadFormMonthlyParkingLabel")}:{" "}
             {item.monthly_price_parking} ₴
+          </span>
+        ) : null}
+        {item.min_rent_years ? (
+          <span className={styles.distanceBadge}>
+            {t("marketplaceLeadFormMinRentLabel")}:{" "}
+            {formatMinRentYears(item.min_rent_years, t)}
+          </span>
+        ) : null}
+        {item.restroom_coffee_nearby != null ? (
+          <span className={styles.distanceBadge}>
+            {t("marketplaceLeadFormRestroomCoffeeLabel")}:{" "}
+            {formatContract(item.restroom_coffee_nearby, t)}
+          </span>
+        ) : null}
+        {item.more_stations_possible != null ? (
+          <span className={styles.distanceBadge}>
+            {t("marketplaceLeadFormMoreStationsLabel")}:{" "}
+            {formatContract(item.more_stations_possible, t)}
+          </span>
+        ) : null}
+        {item.parking_spaces_now != null ? (
+          <span className={styles.distanceBadge}>
+            {t("marketplaceLeadFormParkingSpacesNowLabel")}:{" "}
+            {item.parking_spaces_now}
+          </span>
+        ) : null}
+        {item.parking_spaces_future != null ? (
+          <span className={styles.distanceBadge}>
+            {t("marketplaceLeadFormParkingSpacesFutureLabel")}:{" "}
+            {item.parking_spaces_future}
+          </span>
+        ) : null}
+        {item.landlord_legal_form ? (
+          <span className={styles.distanceBadge}>
+            {t("marketplaceLeadFormLandlordLabel")}:{" "}
+            {formatLandlordLegalForm(item.landlord_legal_form, t)}
           </span>
         ) : null}
       </div>
@@ -956,7 +995,10 @@ export default function MarketplaceMap({
       }
       restoringZoomRef.current = true;
       setHeatmapPayModalOpen(true);
-      const restoreZoom = Math.min(lastAllowedZoomRef.current, heatmapLockMaxZoom(map));
+      const restoreZoom = Math.min(
+        lastAllowedZoomRef.current,
+        heatmapLockMaxZoom(map),
+      );
       try {
         if (typeof map.stop === "function") map.stop();
         map.jumpTo({ zoom: restoreZoom });
@@ -976,7 +1018,10 @@ export default function MarketplaceMap({
     map.on("load", () => {
       setMapReady(true);
       lastAllowedZoomRef.current = map.getZoom();
-      if (!heatmapZoomUnlockedRef.current && typeof map.setMaxZoom === "function") {
+      if (
+        !heatmapZoomUnlockedRef.current &&
+        typeof map.setMaxZoom === "function"
+      ) {
         map.setMaxZoom(heatmapLockMaxZoom(map));
       }
       resizeMap();

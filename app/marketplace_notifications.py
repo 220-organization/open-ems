@@ -12,6 +12,15 @@ from app.telegram_notify import send_telegram_message
 logger = logging.getLogger(__name__)
 
 
+_MIN_RENT_LABELS = {
+    "1": "1 рік",
+    "2": "2 роки",
+    "3": "3 роки",
+    "5": "5 років",
+    "5+": "5+ років",
+}
+
+
 def _format_contract(value: Any) -> str:
     if value is True:
         return "Так"
@@ -48,7 +57,20 @@ def _build_submission_message(row) -> str:
     if row.price_per_kwh_extra is not None:
         lines.append(f"Ціна за кВт·год (додатково): {float(row.price_per_kwh_extra):.1f} ₴")
     if row.monthly_price_parking is not None:
-        lines.append(f"Місячна ціна за паркомісце: {int(row.monthly_price_parking)} ₴")
+        lines.append(f"Орендна плата за одне паркомісце: {int(row.monthly_price_parking)} ₴/міс")
+    if getattr(row, "min_rent_years", None):
+        rent_label = _MIN_RENT_LABELS.get(str(row.min_rent_years), str(row.min_rent_years))
+        lines.append(f"Мінімальний строк оренди: {html.escape(rent_label)}")
+    if getattr(row, "restroom_coffee_nearby", None) is not None:
+        lines.append(f"Вбиральня і кава поруч: {_format_contract(row.restroom_coffee_nearby)}")
+    if getattr(row, "more_stations_possible", None) is not None:
+        lines.append(f"Більше станцій у майбутньому: {_format_contract(row.more_stations_possible)}")
+    if getattr(row, "parking_spaces_now", None) is not None:
+        lines.append(f"Паркомісць зараз: {int(row.parking_spaces_now)}")
+    if getattr(row, "parking_spaces_future", None) is not None:
+        lines.append(f"Паркомісць на перспективу: {int(row.parking_spaces_future)}")
+    if getattr(row, "landlord_legal_form", None):
+        lines.append(f"Орендодавець: {html.escape(str(row.landlord_legal_form))}")
     lines.extend(
         [
             f"ID: <code>{html.escape(str(row.id))}</code>",

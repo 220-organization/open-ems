@@ -7,7 +7,7 @@ from enum import Enum
 from typing import List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class MarketplaceRequestType(str, Enum):
@@ -19,6 +19,24 @@ class MarketplaceStatus(str, Enum):
     PENDING = "PENDING"
     PUBLISHED = "PUBLISHED"
     HIDDEN = "HIDDEN"
+
+
+class MinRentYears(str, Enum):
+    ONE = "1"
+    TWO = "2"
+    THREE = "3"
+    FIVE = "5"
+    FIVE_PLUS = "5+"
+
+
+class LandlordLegalForm(str, Enum):
+    FOP = "FOP"
+    TOV = "TOV"
+
+
+def _reject_parking_future_below_now(now: Optional[int], future: Optional[int]) -> None:
+    if now is not None and future is not None and future < now:
+        raise ValueError("parking_spaces_future must be at least parking_spaces_now")
 
 
 class LocationPoint(BaseModel):
@@ -43,6 +61,12 @@ class MarketplaceLocationCreate(BaseModel):
     distance_meters: Optional[int] = None
     price_per_kwh_extra: Optional[float] = None
     monthly_price_parking: Optional[int] = None
+    min_rent_years: Optional[MinRentYears] = None
+    restroom_coffee_nearby: Optional[bool] = None
+    more_stations_possible: Optional[bool] = None
+    parking_spaces_now: Optional[int] = Field(default=None, ge=1)
+    parking_spaces_future: Optional[int] = Field(default=None, ge=1)
+    landlord_legal_form: Optional[LandlordLegalForm] = None
 
     @field_validator("name", "phone", "kw_available")
     @classmethod
@@ -59,6 +83,27 @@ class MarketplaceLocationCreate(BaseModel):
             raise ValueError("At least one location is required")
         return value
 
+    @model_validator(mode="after")
+    def require_propose_lease_terms(self):
+        if self.request_type != MarketplaceRequestType.PROPOSE:
+            return self
+        required = {
+            "min_rent_years": self.min_rent_years,
+            "restroom_coffee_nearby": self.restroom_coffee_nearby,
+            "more_stations_possible": self.more_stations_possible,
+            "parking_spaces_now": self.parking_spaces_now,
+            "parking_spaces_future": self.parking_spaces_future,
+            "landlord_legal_form": self.landlord_legal_form,
+        }
+        missing = [name for name, value in required.items() if value is None]
+        if missing:
+            raise ValueError(f"Required for a location offer: {', '.join(missing)}")
+        photos = [item.strip() for item in (self.parking_photos or []) if (item or "").strip()]
+        if not photos:
+            raise ValueError("parking_photos is required")
+        _reject_parking_future_below_now(self.parking_spaces_now, self.parking_spaces_future)
+        return self
+
 
 class MarketplaceLocationPublic(BaseModel):
     id: UUID
@@ -72,6 +117,12 @@ class MarketplaceLocationPublic(BaseModel):
     distance_meters: Optional[int] = None
     price_per_kwh_extra: Optional[float] = None
     monthly_price_parking: Optional[int] = None
+    min_rent_years: Optional[MinRentYears] = None
+    restroom_coffee_nearby: Optional[bool] = None
+    more_stations_possible: Optional[bool] = None
+    parking_spaces_now: Optional[int] = None
+    parking_spaces_future: Optional[int] = None
+    landlord_legal_form: Optional[LandlordLegalForm] = None
     view_count: int = 0
     created_on: datetime
     published_on: datetime
@@ -108,6 +159,12 @@ class MarketplaceLocationAdmin(BaseModel):
     distance_meters: Optional[int] = None
     price_per_kwh_extra: Optional[float] = None
     monthly_price_parking: Optional[int] = None
+    min_rent_years: Optional[MinRentYears] = None
+    restroom_coffee_nearby: Optional[bool] = None
+    more_stations_possible: Optional[bool] = None
+    parking_spaces_now: Optional[int] = None
+    parking_spaces_future: Optional[int] = None
+    landlord_legal_form: Optional[LandlordLegalForm] = None
     view_count: int = 0
     status: MarketplaceStatus
     created_on: datetime
@@ -125,6 +182,20 @@ class MarketplaceLocationUpdate(BaseModel):
     distance_meters: Optional[int] = None
     price_per_kwh_extra: Optional[float] = None
     monthly_price_parking: Optional[int] = None
+    min_rent_years: Optional[MinRentYears] = None
+    restroom_coffee_nearby: Optional[bool] = None
+    more_stations_possible: Optional[bool] = None
+    parking_spaces_now: Optional[int] = Field(default=None, ge=1)
+    parking_spaces_future: Optional[int] = Field(default=None, ge=1)
+    landlord_legal_form: Optional[LandlordLegalForm] = None
+    parking_photos: Optional[List[str]] = None
+    connection_point_photos: Optional[List[str]] = None
+    distribution_contract_photos: Optional[List[str]] = None
+
+    @model_validator(mode="after")
+    def parking_future_covers_current(self):
+        _reject_parking_future_below_now(self.parking_spaces_now, self.parking_spaces_future)
+        return self
 
     @field_validator("name", "phone", "kw_available")
     @classmethod

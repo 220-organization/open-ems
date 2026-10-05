@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from app import settings
 from app.admin_auth import require_admin_token, verify_admin_password
@@ -15,7 +16,15 @@ from app.marketplace_payment import (
     publication_payment_amount_cents,
     resolve_marketplace_pay_redirect_base,
 )
-from app.marketplace_schemas import MarketplaceLocationCreate, MarketplaceRequestType, LocationPoint
+from app.marketplace_schemas import (
+    LandlordLegalForm,
+    LocationPoint,
+    MarketplaceLocationCreate,
+    MarketplaceLocationUpdate,
+    MarketplaceRequestType,
+    MarketplaceStatus,
+    MinRentYears,
+)
 
 
 def test_admin_password_default_matches_committed_secret():
@@ -68,6 +77,72 @@ def test_marketplace_location_create_requires_location():
             phone="+380",
             kw_available="22",
             locations=[],
+            min_rent_years="1",
+            restroom_coffee_nearby=True,
+            more_stations_possible=False,
+            parking_spaces_now=1,
+            parking_spaces_future=1,
+            landlord_legal_form="FOP",
+        )
+
+
+def test_location_update_can_replace_photos_without_touching_status_only_calls():
+    photos = MarketplaceLocationUpdate(
+        parking_photos=["/api/marketplace-files/parking.jpg"],
+        connection_point_photos=[],
+    )
+    assert photos.parking_photos == ["/api/marketplace-files/parking.jpg"]
+    assert photos.connection_point_photos == []
+    status_only = MarketplaceLocationUpdate(status=MarketplaceStatus.PUBLISHED)
+    assert "parking_photos" not in status_only.model_fields_set
+
+
+def test_propose_location_requires_lease_terms():
+    with pytest.raises(ValidationError):
+        MarketplaceLocationCreate(
+            request_type=MarketplaceRequestType.PROPOSE,
+            name="Ada",
+            phone="+380501112233",
+            kw_available="22",
+            locations=[LocationPoint(label="Kyiv", lat=50.45, lng=30.52)],
+        )
+
+
+def test_propose_location_accepts_lease_terms():
+    payload = MarketplaceLocationCreate(
+        request_type=MarketplaceRequestType.PROPOSE,
+        name="Ada",
+        phone="+380501112233",
+        kw_available="22",
+        locations=[LocationPoint(label="Kyiv", lat=50.45, lng=30.52)],
+        parking_photos=["/api/marketplace/files/parking.jpg"],
+        min_rent_years="5+",
+        restroom_coffee_nearby=True,
+        more_stations_possible=True,
+        parking_spaces_now=2,
+        parking_spaces_future=6,
+        landlord_legal_form="TOV",
+    )
+    assert payload.min_rent_years == MinRentYears.FIVE_PLUS
+    assert payload.landlord_legal_form == LandlordLegalForm.TOV
+    assert payload.parking_spaces_future == 6
+
+
+def test_propose_location_rejects_future_spaces_below_current():
+    with pytest.raises(ValidationError):
+        MarketplaceLocationCreate(
+            request_type=MarketplaceRequestType.PROPOSE,
+            name="Ada",
+            phone="+380501112233",
+            kw_available="22",
+            locations=[LocationPoint(label="Kyiv", lat=50.45, lng=30.52)],
+            parking_photos=["/api/marketplace/files/parking.jpg"],
+            min_rent_years="3",
+            restroom_coffee_nearby=False,
+            more_stations_possible=False,
+            parking_spaces_now=4,
+            parking_spaces_future=2,
+            landlord_legal_form="FOP",
         )
 
 
