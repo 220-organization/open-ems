@@ -560,6 +560,12 @@ class MarketplaceLocation(Base):
     distance_meters: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     price_per_kwh_extra: Mapped[Optional[Any]] = mapped_column(Numeric(4, 2), nullable=True)
     monthly_price_parking: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    min_rent_years: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
+    restroom_coffee_nearby: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    more_stations_possible: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    parking_spaces_now: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    parking_spaces_future: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    landlord_legal_form: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
     view_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     status: Mapped[str] = mapped_column(String(16), nullable=False, server_default="'PUBLISHED'")
     created_on: Mapped[datetime.datetime] = mapped_column(

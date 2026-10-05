@@ -148,6 +148,12 @@ def _row_to_public(row) -> MarketplaceLocationPublic:
         distance_meters=row.distance_meters,
         price_per_kwh_extra=float(row.price_per_kwh_extra) if row.price_per_kwh_extra is not None else None,
         monthly_price_parking=row.monthly_price_parking,
+        min_rent_years=row.min_rent_years,
+        restroom_coffee_nearby=row.restroom_coffee_nearby,
+        more_stations_possible=row.more_stations_possible,
+        parking_spaces_now=row.parking_spaces_now,
+        parking_spaces_future=row.parking_spaces_future,
+        landlord_legal_form=row.landlord_legal_form,
         view_count=int(row.view_count or 0),
         created_on=row.created_on,
         published_on=row.updated_on,
@@ -170,6 +176,12 @@ def _row_to_admin(row) -> MarketplaceLocationAdmin:
         distance_meters=row.distance_meters,
         price_per_kwh_extra=float(row.price_per_kwh_extra) if row.price_per_kwh_extra is not None else None,
         monthly_price_parking=row.monthly_price_parking,
+        min_rent_years=row.min_rent_years,
+        restroom_coffee_nearby=row.restroom_coffee_nearby,
+        more_stations_possible=row.more_stations_possible,
+        parking_spaces_now=row.parking_spaces_now,
+        parking_spaces_future=row.parking_spaces_future,
+        landlord_legal_form=row.landlord_legal_form,
         view_count=int(row.view_count or 0),
         status=row.status,
         created_on=row.created_on,
@@ -619,6 +631,47 @@ async def update_marketplace_location_admin(
     db: AsyncSession = Depends(get_db),
     _auth: str = Depends(require_admin_token),
 ):
+    existing = await crud.get_marketplace_location(db, row_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Marketplace location not found")
+    fields_set = payload.model_fields_set
+    spaces_now = (
+        payload.parking_spaces_now
+        if "parking_spaces_now" in fields_set
+        else existing.parking_spaces_now
+    )
+    spaces_future = (
+        payload.parking_spaces_future
+        if "parking_spaces_future" in fields_set
+        else existing.parking_spaces_future
+    )
+    if (
+        spaces_now is not None
+        and spaces_future is not None
+        and int(spaces_future) < int(spaces_now)
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="parking_spaces_future must be at least parking_spaces_now",
+        )
+    photo_fields = (
+        "parking_photos",
+        "connection_point_photos",
+        "distribution_contract_photos",
+    )
+    photo_updates = {
+        field: _normalize_photo_urls(getattr(payload, field) or [])
+        for field in photo_fields
+        if field in fields_set
+    }
+    if (
+        existing.request_type == "PROPOSE"
+        and "parking_photos" in photo_updates
+        and not photo_updates["parking_photos"]
+    ):
+        raise HTTPException(status_code=400, detail="parking_photos is required")
+    if photo_updates:
+        payload = payload.model_copy(update=photo_updates)
     row = await crud.update_marketplace_location(db, row_id, payload)
     if row is None:
         raise HTTPException(status_code=404, detail="Marketplace location not found")

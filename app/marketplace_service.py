@@ -34,6 +34,12 @@ async def create_marketplace_location(
         distance_meters=payload.distance_meters,
         price_per_kwh_extra=payload.price_per_kwh_extra,
         monthly_price_parking=payload.monthly_price_parking,
+        min_rent_years=payload.min_rent_years.value if payload.min_rent_years else None,
+        restroom_coffee_nearby=payload.restroom_coffee_nearby,
+        more_stations_possible=payload.more_stations_possible,
+        parking_spaces_now=payload.parking_spaces_now,
+        parking_spaces_future=payload.parking_spaces_future,
+        landlord_legal_form=payload.landlord_legal_form.value if payload.landlord_legal_form else None,
         status=MarketplaceStatus.PENDING.value,
     )
     db.add(row)
@@ -126,9 +132,21 @@ async def update_marketplace_location(
         "distance_meters",
         "price_per_kwh_extra",
         "monthly_price_parking",
+        "min_rent_years",
+        "restroom_coffee_nearby",
+        "more_stations_possible",
+        "parking_spaces_now",
+        "parking_spaces_future",
+        "landlord_legal_form",
+        "parking_photos",
+        "connection_point_photos",
+        "distribution_contract_photos",
     ):
         if field in updates:
-            setattr(row, field, updates[field])
+            value = updates[field]
+            if hasattr(value, "value"):
+                value = value.value
+            setattr(row, field, value)
     await db.commit()
     await db.refresh(row)
     return row

@@ -1,5 +1,28 @@
 import { useEffect, useState } from "react";
+import {
+  LANDLORD_LEGAL_FORMS,
+  MIN_RENT_YEAR_OPTIONS,
+  formatLandlordLegalForm,
+  formatMinRentYears,
+} from "../marketplace/marketplaceLease";
+import { uploadMarketplaceFile } from "../marketplace/marketplaceApi";
 import styles from "./MarketplaceModeration.module.css";
+
+const PHOTO_FIELDS = [
+  {
+    key: "parking_photos",
+    labelKey: "marketplaceLeadFormParkingPhotosLabel",
+    requiredForPropose: true,
+  },
+  {
+    key: "connection_point_photos",
+    labelKey: "marketplaceLeadFormConnectionPhotosLabel",
+  },
+  {
+    key: "distribution_contract_photos",
+    labelKey: "marketplaceLeadFormDistributionContractPhotosLabel",
+  },
+];
 
 const MARKETPLACE_STATUSES = ["PENDING", "PUBLISHED", "HIDDEN"];
 
@@ -48,7 +71,99 @@ function buildEditForm(row) {
       row.monthly_price_parking != null
         ? String(row.monthly_price_parking)
         : "",
+    min_rent_years: row.min_rent_years || "",
+    restroom_coffee_nearby: contractToFormValue(row.restroom_coffee_nearby),
+    more_stations_possible: contractToFormValue(row.more_stations_possible),
+    parking_spaces_now:
+      row.parking_spaces_now != null ? String(row.parking_spaces_now) : "",
+    parking_spaces_future:
+      row.parking_spaces_future != null
+        ? String(row.parking_spaces_future)
+        : "",
+    landlord_legal_form: row.landlord_legal_form || "",
+    request_type: row.request_type || "",
+    parking_photos: [...(row.parking_photos || [])],
+    connection_point_photos: [...(row.connection_point_photos || [])],
+    distribution_contract_photos: [...(row.distribution_contract_photos || [])],
   };
+}
+
+function PhotoEditor({
+  label,
+  photos,
+  required,
+  uploading,
+  removeLabel,
+  onChange,
+  onUpload,
+}) {
+  return (
+    <div className={styles.photoEditor}>
+      <span className={styles.photoEditorLabel}>
+        {label}
+        {required ? <span className={styles.photoRequired}> *</span> : null}
+      </span>
+      {photos.length ? (
+        <div className={styles.photoEditorRow}>
+          {photos.map((url) => (
+            <div key={url} className={styles.photoEditorItem}>
+              <a
+                href={resolveAssetUrl(url)}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <img src={resolveAssetUrl(url)} alt="" />
+              </a>
+              <button
+                type="button"
+                aria-label={removeLabel}
+                onClick={() => onChange(photos.filter((item) => item !== url))}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      <input
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/*"
+        multiple
+        disabled={uploading}
+        onChange={(event) => {
+          onUpload(event.target.files);
+          event.target.value = "";
+        }}
+      />
+    </div>
+  );
+}
+
+function formatLeaseSummary(row, t) {
+  const parts = [];
+  if (row.min_rent_years) parts.push(formatMinRentYears(row.min_rent_years, t));
+  if (row.parking_spaces_now != null || row.parking_spaces_future != null) {
+    parts.push(
+      `${row.parking_spaces_now ?? "—"} → ${row.parking_spaces_future ?? "—"}`,
+    );
+  }
+  if (row.landlord_legal_form) {
+    parts.push(
+      formatLandlordLegalForm(row.landlord_legal_form, t) ||
+        row.landlord_legal_form,
+    );
+  }
+  if (row.restroom_coffee_nearby != null) {
+    parts.push(
+      `${t("adminFieldRestroomCoffee")}: ${row.restroom_coffee_nearby ? t("adminYes") : t("adminNo")}`,
+    );
+  }
+  if (row.more_stations_possible != null) {
+    parts.push(
+      `${t("adminFieldMoreStations")}: ${row.more_stations_possible ? t("adminYes") : t("adminNo")}`,
+    );
+  }
+  return parts.join(" · ") || "—";
 }
 
 function readEditQuery() {
@@ -81,6 +196,7 @@ export default function MarketplaceModeration({
   const [error, setError] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState(null);
+  const [photoUploading, setPhotoUploading] = useState(false);
 
   const tokenHeaders = {
     headers: { token, "Content-Type": "application/json" },
@@ -140,7 +256,33 @@ export default function MarketplaceModeration({
   const handleCancelEdit = () => {
     setEditingId(null);
     setEditForm(null);
+    setPhotoUploading(false);
     setEditQuery("");
+  };
+
+  const handlePhotoUpload = async (field, files) => {
+    const fileList = Array.from(files || []);
+    if (!fileList.length || !editForm) return;
+    setPhotoUploading(true);
+    setError("");
+    try {
+      const uploaded = [];
+      for (const file of fileList) {
+        const url = await uploadMarketplaceFile(file);
+        if (url) uploaded.push(url);
+      }
+      if (!uploaded.length) {
+        throw new Error(t("marketplaceLeadFormPhotoUploadError"));
+      }
+      setEditForm((prev) => ({
+        ...prev,
+        [field]: [...(prev[field] || []), ...uploaded],
+      }));
+    } catch (err) {
+      setError(err.message || t("marketplaceLeadFormPhotoUploadError"));
+    } finally {
+      setPhotoUploading(false);
+    }
   };
 
   const handleEditChange = (e) => {
@@ -150,6 +292,23 @@ export default function MarketplaceModeration({
 
   const handleSaveEdit = async () => {
     if (!editingId || !editForm) return;
+    const spacesNow = editForm.parking_spaces_now.trim()
+      ? Number(editForm.parking_spaces_now)
+      : null;
+    const spacesFuture = editForm.parking_spaces_future.trim()
+      ? Number(editForm.parking_spaces_future)
+      : null;
+    if (spacesNow != null && spacesFuture != null && spacesFuture < spacesNow) {
+      setError(t("marketplaceLeadFormParkingFutureTooSmall"));
+      return;
+    }
+    if (
+      editForm.request_type === "PROPOSE" &&
+      !(editForm.parking_photos || []).length
+    ) {
+      setError(t("adminPhotosParkingRequired"));
+      return;
+    }
     setError("");
     try {
       const payload = {
@@ -169,6 +328,24 @@ export default function MarketplaceModeration({
         monthly_price_parking: editForm.monthly_price_parking.trim()
           ? Number(editForm.monthly_price_parking)
           : null,
+        min_rent_years: editForm.min_rent_years || null,
+        restroom_coffee_nearby: contractFromFormValue(
+          editForm.restroom_coffee_nearby,
+        ),
+        more_stations_possible: contractFromFormValue(
+          editForm.more_stations_possible,
+        ),
+        parking_spaces_now: editForm.parking_spaces_now.trim()
+          ? Number(editForm.parking_spaces_now)
+          : null,
+        parking_spaces_future: editForm.parking_spaces_future.trim()
+          ? Number(editForm.parking_spaces_future)
+          : null,
+        landlord_legal_form: editForm.landlord_legal_form || null,
+        parking_photos: editForm.parking_photos || [],
+        connection_point_photos: editForm.connection_point_photos || [],
+        distribution_contract_photos:
+          editForm.distribution_contract_photos || [],
       };
       const response = await fetch(
         `${apiBase()}/api/marketplace/locations/${editingId}`,
@@ -329,9 +506,102 @@ export default function MarketplaceModeration({
                 onChange={handleEditChange}
               />
             </label>
+            <label>
+              {t("adminFieldMinRent")}
+              <select
+                name="min_rent_years"
+                value={editForm.min_rent_years}
+                onChange={handleEditChange}
+              >
+                <option value="">—</option>
+                {MIN_RENT_YEAR_OPTIONS.map((value) => (
+                  <option key={value} value={value}>
+                    {formatMinRentYears(value, t)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              {t("adminFieldRestroomCoffee")}
+              <select
+                name="restroom_coffee_nearby"
+                value={editForm.restroom_coffee_nearby}
+                onChange={handleEditChange}
+              >
+                <option value="">—</option>
+                <option value="true">{t("adminYes")}</option>
+                <option value="false">{t("adminNo")}</option>
+              </select>
+            </label>
+            <label>
+              {t("adminFieldMoreStations")}
+              <select
+                name="more_stations_possible"
+                value={editForm.more_stations_possible}
+                onChange={handleEditChange}
+              >
+                <option value="">—</option>
+                <option value="true">{t("adminYes")}</option>
+                <option value="false">{t("adminNo")}</option>
+              </select>
+            </label>
+            <label>
+              {t("adminFieldParkingNow")}
+              <input
+                name="parking_spaces_now"
+                value={editForm.parking_spaces_now}
+                onChange={handleEditChange}
+              />
+            </label>
+            <label>
+              {t("adminFieldParkingFuture")}
+              <input
+                name="parking_spaces_future"
+                value={editForm.parking_spaces_future}
+                onChange={handleEditChange}
+              />
+            </label>
+            <label>
+              {t("adminFieldLandlord")}
+              <select
+                name="landlord_legal_form"
+                value={editForm.landlord_legal_form}
+                onChange={handleEditChange}
+              >
+                <option value="">—</option>
+                {LANDLORD_LEGAL_FORMS.map((value) => (
+                  <option key={value} value={value}>
+                    {formatLandlordLegalForm(value, t)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className={styles.photoEditors}>
+            {PHOTO_FIELDS.map((field) => (
+              <PhotoEditor
+                key={field.key}
+                label={t(field.labelKey)}
+                photos={editForm[field.key] || []}
+                required={
+                  field.requiredForPropose &&
+                  editForm.request_type === "PROPOSE"
+                }
+                uploading={photoUploading}
+                removeLabel={t("adminRemovePhoto")}
+                onChange={(nextPhotos) =>
+                  setEditForm((prev) => ({ ...prev, [field.key]: nextPhotos }))
+                }
+                onUpload={(files) => handlePhotoUpload(field.key, files)}
+              />
+            ))}
           </div>
           <div className={styles.formActions}>
-            <button type="button" onClick={handleSaveEdit}>
+            <button
+              type="button"
+              onClick={handleSaveEdit}
+              disabled={photoUploading}
+            >
               {t("adminSave")}
             </button>
             <button type="button" onClick={handleCancelEdit}>
@@ -364,6 +634,7 @@ export default function MarketplaceModeration({
                 <th>{t("adminColDistance")}</th>
                 <th>{t("adminColExtraKwh")}</th>
                 <th>{t("adminColParking")}</th>
+                <th>{t("adminColLease")}</th>
                 <th>{t("adminColViews")}</th>
                 <th>{t("adminColStatus")}</th>
                 <th>{t("adminColCreated")}</th>
@@ -425,6 +696,7 @@ export default function MarketplaceModeration({
                       ? `${row.monthly_price_parking} ₴`
                       : "—"}
                   </td>
+                  <td>{formatLeaseSummary(row, t)}</td>
                   <td>{row.view_count ?? 0}</td>
                   <td>{row.status}</td>
                   <td>{formatDate(row.created_on)}</td>
@@ -446,7 +718,7 @@ export default function MarketplaceModeration({
               ))}
               {items.length === 0 ? (
                 <tr>
-                  <td colSpan={14}>{t("adminEmpty")}</td>
+                  <td colSpan={15}>{t("adminEmpty")}</td>
                 </tr>
               ) : null}
             </tbody>

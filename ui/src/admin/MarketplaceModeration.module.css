@@ -121,3 +121,57 @@
   object-fit: cover;
   border-radius: 4px;
 }
+
+.photoEditors {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 0.85rem;
+}
+
+.photoEditor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.photoEditorLabel {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.photoRequired {
+  color: #c43b5a;
+}
+
+.photoEditorRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.photoEditorItem {
+  position: relative;
+}
+
+.photoEditorItem img {
+  width: 88px;
+  height: 88px;
+  object-fit: cover;
+  border-radius: 8px;
+  display: block;
+}
+
+.photoEditorItem button {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  cursor: pointer;
+  line-height: 22px;
+}
