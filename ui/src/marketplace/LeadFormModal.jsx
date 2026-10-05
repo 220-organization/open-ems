@@ -11,6 +11,7 @@ import {
 } from "./messengerLinks";
 import {
   isMarketplaceApiConfigured,
+  MARKETPLACE_IMAGE_ACCEPT,
   resolveMarketplaceAssetUrl,
   submitMarketplaceLocation,
   uploadMarketplaceFile,
@@ -703,7 +704,7 @@ export default function LeadFormModal({
                     <input
                       id="marketplace-lead-parking-photos"
                       type="file"
-                      accept="image/*"
+                      accept={MARKETPLACE_IMAGE_ACCEPT}
                       multiple
                       disabled={leadPhotoUploading}
                       onChange={(e) => {
@@ -755,7 +756,7 @@ export default function LeadFormModal({
                     <input
                       id="marketplace-lead-connection-photos"
                       type="file"
-                      accept="image/jpeg,image/png,image/webp,image/*"
+                      accept={MARKETPLACE_IMAGE_ACCEPT}
                       multiple
                       disabled={leadPhotoUploading}
                       onChange={(e) => {
@@ -805,7 +806,7 @@ export default function LeadFormModal({
                     <input
                       id="marketplace-lead-distribution-contract-photos"
                       type="file"
-                      accept="image/jpeg,image/png,image/webp,image/*"
+                      accept={MARKETPLACE_IMAGE_ACCEPT}
                       multiple
                       disabled={leadPhotoUploading}
                       onChange={(e) => {

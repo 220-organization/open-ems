@@ -748,7 +748,7 @@
   "marketplaceLeadFormMapExitFullscreen": "Exit full screen",
   "marketplaceLeadFormParkingPhotosLabel": "Parking photos",
   "marketplaceLeadFormConnectionPhotosLabel": "Connection point photos (optional)",
-  "marketplaceLeadFormPhotoUploadError": "Could not upload the photo. Try JPEG or PNG.",
+  "marketplaceLeadFormPhotoUploadError": "Could not upload the photo. Choose an image file.",
   "marketplaceMapConnectionPhotos": "Connection point photos",
   "marketplaceMapParkingPhotos": "Parking",
   "marketplaceMapKw": "Power, {{value}} kW",
