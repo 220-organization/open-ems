@@ -5,9 +5,11 @@
  *  - Numbers read as measurements: monospaced, no neon glow.
  *  - Hairline borders, almost no box-shadows, generous space.
  *  - DOM and class names preserved — drops in without component changes.
+ *
+ * Inter Tight and JetBrains Mono load from index.html. Do not add a CSS
+ * @import for them: a slow fonts host blocks the whole stylesheet and leaves
+ * a blank page until it answers.
  */
-
-@import url('https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap');
 
 html,
 body {

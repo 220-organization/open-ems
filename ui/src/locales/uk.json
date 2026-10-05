@@ -1,6 +1,9 @@
 {
   "appBrandName": "Вирій ЕМС",
   "deployMaintenanceMessage": "Все добре, ми оновлюємо систему, буде доступно приблизно за 2 хв",
+  "slowInternetLoading": "Завантаження…",
+  "slowInternetMessage": "Інтернет повільний. Знайдіть кращий інтернет і перепідключіться.",
+  "slowInternetReconnect": "Перепідключитися",
   "pageTitle": "Вирій ЕМС — Потоки потужності | smart ЕМС для мікромереж",
   "stationLabel": "Порт #",
   "evPortSelectOption": "Порт # {{number}}: {{current}} / {{max}} кВт",

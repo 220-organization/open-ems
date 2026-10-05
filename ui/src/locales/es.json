@@ -1,6 +1,9 @@
 {
   "appBrandName": "Open EMS",
   "deployMaintenanceMessage": "Todo bien, estamos actualizando — disponible en ~ 2 min",
+  "slowInternetLoading": "Cargando…",
+  "slowInternetMessage": "Internet va lento. Busque mejor internet y vuelva a conectarse.",
+  "slowInternetReconnect": "Reconectar",
   "pageTitle": "Open EMS — Flujo de potencia",
   "stationLabel": "Puerto n.º",
   "evPortSelectOption": "Puerto n.º {{number}}: {{current}} / {{max}} kW",

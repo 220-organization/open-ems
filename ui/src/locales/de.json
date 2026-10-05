@@ -1,5 +1,8 @@
 {
   "deployMaintenanceMessage": "Alles in Ordnung, wir aktualisieren — in ~ 2 Min. wieder verfügbar",
+  "slowInternetLoading": "Wird geladen…",
+  "slowInternetMessage": "Das Internet ist langsam. Bitte finden Sie besseres Internet und verbinden Sie sich erneut.",
+  "slowInternetReconnect": "Neu verbinden",
   "pageTitle": "Open EMS — Energiefluss",
   "stationLabel": "Port Nr.",
   "stationPlaceholder": "EV-Ladepunkt wählen",

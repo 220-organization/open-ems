@@ -1,6 +1,9 @@
 {
   "appBrandName": "Open EMS",
   "deployMaintenanceMessage": "All is ok, we are upgrading, will be available in ~ 2 mins",
+  "slowInternetLoading": "Loading…",
+  "slowInternetMessage": "Internet is slow. Please find better internet and reconnect.",
+  "slowInternetReconnect": "Reconnect",
   "pageTitle": "Open EMS — Power flow | smart EMS for microgrids",
   "stationLabel": "Port #",
   "evPortSelectOption": "Port # {{number}}: {{current}} / {{max}} kW",

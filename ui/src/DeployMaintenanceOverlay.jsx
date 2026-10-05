@@ -17,7 +17,7 @@ export default function DeployMaintenanceOverlay({ t }) {
       const r = await fetch(apiUrl('/api/health'), { cache: 'no-store' });
       setActive(!r.ok);
     } catch {
-      setActive(true);
+      /* Unreachable host is a connectivity problem, not a deploy. Keep the last server status. */
     }
   }, []);
 
