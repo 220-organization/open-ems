@@ -467,6 +467,8 @@
   "roiSetupSaveError": "No se pudieron guardar los ajustes de ROI.",
   "roiSetupPinForbidden": "PIN rechazado o control remoto no permitido para este inversor.",
   "huaweiTotalsTitle": "Energía Huawei",
+  "huaweiTotalsOriginOpenEms": "Open EMS · base de datos",
+  "huaweiTotalsOriginHuaweiCloud": "Huawei Cloud · API",
   "huaweiTotalsTabDay": "Día",
   "huaweiTotalsTabMonth": "Mes",
   "huaweiTotalsTabYear": "Año",

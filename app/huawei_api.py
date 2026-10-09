@@ -30,6 +30,8 @@ _huawei_cookies: httpx.Cookies = httpx.Cookies()
 _FAIL_CODE_SESSION_EXPIRED = 305
 # Northbound: ACCESS_FREQUENCY_IS_TOO_HIGH — Huawei limits how often getStationRealKpi may be called (often ~5 min).
 _FAIL_CODE_RATE_LIMIT = 407
+# Monotonic: skip POST /thirdData/login until then after failCode 407.
+_login_cooldown_until: float = 0.0
 
 # Last successful getStationRealKpi payload per stationCodes key (used when 407 returns before next allowed call).
 _plant_status_cache: dict[str, tuple[list[dict[str, Any]], float]] = {}
@@ -101,6 +103,18 @@ def huawei_missing_env_names() -> list[str]:
     return missing
 
 
+def huawei_login_blocked() -> bool:
+    """True when a new Northbound login must wait out a failCode 407 cooldown."""
+    return not _xsrf_token and time.time() < _login_cooldown_until
+
+
+def _note_login_rate_limit() -> None:
+    global _login_cooldown_until
+    cool = float(settings.HUAWEI_NORTHBOUND_COOLDOWN_AFTER_407_SEC)
+    _login_cooldown_until = max(_login_cooldown_until, time.time() + cool)
+    logger.warning("Huawei: login failCode=407 — pausing further logins for %.0fs", cool)
+
+
 def huawei_configured() -> bool:
     return bool(
         settings.HUAWEI_ENABLED
@@ -147,8 +161,13 @@ async def _login_unlocked(client: httpx.AsyncClient) -> None:
         logger.warning("Huawei: login response is not JSON — %s", (r.text or "")[:400])
         raise HuaweiAuthError("invalid login response (not JSON)") from None
     if not payload.get("success"):
-        msg = str(payload.get("message") or payload.get("msg") or "login failed")
-        logger.warning("Huawei: login success=false — %s", msg[:400])
+        fail_code = payload.get("failCode")
+        data = payload.get("data")
+        msg = str(payload.get("message") or payload.get("msg") or data or "login failed")
+        if fail_code == _FAIL_CODE_RATE_LIMIT or str(data) == "ACCESS_FREQUENCY_IS_TOO_HIGH":
+            _note_login_rate_limit()
+            raise HuaweiNorthboundError("/thirdData/login", _FAIL_CODE_RATE_LIMIT, msg)
+        logger.warning("Huawei: login success=false failCode=%s — %s", fail_code, msg[:400])
         raise HuaweiAuthError(msg)
 
     token = _xsrf_from_response(r)
@@ -166,6 +185,12 @@ async def _ensure_session(client: httpx.AsyncClient) -> str:
     async with _session_lock:
         if _xsrf_token:
             return _xsrf_token
+        if time.time() < _login_cooldown_until:
+            raise HuaweiNorthboundError(
+                "/thirdData/login",
+                _FAIL_CODE_RATE_LIMIT,
+                "ACCESS_FREQUENCY_IS_TOO_HIGH",
+            )
         await _login_unlocked(client)
         if not _xsrf_token:
             raise HuaweiAuthError("failed to obtain xsrf-token")

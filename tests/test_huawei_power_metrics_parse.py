@@ -191,6 +191,25 @@ def test_cached_power_flow_includes_collection_time():
     assert body["pvPowerW"] == 1000.0
 
 
+def test_energy_origin_kwh_maps_cloud_and_sample_fields():
+    from app.huawei_station_energy_service import energy_origin_kwh
+
+    assert energy_origin_kwh(
+        {"pvKwh": 7.3, "consumptionKwh": 38.1, "gridImportKwh": 3.96, "gridExportKwh": 1.0}
+    ) == {
+        "consumptionKwh": 38.1,
+        "generationKwh": 7.3,
+        "importKwh": 3.96,
+    }
+    assert energy_origin_kwh({"generationKwh": 1.5, "consumptionKwh": "2", "importKwh": None}) == {
+        "consumptionKwh": 2.0,
+        "generationKwh": 1.5,
+        "importKwh": None,
+    }
+    assert energy_origin_kwh({}) is None
+    assert energy_origin_kwh(None) is None
+
+
 def test_huawei_power_flow_display_max_age_covers_round_robin():
     from app.huawei_api import huawei_power_flow_display_max_age_sec
 

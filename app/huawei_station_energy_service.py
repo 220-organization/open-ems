@@ -24,6 +24,7 @@ from app.huawei_api import (
     HuaweiRateLimitNoCacheError,
     get_station_energy_kpi,
     huawei_configured,
+    huawei_login_blocked,
     list_stations,
 )
 from app.huawei_power_service import (
@@ -255,22 +256,28 @@ async def upsert_totals_row(
     await session.execute(stmt)
 
 
-async def refresh_from_api(
+async def _refresh_from_api_detailed(
     session: AsyncSession, station_code: str, period: str, date_iso: str
-) -> Optional[dict[str, Any]]:
-    """
-    Hit Huawei API for one (station, period, date), upsert the result, and return the JSON-shaped item.
-    Returns None on rate-limit / error (caller decides whether to fall back to a stale DB row).
-    """
+) -> tuple[Optional[dict[str, Any]], bool]:
+    """KPI item plus whether FusionSolar refused the call for frequency (failCode 407)."""
+    if huawei_login_blocked():
+        logger.info(
+            "Huawei totals refresh: login cooldown, skip (%s/%s/%s)",
+            station_code,
+            period,
+            date_iso,
+        )
+        return None, True
     try:
         body = await get_station_energy_kpi(station_code, period, date_iso)
     except HuaweiAuthError:
         logger.warning("Huawei totals refresh: login failed (%s/%s/%s)", station_code, period, date_iso)
-        return None
+        return None, False
     except HuaweiRateLimitNoCacheError:
         logger.warning("Huawei totals refresh: rate-limited (%s/%s/%s)", station_code, period, date_iso)
-        return None
+        return None, True
     except HuaweiNorthboundError as exc:
+        limited = exc.fail_code == 407
         logger.warning(
             "Huawei totals refresh: Northbound error %s (%s/%s/%s)",
             exc.fail_code,
@@ -278,30 +285,134 @@ async def refresh_from_api(
             period,
             date_iso,
         )
-        return None
+        return None, limited
+    if isinstance(body, dict) and body.get("northboundRateLimited"):
+        return None, True
     if not body or not body.get("ok"):
-        return None
+        return None, False
     items = body.get("items") or []
     if not items:
-        return None
+        return None, False
     item = items[0]
     d = parse_date_iso(date_iso)
     if d is None:
-        return item
+        return item, False
     pkey = period_key_for(d, period)
     await upsert_totals_row(session, station_code, period, pkey, item)
+    return item, False
+
+
+async def refresh_from_api(
+    session: AsyncSession, station_code: str, period: str, date_iso: str
+) -> Optional[dict[str, Any]]:
+    """
+    Hit Huawei API for one (station, period, date), upsert the result, and return the JSON-shaped item.
+    Returns None on rate-limit / error (caller decides whether to fall back to a stale DB row).
+    """
+    item, _rate_limited = await _refresh_from_api_detailed(session, station_code, period, date_iso)
     return item
+
+
+def energy_origin_kwh(item: Optional[dict[str, Any]]) -> Optional[dict[str, Optional[float]]]:
+    """Map a station-energy item to consumption / PV / grid-import kWh."""
+    if not isinstance(item, dict):
+        return None
+
+    def num(value: Any) -> Optional[float]:
+        if value is None:
+            return None
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return None
+        if parsed != parsed:
+            return None
+        return parsed
+
+    generation = item.get("pvKwh")
+    if generation is None and "generationKwh" in item:
+        generation = item.get("generationKwh")
+    grid_import = item.get("gridImportKwh")
+    if grid_import is None and "importKwh" in item:
+        grid_import = item.get("importKwh")
+    origin = {
+        "consumptionKwh": num(item.get("consumptionKwh")),
+        "generationKwh": num(generation),
+        "importKwh": num(grid_import),
+    }
+    if all(value is None for value in origin.values()):
+        return None
+    return origin
+
+
+async def _load_open_ems_energy_item(
+    session: AsyncSession, station_code: str, period: str, date_iso: str
+) -> Optional[dict[str, Any]]:
+    """kWh integrated from ``huawei_power_sample``. None when that day has no samples."""
+    if period == "day":
+        sample_body = await get_station_hourly_chart_from_db(session, station_code, date_iso)
+    else:
+        sample_body = await get_station_period_totals_from_db(session, station_code, period, date_iso)
+    if not sample_body.get("ok") or sample_body.get("empty"):
+        return None
+    totals = sample_body.get("totals") or {}
+    if not isinstance(totals, dict):
+        return None
+    return _item_from_power_sample_totals(station_code, totals)
+
+
+async def _load_huawei_cloud_energy_item(
+    session: AsyncSession,
+    station_code: str,
+    period: str,
+    date_iso: str,
+    day: date,
+) -> tuple[Optional[dict[str, Any]], bool, bool, str, float]:
+    """FusionSolar getKpiStation* item via the DB cache.
+
+    Returns ``(item, error, rate_limited, source, cache_age_sec)``.
+    ``error`` is a hard failure. ``rate_limited`` is failCode 407: keep the last
+    row when one exists, and do not report it as a load error.
+    """
+    pkey = period_key_for(day, period)
+    row = await read_totals_row(session, station_code, period, pkey)
+    now = time.time()
+    ttl = ttl_for_period(period)
+    if row is not None:
+        age_sec = max(0.0, now - row.saved_at.timestamp())
+        if age_sec <= ttl:
+            return _row_to_payload(row), False, False, "db", round(age_sec, 1)
+        if huawei_configured():
+            fresh, rate_limited = await _refresh_from_api_detailed(
+                session, station_code, period, date_iso
+            )
+            if fresh is not None:
+                await session.commit()
+                return fresh, False, False, "api", 0.0
+            if rate_limited:
+                return _row_to_payload(row), False, True, "db", round(age_sec, 1)
+        return _row_to_payload(row), False, False, "db", round(age_sec, 1)
+    if not huawei_configured():
+        return None, False, False, "db", 0.0
+    fresh, rate_limited = await _refresh_from_api_detailed(session, station_code, period, date_iso)
+    if fresh is None:
+        return None, not rate_limited, rate_limited, "api", 0.0
+    await session.commit()
+    return fresh, False, False, "api", 0.0
 
 
 async def get_or_refresh_totals(
     session: AsyncSession, station_code: str, period: str, date_iso: str
 ) -> dict[str, Any]:
     """
-    Return totals payload for one station/period/date.
+    Return both energy origins for one station/period/date.
 
-    1. Read from DB.
-    2. If missing or older than TTL → call API, upsert, return fresh.
-    3. On API failure with stale row in DB → return stale row + ``stale: True``.
+    ``openEms`` is integrated from ``huawei_power_sample``.
+    ``huaweiCloud`` is FusionSolar getKpiStationDay/Month/Year, cached in
+    ``huawei_station_energy_totals`` and refreshed when the row is stale.
+
+    ``items`` stays the previous single card: samples when present (month/year
+    import may still be filled from the KPI cache), otherwise the cloud row.
     """
     if period not in VALID_PERIODS:
         return {"ok": False, "reason": "invalid_period"}
@@ -309,96 +420,64 @@ async def get_or_refresh_totals(
     if d is None:
         return {"ok": False, "reason": "invalid_date"}
 
-    # Day / month / year: prefer `huawei_power_sample` (same source as DAM bars) so the
-    # FusionSolar totals card matches the chart. FusionSolar getKpiStationMonth/Year often
-    # omits consumption_energy and reports buyEnergy=0 even when daily import exists.
-    if period in VALID_PERIODS:
-        if period == "day":
-            sample_body = await get_station_hourly_chart_from_db(session, station_code, date_iso)
-        else:
-            sample_body = await get_station_period_totals_from_db(
-                session, station_code, period, date_iso
-            )
-        if sample_body.get("ok") and not sample_body.get("empty"):
-            t = sample_body.get("totals") or {}
-            if isinstance(t, dict):
-                pkey = sample_body.get("periodKey") or period_key_for(d, period)
-                item = _item_from_power_sample_totals(station_code, t)
-                item = await _enrich_period_grid_import(
-                    session, station_code, period, date_iso, pkey, item
-                )
-                source = "huawei_power_sample"
-                if period in ("month", "year") and _sample_grid_import_kwh(t) <= 1e-6:
-                    if item.get("gridImportKwh") is not None and float(item["gridImportKwh"]) > 1e-6:
-                        source = "huawei_power_sample+fusionsolar_kpi"
-                return {
-                    "ok": True,
-                    "period": period,
-                    "periodKey": pkey,
-                    "source": source,
-                    "cacheAgeSec": 0.0,
-                    "items": [item],
-                }
-
     pkey = period_key_for(d, period)
-    row = await read_totals_row(session, station_code, period, pkey)
-    now = time.time()
-    ttl = ttl_for_period(period)
+    open_item = await _load_open_ems_energy_item(session, station_code, period, date_iso)
+    cloud_item, cloud_error, cloud_rate_limited, cloud_source, cloud_age = (
+        await _load_huawei_cloud_energy_item(session, station_code, period, date_iso, d)
+    )
+    open_origin = energy_origin_kwh(open_item)
+    cloud_origin = energy_origin_kwh(cloud_item)
 
-    if row is not None:
-        age_sec = max(0.0, now - row.saved_at.timestamp())
-        if age_sec <= ttl:
-            return {
-                "ok": True,
-                "period": period,
-                "periodKey": pkey,
-                "source": "db",
-                "cacheAgeSec": round(age_sec, 1),
-                "items": [_row_to_payload(row)],
-            }
-        # Stale — try to refresh; if refresh fails, return the stale row marked accordingly.
-        if huawei_configured():
-            fresh = await refresh_from_api(session, station_code, period, date_iso)
-            if fresh is not None:
-                await session.commit()
-                return {
-                    "ok": True,
-                    "period": period,
-                    "periodKey": pkey,
-                    "source": "api",
-                    "cacheAgeSec": 0.0,
-                    "items": [fresh],
-                }
-        return {
-            "ok": True,
-            "period": period,
-            "periodKey": pkey,
-            "source": "db",
-            "stale": True,
-            "cacheAgeSec": round(age_sec, 1),
-            "items": [_row_to_payload(row)],
-        }
-
-    # No DB row yet — must call API once.
-    if not huawei_configured():
-        return {"ok": False, "reason": "not_configured", "configured": False}
-    fresh = await refresh_from_api(session, station_code, period, date_iso)
-    if fresh is None:
+    if open_origin is None and cloud_origin is None and not cloud_error and not cloud_rate_limited:
+        if not huawei_configured():
+            return {"ok": False, "reason": "not_configured", "configured": False}
         return {
             "ok": False,
             "configured": True,
             "reason": "no_data_yet",
             "periodKey": pkey,
         }
-    await session.commit()
-    return {
+
+    stale = False
+    if open_item is not None:
+        display = await _enrich_period_grid_import(
+            session, station_code, period, date_iso, pkey, dict(open_item)
+        )
+        source = "huawei_power_sample"
+        if period in ("month", "year") and _sample_grid_import_kwh(open_item) <= 1e-6:
+            grid_import = display.get("gridImportKwh")
+            if grid_import is not None and float(grid_import) > 1e-6:
+                source = "huawei_power_sample+fusionsolar_kpi"
+        items: list[dict[str, Any]] = [display]
+        cache_age = 0.0
+    elif cloud_item is not None:
+        items = [cloud_item]
+        source = cloud_source
+        cache_age = cloud_age
+        stale = cloud_source == "db" and cloud_age > ttl_for_period(period)
+    else:
+        items = []
+        source = cloud_source
+        cache_age = cloud_age
+
+    body: dict[str, Any] = {
         "ok": True,
         "period": period,
         "periodKey": pkey,
-        "source": "api",
-        "cacheAgeSec": 0.0,
-        "items": [fresh],
+        "source": source,
+        "cacheAgeSec": cache_age,
+        "items": items,
+        "openEms": open_origin,
+        "huaweiCloud": cloud_origin,
+        "huaweiCloudError": cloud_error,
+        "huaweiCloudRateLimited": cloud_rate_limited,
+        "retryAfterSec": int(settings.HUAWEI_NORTHBOUND_COOLDOWN_AFTER_407_SEC)
+        if cloud_rate_limited
+        else None,
     }
+    if stale:
+        body["stale"] = True
+    return body
 
 
 async def run_huawei_station_energy_snapshot() -> int:

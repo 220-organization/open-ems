@@ -467,6 +467,8 @@
   "roiSetupSaveError": "Could not save ROI settings.",
   "roiSetupPinForbidden": "PIN rejected or remote control not allowed for this inverter.",
   "huaweiTotalsTitle": "Huawei Energy",
+  "huaweiTotalsOriginOpenEms": "Open EMS · database",
+  "huaweiTotalsOriginHuaweiCloud": "Huawei Cloud · API",
   "huaweiTotalsTabDay": "Day",
   "huaweiTotalsTabMonth": "Month",
   "huaweiTotalsTabYear": "Year",

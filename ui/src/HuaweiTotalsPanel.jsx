@@ -1,13 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import KwhDisplay from './KwhDisplay';
 
 /**
  * Displays Day / Month / Year energy totals from Huawei FusionSolar.
  *
- * Reads from the Postgres-backed cache `huawei_station_energy_totals` via
- * `GET /api/huawei/station-energy`. The endpoint refreshes the cache lazily on
- * miss / stale row, and a background scheduler keeps rows fresh — UI never
- * hits FusionSolar directly.
+ * Two origins from `GET /api/huawei/station-energy`:
+ * Open EMS integrates `huawei_power_sample`; Huawei Cloud is FusionSolar KPI
+ * (cached, refreshed from the API when stale). Cloud starts expanded.
  *
  * Props:
  *   stationCode  {string}  — FusionSolar plant code
@@ -45,12 +44,54 @@ function ProgressBar({ percent, color }) {
   );
 }
 
-function MetricRow({ label, value, unit, color, percent, fmt, isBase = false }) {
+function finiteKwh(value) {
+  return value != null && Number.isFinite(Number(value)) ? Number(value) : null;
+}
+
+function kwhTriple(source) {
+  return {
+    consumptionKwh: finiteKwh(source?.consumptionKwh),
+    generationKwh: finiteKwh(source?.generationKwh),
+    importKwh: finiteKwh(source?.importKwh),
+  };
+}
+
+function originPercents(triple) {
+  const consKwh = triple?.consumptionKwh ?? null;
+  const pvKwh = triple?.generationKwh ?? null;
+  const gridKwh = triple?.importKwh ?? null;
+  const consumptionBase = consKwh != null && consKwh > 0 ? consKwh : null;
+  const pvPctRaw = consumptionBase != null && pvKwh != null ? (pvKwh / consumptionBase) * 100 : null;
+  const gridPctRaw = consumptionBase != null && gridKwh != null ? (gridKwh / consumptionBase) * 100 : null;
+  return {
+    consKwh,
+    pvKwh,
+    gridKwh,
+    consumptionPct: consumptionBase != null ? 100 : null,
+    pvPct: pvPctRaw != null ? Math.max(0, pvPctRaw) : null,
+    gridPct: gridPctRaw != null ? Math.max(0, gridPctRaw) : null,
+    hasRows: consKwh != null || pvKwh != null || gridKwh != null,
+  };
+}
+
+function OriginBlock({ title, children, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <details
+      className="hw-totals__origin"
+      open={open}
+      onToggle={event => setOpen(event.currentTarget.open)}
+    >
+      <summary className="hw-totals__origin-title">{title}</summary>
+      <div className="hw-totals__origin-body">{children}</div>
+    </details>
+  );
+}
+
+function MetricRow({ label, value, unit, color, percent, fmt, exact = false }) {
   let percentText = '';
   if (percent != null && Number.isFinite(Number(percent))) {
-    const raw = Number(percent);
-    if (!isBase && raw >= 100) percentText = '(< 100%)';
-    else percentText = `(${fmt.format(Math.max(0, raw))}%)`;
+    percentText = `(${fmt.format(Math.max(0, Number(percent)))}%)`;
   }
   return (
     <div className="hw-totals__row">
@@ -58,13 +99,58 @@ function MetricRow({ label, value, unit, color, percent, fmt, isBase = false }) 
         <span className="hw-totals__swatch" style={{ background: color }} aria-hidden="true" />
         <span className="hw-totals__label">{label}</span>
         <span className="hw-totals__value">
-          <KwhDisplay value={value} fmt={fmt} unit={unit} />
+          <KwhDisplay value={value} fmt={fmt} unit={unit} exact={exact} />
           {percentText ? ` ${percentText}` : ''}
         </span>
       </div>
-      {value != null && percent != null && Number.isFinite(Number(percent)) && (
+      {value != null && percent != null && Number.isFinite(Number(percent)) ? (
         <ProgressBar percent={percent} color={color} />
-      )}
+      ) : null}
+    </div>
+  );
+}
+
+function TotalsMetrics({ stats, fmt, t, note, exact = false }) {
+  return (
+    <div className="hw-totals__metrics">
+      {stats.consKwh != null ? (
+        <MetricRow
+          label={t('huaweiTotalsCons')}
+          value={stats.consKwh}
+          unit="kWh"
+          color={BAR_COLORS.cons}
+          percent={stats.consumptionPct}
+          fmt={fmt}
+          exact={exact}
+        />
+      ) : null}
+      {stats.pvKwh != null ? (
+        <MetricRow
+          label={t('huaweiTotalsPvGen')}
+          value={stats.pvKwh}
+          unit="kWh"
+          color={BAR_COLORS.pv}
+          percent={stats.pvPct}
+          fmt={fmt}
+          exact={exact}
+        />
+      ) : null}
+      {stats.gridKwh != null ? (
+        <MetricRow
+          label={t('huaweiTotalsGridImport')}
+          value={stats.gridKwh}
+          unit="kWh"
+          color={BAR_COLORS.import}
+          percent={stats.gridPct}
+          fmt={fmt}
+          exact={exact}
+        />
+      ) : null}
+      {note ? (
+        <p className="hw-totals__approx-note">
+          <span aria-hidden="true">*</span> {note}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -142,7 +228,7 @@ export default function HuaweiTotalsPanel({ stationCode, tradeDay, apiUrl, t, ge
   const [activeTab, setActiveTab] = useState('day');
   const [selectedDate, setSelectedDate] = useState(tradeDay);
   const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const abortRef = useRef(null);
 
@@ -192,27 +278,27 @@ export default function HuaweiTotalsPanel({ stationCode, tradeDay, apiUrl, t, ge
   }, [fetchTotals, activeTab, selectedDate]);
 
   useEffect(() => {
+    if (data?.huaweiCloudRateLimited !== true) return undefined;
+    const sec = Number(data.retryAfterSec);
+    const waitMs = (Number.isFinite(sec) && sec > 0 ? Math.min(sec, 90) : 60) * 1000;
+    const id = setTimeout(() => {
+      fetchTotals(activeTab, selectedDate);
+    }, waitMs);
+    return () => clearTimeout(id);
+  }, [data, activeTab, selectedDate, fetchTotals]);
+
+  useEffect(() => {
     setSelectedDate(tradeDay);
   }, [tradeDay]);
 
   const bcp47 = getBcp47Locale();
   const fmt = kwhFmt(bcp47);
 
-  const item = data?.items?.[0] ?? null;
-  const pvKwh = item?.pvKwh ?? null;
-  const consKwh = item?.consumptionKwh ?? null;
-  const importKwh = item?.gridImportKwh ?? null;
-  const exportKwh = item?.gridExportKwh ?? null;
-
-  // UX baseline: Consumption is always the 100% top line.
-  const consumptionBase = consKwh != null && Number(consKwh) > 0 ? Number(consKwh) : null;
-  const gridKwh = importKwh != null ? importKwh : exportKwh;
-  const hasCoreRows = consumptionBase != null || pvKwh != null || gridKwh != null;
-  const consumptionPct = consumptionBase != null ? 100 : null;
-  const pvPctRaw = consumptionBase != null && pvKwh != null ? (Number(pvKwh) / consumptionBase) * 100 : null;
-  const gridPctRaw = consumptionBase != null && gridKwh != null ? (Number(gridKwh) / consumptionBase) * 100 : null;
-  const pvPct = pvPctRaw != null ? Math.min(99.9, Math.max(0, pvPctRaw)) : null;
-  const gridPct = gridPctRaw != null ? Math.min(99.9, Math.max(0, gridPctRaw)) : null;
+  const openEms = useMemo(() => originPercents(kwhTriple(data?.openEms)), [data]);
+  const huaweiCloud = useMemo(() => originPercents(kwhTriple(data?.huaweiCloud)), [data]);
+  const cloudRateLimited = data?.huaweiCloudRateLimited === true;
+  const hasCoreRows =
+    openEms.hasRows || huaweiCloud.hasRows || data?.huaweiCloudError === true || cloudRateLimited;
 
   function tabLabel(tab) {
     const key = tab === 'day' ? 'huaweiTotalsTabDay' : tab === 'month' ? 'huaweiTotalsTabMonth' : 'huaweiTotalsTabYear';
@@ -314,63 +400,42 @@ export default function HuaweiTotalsPanel({ stationCode, tradeDay, apiUrl, t, ge
         </div>
       </div>
 
-      <div className="hw-totals__body">
-        {loading && <p className="hw-totals__status">{t('huaweiTotalsLoading')}</p>}
-
-        {!loading && error === 'rateLimited' && (
+      <div className={`hw-totals__body hw-totals__body--origins${loading ? ' hw-totals__body--loading' : ''}`}>
+        {loading && !hasCoreRows ? <p className="hw-totals__status">{t('huaweiTotalsLoading')}</p> : null}
+        {!loading && error === 'rateLimited' ? (
           <p className="hw-totals__status hw-totals__status--warn">{t('huaweiTotalsRateLimited')}</p>
-        )}
-        {!loading && error === 'notConfigured' && (
+        ) : null}
+        {!loading && error === 'notConfigured' ? (
           <p className="hw-totals__status">{t('huaweiTotalsNotConfigured')}</p>
-        )}
-        {!loading && error === 'error' && (
+        ) : null}
+        {!loading && error === 'error' ? (
           <p className="hw-totals__status hw-totals__status--error">{t('huaweiTotalsError')}</p>
-        )}
-        {!loading && error === 'noDataYet' && (
+        ) : null}
+        {!loading && !hasCoreRows && (error == null || error === 'noDataYet') ? (
           <p className="hw-totals__status">{t('huaweiTotalsNoData')}</p>
-        )}
-        {!loading && !error && item && pvKwh == null && consKwh == null && (
-          <p className="hw-totals__status">{t('huaweiTotalsNoData')}</p>
-        )}
-
-        {!loading && !error && item && hasCoreRows && (
-          <div className="hw-totals__metrics">
-            {consKwh != null && (
-              <MetricRow
-                label={t('huaweiTotalsCons')}
-                value={consKwh}
-                unit="kWh"
-                color={BAR_COLORS.cons}
-                percent={consumptionPct}
-                fmt={fmt}
-                isBase
-              />
-            )}
-            {pvKwh != null && (
-              <MetricRow
-                label={t('huaweiTotalsPvGen')}
-                value={pvKwh}
-                unit="kWh"
-                color={BAR_COLORS.pv}
-                percent={pvPct}
-                fmt={fmt}
-              />
-            )}
-            {gridKwh != null && (
-              <MetricRow
-                label={t('huaweiTotalsGridImport')}
-                value={gridKwh}
-                unit="kWh"
-                color={BAR_COLORS.import}
-                percent={gridPct}
-                fmt={fmt}
-              />
-            )}
-            <p className="hw-totals__approx-note">
-              <span aria-hidden="true">*</span> {t('kwhCalibrationPrecisionNote')}
-            </p>
+        ) : null}
+        {hasCoreRows ? (
+          <div className="hw-totals__origins">
+            <OriginBlock title={t('huaweiTotalsOriginOpenEms')}>
+              {openEms.hasRows ? (
+                <TotalsMetrics stats={openEms} fmt={fmt} t={t} note={t('kwhCalibrationPrecisionNote')} />
+              ) : (
+                <p className="hw-totals__status">{t('huaweiTotalsNoData')}</p>
+              )}
+            </OriginBlock>
+            <OriginBlock title={t('huaweiTotalsOriginHuaweiCloud')} defaultOpen>
+              {huaweiCloud.hasRows ? (
+                <TotalsMetrics stats={huaweiCloud} fmt={fmt} t={t} exact />
+              ) : cloudRateLimited ? (
+                <p className="hw-totals__status hw-totals__status--warn">{t('huaweiTotalsRateLimited')}</p>
+              ) : (
+                <p className={`hw-totals__status${data?.huaweiCloudError ? ' hw-totals__status--error' : ''}`}>
+                  {data?.huaweiCloudError ? t('huaweiTotalsError') : t('huaweiTotalsNoData')}
+                </p>
+              )}
+            </OriginBlock>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );
