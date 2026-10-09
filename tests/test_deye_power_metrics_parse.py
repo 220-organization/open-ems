@@ -204,6 +204,20 @@ def test_station_payload_battery_soc_matches_deye_app():
     assert _soc_percent_from_station_payload({"generationPower": 8090.0}) is None
 
 
+def test_grid_voltage_near_zero_is_off_grid():
+    from app.deye_api import _grid_off_from_data_list
+
+    island = [
+        _row("GridVoltageL1L2", 3.1, "V"),
+        _row("GridFrequency", 0, "Hz"),
+        _row("ACOutputFrequencyR", 50, "Hz"),
+        _row("LoadVoltageL1L2", 232.2, "V"),
+    ]
+    assert _grid_off_from_data_list(island) is True
+    assert _grid_off_from_data_list([_row("GridVoltageL1", 230, "V")]) is False
+    assert _grid_off_from_data_list([_row("LoadVoltageL1", 230, "V")]) is None
+
+
 def test_device_status_collection_time_and_offline_state():
     entry = {"collectionTime": 1791536148, "deviceState": 3, "deviceSn": "2604060007"}
     assert _device_status_from_entry(entry) == (1791536148, 3)

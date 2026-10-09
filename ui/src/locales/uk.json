@@ -272,6 +272,7 @@
   "hubPartnerPausedAria": "{name} — клік, щоб крутити логотипи партнерів, подвійний клік — відкрити сайт.",
   "hubRefreshAria": "Оновити сторінку",
   "inverterOffline": "не в мережі",
+  "gridOffGrid": "Поза мережею",
   "inverterOfflineSec": "{{n}} с",
   "inverterOfflineSecs": "{{n}} с",
   "inverterOfflineMin": "{{n}} хв",

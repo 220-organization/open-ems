@@ -154,6 +154,7 @@
   "hubBrandLinkAria": "220 km — site officiel (nouvel onglet)",
   "hubRefreshAria": "Recharger la page",
   "inverterOffline": "offline",
+  "gridOffGrid": "Hors réseau",
   "inverterOfflineSec": "{{n}} s",
   "inverterOfflineSecs": "{{n}} s",
   "inverterOfflineMin": "{{n}} min",

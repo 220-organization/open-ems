@@ -155,6 +155,7 @@
   "hubBrandLinkAria": "220 km — oficjalna strona (nowa karta)",
   "hubRefreshAria": "Odśwież stronę",
   "inverterOffline": "offline",
+  "gridOffGrid": "Poza siecią",
   "inverterOfflineSec": "{{n}} s",
   "inverterOfflineSecs": "{{n}} s",
   "inverterOfflineMin": "{{n}} min",

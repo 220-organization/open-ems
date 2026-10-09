@@ -3313,6 +3313,7 @@ export default function PowerFlowPage({
           const pvW = sumField('pvPowerW', true);
           const gridW = sumField('gridPowerW', false);
           const liveStatus = pickClusterLiveStatus(uniqRows);
+          const offGrid = uniqRows.length > 0 && uniqRows.every(row => row?.offGrid === true);
           setDeyeLive({
             batteryPowerW: bat,
             loadPowerW: loadW,
@@ -3321,6 +3322,7 @@ export default function PowerFlowPage({
             socPercent: pickClusterSocPercent(uniqRows),
             collectionTime: liveStatus.collectionTime,
             online: liveStatus.online,
+            offGrid,
           });
         } else {
           setDeyeLive(null);
@@ -4049,6 +4051,7 @@ export default function PowerFlowPage({
     (evPortFocusMode && evStationPowerLoading && evStationPowerW == null) ||
     (evPortsFocusMode && evPortsLive.loading && evPortsDisplayPowerW == null);
   const deyeInverterOffline = Boolean(selInverterSn) && deyeLive?.online === false;
+  const deyeOffGrid = Boolean(selInverterSn) && deyeLive?.offGrid === true && !deyeInverterOffline;
   const graphDisplaySolarW = evOnlyFocusMode || deyeInverterOffline ? null : displaySolarW;
   const graphDisplayLoadW = evOnlyFocusMode || deyeInverterOffline ? null : displayLoadW;
   const graphDisplayEssW = evOnlyFocusMode || deyeInverterOffline ? null : displayEssW;
@@ -4060,7 +4063,7 @@ export default function PowerFlowPage({
       : Math.max(0, Number(evStationPowerW ?? 0))
     : evPortsFocusMode
       ? evPortsDisplayPowerW
-      : deyeInverterOffline
+      : deyeInverterOffline || deyeOffGrid
         ? null
         : displayGridW;
   const graphDisplayEssCharging = graphDisplayEssW != null && graphDisplayEssW < 0;
@@ -5492,9 +5495,11 @@ export default function PowerFlowPage({
                             ⚡
                           </span>
                           <span className="pf-node-label">{t('nodeGrid')}</span>
-                          <span className={pfNodeValueClass(solarGridEssValuePending, deyeInverterOffline)} id="pf-val-grid">
+                          <span className={pfNodeValueClass(solarGridEssValuePending, deyeInverterOffline || deyeOffGrid)} id="pf-val-grid">
                             {deyeInverterOffline
                               ? <InverterOfflineLabel collectionTimeSec={deyeLive?.collectionTime} t={t} />
+                              : deyeOffGrid
+                                ? t('gridOffGrid')
                               : selHuaweiStationCode
                                 ? formatHuaweiPowerFlowNodeValue(
                                     huaweiLiveLoading,

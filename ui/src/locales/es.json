@@ -272,6 +272,7 @@
   "hubPartnerPausedAria": "{name} — pulse para rotar los logotipos de socios, doble clic para abrir el sitio web.",
   "hubRefreshAria": "Recargar página",
   "inverterOffline": "offline",
+  "gridOffGrid": "Fuera de red",
   "inverterOfflineSec": "{{n}} s",
   "inverterOfflineSecs": "{{n}} s",
   "inverterOfflineMin": "{{n}} min",

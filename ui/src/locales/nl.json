@@ -154,6 +154,7 @@
   "hubBrandLinkAria": "220 km — officiële website (opent in nieuw tabblad)",
   "hubRefreshAria": "Pagina vernieuwen",
   "inverterOffline": "offline",
+  "gridOffGrid": "Off grid",
   "inverterOfflineSec": "{{n}} s",
   "inverterOfflineSecs": "{{n}} s",
   "inverterOfflineMin": "{{n}} min",

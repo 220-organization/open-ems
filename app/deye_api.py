@@ -36,6 +36,8 @@ _live_cache: dict[
 ] = {}
 # Deye /device/latest: collectionTime (unix seconds), deviceState (1 online, 2 alarm, 3 offline).
 _live_status_cache: dict[str, tuple[Optional[int], Optional[int]]] = {}
+# True when GridVoltage* is present and only a few volts (islanded / off-grid).
+_live_off_grid_cache: dict[str, bool] = {}
 # Marks serials whose currently cached power came from /station/latest plant fallback (not /device/latest).
 # Cluster aggregation (UI / hourly history) must dedupe by station for these — otherwise plant totals
 # get multiplied by the cluster size. Cleared / set in lockstep with ``_live_cache`` writes.
@@ -1450,6 +1452,31 @@ def _grid_frequency_hz_from_data_list(dl: Any) -> Optional[float]:
     return next(iter(found.values()))
 
 
+def _grid_off_from_data_list(dl: Any) -> Optional[bool]:
+    """True when the utility grid is absent.
+
+    Off-grid Deye hybrids still report ~230 V on the AC output and 50 Hz there,
+    while GridVoltage* falls to a few volts and GridFrequency is 0. A connected
+    grid is about 200 V phase or 400 V line. Missing grid-voltage keys stay unknown.
+    """
+    if not isinstance(dl, list):
+        return None
+    voltages: list[float] = []
+    for row in dl:
+        if not isinstance(row, dict):
+            continue
+        key = _metric_key(row.get("key"))
+        if "GRID" not in key or "VOLT" not in key or "CURRENT" in key:
+            continue
+        try:
+            voltages.append(abs(float(row.get("value"))))
+        except (TypeError, ValueError):
+            continue
+    if not voltages:
+        return None
+    return max(voltages) < 50.0
+
+
 def _collection_time_unix_sec(raw: Any) -> Optional[int]:
     """Deye collectionTime is unix seconds; some payloads send milliseconds."""
     if isinstance(raw, bool) or raw is None:
@@ -1584,12 +1611,18 @@ async def _post_latest_metrics_map(
     logger.info("Deye: device/latest deviceDataList_len=%s", len(ddl))
 
     status_updates: dict[str, tuple[Optional[int], Optional[int]]] = {}
+    off_grid_updates: dict[str, bool] = {}
     for i, entry in enumerate(ddl):
         soc, pwr, load_w, pv_w, grid_w, freq_hz = _parse_metrics_from_entry(entry)
         target = _resolve_batch_target_sn(entry, sns, i)
         if target is None or target not in out:
             continue
         ct, device_state = _device_status_from_entry(entry)
+        off_grid = _grid_off_from_data_list(entry.get("dataList") if isinstance(entry, dict) else None)
+        if off_grid is False:
+            off_grid_updates[target] = False
+        elif off_grid is True and off_grid_updates.get(target) is not False:
+            off_grid_updates[target] = True
         prev_status = status_updates.get(target)
         if prev_status is None:
             status_updates[target] = (ct, device_state)
@@ -1627,7 +1660,7 @@ async def _post_latest_metrics_map(
                 sgrid,
                 sfreq,
             )
-    if status_updates:
+    if status_updates or off_grid_updates:
         async with _soc_lock:
             for sn, (ct, device_state) in status_updates.items():
                 prev_ct, prev_state = _live_status_cache.get(sn, (None, None))
@@ -1635,6 +1668,8 @@ async def _post_latest_metrics_map(
                     ct if ct is not None else prev_ct,
                     device_state if device_state is not None else prev_state,
                 )
+            for sn, off_grid in off_grid_updates.items():
+                _live_off_grid_cache[sn] = off_grid
     return out
 
 
@@ -2018,6 +2053,15 @@ async def get_device_live_status(device_sn: str) -> tuple[Optional[int], Optiona
         return None, None
     collection_sec, device_state = hit
     return collection_sec, _device_online_from_state(device_state)
+
+
+async def get_device_off_grid(device_sn: str) -> Optional[bool]:
+    """True when the latest /device/latest sample shows the utility grid is down."""
+    sn = (device_sn or "").strip()
+    if not sn:
+        return None
+    async with _soc_lock:
+        return _live_off_grid_cache.get(sn)
 
 
 async def get_battery_power_w_cached(device_sn: str) -> Optional[float]:

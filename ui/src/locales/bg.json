@@ -154,6 +154,7 @@
   "hubBrandLinkAria": "220 km — официален сайт (отваря се в нов раздел)",
   "hubRefreshAria": "Презареждане на страницата",
   "inverterOffline": "offline",
+  "gridOffGrid": "Off grid",
   "inverterOfflineSec": "{{n}} с",
   "inverterOfflineSecs": "{{n}} с",
   "inverterOfflineMin": "{{n}} мин",

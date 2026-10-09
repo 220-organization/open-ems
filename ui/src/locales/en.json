@@ -272,6 +272,7 @@
   "hubPartnerPausedAria": "{name} — click to rotate partner logos, double-click to open website.",
   "hubRefreshAria": "Reload page",
   "inverterOffline": "offline",
+  "gridOffGrid": "Off grid",
   "inverterOfflineSec": "{{n}} sec",
   "inverterOfflineSecs": "{{n}} secs",
   "inverterOfflineMin": "{{n}} min",

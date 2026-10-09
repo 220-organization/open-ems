@@ -26,6 +26,7 @@ from app.deye_api import (
     fetch_device_station_history_energy,
     get_inverter_station_coordinates,
     get_device_live_status,
+    get_device_off_grid,
     get_display_soc_percent_cached,
     get_live_metrics_cached,
     get_live_metrics_with_source_cached,
@@ -978,6 +979,7 @@ async def get_ess_power(
                 "stationFallback": False,
                 "collectionTime": None,
                 "online": None,
+                "offGrid": None,
             },
             headers=_NO_STORE_CACHE,
         )
@@ -987,6 +989,7 @@ async def get_ess_power(
         )
         soc = await get_display_soc_percent_cached(deviceSn)
         collection_time, online = await get_device_live_status(deviceSn)
+        off_grid = await get_device_off_grid(deviceSn)
         logger.info(
             "GET /api/deye/ess-power — sn=%s batteryW=%s loadW=%s pvW=%s gridW=%s gridHz=%s soc=%s stationId=%s stationFallback=%s collectionTime=%s online=%s",
             deviceSn,
@@ -1015,6 +1018,7 @@ async def get_ess_power(
                 "stationFallback": bool(station_fallback),
                 "collectionTime": collection_time,
                 "online": online,
+                "offGrid": off_grid,
             },
             headers=_NO_STORE_CACHE,
         )
