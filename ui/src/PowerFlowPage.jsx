@@ -3376,6 +3376,7 @@ export default function PowerFlowPage({
             loadPowerW: loadW != null && Number.isFinite(Number(loadW)) ? Math.max(0, Number(loadW)) : null,
             collectionTime: huaweiCollectionTimeSec(data),
             northboundRateLimited: !!data.northboundRateLimited,
+            online: data.online !== false,
           });
         } else if (!cancelled) {
           setHuaweiLive(null);
@@ -4051,10 +4052,12 @@ export default function PowerFlowPage({
     (evPortFocusMode && evStationPowerLoading && evStationPowerW == null) ||
     (evPortsFocusMode && evPortsLive.loading && evPortsDisplayPowerW == null);
   const deyeInverterOffline = Boolean(selInverterSn) && deyeLive?.online === false;
+  const huaweiInverterOffline = Boolean(selHuaweiStationCode) && huaweiLive?.online === false;
+  const graphInverterOffline = deyeInverterOffline || huaweiInverterOffline;
   const deyeOffGrid = Boolean(selInverterSn) && deyeLive?.offGrid === true && !deyeInverterOffline;
-  const graphDisplaySolarW = evOnlyFocusMode || deyeInverterOffline ? null : displaySolarW;
-  const graphDisplayLoadW = evOnlyFocusMode || deyeInverterOffline ? null : displayLoadW;
-  const graphDisplayEssW = evOnlyFocusMode || deyeInverterOffline ? null : displayEssW;
+  const graphDisplaySolarW = evOnlyFocusMode || graphInverterOffline ? null : displaySolarW;
+  const graphDisplayLoadW = evOnlyFocusMode || graphInverterOffline ? null : displayLoadW;
+  const graphDisplayEssW = evOnlyFocusMode || graphInverterOffline ? null : displayEssW;
   const graphDisplayMinerW = evOnlyFocusMode ? null : displayMinerW;
   const graphMinerFlowW = evOnlyFocusMode ? 0 : minerFlowW;
   const graphDisplayGridW = evPortFocusMode
@@ -4063,7 +4066,7 @@ export default function PowerFlowPage({
       : Math.max(0, Number(evStationPowerW ?? 0))
     : evPortsFocusMode
       ? evPortsDisplayPowerW
-      : deyeInverterOffline || deyeOffGrid
+      : graphInverterOffline || deyeOffGrid
         ? null
         : displayGridW;
   const graphDisplayEssCharging = graphDisplayEssW != null && graphDisplayEssW < 0;
@@ -5145,12 +5148,17 @@ export default function PowerFlowPage({
     } else if (huaweiListReady && huaweiRows.items.length > 0) {
       inverterMenuGroups.push({
         label: t('essHuaweiFusionSolar'),
-        items: huaweiRows.items.map(row =>
-          menuItem(
+        items: huaweiRows.items.map(row => {
+          const offline = row.stationCode === selHuaweiStationCode && huaweiLive?.online === false;
+          const offlineSuffix = offline
+            ? ` · ${formatInverterOfflineLabel(huaweiLive?.collectionTime, Date.now(), t)}`
+            : '';
+          return menuItem(
             `${ESS_PREFIX_HUAWEI}${row.stationCode}`,
-            inverterSelectShortLabel(row.stationName, row.stationCode)
-          )
-        ),
+            inverterSelectShortLabel(row.stationName, row.stationCode) + offlineSuffix,
+            { offline }
+          );
+        }),
       });
     }
   }
@@ -5158,7 +5166,8 @@ export default function PowerFlowPage({
     .flatMap(group => group.items)
     .find(item => !item.disabled && item.value === (noEssListYet ? '' : inverterValue));
   const selectedInverterLabel = selectedInverterItem?.label || (noEssListYet ? '…' : t('inverterSelectLabel'));
-  const selectedInverterOffline = Boolean(selectedInverterItem?.offline) || deyeInverterOffline;
+  const selectedInverterOffline =
+    Boolean(selectedInverterItem?.offline) || deyeInverterOffline || huaweiInverterOffline;
 
   const evPortPicker = (
     <EvPortPicker
@@ -5434,9 +5443,9 @@ export default function PowerFlowPage({
                           ) : null}
                         </div>
                         <span className="pf-node-label">{t('nodeSolar')}</span>
-                        <span className={pfNodeValueClass(solarGridEssValuePending, deyeInverterOffline)} id="pf-val-solar">
-                          {deyeInverterOffline
-                            ? <InverterOfflineLabel collectionTimeSec={deyeLive?.collectionTime} t={t} />
+                        <span className={pfNodeValueClass(solarGridEssValuePending, graphInverterOffline)} id="pf-val-solar">
+                          {graphInverterOffline
+                            ? <InverterOfflineLabel collectionTimeSec={flowUpdatedAtSec} t={t} />
                             : selHuaweiStationCode
                               ? formatHuaweiPowerFlowNodeValue(
                                   huaweiLiveLoading,
@@ -5495,9 +5504,9 @@ export default function PowerFlowPage({
                             ⚡
                           </span>
                           <span className="pf-node-label">{t('nodeGrid')}</span>
-                          <span className={pfNodeValueClass(solarGridEssValuePending, deyeInverterOffline || deyeOffGrid)} id="pf-val-grid">
-                            {deyeInverterOffline
-                              ? <InverterOfflineLabel collectionTimeSec={deyeLive?.collectionTime} t={t} />
+                          <span className={pfNodeValueClass(solarGridEssValuePending, graphInverterOffline || deyeOffGrid)} id="pf-val-grid">
+                            {graphInverterOffline
+                              ? <InverterOfflineLabel collectionTimeSec={flowUpdatedAtSec} t={t} />
                               : deyeOffGrid
                                 ? t('gridOffGrid')
                               : selHuaweiStationCode
@@ -5537,9 +5546,9 @@ export default function PowerFlowPage({
                           🏠
                         </span>
                         <span className="pf-node-label">{t('nodeLoad')}</span>
-                        <span className={pfNodeValueClass(loadValuePending, deyeInverterOffline)} id="pf-val-load">
-                          {deyeInverterOffline
-                            ? <InverterOfflineLabel collectionTimeSec={deyeLive?.collectionTime} t={t} />
+                        <span className={pfNodeValueClass(loadValuePending, graphInverterOffline)} id="pf-val-load">
+                          {graphInverterOffline
+                            ? <InverterOfflineLabel collectionTimeSec={flowUpdatedAtSec} t={t} />
                             : !essAnySelected
                             ? evOnlyFocusMode
                               ? evStationPowerLoading && evStationPowerW == null
@@ -5598,9 +5607,9 @@ export default function PowerFlowPage({
                           )}
                         </span>
                         <span className="pf-node-label">{t('nodeEss')}</span>
-                        <span className={pfNodeValueClass(solarGridEssValuePending, deyeInverterOffline)} id="pf-val-ess">
-                          {deyeInverterOffline
-                            ? <InverterOfflineLabel collectionTimeSec={deyeLive?.collectionTime} t={t} />
+                        <span className={pfNodeValueClass(solarGridEssValuePending, graphInverterOffline)} id="pf-val-ess">
+                          {graphInverterOffline
+                            ? <InverterOfflineLabel collectionTimeSec={flowUpdatedAtSec} t={t} />
                             : selHuaweiStationCode
                               ? formatHuaweiPowerFlowNodeValue(
                                   huaweiLiveLoading,

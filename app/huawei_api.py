@@ -683,6 +683,42 @@ def _power_flow_body_for_storage(body: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in body.items() if k not in ("northboundRateLimited", "cacheAgeSec", "collectionTime")}
 
 
+_POWER_FLOW_WATT_KEYS = ("pvPowerW", "gridPowerW", "loadPowerW")
+
+
+def _power_flow_has_measured_watts(body: Optional[dict[str, Any]]) -> bool:
+    """True when a snapshot has at least one PV, grid, or load watt reading."""
+    if not isinstance(body, dict) or body.get("ok") is not True:
+        return False
+    return any(body.get(key) is not None for key in _POWER_FLOW_WATT_KEYS)
+
+
+def station_real_health_is_online(health_state: Any) -> Optional[bool]:
+    """FusionSolar ``real_health_state``: 1 disconnected, 2 faulty, 3 healthy."""
+    if isinstance(health_state, bool) or health_state is None:
+        return None
+    try:
+        health = int(health_state)
+    except (TypeError, ValueError):
+        return None
+    if health <= 0:
+        return None
+    return health != 1
+
+
+def _cached_station_online(station_code: str) -> Optional[bool]:
+    """Online flag from the in-memory getStationRealKpi cache. None when unknown."""
+    st = (station_code or "").strip()
+    if not st:
+        return None
+    for rows, _saved_at in _plant_status_cache.values():
+        for row in rows:
+            if str(row.get("stationCode") or "").strip() != st:
+                continue
+            return station_real_health_is_online(row.get("healthState"))
+    return None
+
+
 def _huawei_sample_age_ok(saved_at_ts: float, max_age_sec: float, *, now: Optional[float] = None) -> bool:
     ref = now if now is not None else time.time()
     return (ref - saved_at_ts) <= max_age_sec
@@ -975,6 +1011,8 @@ def _power_flow_fresh_cached_body(st: str, now: float) -> Optional[dict[str, Any
     snap, saved_at = cached
     if snap.get("ok") is not True or not _huawei_live_kpi_cache_fresh(saved_at, now=now):
         return None
+    if not _power_flow_has_measured_watts(snap):
+        return None
     body = _apply_huawei_power_flow_repairs(dict(snap))
     body["northboundRateLimited"] = False
     _stamp_power_flow_sample_time(body, saved_at, now)
@@ -1014,7 +1052,7 @@ async def _power_flow_rate_limit_fallback(
     cached = _power_flow_cache.get(st)
     if cached:
         snap, saved_at = cached
-        if _huawei_sample_age_ok(saved_at, max_age_sec, now=now):
+        if _power_flow_has_measured_watts(snap) and _huawei_sample_age_ok(saved_at, max_age_sec, now=now):
             stale = stale_display and not _huawei_live_kpi_cache_fresh(saved_at, now=now)
             return _power_flow_cached_response(
                 snap, saved_at, now, northbound_rate_limited=stale
@@ -1022,7 +1060,7 @@ async def _power_flow_rate_limit_fallback(
     db_hit = await _read_power_flow_db(st)
     if db_hit:
         snap, saved_at = db_hit
-        if _huawei_sample_age_ok(saved_at, max_age_sec, now=now):
+        if _power_flow_has_measured_watts(snap) and _huawei_sample_age_ok(saved_at, max_age_sec, now=now):
             _power_flow_cache[st] = (dict(snap), saved_at)
             stale = stale_display and not _huawei_live_kpi_cache_fresh(saved_at, now=now)
             return _power_flow_cached_response(
@@ -1544,15 +1582,37 @@ async def get_power_flow(station_code: str, *, for_storage: bool = False) -> dic
 
     now = time.time()
     if not for_storage:
+        db_hit = await _read_power_flow_db(st)
+        kpi_blank = bool(db_hit and not _power_flow_has_measured_watts(db_hit[0]))
+        health_online = _cached_station_online(st)
+        # A stored KPI with no watts means the plant stopped reporting. A known
+        # healthy station (real_health_state 3) is not marked offline for that alone.
+        disconnected = health_online is False or (health_online is None and kpi_blank)
         display = await _power_flow_display_body(st, now)
-        if display is not None:
+        if display is None:
+            # Last sample of any age. The graph prints collectionTime instead of "no data".
+            display = await _power_flow_rate_limit_fallback(
+                st, now, stale_display=True, max_age_sec=86400.0 * 3650
+            )
+        if display is not None and _power_flow_has_measured_watts(display):
+            display["online"] = not disconnected
             return display
-        # Last sample of any age. The graph prints collectionTime instead of "no data".
-        any_age = await _power_flow_rate_limit_fallback(
-            st, now, stale_display=True, max_age_sec=86400.0 * 3650
-        )
-        if any_age is not None:
-            return any_age
+        if disconnected:
+            saved_ts = db_hit[1] if db_hit else now
+            return {
+                "ok": True,
+                "configured": True,
+                "stationCode": st,
+                "pvPowerW": None,
+                "gridPowerW": None,
+                "loadPowerW": None,
+                "online": False,
+                "northboundRateLimited": False,
+                "hasBatteryKpi": False,
+                "essSocPercent": None,
+                "collectionTime": int(saved_ts),
+                "cacheAgeSec": round(max(0.0, now - float(saved_ts)), 1),
+            }
         lazy = await _try_lazy_power_flow_northbound(st, now)
         if lazy is not None:
             return lazy
@@ -1605,6 +1665,30 @@ async def get_power_flow(station_code: str, *, for_storage: bool = False) -> dic
             pv_w = metrics["pvPowerW"]
             grid_ui = metrics["gridPowerW"]
             load_w = metrics["loadPowerW"]
+            if pv_w is None and grid_ui is None and load_w is None:
+                # Do not replace the last real snapshot with an empty KPI (disconnected plant).
+                logger.info("Huawei: get_power_flow no measured watts for %s", st)
+                stale = await _power_flow_rate_limit_fallback(
+                    st, now, stale_display=True, max_age_sec=86400.0 * 3650
+                )
+                if stale is not None and _power_flow_has_measured_watts(stale):
+                    stale["online"] = False
+                    return stale
+                return {
+                    "ok": True,
+                    "configured": True,
+                    "stationCode": st,
+                    "pvPowerW": None,
+                    "gridPowerW": None,
+                    "loadPowerW": None,
+                    "online": False,
+                    "northboundRateLimited": False,
+                    "hasBatteryKpi": False,
+                    "essSocPercent": None,
+                    "collectionTime": int(now),
+                    "cacheAgeSec": 0.0,
+                    "reason": "no_live_power",
+                }
 
             has_battery_kpi = _has_battery_device_in_dev_list(dev_rows) if dev_rows else False
             ess_soc = _ess_soc_from_inverter_dims(inv_dims)
@@ -1616,6 +1700,7 @@ async def get_power_flow(station_code: str, *, for_storage: bool = False) -> dic
                 "pvPowerW": pv_w,
                 "gridPowerW": grid_ui,
                 "loadPowerW": load_w,
+                "online": True,
                 "northboundRateLimited": False,
                 "hasBatteryKpi": has_battery_kpi,
                 "essSocPercent": ess_soc,
