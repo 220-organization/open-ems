@@ -261,6 +261,19 @@ def test_energy_origin_kwh_maps_cloud_and_sample_fields():
     assert energy_origin_kwh(None) is None
 
 
+def test_blank_power_flow_is_not_a_measurement_and_health_1_is_offline():
+    from app.huawei_api import _power_flow_has_measured_watts, station_real_health_is_online
+
+    assert _power_flow_has_measured_watts(
+        {"ok": True, "pvPowerW": None, "gridPowerW": None, "loadPowerW": None}
+    ) is False
+    assert _power_flow_has_measured_watts({"ok": True, "pvPowerW": 0.0, "gridPowerW": 100.0, "loadPowerW": 100.0})
+    assert station_real_health_is_online(1) is False
+    assert station_real_health_is_online(2) is True
+    assert station_real_health_is_online(3) is True
+    assert station_real_health_is_online(None) is None
+
+
 def test_huawei_power_flow_display_max_age_covers_round_robin():
     from app.huawei_api import huawei_power_flow_display_max_age_sec
 
