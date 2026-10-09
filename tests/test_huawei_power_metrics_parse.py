@@ -191,6 +191,57 @@ def test_cached_power_flow_includes_collection_time():
     assert body["pvPowerW"] == 1000.0
 
 
+def test_kpi_rows_keep_their_own_month():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from app.huawei_api import index_kpi_rows
+
+    kyiv = ZoneInfo("Europe/Kyiv")
+    september = int(datetime(2026, 9, 1, tzinfo=kyiv).timestamp() * 1000)
+    october = int(datetime(2026, 10, 1, tzinfo=kyiv).timestamp() * 1000)
+    keyed = index_kpi_rows(
+        [
+            {"collectTime": september, "pvKwh": 100.0},
+            {"collectTime": october, "pvKwh": 2638.31},
+        ],
+        "month",
+        "2026-10",
+    )
+    assert keyed == [
+        ("2026-09", {"collectTime": september, "pvKwh": 100.0}),
+        ("2026-10", {"collectTime": october, "pvKwh": 2638.31}),
+    ]
+
+
+def test_station_kpi_use_power_fills_consumption_and_grid_import():
+    from app.huawei_api import _extract_energy_row, normalize_station_energy_kwh
+
+    row = _extract_energy_row(
+        {
+            "stationCode": "NE=258149172",
+            "dataItemMap": {
+                "inverter_power": "236.69",
+                "use_power": "587.88",
+                "ongrid_power": "0.02",
+            },
+        }
+    )
+    assert row["pvKwh"] == 236.69
+    assert row["consumptionKwh"] == 587.88
+    assert abs(row["gridImportKwh"] - (587.88 - (236.69 - 0.02))) < 1e-6
+
+    cached = normalize_station_energy_kwh(
+        pv_kwh=236.69,
+        consumption_kwh=None,
+        grid_import_kwh=None,
+        grid_export_kwh=0.02,
+        self_consumption_kwh=587.88,
+    )
+    assert cached["consumptionKwh"] == 587.88
+    assert abs(cached["gridImportKwh"] - row["gridImportKwh"]) < 1e-6
+
+
 def test_energy_origin_kwh_maps_cloud_and_sample_fields():
     from app.huawei_station_energy_service import energy_origin_kwh
 

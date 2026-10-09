@@ -24,8 +24,11 @@ from app.huawei_api import (
     HuaweiRateLimitNoCacheError,
     get_station_energy_kpi,
     huawei_configured,
+    huawei_kpi_blocked,
     huawei_login_blocked,
+    index_kpi_rows,
     list_stations,
+    normalize_station_energy_kwh,
 )
 from app.huawei_power_service import (
     get_station_hourly_chart_from_db,
@@ -67,25 +70,16 @@ def ttl_for_period(period: str) -> int:
 
 def _row_to_payload(row: HuaweiStationEnergyTotals) -> dict[str, Any]:
     """Convert DB row to the same JSON shape returned by `get_station_energy_kpi`."""
-    cons = row.consumption_kwh
-    # Backfill consumption for legacy cache rows saved before huawei_api computed
-    # the fallback (matches the formula in `_extract_energy_row`).
-    if cons is None:
-        if row.self_consumption_kwh is not None and row.grid_import_kwh is not None:
-            cons = float(row.self_consumption_kwh) + float(row.grid_import_kwh)
-        elif (
-            row.pv_kwh is not None
-            and row.grid_export_kwh is not None
-            and row.grid_import_kwh is not None
-        ):
-            cons = max(0.0, float(row.pv_kwh) - float(row.grid_export_kwh)) + float(row.grid_import_kwh)
+    normalized = normalize_station_energy_kwh(
+        pv_kwh=row.pv_kwh,
+        consumption_kwh=row.consumption_kwh,
+        grid_import_kwh=row.grid_import_kwh,
+        grid_export_kwh=row.grid_export_kwh,
+        self_consumption_kwh=row.self_consumption_kwh,
+    )
     return {
         "stationCode": row.station_code,
-        "pvKwh": row.pv_kwh,
-        "consumptionKwh": cons,
-        "gridImportKwh": row.grid_import_kwh,
-        "gridExportKwh": row.grid_export_kwh,
-        "selfConsumptionKwh": row.self_consumption_kwh,
+        **normalized,
         "radiationKwhM2": row.radiation_kwh_m2,
         "theoryKwh": row.theory_kwh,
         "perpowerRatioKwhKwp": row.perpower_ratio,
@@ -211,6 +205,30 @@ def _values_from_item(it: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+async def _month_kpi_copied(
+    session: AsyncSession, station_code: str, pv_kwh: Optional[float]
+) -> bool:
+    """True when the same month PV total was stored for several different months.
+
+    getKpiStationMonth returns every month of the year. Older refreshes kept
+    only the first row and wrote it onto whichever month was requested.
+    """
+    if pv_kwh is None:
+        return False
+    stmt = (
+        select(func.count())
+        .select_from(HuaweiStationEnergyTotals)
+        .where(
+            HuaweiStationEnergyTotals.station_code == station_code,
+            HuaweiStationEnergyTotals.period == "month",
+            HuaweiStationEnergyTotals.pv_kwh.is_not(None),
+            func.abs(HuaweiStationEnergyTotals.pv_kwh - float(pv_kwh)) < 0.05,
+        )
+    )
+    count = int((await session.execute(stmt)).scalar_one() or 0)
+    return count >= 3
+
+
 async def read_totals_row(
     session: AsyncSession, station_code: str, period: str, period_key: str
 ) -> Optional[HuaweiStationEnergyTotals]:
@@ -260,9 +278,9 @@ async def _refresh_from_api_detailed(
     session: AsyncSession, station_code: str, period: str, date_iso: str
 ) -> tuple[Optional[dict[str, Any]], bool]:
     """KPI item plus whether FusionSolar refused the call for frequency (failCode 407)."""
-    if huawei_login_blocked():
+    if huawei_login_blocked() or huawei_kpi_blocked():
         logger.info(
-            "Huawei totals refresh: login cooldown, skip (%s/%s/%s)",
+            "Huawei totals refresh: cooldown, skip (%s/%s/%s)",
             station_code,
             period,
             date_iso,
@@ -293,13 +311,20 @@ async def _refresh_from_api_detailed(
     items = body.get("items") or []
     if not items:
         return None, False
-    item = items[0]
     d = parse_date_iso(date_iso)
     if d is None:
-        return item, False
+        return None, False
     pkey = period_key_for(d, period)
-    await upsert_totals_row(session, station_code, period, pkey, item)
-    return item, False
+    # One Northbound call returns every day of the month, or every month of the
+    # year. Store each row under its collectTime. Writing items[0] onto the
+    # requested key made every month show the same totals.
+    keyed = index_kpi_rows(items, period, pkey)
+    matched: Optional[dict[str, Any]] = None
+    for key, item in keyed:
+        await upsert_totals_row(session, station_code, period, key, item)
+        if key == pkey:
+            matched = item
+    return matched, False
 
 
 async def refresh_from_api(
@@ -377,20 +402,13 @@ async def _load_huawei_cloud_energy_item(
     pkey = period_key_for(day, period)
     row = await read_totals_row(session, station_code, period, pkey)
     now = time.time()
-    ttl = ttl_for_period(period)
     if row is not None:
+        # Serve the cache on the request path. A stale refresh waits on the
+        # Northbound lock (62s gap) and nginx closes the UI request at 60s.
+        # The snapshot task still refreshes today's rows in the background.
         age_sec = max(0.0, now - row.saved_at.timestamp())
-        if age_sec <= ttl:
-            return _row_to_payload(row), False, False, "db", round(age_sec, 1)
-        if huawei_configured():
-            fresh, rate_limited = await _refresh_from_api_detailed(
-                session, station_code, period, date_iso
-            )
-            if fresh is not None:
-                await session.commit()
-                return fresh, False, False, "api", 0.0
-            if rate_limited:
-                return _row_to_payload(row), False, True, "db", round(age_sec, 1)
+        if period == "month" and await _month_kpi_copied(session, station_code, row.pv_kwh):
+            return None, False, False, "db", round(age_sec, 1)
         return _row_to_payload(row), False, False, "db", round(age_sec, 1)
     if not huawei_configured():
         return None, False, False, "db", 0.0
@@ -425,6 +443,16 @@ async def get_or_refresh_totals(
     cloud_item, cloud_error, cloud_rate_limited, cloud_source, cloud_age = (
         await _load_huawei_cloud_energy_item(session, station_code, period, date_iso, d)
     )
+    # Copied month KPI rows are not that month. Show the measured month total
+    # until a FusionSolar refresh stores each month under its own collectTime.
+    if (
+        period == "month"
+        and cloud_item is None
+        and open_item is not None
+        and not cloud_error
+        and not cloud_rate_limited
+    ):
+        cloud_item = open_item
     open_origin = energy_origin_kwh(open_item)
     cloud_origin = energy_origin_kwh(cloud_item)
 
@@ -487,7 +515,7 @@ async def run_huawei_station_energy_snapshot() -> int:
 
     Returns the number of (station, period) refreshes that succeeded.
     """
-    if not huawei_configured():
+    if not huawei_configured() or huawei_kpi_blocked():
         return 0
     try:
         plants = await list_stations()
@@ -512,9 +540,9 @@ async def run_huawei_station_energy_snapshot() -> int:
                 continue
             for period in VALID_PERIODS:
                 try:
-                    item = await refresh_from_api(session, station_code, period, today_kyiv)
-                    if item is not None:
-                        n_ok += 1
+                    item, limited = await _refresh_from_api_detailed(
+                        session, station_code, period, today_kyiv
+                    )
                 except Exception as exc:
                     logger.warning(
                         "Huawei station energy snapshot: refresh %s/%s failed — %s",
@@ -522,5 +550,12 @@ async def run_huawei_station_energy_snapshot() -> int:
                         period,
                         exc,
                     )
+                    continue
+                if limited:
+                    logger.warning("Huawei station energy snapshot: rate-limited, stopping cycle")
+                    await session.commit()
+                    return n_ok
+                if item is not None:
+                    n_ok += 1
         await session.commit()
     return n_ok

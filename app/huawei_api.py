@@ -8,6 +8,7 @@ import logging
 import re
 import time
 from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import Any, Optional
 
 import httpx
@@ -103,9 +104,24 @@ def huawei_missing_env_names() -> list[str]:
     return missing
 
 
+_kpi_cooldown_until: float = 0.0
+
+
 def huawei_login_blocked() -> bool:
     """True when a new Northbound login must wait out a failCode 407 cooldown."""
     return not _xsrf_token and time.time() < _login_cooldown_until
+
+
+def huawei_kpi_blocked() -> bool:
+    """True while station-energy KPI calls must wait out a failCode 407."""
+    return time.time() < _kpi_cooldown_until
+
+
+def _note_kpi_rate_limit() -> None:
+    global _kpi_cooldown_until
+    cool = float(settings.HUAWEI_NORTHBOUND_COOLDOWN_AFTER_407_SEC)
+    _kpi_cooldown_until = max(_kpi_cooldown_until, time.time() + cool)
+    logger.warning("Huawei: KPI failCode=407 — pausing station-energy refresh for %.0fs", cool)
 
 
 def _note_login_rate_limit() -> None:
@@ -1642,14 +1658,59 @@ def _parse_date_iso_energy(date_iso: str) -> Optional[date]:
         return None
 
 
-def _kpi_collect_time_ms(d: date, period: str) -> int:
-    """Unix timestamp in ms for the start of the period (UTC midnight)."""
+_KPI_ZONE = ZoneInfo("Europe/Kyiv")
+
+
+def kpi_period_key_from_collect_time(collect_time_ms: Any, period: str) -> Optional[str]:
+    """Kyiv calendar key for one FusionSolar KPI row.
+
+    ``getKpiStationDay`` returns each day of the month, ``getKpiStationMonth``
+    each month of the year, ``getKpiStationYear`` each year. The row's own
+    ``collectTime`` selects the cache key.
+    """
+    try:
+        ms = int(collect_time_ms)
+    except (TypeError, ValueError):
+        return None
+    if ms <= 0:
+        return None
+    local = datetime.fromtimestamp(ms / 1000.0, tz=_KPI_ZONE)
     if period == "day":
-        return int(datetime(d.year, d.month, d.day, tzinfo=timezone.utc).timestamp() * 1000)
+        return local.date().isoformat()
     if period == "month":
-        return int(datetime(d.year, d.month, 1, tzinfo=timezone.utc).timestamp() * 1000)
-    # year
-    return int(datetime(d.year, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
+        return f"{local.year:04d}-{local.month:02d}"
+    if period == "year":
+        return f"{local.year:04d}"
+    return None
+
+
+def index_kpi_rows(
+    items: list[Any], period: str, fallback_key: str
+) -> list[tuple[str, dict[str, Any]]]:
+    """Pair each KPI row with its period key. A lone row without collectTime uses fallback_key."""
+    keyed: list[tuple[str, dict[str, Any]]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        key = kpi_period_key_from_collect_time(item.get("collectTime"), period)
+        if key:
+            keyed.append((key, item))
+    if keyed:
+        return keyed
+    if len(items) == 1 and isinstance(items[0], dict) and fallback_key:
+        return [(fallback_key, items[0])]
+    return []
+
+
+def _kpi_collect_time_ms(d: date, period: str) -> int:
+    """Unix timestamp in ms for the start of the period (Kyiv midnight)."""
+    if period == "day":
+        start = datetime(d.year, d.month, d.day, tzinfo=_KPI_ZONE)
+    elif period == "month":
+        start = datetime(d.year, d.month, 1, tzinfo=_KPI_ZONE)
+    else:
+        start = datetime(d.year, 1, 1, tzinfo=_KPI_ZONE)
+    return int(start.timestamp() * 1000)
 
 
 def _kpi_endpoint(period: str) -> str:
@@ -1658,6 +1719,61 @@ def _kpi_endpoint(period: str) -> str:
     if period == "month":
         return "/thirdData/getKpiStationMonth"
     return "/thirdData/getKpiStationYear"
+
+
+def _optional_kwh(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed != parsed:
+        return None
+    return parsed
+
+
+def normalize_station_energy_kwh(
+    *,
+    pv_kwh: Any = None,
+    consumption_kwh: Any = None,
+    grid_import_kwh: Any = None,
+    grid_export_kwh: Any = None,
+    self_consumption_kwh: Any = None,
+) -> dict[str, Optional[float]]:
+    """Fill consumption and grid import for FusionSolar station KPI rows.
+
+    ``use_power`` is site consumption. Older cache rows stored it as
+    ``self_consumption``. When ``buyEnergy`` is absent, grid import is the load
+    not covered by PV after export.
+    """
+    pv = _optional_kwh(pv_kwh)
+    cons = _optional_kwh(consumption_kwh)
+    imp = _optional_kwh(grid_import_kwh)
+    exp = _optional_kwh(grid_export_kwh)
+    self_c = _optional_kwh(self_consumption_kwh)
+
+    if cons is None and self_c is not None and imp is None:
+        cons = self_c
+        self_c = None
+    elif cons is None and self_c is not None and imp is not None:
+        cons = self_c + imp
+    elif cons is None and pv is not None and exp is not None and imp is not None:
+        cons = max(0.0, pv - exp) + imp
+
+    if imp is None and cons is not None and pv is not None:
+        served_by_pv = max(0.0, pv - (exp or 0.0))
+        derived_import = cons - served_by_pv
+        if derived_import > 1e-6:
+            imp = derived_import
+
+    return {
+        "pvKwh": pv,
+        "consumptionKwh": cons,
+        "gridImportKwh": imp,
+        "gridExportKwh": exp,
+        "selfConsumptionKwh": self_c,
+    }
 
 
 def _extract_energy_row(it: dict[str, Any]) -> dict[str, Any]:
@@ -1669,35 +1785,18 @@ def _extract_energy_row(it: dict[str, Any]) -> dict[str, Any]:
     def fv(*keys: str) -> Optional[float]:
         return _float_from_map(dim, *keys)
 
-    pv_kwh = fv("inverter_power", "inverter_cap")
-    cons_kwh = fv("consumption_energy")
-    grid_export_kwh = fv("ongrid_power")
-    grid_import_kwh = fv("buyEnergy", "buy_power")
-    self_cons_kwh = fv("use_power")
-
-    # Huawei sometimes omits consumption_energy (notably on getKpiStationMonth/Year
-    # for stations without an explicit consumption meter). Reconstruct it from
-    # the parts the API does return so the UI can always show all three rows
-    # (Consumption / PV / Grid).
-    #   consumption = self-consumption + grid import
-    #   self-consumption = pv - grid export  (when not reported directly)
-    if cons_kwh is None:
-        if self_cons_kwh is not None and grid_import_kwh is not None:
-            cons_kwh = float(self_cons_kwh) + float(grid_import_kwh)
-        elif (
-            pv_kwh is not None
-            and grid_export_kwh is not None
-            and grid_import_kwh is not None
-        ):
-            cons_kwh = max(0.0, float(pv_kwh) - float(grid_export_kwh)) + float(grid_import_kwh)
-
+    # use_power is load (kWh) on getKpiStationDay/Month/Year. selfProvide is PV self-use.
+    normalized = normalize_station_energy_kwh(
+        pv_kwh=fv("inverter_power", "inverter_cap"),
+        consumption_kwh=fv("consumption_energy", "use_power"),
+        grid_import_kwh=fv("buyEnergy", "buy_power"),
+        grid_export_kwh=fv("ongrid_power"),
+        self_consumption_kwh=fv("selfProvide", "selfUsePower"),
+    )
     return {
         "stationCode": code,
-        "pvKwh": pv_kwh,
-        "consumptionKwh": cons_kwh,
-        "gridExportKwh": grid_export_kwh,
-        "gridImportKwh": grid_import_kwh,
-        "selfConsumptionKwh": self_cons_kwh,
+        "collectTime": it.get("collectTime"),
+        **normalized,
         "radiationKwhM2": fv("radiation_intensity"),
         "theoryKwh": fv("theory_power"),
         "perpowerRatioKwhKwp": fv("perpower_ratio"),
@@ -1734,6 +1833,7 @@ async def get_station_energy_kpi(station_codes: str, period: str, date_iso: str)
             )
     except HuaweiNorthboundError as exc:
         if exc.fail_code == _FAIL_CODE_RATE_LIMIT:
+            _note_kpi_rate_limit()
             return {"ok": False, "configured": True, "northboundRateLimited": True, "reason": "rate_limit"}
         raise
 
