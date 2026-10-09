@@ -34,6 +34,8 @@ _live_cache: dict[
     str,
     tuple[Optional[float], Optional[float], Optional[float], Optional[float], Optional[float], float],
 ] = {}
+# Deye /device/latest: collectionTime (unix seconds), deviceState (1 online, 2 alarm, 3 offline).
+_live_status_cache: dict[str, tuple[Optional[int], Optional[int]]] = {}
 # Marks serials whose currently cached power came from /station/latest plant fallback (not /device/latest).
 # Cluster aggregation (UI / hourly history) must dedupe by station for these — otherwise plant totals
 # get multiplied by the cluster size. Cleared / set in lockstep with ``_live_cache`` writes.
@@ -1346,6 +1348,56 @@ def _grid_frequency_hz_from_data_list(dl: Any) -> Optional[float]:
     return next(iter(found.values()))
 
 
+def _collection_time_unix_sec(raw: Any) -> Optional[int]:
+    """Deye collectionTime is unix seconds; some payloads send milliseconds."""
+    if isinstance(raw, bool) or raw is None:
+        return None
+    if isinstance(raw, str):
+        s = raw.strip()
+        if not s or not s.lstrip("-").isdigit():
+            return None
+        raw = int(s)
+    if not isinstance(raw, (int, float)) or isinstance(raw, bool):
+        return None
+    if not math.isfinite(float(raw)):
+        return None
+    v = int(raw)
+    if v > 10_000_000_000:
+        v //= 1000
+    if v <= 1_000_000_000:
+        return None
+    return v
+
+
+def _device_state_int(raw: Any) -> Optional[int]:
+    if isinstance(raw, bool) or raw is None:
+        return None
+    if isinstance(raw, str):
+        s = raw.strip()
+        if not s or not s.lstrip("-").isdigit():
+            return None
+        raw = int(s)
+    if not isinstance(raw, (int, float)) or isinstance(raw, bool):
+        return None
+    if not math.isfinite(float(raw)):
+        return None
+    return int(raw)
+
+
+def _device_status_from_entry(dev_entry: Any) -> tuple[Optional[int], Optional[int]]:
+    """(collectionTime unix seconds, deviceState). deviceState 3 means offline."""
+    if not isinstance(dev_entry, dict):
+        return None, None
+    return _collection_time_unix_sec(dev_entry.get("collectionTime")), _device_state_int(dev_entry.get("deviceState"))
+
+
+def _device_online_from_state(device_state: Optional[int]) -> Optional[bool]:
+    """1 online, 2 alarm (still reporting), 3 offline. Unknown state is not treated as offline."""
+    if device_state is None:
+        return None
+    return device_state != 3
+
+
 def _parse_metrics_from_entry(
     dev_entry: Any,
 ) -> tuple[
@@ -1429,11 +1481,22 @@ async def _post_latest_metrics_map(
         return out
     logger.info("Deye: device/latest deviceDataList_len=%s", len(ddl))
 
+    status_updates: dict[str, tuple[Optional[int], Optional[int]]] = {}
     for i, entry in enumerate(ddl):
         soc, pwr, load_w, pv_w, grid_w, freq_hz = _parse_metrics_from_entry(entry)
         target = _resolve_batch_target_sn(entry, sns, i)
         if target is None or target not in out:
             continue
+        ct, device_state = _device_status_from_entry(entry)
+        prev_status = status_updates.get(target)
+        if prev_status is None:
+            status_updates[target] = (ct, device_state)
+        else:
+            prev_ct, prev_state = prev_status
+            status_updates[target] = (
+                ct if ct is not None else prev_ct,
+                device_state if device_state is not None else prev_state,
+            )
         prev_soc, prev_pwr, prev_load, prev_pv, prev_grid, prev_freq = out[target]
         if soc is not None:
             prev_soc = soc
@@ -1462,6 +1525,14 @@ async def _post_latest_metrics_map(
                 sgrid,
                 sfreq,
             )
+    if status_updates:
+        async with _soc_lock:
+            for sn, (ct, device_state) in status_updates.items():
+                prev_ct, prev_state = _live_status_cache.get(sn, (None, None))
+                _live_status_cache[sn] = (
+                    ct if ct is not None else prev_ct,
+                    device_state if device_state is not None else prev_state,
+                )
     return out
 
 
@@ -1827,6 +1898,24 @@ async def get_live_metrics_with_source_cached(
         station_id,
         bool(_live_from_station_fallback.get(sn, False)),
     )
+
+
+async def get_device_live_status(device_sn: str) -> tuple[Optional[int], Optional[bool]]:
+    """
+    Latest (collectionTime unix seconds, online) captured from POST /device/latest.
+
+    Call after ``get_live_metrics_with_source_cached`` so a cache miss has already refreshed status.
+    ``online`` is False only when Deye ``deviceState`` is 3 (offline).
+    """
+    sn = (device_sn or "").strip()
+    if not sn:
+        return None, None
+    async with _soc_lock:
+        hit = _live_status_cache.get(sn)
+    if hit is None:
+        return None, None
+    collection_sec, device_state = hit
+    return collection_sec, _device_online_from_state(device_state)
 
 
 async def get_battery_power_w_cached(device_sn: str) -> Optional[float]:

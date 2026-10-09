@@ -24,6 +24,7 @@ from app.deye_api import (
     DeyeInverterOrderError,
     fetch_device_soc_percent,
     get_inverter_station_coordinates,
+    get_device_live_status,
     get_display_soc_percent_cached,
     get_live_metrics_cached,
     get_live_metrics_with_source_cached,
@@ -965,6 +966,8 @@ async def get_ess_power(
                 "socPercent": None,
                 "stationId": None,
                 "stationFallback": False,
+                "collectionTime": None,
+                "online": None,
             },
             headers=_NO_STORE_CACHE,
         )
@@ -973,8 +976,9 @@ async def get_ess_power(
             await get_live_metrics_with_source_cached(deviceSn)
         )
         soc = await get_display_soc_percent_cached(deviceSn)
+        collection_time, online = await get_device_live_status(deviceSn)
         logger.info(
-            "GET /api/deye/ess-power — sn=%s batteryW=%s loadW=%s pvW=%s gridW=%s gridHz=%s soc=%s stationId=%s stationFallback=%s",
+            "GET /api/deye/ess-power — sn=%s batteryW=%s loadW=%s pvW=%s gridW=%s gridHz=%s soc=%s stationId=%s stationFallback=%s collectionTime=%s online=%s",
             deviceSn,
             bat,
             load_w,
@@ -984,6 +988,8 @@ async def get_ess_power(
             soc,
             station_id,
             station_fallback,
+            collection_time,
+            online,
         )
         return JSONResponse(
             content={
@@ -997,6 +1003,8 @@ async def get_ess_power(
                 "socPercent": soc,
                 "stationId": station_id,
                 "stationFallback": bool(station_fallback),
+                "collectionTime": collection_time,
+                "online": online,
             },
             headers=_NO_STORE_CACHE,
         )
@@ -1031,7 +1039,17 @@ async def post_inverter_socs(body: InverterSocsBody):
         )
     try:
         m = await get_soc_map_cached(sns)
-        items = [{"deviceSn": sn, "socPercent": m.get(sn)} for sn in sns]
+        items = []
+        for sn in sns:
+            collection_time, online = await get_device_live_status(sn)
+            items.append(
+                {
+                    "deviceSn": sn,
+                    "socPercent": m.get(sn),
+                    "online": online,
+                    "collectionTime": collection_time,
+                }
+            )
         logger.info("POST /api/deye/inverter-socs — OK, %s serial(s)", len(sns))
         return JSONResponse(
             content={"ok": True, "configured": True, "items": items},

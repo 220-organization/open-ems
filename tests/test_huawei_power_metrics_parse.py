@@ -177,6 +177,20 @@ def test_inverter_only_load_without_meter():
     assert metrics["loadPowerW"] == 25_000.0
 
 
+def test_cached_power_flow_includes_collection_time():
+    from app.huawei_api import _power_flow_cached_response
+
+    body = _power_flow_cached_response(
+        {"ok": True, "pvPowerW": 1000.0, "gridPowerW": 0.0, "loadPowerW": 1000.0},
+        1_700_000_000.0,
+        1_700_000_120.0,
+        northbound_rate_limited=True,
+    )
+    assert body["collectionTime"] == 1_700_000_000
+    assert body["cacheAgeSec"] == 120.0
+    assert body["pvPowerW"] == 1000.0
+
+
 def test_huawei_power_flow_display_max_age_covers_round_robin():
     from app.huawei_api import huawei_power_flow_display_max_age_sec
 

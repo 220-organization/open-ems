@@ -639,7 +639,7 @@ async def _northbound_cooldown_sec(st: str) -> float:
 
 def _power_flow_body_for_storage(body: dict[str, Any]) -> dict[str, Any]:
     """Strip volatile keys before persisting (re-applied on read)."""
-    return {k: v for k, v in body.items() if k not in ("northboundRateLimited", "cacheAgeSec")}
+    return {k: v for k, v in body.items() if k not in ("northboundRateLimited", "cacheAgeSec", "collectionTime")}
 
 
 def _huawei_sample_age_ok(saved_at_ts: float, max_age_sec: float, *, now: Optional[float] = None) -> bool:
@@ -654,10 +654,16 @@ def _huawei_live_kpi_cache_fresh(saved_at_ts: float, *, now: Optional[float] = N
     )
 
 
+def _stamp_power_flow_sample_time(body: dict[str, Any], saved_at_ts: float, now: float) -> None:
+    """Absolute sample time so the UI can show \"updated N ago\" for stale Huawei kW."""
+    body["cacheAgeSec"] = round(max(0.0, now - saved_at_ts), 1)
+    body["collectionTime"] = int(saved_at_ts)
+
+
 def _power_flow_rate_limit_body(body: dict[str, Any], saved_at_ts: float, now: float) -> dict[str, Any]:
     out = _apply_huawei_power_flow_repairs(dict(body))
     out["northboundRateLimited"] = True
-    out["cacheAgeSec"] = round(now - saved_at_ts, 1)
+    _stamp_power_flow_sample_time(out, saved_at_ts, now)
     _ensure_power_flow_export_flags(out)
     return out
 
@@ -671,7 +677,7 @@ def _power_flow_cached_response(
 ) -> dict[str, Any]:
     out = _apply_huawei_power_flow_repairs(dict(body))
     out["northboundRateLimited"] = northbound_rate_limited
-    out["cacheAgeSec"] = round(now - saved_at_ts, 1)
+    _stamp_power_flow_sample_time(out, saved_at_ts, now)
     _ensure_power_flow_export_flags(out)
     return out
 
@@ -930,7 +936,7 @@ def _power_flow_fresh_cached_body(st: str, now: float) -> Optional[dict[str, Any
         return None
     body = _apply_huawei_power_flow_repairs(dict(snap))
     body["northboundRateLimited"] = False
-    body["cacheAgeSec"] = round(now - saved_at, 1)
+    _stamp_power_flow_sample_time(body, saved_at, now)
     _ensure_power_flow_export_flags(body)
     return body
 
@@ -996,8 +1002,8 @@ async def _power_flow_display_body(st: str, now: float) -> Optional[dict[str, An
     """
     UI path: never call FusionSolar Northbound — read RAM / DB / samples only.
 
-    Accepts scheduler samples up to one full round-robin cycle (interval × plant count).
-    Older snapshots are withheld so the UI shows "no data" instead of ancient kW.
+    Prefer a sample from the current round-robin window. Older rows are still returned:
+    the UI shows those kW together with collectionTime ("updated N ago").
     """
     fresh = _power_flow_fresh_cached_body(st, now)
     if fresh is not None:
@@ -1500,6 +1506,12 @@ async def get_power_flow(station_code: str, *, for_storage: bool = False) -> dic
         display = await _power_flow_display_body(st, now)
         if display is not None:
             return display
+        # Last sample of any age. The graph prints collectionTime instead of "no data".
+        any_age = await _power_flow_rate_limit_fallback(
+            st, now, stale_display=True, max_age_sec=86400.0 * 3650
+        )
+        if any_age is not None:
+            return any_age
         lazy = await _try_lazy_power_flow_northbound(st, now)
         if lazy is not None:
             return lazy
@@ -1566,6 +1578,8 @@ async def get_power_flow(station_code: str, *, for_storage: bool = False) -> dic
                 "northboundRateLimited": False,
                 "hasBatteryKpi": has_battery_kpi,
                 "essSocPercent": ess_soc,
+                "collectionTime": int(now),
+                "cacheAgeSec": 0.0,
             }
             _power_flow_cache[st] = (dict(out), now)
             await _write_power_flow_db(st, out)

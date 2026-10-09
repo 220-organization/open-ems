@@ -1,6 +1,9 @@
 """Deye device/latest power metric parsing (grid total vs per-phase, load priority)."""
 
 from app.deye_api import (
+    _collection_time_unix_sec,
+    _device_online_from_state,
+    _device_status_from_entry,
     _finalize_live_metrics_for_sn,
     _grid_power_signed_watts_from_data_list,
     _load_power_watts_from_data_list,
@@ -199,3 +202,14 @@ def test_station_payload_battery_soc_matches_deye_app():
     assert _soc_percent_from_station_payload({"batterySOC": 38.666667}) == 38.666667
     assert _soc_percent_from_station_payload({"batterySoc": 39}) == 39.0
     assert _soc_percent_from_station_payload({"generationPower": 8090.0}) is None
+
+
+def test_device_status_collection_time_and_offline_state():
+    entry = {"collectionTime": 1791536148, "deviceState": 3, "deviceSn": "2604060007"}
+    assert _device_status_from_entry(entry) == (1791536148, 3)
+    assert _collection_time_unix_sec(1791536148000) == 1791536148
+    assert _device_online_from_state(1) is True
+    assert _device_online_from_state(2) is True
+    assert _device_online_from_state(3) is False
+    assert _device_online_from_state(None) is None
+    assert _device_status_from_entry({"dataList": []}) == (None, None)

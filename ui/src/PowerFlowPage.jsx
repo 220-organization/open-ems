@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   BINANCE_MINER_URL,
   evStationOpenUrl,
@@ -9,8 +10,12 @@ import {
   computeWideGeometry,
   edgeInsetPx,
   flowMotionPath,
+  formatInverterOfflineAge,
+  formatInverterOfflineLabel,
+  formatInverterUpdatedAgo,
   formatPower,
   formatPowerKwInteger,
+  pickClusterLiveStatus,
   pickClusterSocPercent,
 } from './powerFlowEngine';
 import DamChartPanel from './DamChartPanel';
@@ -664,25 +669,71 @@ function formatLandingKwhCounterText(displayText, t) {
   return `~ ${s} ${t('powerFlowLandingKwhUnit')}`;
 }
 
-function pfNodeValueClass(pending) {
-  return pending ? 'pf-node-value pf-node-value--pending' : 'pf-node-value';
+function pfNodeValueClass(pending, offline = false) {
+  const parts = ['pf-node-value'];
+  if (pending) parts.push('pf-node-value--pending');
+  if (offline) parts.push('pf-node-value--offline');
+  return parts.join(' ');
 }
 
-/** Huawei power-flow node: never show stale kW — "no data" when missing or older than live TTL. */
-function formatHuaweiPowerFlowNodeValue(loading, noData, watts, t, bcp47) {
-  if (loading) return '…';
-  if (noData || watts == null || !Number.isFinite(watts)) return t('huaweiPowerFlowNoData');
-  return formatPower(watts, t, bcp47);
-}
-
-function huaweiPowerFlowResponseUnavailable(data) {
+/** Two lines on a narrow node: status, then compact age. Dropdown stays one line. */
+function InverterOfflineLabel({ collectionTimeSec, t }) {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    setNowMs(Date.now());
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [collectionTimeSec]);
+  const age = formatInverterOfflineAge(collectionTimeSec, nowMs, t);
   return (
-    !!data?.northboundRateLimited ||
-    data?.reason === 'awaiting_fresh_sample' ||
-    data?.reason === 'rate_limit' ||
-    data?.reason === 'rate_limit_cooldown' ||
-    data?.reason === 'huawei_login_failed'
+    <>
+      {t('inverterOffline')}
+      {age ? (
+        <>
+          <br />
+          {age}
+        </>
+      ) : null}
+    </>
   );
+}
+
+/** Ticks once a second so "updated N secs ago" stays current without re-rendering the page. */
+function InverterUpdatedAgo({ collectionTimeSec, t, variant = 'graph' }) {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (collectionTimeSec == null) return undefined;
+    setNowMs(Date.now());
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [collectionTimeSec]);
+  if (collectionTimeSec == null) return null;
+  const text = formatInverterUpdatedAgo(collectionTimeSec, nowMs, t);
+  if (!text) return null;
+  if (variant === 'popup') {
+    return <div className="pf-node-popup-updated">{text}</div>;
+  }
+  return (
+    <div className="pf-graph-updated" id="pf-graph-updated">
+      {text}
+    </div>
+  );
+}
+
+/** Unix seconds for the Huawei sample. Falls back to cacheAgeSec measured at response time. */
+function huaweiCollectionTimeSec(data) {
+  const ct = Number(data?.collectionTime);
+  if (Number.isFinite(ct) && ct > 1_000_000_000) return ct;
+  const age = Number(data?.cacheAgeSec);
+  if (Number.isFinite(age) && age >= 0) return Math.floor(Date.now() / 1000 - age);
+  return null;
+}
+
+/** Huawei node: show the last sample (age is printed separately). Missing watts stay an em dash. */
+function formatHuaweiPowerFlowNodeValue(loading, watts, t, bcp47) {
+  if (watts != null && Number.isFinite(watts)) return formatPower(watts, t, bcp47);
+  if (loading) return '…';
+  return formatPower(null, t, bcp47);
 }
 
 /**
@@ -2339,7 +2390,7 @@ export default function PowerFlowPage({
             const q = new URLSearchParams({ stationCodes: stationCode });
             const r = await fetch(`${apiUrl('/api/huawei/power-flow')}?${q}`, { cache: 'no-store' });
             const data = await r.json().catch(() => ({}));
-            if (!r.ok || !data.ok || data.configured === false || huaweiPowerFlowResponseUnavailable(data)) return;
+            if (!r.ok || !data.ok || data.configured === false) return;
             ok += 1;
             const pvW = data.pvPowerW;
             if (pvW != null && Number.isFinite(Number(pvW))) pv += Math.max(0, Number(pvW));
@@ -2421,6 +2472,12 @@ export default function PowerFlowPage({
   );
 
   const [socBySn, setSocBySn] = useState({});
+  const [onlineBySn, setOnlineBySn] = useState({});
+  const [collectionBySn, setCollectionBySn] = useState({});
+  const [inverterMenuOpen, setInverterMenuOpen] = useState(false);
+  const [inverterMenuBox, setInverterMenuBox] = useState(null);
+  const inverterPickerRef = useRef(null);
+  const inverterMenuRef = useRef(null);
   const [socListLoading, setSocListLoading] = useState(false);
   /** Deye live metrics when an inverter is selected: battery, load, PV, grid. */
   const [deyeLive, setDeyeLive] = useState(null);
@@ -2429,8 +2486,6 @@ export default function PowerFlowPage({
   /** Huawei real power (getDevRealKpi meter + inverter via GET /api/huawei/power-flow). */
   const [huaweiLive, setHuaweiLive] = useState(null);
   const [huaweiLiveLoading, setHuaweiLiveLoading] = useState(false);
-  const [huaweiPowerFlowNoData, setHuaweiPowerFlowNoData] = useState(false);
-  const [huaweiHydratedCode, setHuaweiHydratedCode] = useState('');
   const [ubetterLive, setUbetterLive] = useState(null);
   const [ubetterLiveLoading, setUbetterLiveLoading] = useState(false);
   const [gridlabLive, setGridlabLive] = useState(null);
@@ -3125,12 +3180,16 @@ export default function PowerFlowPage({
   useEffect(() => {
     if (!inverterRows.configured || inverterRows.items.length === 0) {
       setSocBySn({});
+      setOnlineBySn({});
+      setCollectionBySn({});
       setSocListLoading(false);
       return undefined;
     }
     const sns = inverterRows.items.map(r => r.deviceSn).filter(Boolean);
     if (sns.length === 0) {
       setSocBySn({});
+      setOnlineBySn({});
+      setCollectionBySn({});
       return undefined;
     }
     let cancelled = false;
@@ -3146,17 +3205,28 @@ export default function PowerFlowPage({
         const data = await r.json().catch(() => ({}));
         if (cancelled) return;
         const next = {};
+        const nextOnline = {};
+        const nextCollection = {};
         if (r.ok && data.ok && Array.isArray(data.items)) {
           for (const it of data.items) {
             const sn = it.deviceSn != null ? String(it.deviceSn) : '';
             if (!sn) continue;
             const p = it.socPercent;
             next[sn] = p != null && Number.isFinite(Number(p)) ? Number(p) : null;
+            if (it.online === true || it.online === false) nextOnline[sn] = it.online;
+            const ct = Number(it.collectionTime);
+            if (Number.isFinite(ct) && ct > 0) nextCollection[sn] = ct;
           }
         }
         setSocBySn(next);
+        setOnlineBySn(nextOnline);
+        setCollectionBySn(nextCollection);
       } catch {
-        if (!cancelled) setSocBySn({});
+        if (!cancelled) {
+          setSocBySn({});
+          setOnlineBySn({});
+          setCollectionBySn({});
+        }
       } finally {
         if (!cancelled && initial) setSocListLoading(false);
       }
@@ -3242,12 +3312,15 @@ export default function PowerFlowPage({
           const loadW = sumField('loadPowerW', true);
           const pvW = sumField('pvPowerW', true);
           const gridW = sumField('gridPowerW', false);
+          const liveStatus = pickClusterLiveStatus(uniqRows);
           setDeyeLive({
             batteryPowerW: bat,
             loadPowerW: loadW,
             pvPowerW: pvW,
             gridPowerW: gridW,
             socPercent: pickClusterSocPercent(uniqRows),
+            collectionTime: liveStatus.collectionTime,
+            online: liveStatus.online,
           });
         } else {
           setDeyeLive(null);
@@ -3272,10 +3345,13 @@ export default function PowerFlowPage({
     }
   }, [selInverterSn, inverterRows.configured, inverterRows.error]);
 
+  useLayoutEffect(() => {
+    setDeyeLive(null);
+  }, [selInverterSn]);
+
   useEffect(() => {
     if (!selHuaweiStationCode || !huaweiRows.configured || huaweiRows.error || huaweiRows.authFailed) {
       setHuaweiLive(null);
-      setHuaweiPowerFlowNoData(false);
       setHuaweiLiveLoading(false);
       return undefined;
     }
@@ -3287,31 +3363,23 @@ export default function PowerFlowPage({
         const r = await fetch(`${apiUrl('/api/huawei/power-flow')}?${q}`, { cache: 'no-store' });
         const data = await r.json().catch(() => ({}));
         if (cancelled) return;
-        const unavailable = huaweiPowerFlowResponseUnavailable(data);
-        if (r.ok && data.ok && data.configured && !unavailable) {
+        if (r.ok && data.ok && data.configured) {
           const pvW = data.pvPowerW;
           const gridW = data.gridPowerW;
           const loadW = data.loadPowerW;
-          setHuaweiPowerFlowNoData(false);
           setHuaweiLive({
             ok: true,
             pvPowerW: pvW != null && Number.isFinite(Number(pvW)) ? Math.max(0, Number(pvW)) : null,
             gridPowerW: gridW != null && Number.isFinite(Number(gridW)) ? Number(gridW) : null,
             loadPowerW: loadW != null && Number.isFinite(Number(loadW)) ? Math.max(0, Number(loadW)) : null,
-            northboundRateLimited: false,
+            collectionTime: huaweiCollectionTimeSec(data),
+            northboundRateLimited: !!data.northboundRateLimited,
           });
-        } else if (unavailable || !data.ok) {
-          setHuaweiPowerFlowNoData(true);
-          setHuaweiLive(null);
-        } else {
-          setHuaweiPowerFlowNoData(false);
+        } else if (!cancelled) {
           setHuaweiLive(null);
         }
       } catch {
-        if (!cancelled) {
-          setHuaweiPowerFlowNoData(true);
-          setHuaweiLive(null);
-        }
+        if (!cancelled) setHuaweiLive(null);
       } finally {
         if (!cancelled) setHuaweiLiveLoading(false);
       }
@@ -3325,21 +3393,14 @@ export default function PowerFlowPage({
   }, [selHuaweiStationCode, huaweiRows.configured, huaweiRows.error, huaweiRows.authFailed]);
 
   useLayoutEffect(() => {
-    setHuaweiHydratedCode('');
     if (selHuaweiStationCode && huaweiRows.configured && !huaweiRows.error && !huaweiRows.authFailed) {
       setHuaweiLiveLoading(true);
     }
   }, [selHuaweiStationCode, huaweiRows.configured, huaweiRows.error, huaweiRows.authFailed]);
 
-  useEffect(() => {
-    if (!selHuaweiStationCode || !huaweiRows.configured || huaweiRows.error || huaweiRows.authFailed) {
-      setHuaweiHydratedCode('');
-      return;
-    }
-    if (!huaweiLiveLoading) {
-      setHuaweiHydratedCode(selHuaweiStationCode);
-    }
-  }, [selHuaweiStationCode, huaweiLiveLoading, huaweiRows.configured, huaweiRows.error, huaweiRows.authFailed]);
+  useLayoutEffect(() => {
+    setHuaweiLive(null);
+  }, [selHuaweiStationCode]);
 
   useEffect(() => {
     if (!selUbetterSn || !ubetterRows.configured || ubetterRows.error || ubetterRows.authFailed) {
@@ -3987,9 +4048,10 @@ export default function PowerFlowPage({
   const evOnlyGraphLoading =
     (evPortFocusMode && evStationPowerLoading && evStationPowerW == null) ||
     (evPortsFocusMode && evPortsLive.loading && evPortsDisplayPowerW == null);
-  const graphDisplaySolarW = evOnlyFocusMode ? null : displaySolarW;
-  const graphDisplayLoadW = evOnlyFocusMode ? null : displayLoadW;
-  const graphDisplayEssW = evOnlyFocusMode ? null : displayEssW;
+  const deyeInverterOffline = Boolean(selInverterSn) && deyeLive?.online === false;
+  const graphDisplaySolarW = evOnlyFocusMode || deyeInverterOffline ? null : displaySolarW;
+  const graphDisplayLoadW = evOnlyFocusMode || deyeInverterOffline ? null : displayLoadW;
+  const graphDisplayEssW = evOnlyFocusMode || deyeInverterOffline ? null : displayEssW;
   const graphDisplayMinerW = evOnlyFocusMode ? null : displayMinerW;
   const graphMinerFlowW = evOnlyFocusMode ? 0 : minerFlowW;
   const graphDisplayGridW = evPortFocusMode
@@ -3998,14 +4060,16 @@ export default function PowerFlowPage({
       : Math.max(0, Number(evStationPowerW ?? 0))
     : evPortsFocusMode
       ? evPortsDisplayPowerW
-      : displayGridW;
+      : deyeInverterOffline
+        ? null
+        : displayGridW;
   const graphDisplayEssCharging = graphDisplayEssW != null && graphDisplayEssW < 0;
 
-  const showHuaweiPowerFlowNoData =
-    Boolean(selHuaweiStationCode) &&
-    !huaweiLiveLoading &&
-    huaweiHydratedCode === selHuaweiStationCode &&
-    (huaweiPowerFlowNoData || !huaweiLive?.ok);
+  const flowUpdatedAtSec = selHuaweiStationCode
+    ? huaweiLive?.collectionTime ?? null
+    : selInverterSn
+      ? deyeLive?.collectionTime ?? null
+      : null;
 
   const loadFlowActive = graphDisplayLoadW != null && graphDisplayLoadW > 0;
   const solarFlowActive = graphDisplaySolarW != null && graphDisplaySolarW > 0;
@@ -4926,12 +4990,172 @@ export default function PowerFlowPage({
           ? huaweiLiveLoading
           : deyeLiveLoading;
 
+  useEffect(() => {
+    if (!inverterMenuOpen) return undefined;
+    const place = () => {
+      const button = inverterPickerRef.current?.querySelector('button');
+      if (!button) return;
+      const rect = button.getBoundingClientRect();
+      setInverterMenuBox({
+        top: rect.bottom + 4,
+        left: rect.left,
+        width: Math.max(rect.width, 260),
+      });
+    };
+    place();
+    const onPointer = event => {
+      const target = event.target;
+      if (inverterPickerRef.current?.contains(target) || inverterMenuRef.current?.contains(target)) return;
+      setInverterMenuOpen(false);
+    };
+    const onKey = event => {
+      if (event.key === 'Escape') setInverterMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onPointer);
+    document.addEventListener('keydown', onKey);
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      document.removeEventListener('mousedown', onPointer);
+      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [inverterMenuOpen]);
+
   const noEssListYet =
     (inverterRows.loading || huaweiRows.loading || ubetterRows.loading || gridlabRows.loading) &&
     !deyeListReady &&
     !huaweiListReady &&
     !ubetterListReady &&
     !gridlabListReady;
+
+  const inverterMenuGroups = [];
+  const menuItem = (value, label, extra = {}) => ({
+    value,
+    label,
+    disabled: Boolean(extra.disabled),
+    offline: Boolean(extra.offline),
+  });
+  if (noEssListYet) {
+    inverterMenuGroups.push({ label: null, items: [menuItem('', '…', { disabled: true })] });
+  } else if (
+    inverterRows.error &&
+    huaweiRows.error &&
+    ubetterRows.error &&
+    gridlabRows.error &&
+    !inverterRows.configured &&
+    !huaweiRows.configured &&
+    !ubetterRows.configured &&
+    !gridlabRows.configured
+  ) {
+    inverterMenuGroups.push({
+      label: null,
+      items: [menuItem('', t('inverterLoadError'), { disabled: true })],
+    });
+  } else {
+    inverterMenuGroups.push({
+      label: null,
+      items: [menuItem('', t('inverterSelectLabel'))],
+    });
+    if (gridlabRows.configured && !gridlabRows.loading && !gridlabRows.error && gridlabRows.authFailed) {
+      inverterMenuGroups.push({
+        label: t('essGridLab'),
+        items: [menuItem('', t('gridlabAuthFailedHint'), { disabled: true })],
+      });
+    } else if (gridlabListReady && gridlabRows.items.length > 0) {
+      inverterMenuGroups.push({
+        label: t('essGridLab'),
+        items: gridlabRows.items.map(row => {
+          const id = String(row.deviceId);
+          const shortLabel = inverterSelectShortLabel(row.name, id);
+          const offline = row.isOnline === false;
+          const soc =
+            row.socPercent != null && Number.isFinite(Number(row.socPercent))
+              ? ` · ${inverterSocFmt.format(Number(row.socPercent))}%`
+              : '';
+          const onlineSuffix = offline ? ` · ${t('gridlabOffline')}` : '';
+          return menuItem(`${ESS_PREFIX_GRIDLAB}${id}`, shortLabel + soc + onlineSuffix, { offline });
+        }),
+      });
+    }
+    if (ubetterRows.configured && !ubetterRows.loading && !ubetterRows.error && ubetterRows.authFailed) {
+      inverterMenuGroups.push({
+        label: t('essUbetter'),
+        items: [menuItem('', t('ubetterAuthFailedHint'), { disabled: true })],
+      });
+    } else if (ubetterListReady && ubetterRows.items.length > 0) {
+      inverterMenuGroups.push({
+        label: t('essUbetter'),
+        items: ubetterRows.items.map(row => {
+          const shortLabel = inverterSelectShortLabel(row.name, row.sn);
+          const offline = row.online === false;
+          const onlineSuffix = offline ? ` · ${t('ubetterOffline')}` : '';
+          return menuItem(`${ESS_PREFIX_UBETTER}${row.sn}`, shortLabel + onlineSuffix, { offline });
+        }),
+      });
+    }
+    if (deyeListReady && deyeCombinedItems.length > 0) {
+      inverterMenuGroups.push({
+        label: t('essDeyeCloud'),
+        items: deyeCombinedItems.map(row => {
+          const clusterLive = pickClusterLiveStatus(
+            (row.clusterSns || []).map(sn => ({
+              online: onlineBySn[sn],
+              collectionTime: collectionBySn[sn],
+            }))
+          );
+          const offline = clusterLive.online === false;
+          const p = firstFiniteSocForDeyeRow(row, socBySn);
+          const socSuffix = offline
+            ? ` · ${formatInverterOfflineLabel(clusterLive.collectionTime, Date.now(), t)}`
+            : p != null && Number.isFinite(p)
+              ? ` · ${inverterSocFmt.format(p)}%`
+              : '';
+          const c = row.capexUsd;
+          const capexSuffix =
+            c != null && Number.isFinite(Number(c)) ? ` · ${formatInverterCapexUsd(Number(c))}` : '';
+          return menuItem(`${ESS_PREFIX_DEYE}${row.representativeSn}`, row.shortLabel + socSuffix + capexSuffix, {
+            offline,
+          });
+        }),
+      });
+    }
+    inverterMenuGroups.push({
+      label: t('essEvPorts'),
+      items: [
+        menuItem(`${ESS_PREFIX_DC_EV}all`, t('essEvPortsDc')),
+        menuItem(`${ESS_PREFIX_DC_EV}bb`, t('essEvPortsBlockbaster')),
+        menuItem(`${ESS_PREFIX_AC_EV}all`, t('essEvPortsAc')),
+      ],
+    });
+    if (huaweiRows.configured && !huaweiRows.loading && !huaweiRows.error && huaweiRows.authFailed) {
+      inverterMenuGroups.push({
+        label: t('essHuaweiFusionSolar'),
+        items: [menuItem('', t('huaweiAuthFailedHint'), { disabled: true })],
+      });
+    } else if (huaweiListReady && huaweiRows.northboundRateLimited && huaweiRows.items.length === 0) {
+      inverterMenuGroups.push({
+        label: t('essHuaweiFusionSolar'),
+        items: [menuItem('', t('huaweiNorthboundRateLimited'), { disabled: true })],
+      });
+    } else if (huaweiListReady && huaweiRows.items.length > 0) {
+      inverterMenuGroups.push({
+        label: t('essHuaweiFusionSolar'),
+        items: huaweiRows.items.map(row =>
+          menuItem(
+            `${ESS_PREFIX_HUAWEI}${row.stationCode}`,
+            inverterSelectShortLabel(row.stationName, row.stationCode)
+          )
+        ),
+      });
+    }
+  }
+  const selectedInverterItem = inverterMenuGroups
+    .flatMap(group => group.items)
+    .find(item => !item.disabled && item.value === (noEssListYet ? '' : inverterValue));
+  const selectedInverterLabel = selectedInverterItem?.label || (noEssListYet ? '…' : t('inverterSelectLabel'));
+  const selectedInverterOffline = Boolean(selectedInverterItem?.offline) || deyeInverterOffline;
 
   const evPortPicker = (
     <EvPortPicker
@@ -4957,134 +5181,59 @@ export default function PowerFlowPage({
             <header className="pf-header">
               <div className="pf-header-primary">
                 <div className="pf-station-field pf-inverter-field">
-                  <select
-                    id="pf-inverter"
-                    className="pf-inverter-select pf-header-select--inverter"
-                    aria-label={t('inverterSelectLabel')}
-                    value={noEssListYet ? '' : inverterValue}
-                    onChange={onInverterChange}
-                  >
-                    {noEssListYet ? (
-                      <option value="" disabled>
-                        …
-                      </option>
-                    ) : inverterRows.error &&
-                      huaweiRows.error &&
-                      ubetterRows.error &&
-                      gridlabRows.error &&
-                      !inverterRows.configured &&
-                      !huaweiRows.configured &&
-                      !ubetterRows.configured &&
-                      !gridlabRows.configured ? (
-                      <option value="" disabled>
-                        {t('inverterLoadError')}
-                      </option>
-                    ) : (
-                      <>
-                        <option value="">{t('inverterSelectLabel')}</option>
-                        {gridlabRows.configured &&
-                        !gridlabRows.loading &&
-                        !gridlabRows.error &&
-                        gridlabRows.authFailed ? (
-                          <optgroup label={t('essGridLab')}>
-                            <option value="" disabled>
-                              {t('gridlabAuthFailedHint')}
-                            </option>
-                          </optgroup>
-                        ) : gridlabListReady && gridlabRows.items.length > 0 ? (
-                          <optgroup label={t('essGridLab')}>
-                            {gridlabRows.items.map(row => {
-                              const id = String(row.deviceId);
-                              const shortLabel = inverterSelectShortLabel(row.name, id);
-                              const onlineSuffix = row.isOnline === false ? ` · ${t('gridlabOffline')}` : '';
-                              const soc =
-                                row.socPercent != null && Number.isFinite(Number(row.socPercent))
-                                  ? ` · ${inverterSocFmt.format(Number(row.socPercent))}%`
-                                  : '';
-                              return (
-                                <option key={`gridlab-${id}`} value={`${ESS_PREFIX_GRIDLAB}${id}`}>
-                                  {shortLabel + soc + onlineSuffix}
-                                </option>
-                              );
-                            })}
-                          </optgroup>
-                        ) : null}
-                        {ubetterRows.configured && !ubetterRows.loading && !ubetterRows.error && ubetterRows.authFailed ? (
-                          <optgroup label={t('essUbetter')}>
-                            <option value="" disabled>
-                              {t('ubetterAuthFailedHint')}
-                            </option>
-                          </optgroup>
-                        ) : ubetterListReady && ubetterRows.items.length > 0 ? (
-                          <optgroup label={t('essUbetter')}>
-                            {ubetterRows.items.map(row => {
-                              const shortLabel = inverterSelectShortLabel(row.name, row.sn);
-                              const onlineSuffix = row.online === false ? ` · ${t('ubetterOffline')}` : '';
-                              return (
-                                <option key={`ubetter-${row.sn}`} value={`${ESS_PREFIX_UBETTER}${row.sn}`}>
-                                  {shortLabel + onlineSuffix}
-                                </option>
-                              );
-                            })}
-                          </optgroup>
-                        ) : null}
-                        {deyeListReady && deyeCombinedItems.length > 0 ? (
-                          <optgroup label={t('essDeyeCloud')}>
-                            {deyeCombinedItems.map(row => {
-                              const p = firstFiniteSocForDeyeRow(row, socBySn);
-                              const socSuffix =
-                                p != null && Number.isFinite(p) ? ` · ${inverterSocFmt.format(p)}%` : '';
-                              const c = row.capexUsd;
-                              const capexSuffix =
-                                c != null && Number.isFinite(Number(c))
-                                  ? ` · ${formatInverterCapexUsd(Number(c))}`
-                                  : '';
-                              return (
-                                <option
-                                  key={`deye-${row.representativeSn}`}
-                                  value={`${ESS_PREFIX_DEYE}${row.representativeSn}`}
-                                >
-                                  {row.shortLabel + socSuffix + capexSuffix}
-                                </option>
-                              );
-                            })}
-                          </optgroup>
-                        ) : null}
-                        <optgroup label={t('essEvPorts')}>
-                          <option value={`${ESS_PREFIX_DC_EV}all`}>{t('essEvPortsDc')}</option>
-                          <option value={`${ESS_PREFIX_DC_EV}bb`}>{t('essEvPortsBlockbaster')}</option>
-                          <option value={`${ESS_PREFIX_AC_EV}all`}>{t('essEvPortsAc')}</option>
-                        </optgroup>
-                        {huaweiRows.configured && !huaweiRows.loading && !huaweiRows.error && huaweiRows.authFailed ? (
-                          <optgroup label={t('essHuaweiFusionSolar')}>
-                            <option value="" disabled>
-                              {t('huaweiAuthFailedHint')}
-                            </option>
-                          </optgroup>
-                        ) : huaweiListReady && huaweiRows.northboundRateLimited && huaweiRows.items.length === 0 ? (
-                          <optgroup label={t('essHuaweiFusionSolar')}>
-                            <option value="" disabled>
-                              {t('huaweiNorthboundRateLimited')}
-                            </option>
-                          </optgroup>
-                        ) : huaweiListReady && huaweiRows.items.length > 0 ? (
-                          <optgroup label={t('essHuaweiFusionSolar')}>
-                            {huaweiRows.items.map(row => {
-                              const shortLabel = inverterSelectShortLabel(row.stationName, row.stationCode);
-                              return (
-                                <option
-                                  key={`huawei-${row.stationCode}`}
-                                  value={`${ESS_PREFIX_HUAWEI}${row.stationCode}`}
-                                >
-                                  {shortLabel}
-                                </option>
-                              );
-                            })}
-                          </optgroup>
-                        ) : null}
-                      </>
-                    )}
-                  </select>
+                  <div className="pf-inverter-picker" ref={inverterPickerRef}>
+                    <button
+                      type="button"
+                      id="pf-inverter"
+                      className={`pf-inverter-select pf-header-select--inverter${selectedInverterOffline ? ' pf-inverter-select--offline' : ''}`}
+                      aria-label={t('inverterSelectLabel')}
+                      aria-haspopup="listbox"
+                      aria-expanded={inverterMenuOpen}
+                      onClick={() => setInverterMenuOpen(open => !open)}
+                    >
+                      <span className="pf-inverter-picker__label">{selectedInverterLabel}</span>
+                      <span className="pf-inverter-picker__caret" aria-hidden="true" />
+                    </button>
+                    {inverterMenuOpen && inverterMenuBox
+                      ? createPortal(
+                          <div
+                            className="pf-inverter-menu"
+                            role="listbox"
+                            aria-label={t('inverterSelectLabel')}
+                            ref={inverterMenuRef}
+                            style={{
+                              top: inverterMenuBox.top,
+                              left: inverterMenuBox.left,
+                              width: inverterMenuBox.width,
+                            }}
+                          >
+                            {inverterMenuGroups.map(group => (
+                              <div key={group.label || 'sources'} className="pf-inverter-menu__group">
+                                {group.label ? <div className="pf-inverter-menu__label">{group.label}</div> : null}
+                                {group.items.map(item => (
+                                  <button
+                                    key={`${group.label || 'sources'}:${item.value}:${item.label}`}
+                                    type="button"
+                                    role="option"
+                                    className={`pf-inverter-menu__option${item.offline ? ' pf-inverter-menu__option--offline' : ''}`}
+                                    aria-selected={!item.disabled && item.value === inverterValue}
+                                    disabled={item.disabled}
+                                    onClick={() => {
+                                      if (item.disabled) return;
+                                      onInverterChange({ target: { value: item.value } });
+                                      setInverterMenuOpen(false);
+                                    }}
+                                  >
+                                    {item.label}
+                                  </button>
+                                ))}
+                              </div>
+                            ))}
+                          </div>,
+                          document.body
+                        )
+                      : null}
+                  </div>
                   <button
                     type="button"
                     id="addInverterToOpenEms"
@@ -5282,18 +5431,19 @@ export default function PowerFlowPage({
                           ) : null}
                         </div>
                         <span className="pf-node-label">{t('nodeSolar')}</span>
-                        <span className={pfNodeValueClass(solarGridEssValuePending)} id="pf-val-solar">
-                          {selHuaweiStationCode
-                            ? formatHuaweiPowerFlowNodeValue(
-                                huaweiLiveLoading,
-                                showHuaweiPowerFlowNoData,
-                                graphDisplaySolarW,
-                                t,
-                                bcp47
-                              )
-                            : evOnlyGraphLoading
-                              ? '…'
-                              : formatPower(graphDisplaySolarW, t, bcp47)}
+                        <span className={pfNodeValueClass(solarGridEssValuePending, deyeInverterOffline)} id="pf-val-solar">
+                          {deyeInverterOffline
+                            ? <InverterOfflineLabel collectionTimeSec={deyeLive?.collectionTime} t={t} />
+                            : selHuaweiStationCode
+                              ? formatHuaweiPowerFlowNodeValue(
+                                  huaweiLiveLoading,
+                                  graphDisplaySolarW,
+                                  t,
+                                  bcp47
+                                )
+                              : evOnlyGraphLoading
+                                ? '…'
+                                : formatPower(graphDisplaySolarW, t, bcp47)}
                         </span>
                         {selInverterSn ? (
                           <span className="pf-node-sub pf-node-solar-forecast" id="pf-solar-insolation-forecast">
@@ -5316,18 +5466,20 @@ export default function PowerFlowPage({
                             : ''}
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        className="pf-graph-refresh"
-                        data-pos="top-center"
-                        onClick={() => window.location.reload()}
-                        aria-label={t('hubRefreshAria')}
-                        title={t('hubRefreshAria')}
-                      >
-                        <span className="pf-graph-refresh-icon" aria-hidden>
-                          ↻
-                        </span>
-                      </button>
+                      <div className="pf-graph-refresh-wrap" data-pos="top-center">
+                        <InverterUpdatedAgo collectionTimeSec={flowUpdatedAtSec} t={t} />
+                        <button
+                          type="button"
+                          className="pf-graph-refresh"
+                          onClick={() => window.location.reload()}
+                          aria-label={t('hubRefreshAria')}
+                          title={t('hubRefreshAria')}
+                        >
+                          <span className="pf-graph-refresh-icon" aria-hidden>
+                            ↻
+                          </span>
+                        </button>
+                      </div>
                       <div className="pf-node-stack" data-pos="left-center">
                         <button
                           type="button"
@@ -5340,20 +5492,21 @@ export default function PowerFlowPage({
                             ⚡
                           </span>
                           <span className="pf-node-label">{t('nodeGrid')}</span>
-                          <span className={pfNodeValueClass(solarGridEssValuePending)} id="pf-val-grid">
-                            {selHuaweiStationCode
-                              ? formatHuaweiPowerFlowNodeValue(
-                                  huaweiLiveLoading,
-                                  showHuaweiPowerFlowNoData,
-                                  graphDisplayGridW != null ? Math.abs(graphDisplayGridW) : null,
-                                  t,
-                                  bcp47
-                                )
-                              : evOnlyGraphLoading
-                                ? '…'
-                                : gridSelling
-                                  ? `↓ ${formatPower(Math.abs(graphDisplayGridW), t, bcp47)}`
-                                  : formatPower(graphDisplayGridW, t, bcp47)}
+                          <span className={pfNodeValueClass(solarGridEssValuePending, deyeInverterOffline)} id="pf-val-grid">
+                            {deyeInverterOffline
+                              ? <InverterOfflineLabel collectionTimeSec={deyeLive?.collectionTime} t={t} />
+                              : selHuaweiStationCode
+                                ? formatHuaweiPowerFlowNodeValue(
+                                    huaweiLiveLoading,
+                                    graphDisplayGridW != null ? Math.abs(graphDisplayGridW) : null,
+                                    t,
+                                    bcp47
+                                  )
+                                : evOnlyGraphLoading
+                                  ? '…'
+                                  : gridSelling
+                                    ? `↓ ${formatPower(Math.abs(graphDisplayGridW), t, bcp47)}`
+                                    : formatPower(graphDisplayGridW, t, bcp47)}
                           </span>
                           <span className="pf-ess-status" id="pf-grid-selling" hidden={!gridSelling}>
                             {t('gridSelling')}
@@ -5379,8 +5532,10 @@ export default function PowerFlowPage({
                           🏠
                         </span>
                         <span className="pf-node-label">{t('nodeLoad')}</span>
-                        <span className={pfNodeValueClass(loadValuePending)} id="pf-val-load">
-                          {!essAnySelected
+                        <span className={pfNodeValueClass(loadValuePending, deyeInverterOffline)} id="pf-val-load">
+                          {deyeInverterOffline
+                            ? <InverterOfflineLabel collectionTimeSec={deyeLive?.collectionTime} t={t} />
+                            : !essAnySelected
                             ? evOnlyFocusMode
                               ? evStationPowerLoading && evStationPowerW == null
                                 ? '…'
@@ -5405,7 +5560,6 @@ export default function PowerFlowPage({
                             : selHuaweiStationCode
                               ? formatHuaweiPowerFlowNodeValue(
                                   huaweiLiveLoading,
-                                  showHuaweiPowerFlowNoData,
                                   displayLoadW,
                                   t,
                                   bcp47
@@ -5439,18 +5593,19 @@ export default function PowerFlowPage({
                           )}
                         </span>
                         <span className="pf-node-label">{t('nodeEss')}</span>
-                        <span className={pfNodeValueClass(solarGridEssValuePending)} id="pf-val-ess">
-                          {selHuaweiStationCode
-                            ? formatHuaweiPowerFlowNodeValue(
-                                huaweiLiveLoading,
-                                showHuaweiPowerFlowNoData,
-                                graphDisplayEssW != null ? Math.abs(graphDisplayEssW) : null,
-                                t,
-                                bcp47
-                              )
-                            : evOnlyGraphLoading
-                              ? '…'
-                              : formatPower(graphDisplayEssW != null ? Math.abs(graphDisplayEssW) : null, t, bcp47)}
+                        <span className={pfNodeValueClass(solarGridEssValuePending, deyeInverterOffline)} id="pf-val-ess">
+                          {deyeInverterOffline
+                            ? <InverterOfflineLabel collectionTimeSec={deyeLive?.collectionTime} t={t} />
+                            : selHuaweiStationCode
+                              ? formatHuaweiPowerFlowNodeValue(
+                                  huaweiLiveLoading,
+                                  graphDisplayEssW != null ? Math.abs(graphDisplayEssW) : null,
+                                  t,
+                                  bcp47
+                                )
+                              : evOnlyGraphLoading
+                                ? '…'
+                                : formatPower(graphDisplayEssW != null ? Math.abs(graphDisplayEssW) : null, t, bcp47)}
                         </span>
                         {(selInverterSn || selUbetterSn || selGridlabDeviceId) && essSocPercent != null && Number.isFinite(essSocPercent) ? (
                           <span
@@ -6729,6 +6884,7 @@ export default function PowerFlowPage({
                 aria-label={nodePopup.title || 'Node details'}
                 onClick={e => e.stopPropagation()}
               >
+                <InverterUpdatedAgo collectionTimeSec={flowUpdatedAtSec} t={t} variant="popup" />
                 {nodePopup.variant === 'solar' ? (
                   <SolarNodePopupContent
                     deviceSn={selInverterSn}
