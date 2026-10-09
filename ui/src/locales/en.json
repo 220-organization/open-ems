@@ -471,6 +471,8 @@
   "huaweiTotalsTabMonth": "Month",
   "huaweiTotalsTabYear": "Year",
   "huaweiTotalsPvGen": "PV generation",
+  "deyeTotalsOriginOpenEms": "Open EMS · database",
+  "deyeTotalsOriginDeyeCloud": "Deye Cloud · API",
   "huaweiTotalsCons": "Consumption",
   "huaweiTotalsGridImport": "Grid import",
   "huaweiTotalsGridExport": "Grid export",

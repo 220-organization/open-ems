@@ -23,6 +23,7 @@ from app.deye_api import (
     discharge_soc_delta_then_zero_export_ct,
     DeyeInverterOrderError,
     fetch_device_soc_percent,
+    fetch_device_station_history_energy,
     get_inverter_station_coordinates,
     get_device_live_status,
     get_display_soc_percent_cached,
@@ -534,6 +535,13 @@ async def get_soc_history_totals(
                 day_has_data = True
             if day_has_data:
                 days_with_data += 1
+        deye_cloud = None
+        deye_cloud_error = False
+        try:
+            deye_cloud = await fetch_device_station_history_energy(deviceSn.strip(), period, date)
+        except Exception:
+            logger.exception("GET /api/deye/soc-history-totals — Deye Cloud station/history failed")
+            deye_cloud_error = True
         return JSONResponse(
             content={
                 "ok": True,
@@ -547,6 +555,8 @@ async def get_soc_history_totals(
                 "importKwh": sum_import if any_import else None,
                 "daysRequested": len(period_days),
                 "daysWithData": days_with_data,
+                "deyeCloud": deye_cloud,
+                "deyeCloudError": deye_cloud_error,
             },
             headers=_NO_STORE_CACHE,
         )

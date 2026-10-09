@@ -213,3 +213,37 @@ def test_device_status_collection_time_and_offline_state():
     assert _device_online_from_state(3) is False
     assert _device_online_from_state(None) is None
     assert _device_status_from_entry({"dataList": []}) == (None, None)
+
+
+def test_device_history_energy_reads_kwh_counters():
+    from app.deye_api import parse_device_history_energy_kwh
+
+    parsed = parse_device_history_energy_kwh(
+        {
+            "dataList": [
+                {
+                    "time": "2026-10-09",
+                    "itemList": [
+                        {"key": "Production", "value": "7.30", "unit": "kWh"},
+                        {"key": "Consumption", "value": "38.10", "unit": "kWh"},
+                        {"key": "ElectricityPurchasing", "value": "3.96", "unit": "kWh"},
+                        {"key": "GridFeed-in", "value": "1.00", "unit": "kWh"},
+                    ],
+                },
+                {
+                    "itemList": [
+                        {"name": "Production", "value": "1.00"},
+                        {"name": "Consumption", "value": "2.00"},
+                    ]
+                },
+            ]
+        }
+    )
+    assert parsed["generationKwh"] == 8.3
+    assert parsed["consumptionKwh"] == 40.1
+    assert parsed["importKwh"] == 3.96
+    assert parse_device_history_energy_kwh({}) == {
+        "consumptionKwh": None,
+        "generationKwh": None,
+        "importKwh": None,
+    }

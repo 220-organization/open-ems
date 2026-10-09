@@ -471,6 +471,8 @@
   "huaweiTotalsTabMonth": "Mes",
   "huaweiTotalsTabYear": "Año",
   "huaweiTotalsPvGen": "Generación FV",
+  "deyeTotalsOriginOpenEms": "Open EMS · base de datos",
+  "deyeTotalsOriginDeyeCloud": "Deye Cloud · API",
   "huaweiTotalsCons": "Consumo",
   "huaweiTotalsGridImport": "Importación de red",
   "huaweiTotalsGridExport": "Exportación a red",

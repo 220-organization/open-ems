@@ -569,6 +569,108 @@ async def station_cluster_device_sns(device_sn: str) -> list[str]:
     return sorted({r.device_sn for r in rows if r.station_id == st_id})
 
 
+_DEVICE_HISTORY_KWH_FIELDS = {
+    "consumption": "consumptionKwh",
+    "production": "generationKwh",
+    "electricitypurchasing": "importKwh",
+}
+
+
+def _device_history_item_label(item: dict[str, Any]) -> str:
+    raw = str(item.get("key") or item.get("name") or "")
+    return raw.strip().lower().replace("-", "").replace(" ", "")
+
+
+def parse_device_history_energy_kwh(payload: Any) -> dict[str, Optional[float]]:
+    """Sum Deye ``POST /device/history`` kWh counters.
+
+    ``Production`` is PV, ``Consumption`` is load, ``ElectricityPurchasing`` is grid import.
+    """
+    rows: list[dict[str, Any]] = []
+    if isinstance(payload, dict) and isinstance(payload.get("dataList"), list):
+        rows = [row for row in payload["dataList"] if isinstance(row, dict)]
+    totals: dict[str, Optional[float]] = {
+        "consumptionKwh": None,
+        "generationKwh": None,
+        "importKwh": None,
+    }
+    for row in rows:
+        items = row.get("itemList")
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            field = _DEVICE_HISTORY_KWH_FIELDS.get(_device_history_item_label(item))
+            value = _to_float_or_none(item.get("value"))
+            if field is None or value is None:
+                continue
+            totals[field] = (totals[field] or 0.0) + value
+    return totals
+
+
+_station_history_cache: dict[tuple[str, int, str], tuple[float, dict[str, Any]]] = {}
+_STATION_HISTORY_CACHE_TTL_SEC = 120.0
+
+
+def _station_history_window(period: str, anchor_iso: str) -> tuple[int, str]:
+    """Deye granularity and startAt/endAt for one Kyiv day, month, or year."""
+    raw = (anchor_iso or "").strip()
+    if period == "year":
+        return 4, raw[:4]
+    if period == "month":
+        return 3, raw[:7]
+    return 2, raw[:10]
+
+
+async def fetch_device_station_history_energy(
+    device_sn: str,
+    period: str,
+    anchor_iso: str,
+) -> Optional[dict[str, Any]]:
+    """kWh totals from Deye Cloud ``POST /device/history``, summed across the station cluster."""
+    if not deye_configured():
+        return None
+    granularity, start_at = _station_history_window(period, anchor_iso)
+    if not start_at:
+        return None
+    station_id = await _station_id_for_device_sn(device_sn)
+    cluster = await station_cluster_device_sns(device_sn)
+    if not cluster:
+        return None
+    cache_key = (",".join(cluster), granularity, start_at)
+    now = time.monotonic()
+    cached = _station_history_cache.get(cache_key)
+    if cached is not None and now - cached[0] < _STATION_HISTORY_CACHE_TTL_SEC:
+        return dict(cached[1])
+    parsed: dict[str, Any] = {
+        "consumptionKwh": None,
+        "generationKwh": None,
+        "importKwh": None,
+        "stationId": station_id,
+        "deviceSns": cluster,
+    }
+    for sn in cluster:
+        payload = await _post_deye_json(
+            "/device/history",
+            {
+                "deviceSn": sn,
+                "granularity": granularity,
+                "startAt": start_at,
+                "endAt": start_at,
+            },
+            timeout=30.0,
+        )
+        part = parse_device_history_energy_kwh(payload)
+        for field in ("consumptionKwh", "generationKwh", "importKwh"):
+            value = part.get(field)
+            if value is None:
+                continue
+            parsed[field] = (parsed[field] or 0.0) + value
+    _station_history_cache[cache_key] = (now, parsed)
+    return dict(parsed)
+
+
 def _parse_soc_percent_value(raw: Any) -> Optional[float]:
     """SoC 0..100 %; Deye sometimes exposes a 0..1 fraction (e.g. 0.89 → 89 %)."""
     v = _to_float_or_none(raw)
