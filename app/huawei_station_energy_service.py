@@ -205,22 +205,23 @@ def _values_from_item(it: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def _month_kpi_copied(
-    session: AsyncSession, station_code: str, pv_kwh: Optional[float]
+async def _period_kpi_copied(
+    session: AsyncSession, station_code: str, period: str, pv_kwh: Optional[float]
 ) -> bool:
-    """True when the same month PV total was stored for several different months.
+    """True when the same PV total was stored for several different period keys.
 
-    getKpiStationMonth returns every month of the year. Older refreshes kept
-    only the first row and wrote it onto whichever month was requested.
+    getKpiStationDay returns every day of the month and getKpiStationMonth every
+    month of the year. Older refreshes kept only the first row and wrote it onto
+    whichever day or month was requested.
     """
-    if pv_kwh is None:
+    if pv_kwh is None or period not in ("day", "month"):
         return False
     stmt = (
         select(func.count())
         .select_from(HuaweiStationEnergyTotals)
         .where(
             HuaweiStationEnergyTotals.station_code == station_code,
-            HuaweiStationEnergyTotals.period == "month",
+            HuaweiStationEnergyTotals.period == period,
             HuaweiStationEnergyTotals.pv_kwh.is_not(None),
             func.abs(HuaweiStationEnergyTotals.pv_kwh - float(pv_kwh)) < 0.05,
         )
@@ -407,7 +408,7 @@ async def _load_huawei_cloud_energy_item(
         # Northbound lock (62s gap) and nginx closes the UI request at 60s.
         # The snapshot task still refreshes today's rows in the background.
         age_sec = max(0.0, now - row.saved_at.timestamp())
-        if period == "month" and await _month_kpi_copied(session, station_code, row.pv_kwh):
+        if await _period_kpi_copied(session, station_code, period, row.pv_kwh):
             return None, False, False, "db", round(age_sec, 1)
         return _row_to_payload(row), False, False, "db", round(age_sec, 1)
     if not huawei_configured():
@@ -443,10 +444,10 @@ async def get_or_refresh_totals(
     cloud_item, cloud_error, cloud_rate_limited, cloud_source, cloud_age = (
         await _load_huawei_cloud_energy_item(session, station_code, period, date_iso, d)
     )
-    # Copied month KPI rows are not that month. Show the measured month total
-    # until a FusionSolar refresh stores each month under its own collectTime.
+    # Copied KPI rows are not that day or month. Show the measured total until a
+    # FusionSolar refresh stores each collectTime under its own key.
     if (
-        period == "month"
+        period in ("day", "month")
         and cloud_item is None
         and open_item is not None
         and not cloud_error
