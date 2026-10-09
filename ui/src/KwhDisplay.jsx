@@ -4,11 +4,16 @@ import { useKwhCalibration } from './KwhCalibrationContext';
  * Renders an energy kWh value with ``~`` and a ``*`` marker when approximate
  * (main control panel). Title / aria use the shared precision note.
  */
-export default function KwhDisplay({ value, fmt, unit = 'kWh', className, title }) {
+export default function KwhDisplay({ value, fmt, unit = 'kWh', className, title, exact = false }) {
   const { formatEnergyKwh, isApproximate, approximateNote } = useKwhCalibration();
-  const text = formatEnergyKwh(value, fmt, unit);
+  const exactNumber = Number(value);
+  const text = exact
+    ? Number.isFinite(exactNumber)
+      ? `${fmt.format(exactNumber)} ${unit}`
+      : `— ${unit}`
+    : formatEnergyKwh(value, fmt, unit);
   const showStar =
-    isApproximate && text && !String(text).startsWith('—') && Boolean(approximateNote);
+    !exact && isApproximate && text && !String(text).startsWith('—') && Boolean(approximateNote);
   const tip = title || (showStar ? approximateNote : undefined);
 
   return (

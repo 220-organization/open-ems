@@ -177,6 +177,39 @@ def test_inverter_only_load_without_meter():
     assert metrics["loadPowerW"] == 25_000.0
 
 
+def test_cached_power_flow_includes_collection_time():
+    from app.huawei_api import _power_flow_cached_response
+
+    body = _power_flow_cached_response(
+        {"ok": True, "pvPowerW": 1000.0, "gridPowerW": 0.0, "loadPowerW": 1000.0},
+        1_700_000_000.0,
+        1_700_000_120.0,
+        northbound_rate_limited=True,
+    )
+    assert body["collectionTime"] == 1_700_000_000
+    assert body["cacheAgeSec"] == 120.0
+    assert body["pvPowerW"] == 1000.0
+
+
+def test_energy_origin_kwh_maps_cloud_and_sample_fields():
+    from app.huawei_station_energy_service import energy_origin_kwh
+
+    assert energy_origin_kwh(
+        {"pvKwh": 7.3, "consumptionKwh": 38.1, "gridImportKwh": 3.96, "gridExportKwh": 1.0}
+    ) == {
+        "consumptionKwh": 38.1,
+        "generationKwh": 7.3,
+        "importKwh": 3.96,
+    }
+    assert energy_origin_kwh({"generationKwh": 1.5, "consumptionKwh": "2", "importKwh": None}) == {
+        "consumptionKwh": 2.0,
+        "generationKwh": 1.5,
+        "importKwh": None,
+    }
+    assert energy_origin_kwh({}) is None
+    assert energy_origin_kwh(None) is None
+
+
 def test_huawei_power_flow_display_max_age_covers_round_robin():
     from app.huawei_api import huawei_power_flow_display_max_age_sec
 

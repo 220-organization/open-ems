@@ -78,6 +78,36 @@ function getApiPeriod(tab) {
   return 'day';
 }
 
+function finiteKwh(value) {
+  return value != null && Number.isFinite(Number(value)) ? Number(value) : null;
+}
+
+function kwhTriple(source) {
+  return {
+    consumptionKwh: finiteKwh(source?.consumptionKwh),
+    generationKwh: finiteKwh(source?.generationKwh),
+    importKwh: finiteKwh(source?.importKwh),
+  };
+}
+
+function originPercents(triple) {
+  const consKwh = triple?.consumptionKwh ?? null;
+  const pvKwh = triple?.generationKwh ?? null;
+  const gridKwh = triple?.importKwh ?? null;
+  const consumptionBase = consKwh != null && consKwh > 0 ? consKwh : null;
+  const pvPctRaw = consumptionBase != null && pvKwh != null ? (pvKwh / consumptionBase) * 100 : null;
+  const gridPctRaw = consumptionBase != null && gridKwh != null ? (gridKwh / consumptionBase) * 100 : null;
+  return {
+    consKwh,
+    pvKwh,
+    gridKwh,
+    consumptionPct: consumptionBase != null ? 100 : null,
+    pvPct: pvPctRaw != null ? Math.max(0, pvPctRaw) : null,
+    gridPct: gridPctRaw != null ? Math.max(0, gridPctRaw) : null,
+    hasRows: consKwh != null || pvKwh != null || gridKwh != null,
+  };
+}
+
 function ProgressBar({ percent, color }) {
   const pct = Number.isFinite(Number(percent)) ? Math.max(0, Math.min(100, Number(percent))) : 0;
   return (
@@ -87,12 +117,69 @@ function ProgressBar({ percent, color }) {
   );
 }
 
-function MetricRow({ label, value, unit, color, percent, fmt, isBase = false }) {
+function OriginBlock({ title, children, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <details
+      className="hw-totals__origin"
+      open={open}
+      onToggle={event => setOpen(event.currentTarget.open)}
+    >
+      <summary className="hw-totals__origin-title">{title}</summary>
+      <div className="hw-totals__origin-body">{children}</div>
+    </details>
+  );
+}
+
+function TotalsMetrics({ stats, fmt, t, note, exact = false }) {
+  return (
+    <div className="hw-totals__metrics">
+      {stats.consKwh != null ? (
+        <MetricRow
+          label={t('huaweiTotalsCons')}
+          value={stats.consKwh}
+          unit="kWh"
+          color={BAR_COLORS.cons}
+          percent={stats.consumptionPct}
+          fmt={fmt}
+          exact={exact}
+        />
+      ) : null}
+      {stats.pvKwh != null ? (
+        <MetricRow
+          label={t('huaweiTotalsPvGen')}
+          value={stats.pvKwh}
+          unit="kWh"
+          color={BAR_COLORS.pv}
+          percent={stats.pvPct}
+          fmt={fmt}
+          exact={exact}
+        />
+      ) : null}
+      {stats.gridKwh != null ? (
+        <MetricRow
+          label={t('huaweiTotalsGridImport')}
+          value={stats.gridKwh}
+          unit="kWh"
+          color={BAR_COLORS.import}
+          percent={stats.gridPct}
+          fmt={fmt}
+          exact={exact}
+        />
+      ) : null}
+      {note ? (
+        <p className="hw-totals__approx-note">
+          <span aria-hidden="true">*</span> {note}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function MetricRow({ label, value, unit, color, percent, fmt, exact = false }) {
   let percentText = '';
   if (percent != null && Number.isFinite(Number(percent))) {
-    const raw = Number(percent);
-    if (!isBase && raw >= 100) percentText = '(< 100%)';
-    else percentText = `(${fmt.format(Math.max(0, raw))}%)`;
+    percentText = `(${fmt.format(Math.max(0, Number(percent)))}%)`;
   }
   return (
     <div className="hw-totals__row">
@@ -100,7 +187,7 @@ function MetricRow({ label, value, unit, color, percent, fmt, isBase = false }) 
         <span className="hw-totals__swatch" style={{ background: color }} aria-hidden="true" />
         <span className="hw-totals__label">{label}</span>
         <span className="hw-totals__value">
-          <KwhDisplay value={value} fmt={fmt} unit={unit} />
+          <KwhDisplay value={value} fmt={fmt} unit={unit} exact={exact} />
           {percentText ? ` ${percentText}` : ''}
         </span>
       </div>
@@ -197,17 +284,22 @@ export default function DeyeTotalsPanel({
           setData(null);
           return;
         }
-        const hasAny = json?.consumptionKwh != null || json?.generationKwh != null || json?.importKwh != null;
-        if (!hasAny) {
+        const openEms = kwhTriple(json);
+        const deyeCloud = json?.deyeCloud && typeof json.deyeCloud === 'object' ? kwhTriple(json.deyeCloud) : null;
+        const deyeCloudError = json?.deyeCloudError === true;
+        const hasAny =
+          openEms.consumptionKwh != null ||
+          openEms.generationKwh != null ||
+          openEms.importKwh != null ||
+          deyeCloud?.consumptionKwh != null ||
+          deyeCloud?.generationKwh != null ||
+          deyeCloud?.importKwh != null;
+        if (!hasAny && !deyeCloudError) {
           setData(null);
           setError('noDataYet');
           return;
         }
-        setData({
-          consumptionKwh: json?.consumptionKwh != null ? Number(json.consumptionKwh) : null,
-          generationKwh: json?.generationKwh != null ? Number(json.generationKwh) : null,
-          importKwh: json?.importKwh != null ? Number(json.importKwh) : null,
-        });
+        setData({ openEms, deyeCloud, deyeCloudError });
         setError(null);
       } catch (e) {
         if (e?.name === 'AbortError') return;
@@ -230,24 +322,10 @@ export default function DeyeTotalsPanel({
   const bcp47 = getBcp47Locale();
   const fmt = kwhFmt(bcp47);
 
-  const consKwh =
-    data?.consumptionKwh != null && Number.isFinite(Number(data.consumptionKwh)) ? Number(data.consumptionKwh) : null;
-  const pvKwh =
-    data?.generationKwh != null && Number.isFinite(Number(data.generationKwh)) ? Number(data.generationKwh) : null;
-  const gridKwhRaw = data?.importKwh ?? null;
-  const gridKwh = gridKwhRaw != null && Number.isFinite(Number(gridKwhRaw)) ? Number(gridKwhRaw) : null;
-
-  const consumptionBase = consKwh != null && consKwh > 0 ? consKwh : null;
-  const consumptionPct = consumptionBase != null ? 100 : null;
-  const pvPctRaw = consumptionBase != null && pvKwh != null ? (pvKwh / consumptionBase) * 100 : null;
-  const gridPctRaw = consumptionBase != null && gridKwh != null ? (gridKwh / consumptionBase) * 100 : null;
-  const pvPct = pvPctRaw != null ? Math.min(99.9, Math.max(0, pvPctRaw)) : null;
-  const gridPct = gridPctRaw != null ? Math.min(99.9, Math.max(0, gridPctRaw)) : null;
-
-  const hasCoreRows = useMemo(
-    () => consumptionBase != null || pvKwh != null || gridKwh != null,
-    [consumptionBase, pvKwh, gridKwh]
-  );
+  const showOrigins = Boolean(deyeSn) && !glId && !evAcdc;
+  const openEms = useMemo(() => originPercents(data?.openEms), [data]);
+  const deyeCloud = useMemo(() => originPercents(data?.deyeCloud), [data]);
+  const hasCoreRows = openEms.hasRows || (showOrigins && (deyeCloud.hasRows || data?.deyeCloudError));
 
   const titleKey = glId
     ? 'gridlabEnergyTotalsTitle'
@@ -357,7 +435,7 @@ export default function DeyeTotalsPanel({
         </div>
       </div>
 
-      <div className={`hw-totals__body${loading ? ' hw-totals__body--loading' : ''}`}>
+      <div className={`hw-totals__body${loading ? ' hw-totals__body--loading' : ''}${showOrigins ? ' hw-totals__body--origins' : ''}`}>
         {loading && !hasCoreRows ? <p className="hw-totals__status">{t('huaweiTotalsLoading')}</p> : null}
         {!loading && error === 'notConfigured' ? (
           <p className="hw-totals__status">{t('huaweiTotalsNotConfigured')}</p>
@@ -366,42 +444,32 @@ export default function DeyeTotalsPanel({
           <p className="hw-totals__status hw-totals__status--error">{t('huaweiTotalsError')}</p>
         ) : null}
         {!loading && !hasCoreRows ? <p className="hw-totals__status">{t('huaweiTotalsNoData')}</p> : null}
-        {hasCoreRows ? (
-          <div className="hw-totals__metrics">
-            {consKwh != null ? (
-              <MetricRow
-                label={t('huaweiTotalsCons')}
-                value={consKwh}
-                unit="kWh"
-                color={BAR_COLORS.cons}
-                percent={consumptionPct}
-                fmt={fmt}
-                isBase
-              />
-            ) : null}
-            {pvKwh != null ? (
-              <MetricRow
-                label={t('huaweiTotalsPvGen')}
-                value={pvKwh}
-                unit="kWh"
-                color={BAR_COLORS.pv}
-                percent={pvPct}
-                fmt={fmt}
-              />
-            ) : null}
-            {gridKwh != null ? (
-              <MetricRow
-                label={t('huaweiTotalsGridImport')}
-                value={gridKwh}
-                unit="kWh"
-                color={BAR_COLORS.import}
-                percent={gridPct}
-                fmt={fmt}
-              />
-            ) : null}
-            <p className="hw-totals__approx-note">
-              <span aria-hidden="true">*</span> {t('kwhCalibrationPrecisionNote')}
-            </p>
+        {hasCoreRows && !showOrigins ? (
+          <TotalsMetrics
+            stats={openEms}
+            fmt={fmt}
+            t={t}
+            note={t('kwhCalibrationPrecisionNote')}
+          />
+        ) : null}
+        {hasCoreRows && showOrigins ? (
+          <div className="hw-totals__origins">
+            <OriginBlock title={t('deyeTotalsOriginOpenEms')}>
+              {openEms.hasRows ? (
+                <TotalsMetrics stats={openEms} fmt={fmt} t={t} note={t('kwhCalibrationPrecisionNote')} />
+              ) : (
+                <p className="hw-totals__status">{t('huaweiTotalsNoData')}</p>
+              )}
+            </OriginBlock>
+            <OriginBlock title={t('deyeTotalsOriginDeyeCloud')} defaultOpen>
+              {deyeCloud.hasRows ? (
+                <TotalsMetrics stats={deyeCloud} fmt={fmt} t={t} exact />
+              ) : (
+                <p className={`hw-totals__status${data?.deyeCloudError ? ' hw-totals__status--error' : ''}`}>
+                  {data?.deyeCloudError ? t('huaweiTotalsError') : t('huaweiTotalsNoData')}
+                </p>
+              )}
+            </OriginBlock>
           </div>
         ) : null}
       </div>

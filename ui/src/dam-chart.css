@@ -1723,6 +1723,10 @@ a.dam-oree-embed-external:hover {
   filter: saturate(0.85);
 }
 
+.hw-totals__body--origins {
+  min-height: 0;
+}
+
 .hw-totals__status {
   font-size: 0.82rem;
   color: var(--pf-text-muted);
@@ -1735,6 +1739,66 @@ a.dam-oree-embed-external:hover {
 
 .hw-totals__status--error {
   color: #f87171;
+}
+
+.hw-totals__origins {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.hw-totals__origin {
+  width: 100%;
+}
+
+.hw-totals__origin-title {
+  margin: 0;
+  padding: 6px 0;
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  user-select: none;
+  -webkit-user-select: none;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--pf-text-secondary);
+}
+
+.hw-totals__origin-title::-webkit-details-marker {
+  display: none;
+}
+
+.hw-totals__origin-title::marker {
+  content: '';
+}
+
+.hw-totals__origin-title::before {
+  content: '\25B6';
+  font-size: 0.58rem;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: 0.72;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+  color: var(--pf-text-secondary);
+}
+
+.hw-totals__origin[open] .hw-totals__origin-title::before {
+  transform: rotate(90deg);
+}
+
+.hw-totals__origin-title:hover {
+  color: var(--pf-label);
+}
+
+.hw-totals__origin-body {
+  padding: 2px 0 8px;
 }
 
 .hw-totals__metrics {

@@ -34,6 +34,8 @@ _live_cache: dict[
     str,
     tuple[Optional[float], Optional[float], Optional[float], Optional[float], Optional[float], float],
 ] = {}
+# Deye /device/latest: collectionTime (unix seconds), deviceState (1 online, 2 alarm, 3 offline).
+_live_status_cache: dict[str, tuple[Optional[int], Optional[int]]] = {}
 # Marks serials whose currently cached power came from /station/latest plant fallback (not /device/latest).
 # Cluster aggregation (UI / hourly history) must dedupe by station for these — otherwise plant totals
 # get multiplied by the cluster size. Cleared / set in lockstep with ``_live_cache`` writes.
@@ -565,6 +567,108 @@ async def station_cluster_device_sns(device_sn: str) -> list[str]:
     if not st_id:
         return [sn]
     return sorted({r.device_sn for r in rows if r.station_id == st_id})
+
+
+_DEVICE_HISTORY_KWH_FIELDS = {
+    "consumption": "consumptionKwh",
+    "production": "generationKwh",
+    "electricitypurchasing": "importKwh",
+}
+
+
+def _device_history_item_label(item: dict[str, Any]) -> str:
+    raw = str(item.get("key") or item.get("name") or "")
+    return raw.strip().lower().replace("-", "").replace(" ", "")
+
+
+def parse_device_history_energy_kwh(payload: Any) -> dict[str, Optional[float]]:
+    """Sum Deye ``POST /device/history`` kWh counters.
+
+    ``Production`` is PV, ``Consumption`` is load, ``ElectricityPurchasing`` is grid import.
+    """
+    rows: list[dict[str, Any]] = []
+    if isinstance(payload, dict) and isinstance(payload.get("dataList"), list):
+        rows = [row for row in payload["dataList"] if isinstance(row, dict)]
+    totals: dict[str, Optional[float]] = {
+        "consumptionKwh": None,
+        "generationKwh": None,
+        "importKwh": None,
+    }
+    for row in rows:
+        items = row.get("itemList")
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            field = _DEVICE_HISTORY_KWH_FIELDS.get(_device_history_item_label(item))
+            value = _to_float_or_none(item.get("value"))
+            if field is None or value is None:
+                continue
+            totals[field] = (totals[field] or 0.0) + value
+    return totals
+
+
+_station_history_cache: dict[tuple[str, int, str], tuple[float, dict[str, Any]]] = {}
+_STATION_HISTORY_CACHE_TTL_SEC = 120.0
+
+
+def _station_history_window(period: str, anchor_iso: str) -> tuple[int, str]:
+    """Deye granularity and startAt/endAt for one Kyiv day, month, or year."""
+    raw = (anchor_iso or "").strip()
+    if period == "year":
+        return 4, raw[:4]
+    if period == "month":
+        return 3, raw[:7]
+    return 2, raw[:10]
+
+
+async def fetch_device_station_history_energy(
+    device_sn: str,
+    period: str,
+    anchor_iso: str,
+) -> Optional[dict[str, Any]]:
+    """kWh totals from Deye Cloud ``POST /device/history``, summed across the station cluster."""
+    if not deye_configured():
+        return None
+    granularity, start_at = _station_history_window(period, anchor_iso)
+    if not start_at:
+        return None
+    station_id = await _station_id_for_device_sn(device_sn)
+    cluster = await station_cluster_device_sns(device_sn)
+    if not cluster:
+        return None
+    cache_key = (",".join(cluster), granularity, start_at)
+    now = time.monotonic()
+    cached = _station_history_cache.get(cache_key)
+    if cached is not None and now - cached[0] < _STATION_HISTORY_CACHE_TTL_SEC:
+        return dict(cached[1])
+    parsed: dict[str, Any] = {
+        "consumptionKwh": None,
+        "generationKwh": None,
+        "importKwh": None,
+        "stationId": station_id,
+        "deviceSns": cluster,
+    }
+    for sn in cluster:
+        payload = await _post_deye_json(
+            "/device/history",
+            {
+                "deviceSn": sn,
+                "granularity": granularity,
+                "startAt": start_at,
+                "endAt": start_at,
+            },
+            timeout=30.0,
+        )
+        part = parse_device_history_energy_kwh(payload)
+        for field in ("consumptionKwh", "generationKwh", "importKwh"):
+            value = part.get(field)
+            if value is None:
+                continue
+            parsed[field] = (parsed[field] or 0.0) + value
+    _station_history_cache[cache_key] = (now, parsed)
+    return dict(parsed)
 
 
 def _parse_soc_percent_value(raw: Any) -> Optional[float]:
@@ -1346,6 +1450,56 @@ def _grid_frequency_hz_from_data_list(dl: Any) -> Optional[float]:
     return next(iter(found.values()))
 
 
+def _collection_time_unix_sec(raw: Any) -> Optional[int]:
+    """Deye collectionTime is unix seconds; some payloads send milliseconds."""
+    if isinstance(raw, bool) or raw is None:
+        return None
+    if isinstance(raw, str):
+        s = raw.strip()
+        if not s or not s.lstrip("-").isdigit():
+            return None
+        raw = int(s)
+    if not isinstance(raw, (int, float)) or isinstance(raw, bool):
+        return None
+    if not math.isfinite(float(raw)):
+        return None
+    v = int(raw)
+    if v > 10_000_000_000:
+        v //= 1000
+    if v <= 1_000_000_000:
+        return None
+    return v
+
+
+def _device_state_int(raw: Any) -> Optional[int]:
+    if isinstance(raw, bool) or raw is None:
+        return None
+    if isinstance(raw, str):
+        s = raw.strip()
+        if not s or not s.lstrip("-").isdigit():
+            return None
+        raw = int(s)
+    if not isinstance(raw, (int, float)) or isinstance(raw, bool):
+        return None
+    if not math.isfinite(float(raw)):
+        return None
+    return int(raw)
+
+
+def _device_status_from_entry(dev_entry: Any) -> tuple[Optional[int], Optional[int]]:
+    """(collectionTime unix seconds, deviceState). deviceState 3 means offline."""
+    if not isinstance(dev_entry, dict):
+        return None, None
+    return _collection_time_unix_sec(dev_entry.get("collectionTime")), _device_state_int(dev_entry.get("deviceState"))
+
+
+def _device_online_from_state(device_state: Optional[int]) -> Optional[bool]:
+    """1 online, 2 alarm (still reporting), 3 offline. Unknown state is not treated as offline."""
+    if device_state is None:
+        return None
+    return device_state != 3
+
+
 def _parse_metrics_from_entry(
     dev_entry: Any,
 ) -> tuple[
@@ -1429,11 +1583,22 @@ async def _post_latest_metrics_map(
         return out
     logger.info("Deye: device/latest deviceDataList_len=%s", len(ddl))
 
+    status_updates: dict[str, tuple[Optional[int], Optional[int]]] = {}
     for i, entry in enumerate(ddl):
         soc, pwr, load_w, pv_w, grid_w, freq_hz = _parse_metrics_from_entry(entry)
         target = _resolve_batch_target_sn(entry, sns, i)
         if target is None or target not in out:
             continue
+        ct, device_state = _device_status_from_entry(entry)
+        prev_status = status_updates.get(target)
+        if prev_status is None:
+            status_updates[target] = (ct, device_state)
+        else:
+            prev_ct, prev_state = prev_status
+            status_updates[target] = (
+                ct if ct is not None else prev_ct,
+                device_state if device_state is not None else prev_state,
+            )
         prev_soc, prev_pwr, prev_load, prev_pv, prev_grid, prev_freq = out[target]
         if soc is not None:
             prev_soc = soc
@@ -1462,6 +1627,14 @@ async def _post_latest_metrics_map(
                 sgrid,
                 sfreq,
             )
+    if status_updates:
+        async with _soc_lock:
+            for sn, (ct, device_state) in status_updates.items():
+                prev_ct, prev_state = _live_status_cache.get(sn, (None, None))
+                _live_status_cache[sn] = (
+                    ct if ct is not None else prev_ct,
+                    device_state if device_state is not None else prev_state,
+                )
     return out
 
 
@@ -1827,6 +2000,24 @@ async def get_live_metrics_with_source_cached(
         station_id,
         bool(_live_from_station_fallback.get(sn, False)),
     )
+
+
+async def get_device_live_status(device_sn: str) -> tuple[Optional[int], Optional[bool]]:
+    """
+    Latest (collectionTime unix seconds, online) captured from POST /device/latest.
+
+    Call after ``get_live_metrics_with_source_cached`` so a cache miss has already refreshed status.
+    ``online`` is False only when Deye ``deviceState`` is 3 (offline).
+    """
+    sn = (device_sn or "").strip()
+    if not sn:
+        return None, None
+    async with _soc_lock:
+        hit = _live_status_cache.get(sn)
+    if hit is None:
+        return None, None
+    collection_sec, device_state = hit
+    return collection_sec, _device_online_from_state(device_state)
 
 
 async def get_battery_power_w_cached(device_sn: str) -> Optional[float]:

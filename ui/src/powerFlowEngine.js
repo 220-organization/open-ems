@@ -86,6 +86,77 @@ export function formatPower(watts, t, bcp47) {
   return `${nf.format(watts / 1000)}\u00a0${t('unitKW')}`;
 }
 
+/**
+ * Relative age of inverter telemetry for the label above the graph refresh button.
+ * ``collectionTimeSec`` is Unix seconds (Deye ``collectionTime``).
+ */
+export function formatInverterUpdatedAgo(collectionTimeSec, nowMs, t) {
+  const ct = Number(collectionTimeSec);
+  const now = Number(nowMs);
+  if (!Number.isFinite(ct) || ct <= 0 || !Number.isFinite(now)) return '';
+  const ageSec = Math.max(0, Math.floor(now / 1000 - ct));
+  if (ageSec < 60) {
+    return ageSec === 1 ? t('inverterUpdatedSec', { n: ageSec }) : t('inverterUpdatedSecs', { n: ageSec });
+  }
+  const ageMin = Math.floor(ageSec / 60);
+  if (ageMin < 60) {
+    return ageMin === 1 ? t('inverterUpdatedMin', { n: ageMin }) : t('inverterUpdatedMins', { n: ageMin });
+  }
+  const ageHour = Math.floor(ageMin / 60);
+  if (ageHour < 24) {
+    return ageHour === 1 ? t('inverterUpdatedHour', { n: ageHour }) : t('inverterUpdatedHours', { n: ageHour });
+  }
+  const ageDay = Math.floor(ageHour / 24);
+  return ageDay === 1 ? t('inverterUpdatedDay', { n: ageDay }) : t('inverterUpdatedDays', { n: ageDay });
+}
+
+/**
+ * Compact age for an offline inverter: minutes, hours, or days (seconds only under one minute).
+ * Returns "" when collectionTime is missing.
+ */
+export function formatInverterOfflineAge(collectionTimeSec, nowMs, t) {
+  const ct = Number(collectionTimeSec);
+  const now = Number(nowMs);
+  if (!Number.isFinite(ct) || ct <= 0 || !Number.isFinite(now)) return '';
+  const ageSec = Math.max(0, Math.floor(now / 1000 - ct));
+  if (ageSec < 60) {
+    const n = Math.max(1, ageSec);
+    return n === 1 ? t('inverterOfflineSec', { n }) : t('inverterOfflineSecs', { n });
+  }
+  const ageMin = Math.floor(ageSec / 60);
+  if (ageMin < 60) {
+    return ageMin === 1 ? t('inverterOfflineMin', { n: ageMin }) : t('inverterOfflineMins', { n: ageMin });
+  }
+  const ageHour = Math.floor(ageMin / 60);
+  if (ageHour < 24) {
+    return ageHour === 1 ? t('inverterOfflineHour', { n: ageHour }) : t('inverterOfflineHours', { n: ageHour });
+  }
+  const ageDay = Math.floor(ageHour / 24);
+  return ageDay === 1 ? t('inverterOfflineDay', { n: ageDay }) : t('inverterOfflineDays', { n: ageDay });
+}
+
+/** "не в мережі 23 год" — status plus compact age when the sample time is known. */
+export function formatInverterOfflineLabel(collectionTimeSec, nowMs, t) {
+  const status = t('inverterOffline');
+  const age = formatInverterOfflineAge(collectionTimeSec, nowMs, t);
+  return age ? `${status} ${age}` : status;
+}
+
+/** Newest collectionTime and online flag across a Deye cluster (online if any member is online). */
+export function pickClusterLiveStatus(rows) {
+  const times = [];
+  const onlineFlags = [];
+  for (const row of rows || []) {
+    const ct = Number(row?.collectionTime);
+    if (Number.isFinite(ct) && ct > 0) times.push(ct);
+    if (row?.online === true || row?.online === false) onlineFlags.push(row.online);
+  }
+  return {
+    collectionTime: times.length ? Math.max(...times) : null,
+    online: onlineFlags.length === 0 ? null : onlineFlags.some(Boolean),
+  };
+}
+
 /** Same scaling as formatPower but digits only (no MW/kW suffix) — compact header / EV hints. */
 export function formatPowerValueOnly(watts, bcp47) {
   if (watts == null || !Number.isFinite(watts)) return '—';

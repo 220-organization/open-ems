@@ -1117,13 +1117,30 @@ body {
   min-width: 0;
 }
 
-/* Refresh button — flat circle. */
-.pf-graph .pf-graph-refresh[data-pos='top-center'] {
+/* Refresh button — flat circle, with telemetry age above it. */
+.pf-graph .pf-graph-refresh-wrap[data-pos='top-center'] {
   position: absolute;
-  top: clamp(1.85rem, 11.5%, 3rem);
+  top: clamp(2.35rem, 13%, 3.4rem);
   left: 50%;
   transform: translate(-50%, -50%);
   z-index: 4;
+}
+
+.pf-graph-updated {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 4px);
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  color: var(--pf-text-muted);
+  background: var(--pf-page-bg);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
 }
 
 .pf-graph-refresh {
@@ -1223,13 +1240,95 @@ body {
   flex-wrap: nowrap;
 }
 
-.pf-header .pf-station-field.pf-inverter-field > .pf-inverter-select.pf-header-select--inverter {
+.pf-header .pf-station-field.pf-inverter-field > .pf-inverter-select.pf-header-select--inverter,
+.pf-header .pf-station-field.pf-inverter-field > .pf-inverter-picker {
   flex: 1 1 0%;
   min-width: 0;
   max-width: 100%;
   box-sizing: border-box;
   position: relative;
   z-index: 0;
+}
+
+.pf-top-bar .pf-header .pf-inverter-picker > .pf-inverter-select.pf-header-select--inverter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  appearance: none;
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.pf-inverter-picker__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.pf-inverter-picker__caret {
+  flex: 0 0 auto;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  opacity: 0.65;
+}
+
+.pf-inverter-menu {
+  position: fixed;
+  z-index: 80;
+  max-height: min(70vh, 520px);
+  overflow: auto;
+  margin: 0;
+  padding: 6px 0;
+  background: var(--km220-card, #fff);
+  color: var(--km220-text, #14161c);
+  border: 1px solid var(--km220-input-border, var(--pf-border));
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(20, 22, 28, 0.14);
+}
+
+.pf-inverter-menu__label {
+  padding: 8px 14px 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pf-text-muted);
+}
+
+.pf-inverter-menu__option {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 6px 14px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pf-inverter-menu__option:hover:not(:disabled),
+.pf-inverter-menu__option[aria-selected='true'] {
+  background: rgba(0, 122, 255, 0.12);
+}
+
+.pf-inverter-menu__option:disabled {
+  color: var(--pf-text-muted);
+  cursor: default;
+}
+
+.pf-inverter-menu__option--offline,
+.pf-inverter-menu__option--offline:hover:not(:disabled),
+.pf-inverter-menu__option--offline[aria-selected='true'] {
+  color: #c62828;
 }
 
 .pf-header .pf-station-field.pf-inverter-field .pf-add-deye-btn {
@@ -1615,6 +1714,27 @@ a.pf-node { cursor: pointer; }
 
 .pf-node-value--pending {
   opacity: 0.35;
+}
+
+.pf-node-value--offline {
+  color: #c62828;
+  font-size: 12px;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.pf-top-bar .pf-inverter-select.pf-inverter-select--offline {
+  color: #c62828;
+}
+
+.pf-node-popup-tile .pf-node-value--offline {
+  color: #c62828;
+  font-size: 22px;
+}
+
+[data-theme="light"] .pf-graph .pf-node-value.pf-node-value--offline,
+[data-theme="light"] .pf-graph #pf-node-solar[data-active='true'] .pf-node-value.pf-node-value--offline {
+  color: #c62828;
 }
 
 .pf-node-sub {
@@ -2840,6 +2960,15 @@ a.pf-node { cursor: pointer; }
 
 .pf-node-popup-backdrop {
   z-index: 3200;
+}
+
+.pf-node-popup-updated {
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  color: var(--pf-text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .pf-node-popup-modal {
