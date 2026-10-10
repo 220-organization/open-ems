@@ -274,6 +274,30 @@ def test_blank_power_flow_is_not_a_measurement_and_health_1_is_offline():
     assert station_real_health_is_online(None) is None
 
 
+def test_measured_samples_hide_fusionsolar_rate_limit():
+    from app.huawei_station_energy_service import apply_measured_cloud_fallback
+
+    measured = {"pvKwh": 29.18, "consumptionKwh": 29.38, "gridImportKwh": 0.73}
+    item, limited = apply_measured_cloud_fallback(
+        "day",
+        None,
+        measured,
+        cloud_error=False,
+        cloud_rate_limited=True,
+    )
+    assert item == measured
+    assert limited is False
+    kept, still_limited = apply_measured_cloud_fallback(
+        "day",
+        None,
+        None,
+        cloud_error=False,
+        cloud_rate_limited=True,
+    )
+    assert kept is None
+    assert still_limited is True
+
+
 def test_huawei_power_flow_display_max_age_covers_round_robin():
     from app.huawei_api import huawei_power_flow_display_max_age_sec
 

@@ -339,6 +339,28 @@ async def refresh_from_api(
     return item
 
 
+def apply_measured_cloud_fallback(
+    period: str,
+    cloud_item: Optional[dict[str, Any]],
+    open_item: Optional[dict[str, Any]],
+    *,
+    cloud_error: bool,
+    cloud_rate_limited: bool,
+) -> tuple[Optional[dict[str, Any]], bool]:
+    """Use measured samples when FusionSolar has no row for this period.
+
+    A failCode 407 must not replace those kWh with the rate-limit warning.
+    """
+    if (
+        period in ("day", "month", "year")
+        and cloud_item is None
+        and open_item is not None
+        and not cloud_error
+    ):
+        return open_item, False
+    return cloud_item, cloud_rate_limited
+
+
 def energy_origin_kwh(item: Optional[dict[str, Any]]) -> Optional[dict[str, Optional[float]]]:
     """Map a station-energy item to consumption / PV / grid-import kWh."""
     if not isinstance(item, dict):
@@ -397,8 +419,8 @@ async def _load_huawei_cloud_energy_item(
     """FusionSolar getKpiStation* item via the DB cache.
 
     Returns ``(item, error, rate_limited, source, cache_age_sec)``.
-    ``error`` is a hard failure. ``rate_limited`` is failCode 407: keep the last
-    row when one exists, and do not report it as a load error.
+    The page request only reads the DB cache. FusionSolar refresh stays on the
+    snapshot task so a 407 cannot replace measured kWh with a rate-limit warning.
     """
     pkey = period_key_for(day, period)
     row = await read_totals_row(session, station_code, period, pkey)
@@ -411,13 +433,10 @@ async def _load_huawei_cloud_energy_item(
         if await _period_kpi_copied(session, station_code, period, row.pv_kwh):
             return None, False, False, "db", round(age_sec, 1)
         return _row_to_payload(row), False, False, "db", round(age_sec, 1)
-    if not huawei_configured():
-        return None, False, False, "db", 0.0
-    fresh, rate_limited = await _refresh_from_api_detailed(session, station_code, period, date_iso)
-    if fresh is None:
-        return None, not rate_limited, rate_limited, "api", 0.0
-    await session.commit()
-    return fresh, False, False, "api", 0.0
+    # No cached KPI row. Do not call FusionSolar here: a 407 on the page request
+    # shows the rate-limit warning, and a live call waits on the Northbound lock
+    # until nginx closes the UI. The snapshot task fills this cache.
+    return None, False, False, "db", 0.0
 
 
 async def get_or_refresh_totals(
@@ -444,16 +463,15 @@ async def get_or_refresh_totals(
     cloud_item, cloud_error, cloud_rate_limited, cloud_source, cloud_age = (
         await _load_huawei_cloud_energy_item(session, station_code, period, date_iso, d)
     )
-    # Copied KPI rows are not that day or month. Show the measured total until a
-    # FusionSolar refresh stores each collectTime under its own key.
-    if (
-        period in ("day", "month")
-        and cloud_item is None
-        and open_item is not None
-        and not cloud_error
-        and not cloud_rate_limited
-    ):
-        cloud_item = open_item
+    # No FusionSolar row yet (copied KPI, or 407 before the first save). Show the
+    # measured total instead of the rate-limit warning.
+    cloud_item, cloud_rate_limited = apply_measured_cloud_fallback(
+        period,
+        cloud_item,
+        open_item,
+        cloud_error=cloud_error,
+        cloud_rate_limited=cloud_rate_limited,
+    )
     open_origin = energy_origin_kwh(open_item)
     cloud_origin = energy_origin_kwh(cloud_item)
 
