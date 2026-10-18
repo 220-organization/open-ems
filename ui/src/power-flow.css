@@ -2391,8 +2391,7 @@ a.pf-node { cursor: pointer; }
 /* ─────────────────────────────────────────────────────────────
  * QR — flat card.
  * ───────────────────────────────────────────────────────────── */
-.pf-qr-aside,
-.pf-ukraine-qr {
+.pf-qr-aside {
   position: relative;
   align-self: center;
   margin: 12px auto max(20px, env(safe-area-inset-bottom));
@@ -2468,8 +2467,7 @@ a.pf-node { cursor: pointer; }
   outline-offset: 4px;
 }
 
-.pf-qr-aside-link,
-.pf-ukraine-qr-link {
+.pf-qr-aside-link {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2479,26 +2477,13 @@ a.pf-node { cursor: pointer; }
   pointer-events: auto;
 }
 
-.pf-qr-aside-link:focus-visible,
-.pf-ukraine-qr-link:focus-visible {
+.pf-qr-aside-link:focus-visible {
   outline: 2px solid var(--pf-accent-focus);
   outline-offset: 4px;
   border-radius: 12px;
 }
 
-.pf-ukraine-qr-donate {
-  display: block;
-  max-width: 100%;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  text-align: center;
-  line-height: 1.35;
-  color: var(--pf-label, var(--pf-text));
-}
-
-.pf-qr-aside-img,
-.pf-ukraine-qr-img {
+.pf-qr-aside-img {
   display: block;
   width: min(132px, 38vw);
   height: auto;
@@ -2510,8 +2495,7 @@ a.pf-node { cursor: pointer; }
   image-rendering: crisp-edges;
 }
 
-.pf-qr-aside-caption,
-.pf-ukraine-qr-caption {
+.pf-qr-aside-caption {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.18em;
@@ -2749,8 +2733,7 @@ a.pf-node { cursor: pointer; }
     gap: 4px;
   }
   .pf-hub-opensource-icon { width: 11px; height: 11px; }
-  .pf-qr-aside,
-  .pf-ukraine-qr {
+  .pf-qr-aside {
     max-width: min(200px, 72vw);
     margin-top: 8px;
   }
@@ -4184,15 +4167,13 @@ a.pf-node { cursor: pointer; }
   box-shadow: 0 8px 28px rgba(20, 22, 28, 0.12);
 }
 
-[data-theme="light"] .pf-qr-aside,
-[data-theme="light"] .pf-ukraine-qr {
+[data-theme="light"] .pf-qr-aside {
   border-color: var(--pf-border);
   background: #ffffff;
   box-shadow: none;
 }
 
-[data-theme="light"] .pf-qr-aside-img,
-[data-theme="light"] .pf-ukraine-qr-img {
+[data-theme="light"] .pf-qr-aside-img {
   border-color: var(--pf-border);
 }
 
@@ -4338,7 +4319,6 @@ a.pf-node { cursor: pointer; }
   :root:not([data-theme]) .pf-roi-bar,
   :root:not([data-theme]) .pf-discharge-toolbar,
   :root:not([data-theme]) .pf-discharge-feedback,
-  :root:not([data-theme]) .pf-ukraine-qr,
   :root:not([data-theme]) .pf-qr-aside {
     background: #ffffff;
     border: 1px solid var(--pf-border);

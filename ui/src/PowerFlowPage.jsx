@@ -155,9 +155,6 @@ const UBETTER_POLL_MS = 30_000;
 /** GridLab External BESS API — live status/meters poll interval. */
 const GRIDLAB_POLL_MS = 30_000;
 
-/** Aside QR wraps this URL (B12 uncrewed systems unit). */
-const QR_SUPPORT_URL = 'https://b12.army/#support';
-
 function apiUrl(path) {
   const base = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
   if (!base) return path;
@@ -4170,7 +4167,6 @@ export default function PowerFlowPage({
     fleetDeyeAggregate.loading &&
     fleetDeyeAggregate.okResponses === 0;
   const evBusy = fleetDeyePollBusy;
-  const qrBase = process.env.PUBLIC_URL || '';
 
   const essSocPercent = useMemo(() => {
     const glId = selGridlabDeviceId.trim();
@@ -6853,21 +6849,6 @@ export default function PowerFlowPage({
                   <p>{dischargeFeedbackText}</p>
                 </div>
               ) : null}
-
-              <aside className="pf-ukraine-qr" aria-label={t('qrAsideAria')}>
-                <a className="pf-ukraine-qr-link" href={QR_SUPPORT_URL} target="_blank" rel="noopener noreferrer">
-                  <span className="pf-ukraine-qr-donate">{t('qrDonateLabel')}</span>
-                  <img
-                    className="pf-ukraine-qr-img"
-                    src={`${qrBase}/static/power-flow/protect-ukraine-qr.png`}
-                    width={120}
-                    height={120}
-                    alt={t('qrImageAlt')}
-                    decoding="async"
-                  />
-                  <span className="pf-ukraine-qr-caption">{t('qrCaption')}</span>
-                </a>
-              </aside>
 
             </div>
 
