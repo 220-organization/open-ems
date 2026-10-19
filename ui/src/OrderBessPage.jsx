@@ -592,6 +592,21 @@ export default function OrderBessPage({ t }) {
               </div>
             </div>
             <div className="order-bess-presets__group">
+              <div className="order-bess-presets__label">{t('orderBessPresetCabinet')}</div>
+              <div className="order-bess-chips">
+                {PRESETS.filter(p => p.group === 'cabinet').map(p => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className={`order-bess-chip${presetId === p.id ? ' order-bess-chip--active' : ''}`}
+                    onClick={() => setPresetId(p.id)}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="order-bess-presets__group">
               <div className="order-bess-presets__label">{t('orderBessPresetCustom')}</div>
               <button
                 type="button"

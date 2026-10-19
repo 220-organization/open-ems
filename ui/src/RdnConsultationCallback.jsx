@@ -286,6 +286,7 @@ export default function RdnConsultationCallback({
   const [mode, setMode] = useState('pay'); // 'callback' | 'pay'
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [description, setDescription] = useState('');
   const [amountText, setAmountText] = useState(String(DEFAULT_AMOUNT_UAH));
   const [paidAmountUah, setPaidAmountUah] = useState(null);
   const [paymentTime, setPaymentTime] = useState('');
@@ -294,6 +295,7 @@ export default function RdnConsultationCallback({
   const [formHint, setFormHint] = useState('');
   const [statusNote, setStatusNote] = useState('');
   const [highlightContact, setHighlightContact] = useState(false);
+  const [highlightDescription, setHighlightDescription] = useState(false);
   const [callbackSent, setCallbackSent] = useState(false);
   const [callbackBusy, setCallbackBusy] = useState(false);
   const [slotDays, setSlotDays] = useState([]);
@@ -303,18 +305,22 @@ export default function RdnConsultationCallback({
   const [slotHighlight, setSlotHighlight] = useState(false);
   const nameInputRef = useRef(null);
   const phoneInputRef = useRef(null);
+  const descriptionInputRef = useRef(null);
   const amountInputRef = useRef(null);
 
   const nameId = `${htmlIdPrefix}rdn-callback-name`;
   const phoneId = `${htmlIdPrefix}rdn-callback-phone`;
+  const descriptionId = `${htmlIdPrefix}rdn-callback-description`;
   const amountId = `${htmlIdPrefix}rdn-callback-amount`;
   const rootClass = ['rdn-callback-card', rootClassName].filter(Boolean).join(' ');
   const effectiveMode = payOnly ? 'pay' : mode;
 
   const trimmedName = name.trim();
   const trimmedPhone = phone.trim();
+  const trimmedDescription = description.trim();
   const nameOk = trimmedName.length >= 1;
   const phoneOk = trimmedPhone.length >= 5;
+  const descriptionOk = trimmedDescription.length >= 1;
   const canSend = nameOk && phoneOk;
   const isPaid = paidAmountUah != null && paymentTime;
   const amountUah = parseAmountUah(amountText);
@@ -338,6 +344,7 @@ export default function RdnConsultationCallback({
 
   const focusFieldsToFill = () => {
     setHighlightContact(true);
+    setHighlightDescription(false);
     setFormHint(t('rdnCallbackFillNamePhoneHint'));
     setPayError('');
     window.requestAnimationFrame(() => {
@@ -351,7 +358,17 @@ export default function RdnConsultationCallback({
     });
   };
 
+  const focusDescriptionToFill = () => {
+    setHighlightContact(false);
+    setHighlightDescription(true);
+    setSlotHighlight(false);
+    setFormHint(t('rdnCallbackDescriptionRequired'));
+    setPayError('');
+    window.requestAnimationFrame(() => descriptionInputRef.current?.focus());
+  };
+
   const focusSlotToFill = () => {
+    setHighlightDescription(false);
     setSlotHighlight(true);
     setFormHint(t('rdnCallbackSlotRequired'));
     setPayError('');
@@ -412,7 +429,11 @@ export default function RdnConsultationCallback({
       const res = await fetch(apiUrl('/api/rdn-consultation/callback'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: trimmedName, phone: trimmedPhone, slot_id: selectedSlotId }),
+        body: JSON.stringify({
+          name: trimmedName,
+          phone: trimmedPhone,
+          slot_id: selectedSlotId,
+        }),
       });
       if (!res.ok) {
         throw new Error(`callback ${res.status}`);
@@ -433,6 +454,7 @@ export default function RdnConsultationCallback({
     const draft = readDraft();
     if (draft?.name) setName(String(draft.name));
     if (draft?.phone) setPhone(String(draft.phone));
+    if (draft?.description) setDescription(String(draft.description));
     if (draft?.slotId) setSelectedSlotId(String(draft.slotId));
     if (draft?.amountUah != null && isValidAmountUah(Number(draft.amountUah))) {
       setAmountText(String(Number(draft.amountUah)));
@@ -475,6 +497,7 @@ export default function RdnConsultationCallback({
               name: draft.name || null,
               phone: draft.phone || null,
               slot_id: draft.slotId || null,
+              description: draft.description || null,
             }),
           });
           if (!fallback.ok) throw new Error(`status ${fallback.status}`);
@@ -540,12 +563,17 @@ export default function RdnConsultationCallback({
       focusFieldsToFill();
       return;
     }
+    if (!descriptionOk) {
+      focusDescriptionToFill();
+      return;
+    }
     if (!slotOk) {
       focusSlotToFill();
       return;
     }
     if (!amountOk) {
       setHighlightContact(false);
+      setHighlightDescription(false);
       setSlotHighlight(false);
       setFormHint(t('rdnCallbackAmountInvalidHint', { min: MIN_AMOUNT_UAH, max: MAX_AMOUNT_UAH }));
       setPayError('');
@@ -554,11 +582,18 @@ export default function RdnConsultationCallback({
     }
     setFormHint('');
     setHighlightContact(false);
+    setHighlightDescription(false);
     setSlotHighlight(false);
     setPayBusy(true);
     setPayError('');
     setStatusNote('');
-    writeDraft({ name: trimmedName, phone: trimmedPhone, amountUah, slotId: selectedSlotId });
+    writeDraft({
+      name: trimmedName,
+      phone: trimmedPhone,
+      description: trimmedDescription,
+      amountUah,
+      slotId: selectedSlotId,
+    });
     try {
       const res = await fetch(apiUrl('/api/rdn-consultation/pay'), {
         method: 'POST',
@@ -568,6 +603,7 @@ export default function RdnConsultationCallback({
           redirect_url: buildRedirectUrl(),
           name: trimmedName,
           phone: trimmedPhone,
+          description: trimmedDescription,
           slot_id: selectedSlotId,
         }),
       });
@@ -581,6 +617,7 @@ export default function RdnConsultationCallback({
       writeDraft({
         name: trimmedName,
         phone: trimmedPhone,
+        description: trimmedDescription,
         amountUah,
         slotId: selectedSlotId,
         paymentId: data.payment_id,
@@ -599,12 +636,17 @@ export default function RdnConsultationCallback({
       focusFieldsToFill();
       return;
     }
+    if (!descriptionOk) {
+      focusDescriptionToFill();
+      return;
+    }
     if (!slotOk) {
       focusSlotToFill();
       return;
     }
     if (!amountOk) {
       setHighlightContact(false);
+      setHighlightDescription(false);
       setSlotHighlight(false);
       setFormHint(t('rdnCallbackAmountInvalidHint', { min: MIN_AMOUNT_UAH, max: MAX_AMOUNT_UAH }));
       window.requestAnimationFrame(() => amountInputRef.current?.focus());
@@ -612,6 +654,7 @@ export default function RdnConsultationCallback({
     }
     setFormHint('');
     setHighlightContact(false);
+    setHighlightDescription(false);
     setSlotHighlight(false);
     setPayBusy(true);
     setPayError('');
@@ -624,6 +667,7 @@ export default function RdnConsultationCallback({
           amount_uah: amountUah,
           name: trimmedName,
           phone: trimmedPhone,
+          description: trimmedDescription,
           slot_id: selectedSlotId,
         }),
       });
@@ -736,6 +780,32 @@ export default function RdnConsultationCallback({
             aria-invalid={highlightContact && !phoneOk}
           />
         </label>
+        {effectiveMode === 'pay' ? (
+          <label className="rdn-callback-card__label" htmlFor={descriptionId}>
+            {t('rdnCallbackDescriptionLabel')}
+            <textarea
+              ref={descriptionInputRef}
+              id={descriptionId}
+              className={`rdn-callback-card__input rdn-callback-card__textarea${
+                highlightDescription && !descriptionOk ? ' rdn-callback-card__input--needs-fill' : ''
+              }`}
+              name="description"
+              rows={4}
+              required
+              value={description}
+              onChange={(e) => {
+                setDescription(e.target.value);
+                if (formHint) setFormHint('');
+                if (highlightDescription && e.target.value.trim().length >= 1) {
+                  setHighlightDescription(false);
+                }
+              }}
+              placeholder={t('rdnCallbackDescriptionPlaceholder')}
+              aria-invalid={highlightDescription && !descriptionOk}
+              aria-required="true"
+            />
+          </label>
+        ) : null}
 
         {!isPaid && !(callbackSent && effectiveMode === 'callback') && slotWeeks.length > 0 ? (
           <div

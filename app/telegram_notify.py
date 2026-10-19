@@ -15,6 +15,19 @@ from app import settings
 
 logger = logging.getLogger(__name__)
 
+OPEN_EMS_SUPPORT_TAG = "#open-ems"
+
+
+def tag_open_ems_support_message(text_msg: str) -> str:
+    """Append the Open EMS hashtag once so support can filter every alert."""
+    text = text_msg or ""
+    if OPEN_EMS_SUPPORT_TAG in text:
+        return text
+    stripped = text.rstrip()
+    if not stripped:
+        return OPEN_EMS_SUPPORT_TAG
+    return f"{stripped}\n\n{OPEN_EMS_SUPPORT_TAG}"
+
 
 async def send_telegram_message(text_msg: str, *, chat_id: Optional[str] = None) -> bool:
     """
@@ -28,7 +41,7 @@ async def send_telegram_message(text_msg: str, *, chat_id: Optional[str] = None)
         return False
     params = {
         "chat_id": target,
-        "text": text_msg,
+        "text": tag_open_ems_support_message(text_msg),
         "parse_mode": "HTML",
         "disable_web_page_preview": "true",
     }
@@ -56,6 +69,7 @@ def format_rdn_consultation_paid_message(
     amount_uah: int,
     paid_at: Optional[datetime] = None,
     slot_label: Optional[str] = None,
+    description: Optional[str] = None,
 ) -> str:
     """Ukrainian HTML alert for a paid RDN consultation."""
     kyiv = ZoneInfo("Europe/Kyiv")
@@ -68,9 +82,16 @@ def format_rdn_consultation_paid_message(
         "",
         f"Ім'я: {safe_name}",
         f"Телефон: {safe_phone}",
-        f"Сума: <b>{int(amount_uah)} грн</b>",
-        f"Час оплати: {html.escape(time_str)}",
     ]
+    safe_description = html.escape((description or "").strip())
+    if safe_description:
+        lines.append(f"Опис: {safe_description}")
+    lines.extend(
+        [
+            f"Сума: <b>{int(amount_uah)} грн</b>",
+            f"Час оплати: {html.escape(time_str)}",
+        ]
+    )
     if (slot_label or "").strip():
         lines.append(f"Слот: {html.escape(slot_label.strip())}")
     lines.extend(["", "#ОплатаКонсультаціїПоРДН"])

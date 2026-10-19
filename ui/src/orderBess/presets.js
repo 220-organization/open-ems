@@ -375,6 +375,14 @@ export const PRESETS = [
       line('PC-HV-3-3.2m', 3),
     ],
   },
+  {
+    id: 'ubetter-125-241',
+    group: 'cabinet',
+    label: '125 кВт + 241 кВт·год',
+    kw: 125,
+    kwh: 241,
+    lines: [line('UBT-241KNFBN S125-A120P4', 1, '1× Ubetter cabinet')],
+  },
 ];
 
 export const CUSTOM_PRESET_ID = 'custom';
@@ -475,7 +483,7 @@ export function unitPriceUsd(item, businessType) {
     return base == null ? null : Math.round(Number(base) * 100) / 100;
   }
 
-  // FOP — install sheet «Роздріб»; VAT — «Роздріб(з ПДВ)» (all brands, no markup).
+  // FOP — install sheet «Роздріб». VAT payers — that retail price + 20%.
   if (businessType === 'fop') {
     const base = item.retailUsd;
     return base == null ? null : Math.round(Number(base) * 100) / 100;

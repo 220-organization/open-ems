@@ -429,12 +429,14 @@ def _parse_etu_sheet_csv(text: str) -> dict[str, dict[str, Any]]:
 
 
 def _fill_missing_vat(by_article: dict[str, dict[str, Any]]) -> None:
+    """VAT-payer price is always retail + 20%. The sheet «Роздріб (з ПДВ)» column is 13%."""
     for row in by_article.values():
-        if row.get("retailVatUsd") is None and row.get("retailUsd") is not None:
-            try:
-                row["retailVatUsd"] = round(float(row["retailUsd"]) * _UA_VAT, 2)
-            except (TypeError, ValueError):
-                continue
+        if row.get("retailUsd") is None:
+            continue
+        try:
+            row["retailVatUsd"] = round(float(row["retailUsd"]) * _UA_VAT, 2)
+        except (TypeError, ValueError):
+            continue
 
 
 _NO_ARRIVAL_RE = re.compile(
@@ -598,6 +600,21 @@ def _parse_sheet_csv(text: str, *, kind: str) -> tuple[float, dict[str, dict[str
             pw = str(row[power_i] or "").strip()
             if pw and art_u.startswith(("SUN-", "SE-")):
                 name = f"Інвертор Deye {article}, {pw}"
+        # All-in-one cabinets use «Потужність» + «Ємність», not battery chemistry columns.
+        if art_u.startswith("UBT"):
+            pw = (
+                str(row[power_i] or "").strip()
+                if power_i is not None and power_i < len(row)
+                else ""
+            )
+            cap_i_exact = _find_col_exact(headers, "Ємність")
+            cap = (
+                str(row[cap_i_exact] or "").strip()
+                if cap_i_exact is not None and cap_i_exact < len(row)
+                else ""
+            )
+            spec = " / ".join(part for part in (pw, cap) if part)
+            name = f"Шафа Ubetter {article}" + (f", {spec}" if spec else "")
         # Batteries: prefer «Акумулятор …, capacity» over bare chemistry label
         if art_u.startswith(("BALFP", "BAHV")) and cap_i is not None and cap_i < len(row):
             cap = str(row[cap_i] or "").strip()
@@ -617,6 +634,14 @@ def _parse_sheet_csv(text: str, *, kind: str) -> tuple[float, dict[str, dict[str
         availability = ""
         if avail_i is not None and avail_i < len(row):
             availability = str(row[avail_i] or "").strip()
+        if not availability:
+            for cell in row:
+                text = str(cell or "").strip()
+                if not text or _parse_number(text) is not None:
+                    continue
+                if re.search(r"наявност|приход", text, re.I):
+                    availability = text
+                    break
 
         brand = _infer_brand(article, section_brand)
         key = str(int(code_num)) if code_num is not None else article.upper().replace(" ", "")
@@ -695,10 +720,21 @@ def _parse_sheet_csv(text: str, *, kind: str) -> tuple[float, dict[str, dict[str
                 ri = retail_i + shift
                 if ri < len(row):
                     entry["retailUsd"] = _parse_number(row[ri])
+            ignore_price_indexes: set[int] = set()
             if retail_vat_i is not None:
                 rvi = retail_vat_i + shift
                 if rvi < len(row):
-                    entry["retailVatUsd"] = _parse_number(row[rvi])
+                    vat_val = _parse_number(row[rvi])
+                    retail_val = entry.get("retailUsd")
+                    # A «with VAT» cell below the net price is a broken sheet formula, not a discount.
+                    if (
+                        vat_val is not None
+                        and retail_val is not None
+                        and float(vat_val) < float(retail_val)
+                    ):
+                        vat_val = None
+                        ignore_price_indexes.add(rvi)
+                    entry["retailVatUsd"] = vat_val
 
             # Cheapest among price columns only (start at «Інсталятор», not policy text that
             # mentions «інсталятор» in a merged header cell from Google gviz export).
@@ -711,6 +747,8 @@ def _parse_sheet_csv(text: str, *, kind: str) -> tuple[float, dict[str, dict[str
             candidates: list[float] = []
             if price_start is not None:
                 for i in range(price_start, min(price_end, len(row))):
+                    if i in ignore_price_indexes:
+                        continue
                     val = _parse_number(row[i])
                     if val is not None and val > 0:
                         candidates.append(val)

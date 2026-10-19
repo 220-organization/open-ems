@@ -276,19 +276,40 @@
   color: var(--b2b-body, #dad1e6);
 }
 
-.detailCloseBtn {
-  border: none;
-  background: transparent;
-  color: var(--b2b-body-muted, rgba(218, 209, 230, 0.72));
-  font-size: 24px;
-  line-height: 1;
-  cursor: pointer;
-  transition: color 0.2s ease;
+.detailHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
 }
 
+.detailShareBtn,
+.detailCloseBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--b2b-body-muted, rgba(218, 209, 230, 0.72));
+  cursor: pointer;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+
+.detailCloseBtn {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.detailShareBtn:hover,
+.detailShareBtn:focus-visible,
 .detailCloseBtn:hover,
 .detailCloseBtn:focus-visible {
   color: var(--b2b-accent-dim, #ff65c8);
+  background: var(--b2b-card-surface-muted, rgba(249, 76, 175, 0.08));
   outline: none;
 }
 

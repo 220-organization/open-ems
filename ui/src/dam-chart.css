@@ -237,6 +237,13 @@
   box-shadow: 0 0 0 2px rgba(255, 180, 84, 0.35);
 }
 
+.rdn-callback-card__textarea {
+  min-height: 6.5rem;
+  resize: vertical;
+  line-height: 1.45;
+  font: inherit;
+}
+
 .rdn-callback-card__schedule {
   display: flex;
   flex-direction: column;
