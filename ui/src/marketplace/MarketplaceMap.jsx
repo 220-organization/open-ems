@@ -50,6 +50,13 @@ import {
 import { buildMarketplacePayRedirectBase } from "./marketplacePayRedirect";
 import { infoPaymentAmountUah } from "./marketplacePaymentAmounts";
 import MarketplaceModal from "./MarketplaceModal";
+import SharePageModal from "../SharePageModal";
+import { copySharePageUrl } from "../sharePageQr";
+import {
+  buildMarketplaceLocationShareUrl,
+  readSharedMarketplaceLocationId,
+  writeSharedMarketplaceLocationId,
+} from "./ShareButton";
 import styles from "./MarketplaceMap.module.css";
 
 const MAPTILER_API_KEY = "1Lk2s9HJjoiXBR1oqw5a";
@@ -664,7 +671,13 @@ export default function MarketplaceMap({
   const [heatmapPayModalOpen, setHeatmapPayModalOpen] = useState(false);
   const [heatmapPaymentLoading, setHeatmapPaymentLoading] = useState(false);
   const [heatmapPaymentError, setHeatmapPaymentError] = useState("");
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [shareModalUrl, setShareModalUrl] = useState("");
+  const [shareModalCopied, setShareModalCopied] = useState(false);
+  const [shareModalCopyFailed, setShareModalCopyFailed] = useState(false);
   const ownerPdfDownloadKeyRef = useRef("");
+  const sharedFocusIdRef = useRef("");
+  const sharedCameraIdRef = useRef("");
 
   const allItems = useMemo(
     () => [...items, ...lookingItems, ...pendingItems],
@@ -780,12 +793,34 @@ export default function MarketplaceMap({
     [resolveOwnerInfoFromPayment, t],
   );
 
+  const closeSelectedLocation = useCallback(() => {
+    sharedFocusIdRef.current = "";
+    sharedCameraIdRef.current = "";
+    setSelectedItem(null);
+    writeSharedMarketplaceLocationId(null);
+  }, []);
+
   const handleMarkerSelect = useCallback((point) => {
     const item = itemsRef.current.find(
       (row) => String(row.id) === String(point.itemId),
     );
-    if (item) setSelectedItem(item);
+    if (!item) return;
+    sharedFocusIdRef.current = String(item.id);
+    sharedCameraIdRef.current = String(item.id);
+    setSelectedItem(item);
+    writeSharedMarketplaceLocationId(item.id);
   }, []);
+
+  const handleShareSelectedLocation = useCallback(async () => {
+    const item = selectedItem;
+    if (!item?.id) return;
+    const url = buildMarketplaceLocationShareUrl(item.id);
+    const copied = await copySharePageUrl(url);
+    setShareModalUrl(url);
+    setShareModalCopied(copied);
+    setShareModalCopyFailed(!copied);
+    setShareModalOpen(true);
+  }, [selectedItem]);
 
   const requestHeatmapSync = useCallback(
     (map, points) => {
@@ -1097,14 +1132,14 @@ export default function MarketplaceMap({
     if (!map || !selectedItem) return undefined;
 
     const onMapClick = () => {
-      setSelectedItem(null);
+      closeSelectedLocation();
     };
 
     map.on("click", onMapClick);
     return () => {
       map.off("click", onMapClick);
     };
-  }, [selectedItem]);
+  }, [selectedItem, closeSelectedLocation]);
 
   useEffect(() => {
     if (
@@ -1117,8 +1152,35 @@ export default function MarketplaceMap({
       lookingItems.find(
         (row) => String(row.id) === String(paymentReturnLocationId),
       );
-    if (item) setSelectedItem(item);
+    if (item) {
+      sharedFocusIdRef.current = String(item.id);
+      sharedCameraIdRef.current = String(item.id);
+      setSelectedItem(item);
+      writeSharedMarketplaceLocationId(item.id);
+    }
   }, [paymentReturnLocationId, items, lookingItems]);
+
+  useEffect(() => {
+    const sharedId = readSharedMarketplaceLocationId();
+    if (!sharedId || allItems.length === 0) return;
+    const item = allItems.find((row) => String(row.id) === sharedId);
+    if (!item) return;
+    if (sharedFocusIdRef.current !== sharedId) {
+      sharedFocusIdRef.current = sharedId;
+      setSelectedItem(item);
+    }
+    if (!mapReady || sharedCameraIdRef.current === sharedId) return;
+    const map = mapRef.current;
+    const point = (item.locations || [])[0];
+    if (!map || !point) return;
+    sharedCameraIdRef.current = sharedId;
+    const zoom = typeof map.getZoom === "function" ? map.getZoom() : DEFAULT_ZOOM;
+    map.easeTo({
+      center: [point.lng, point.lat],
+      zoom: zoom < 8 ? 8 : zoom,
+      duration: 700,
+    });
+  }, [allItems, mapReady]);
 
   useEffect(() => {
     if (!paymentReturnId || !isMarketplaceApiConfigured()) return undefined;
@@ -1375,14 +1437,36 @@ export default function MarketplaceMap({
               <h3 className={styles.detailTitle}>
                 {t(selectedDetailTitleKey)}
               </h3>
-              <button
-                type="button"
-                className={styles.detailCloseBtn}
-                onClick={() => setSelectedItem(null)}
-                aria-label={t("marketplaceClose")}
-              >
-                ×
-              </button>
+              <div className={styles.detailHeaderActions}>
+                <button
+                  type="button"
+                  className={styles.detailShareBtn}
+                  onClick={() => void handleShareSelectedLocation()}
+                  aria-label={t("marketplaceShareLocationAria")}
+                  title={t("marketplaceShareLocationAria")}
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="18"
+                    height="18"
+                    aria-hidden="true"
+                    focusable="false"
+                  >
+                    <path
+                      fill="currentColor"
+                      d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"
+                    />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className={styles.detailCloseBtn}
+                  onClick={closeSelectedLocation}
+                  aria-label={t("marketplaceClose")}
+                >
+                  ×
+                </button>
+              </div>
             </div>
 
             {selectedIsPending ? (
@@ -1503,6 +1587,20 @@ export default function MarketplaceMap({
           ) : null}
         </div>
       </MarketplaceModal>
+
+      <SharePageModal
+        open={shareModalOpen}
+        url={shareModalUrl}
+        copied={shareModalCopied}
+        copyFailed={shareModalCopyFailed}
+        onClose={() => setShareModalOpen(false)}
+        t={t}
+        shareText={
+          selectedItem
+            ? `${t("marketplaceShareText")}\n${t(selectedDetailTitleKey)}`
+            : t("marketplaceShareText")
+        }
+      />
     </section>
   );
 }

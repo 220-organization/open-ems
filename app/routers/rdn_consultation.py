@@ -45,6 +45,7 @@ class PayCreateRequest(BaseModel):
     name: Optional[str] = Field(None, max_length=200)
     phone: Optional[str] = Field(None, max_length=40)
     slot_id: Optional[str] = Field(None, max_length=32)
+    description: str = Field(..., min_length=1, max_length=2000)
 
 
 class PayCreateResponse(BaseModel):
@@ -63,6 +64,7 @@ class PayStatusResponse(BaseModel):
     phone: Optional[str] = None
     slot_id: Optional[str] = None
     slot_label: Optional[str] = None
+    description: Optional[str] = None
 
 
 class TovInvoiceRequest(BaseModel):
@@ -81,6 +83,7 @@ class PayTestRequest(BaseModel):
     name: Optional[str] = Field(None, max_length=200)
     phone: Optional[str] = Field(None, max_length=40)
     slot_id: Optional[str] = Field(None, max_length=32)
+    description: str = Field(..., min_length=1, max_length=2000)
 
 
 def _public_webhook_url(request: Request) -> Optional[str]:
@@ -89,6 +92,15 @@ def _public_webhook_url(request: Request) -> Optional[str]:
         return None
     proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "https").split(",")[0].strip()
     return f"{proto}://{host}/api/rdn-consultation/webhook"
+
+
+def _require_description(raw: Optional[str]) -> str:
+    text = (raw or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="description is required")
+    if len(text) > 2000:
+        raise HTTPException(status_code=400, detail="description is too long")
+    return text
 
 
 def _require_slot(slot_id: Optional[str]) -> tuple[str, str]:
@@ -113,6 +125,7 @@ def _status_response(payment_id: str, row: dict) -> PayStatusResponse:
         phone=row.get("phone"),
         slot_id=row.get("slot_id"),
         slot_label=row.get("slot_label"),
+        description=row.get("description"),
     )
 
 
@@ -127,6 +140,7 @@ async def _notify_rdn_paid(row: dict) -> None:
         phone=row.get("phone") or "",
         amount_uah=int(row.get("amount_uah") or 0),
         slot_label=row.get("slot_label"),
+        description=row.get("description"),
     )
     ok = await send_telegram_message(msg)
     if ok:
@@ -165,6 +179,7 @@ async def create_pay(payload: PayCreateRequest, request: Request) -> PayCreateRe
             detail=f"amount_uah must be between {MIN_AMOUNT_UAH} and {MAX_AMOUNT_UAH}",
         )
     slot_id, slot_label = _require_slot(payload.slot_id)
+    description = _require_description(payload.description)
     payment_id = str(uuid.uuid4())
     redirect_url = with_query(payload.redirect_url, rdnConsultPayment=payment_id)
     try:
@@ -192,6 +207,7 @@ async def create_pay(payload: PayCreateRequest, request: Request) -> PayCreateRe
         "phone": (payload.phone or "").strip() or None,
         "slot_id": slot_id,
         "slot_label": slot_label,
+        "description": description,
         "status": "created",
     }
     return PayCreateResponse(
@@ -227,6 +243,7 @@ class InvoiceStatusRequest(BaseModel):
     name: Optional[str] = Field(None, max_length=200)
     phone: Optional[str] = Field(None, max_length=40)
     slot_id: Optional[str] = Field(None, max_length=32)
+    description: Optional[str] = Field(None, max_length=2000)
 
 
 @router.post("/invoice-status", response_model=PayStatusResponse)
@@ -251,6 +268,7 @@ async def post_invoice_status(payload: InvoiceStatusRequest) -> PayStatusRespons
             "phone": (payload.phone or "").strip() or None,
             "slot_id": slot_id,
             "slot_label": slot_label_uk(slot_id) if slot_id else None,
+            "description": (payload.description or "").strip() or None,
             "status": remote,
         }
         _PENDING[f"invoice:{invoice_id}"] = row
@@ -264,6 +282,8 @@ async def post_invoice_status(payload: InvoiceStatusRequest) -> PayStatusRespons
             sid = payload.slot_id.strip()
             row["slot_id"] = sid
             row["slot_label"] = slot_label_uk(sid)
+        if payload.description and payload.description.strip():
+            row["description"] = payload.description.strip()
     if remote in SUCCESS_STATUSES:
         await _notify_rdn_paid(row)
     return _status_response("", row)
@@ -303,6 +323,7 @@ async def create_test_pay(payload: PayTestRequest) -> PayStatusResponse:
             detail=f"amount_uah must be between {MIN_AMOUNT_UAH} and {MAX_AMOUNT_UAH}",
         )
     slot_id, slot_label = _require_slot(payload.slot_id)
+    description = _require_description(payload.description)
     payment_id = str(uuid.uuid4())
     invoice_id = f"local-test-{payment_id}"
     _PENDING[payment_id] = {
@@ -312,6 +333,7 @@ async def create_test_pay(payload: PayTestRequest) -> PayStatusResponse:
         "phone": (payload.phone or "").strip() or None,
         "slot_id": slot_id,
         "slot_label": slot_label,
+        "description": description,
         "status": "SUCCESS",
     }
     await _notify_rdn_paid(_PENDING[payment_id])
