@@ -854,6 +854,7 @@
   "orderBessPreset": "Potencia / capacidad",
   "orderBessPresetLv": "Baja tensión",
   "orderBessPresetHv": "Alta tensión",
+  "orderBessPresetCabinet": "Armarios Ubetter",
   "orderBessPresetCustom": "Personalizado",
   "orderBessCustomBtn": "Seleccionar manualmente",
   "orderBessSelectKw": "Potencia del inversor",

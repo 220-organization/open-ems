@@ -869,6 +869,7 @@
   "orderBessPreset": "Потужність / ємність",
   "orderBessPresetLv": "Низьковольтні",
   "orderBessPresetHv": "Високовольтні",
+  "orderBessPresetCabinet": "Шафи Ubetter",
   "orderBessPresetCustom": "Довільний",
   "orderBessCustomBtn": "Обрати в ручну",
   "orderBessSelectKw": "Потужність інвертора",
