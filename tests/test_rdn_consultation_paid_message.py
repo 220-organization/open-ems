@@ -34,8 +34,8 @@ class TestRdnConsultationPaidMessage(unittest.TestCase):
 
     def test_support_tag_is_appended_once(self) -> None:
         tagged = tag_open_ems_support_message("Ім'я: Тест\n\n#ОплатаКонсультаціїПоРДН")
-        self.assertTrue(tagged.endswith("\n\n#open-ems"))
-        self.assertEqual(tagged.count("#open-ems"), 1)
+        self.assertTrue(tagged.endswith("\n\n#open_ems"))
+        self.assertEqual(tagged.count("#open_ems"), 1)
         self.assertEqual(tag_open_ems_support_message(tagged), tagged)
 
 
