@@ -21,10 +21,11 @@ from app.deye_energy_backfill_payment import (
     access_password_ok,
     backfill_amount_uah,
     create_backfill_invoice,
+    is_backfill_free_enabled,
     with_query as backfill_with_query,
 )
 from app.deye_energy_backfill_service import backfill_device_period, period_dates_kyiv
-from app.rdn_consultation_payment import fetch_invoice_status, is_test_payment_enabled
+from app.rdn_consultation_payment import fetch_invoice_status
 from app.deye_api import (
     assert_deye_write_pin,
     assert_inverter_owned,
@@ -92,6 +93,7 @@ from app.deye_roi_service import (
 from app.deye_soc_service import (
     hourly_inverter_history_for_kyiv_day,
     hourly_inverter_history_for_kyiv_day_cluster,
+    kyiv_day_has_energy_backfill,
 )
 from app.solar_clear_sky import kyiv_day_hourly_clear_sky_weights
 from app.solar_forecast_open_meteo import (
@@ -604,6 +606,7 @@ async def get_soc_history_day(
             hourly_soc, hourly_grid_w, hourly_grid_hz, hourly_pv_kwh, hourly_load_kwh, _ = (
                 await hourly_inverter_history_for_kyiv_day(db, deviceSn, trade_day)
             )
+        energy_backfilled = await kyiv_day_has_energy_backfill(db, cluster or [deviceSn.strip()], trade_day)
         return JSONResponse(
             content={
                 "ok": True,
@@ -616,6 +619,7 @@ async def get_soc_history_day(
                 "hourlyGridFrequencyHz": hourly_grid_hz,
                 "hourlyPvKwh": hourly_pv_kwh,
                 "hourlyLoadKwh": hourly_load_kwh,
+                "energyBackfilled": energy_backfilled,
             },
             headers=_NO_STORE_CACHE,
         )
@@ -721,6 +725,14 @@ async def get_soc_history_totals(
         except Exception:
             logger.exception("GET /api/deye/soc-history-totals — Deye Cloud station/history failed")
             deye_cloud_error = True
+        # Exact Open EMS kWh only when every day in the period has a Cloud backfill row.
+        energy_backfilled = False
+        if period_days:
+            checks = [
+                await kyiv_day_has_energy_backfill(db, cluster or [deviceSn.strip()], day)
+                for day in period_days
+            ]
+            energy_backfilled = bool(checks) and all(checks)
         return JSONResponse(
             content={
                 "ok": True,
@@ -734,6 +746,7 @@ async def get_soc_history_totals(
                 "importKwh": sum_import if any_import else None,
                 "daysRequested": len(period_days),
                 "daysWithData": days_with_data,
+                "energyBackfilled": energy_backfilled,
                 "deyeCloud": deye_cloud,
                 "deyeCloudError": deye_cloud_error,
             },
@@ -768,14 +781,15 @@ async def get_energy_backfill_quote(
         raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD") from exc
     if int(quote["daysCount"]) < 1:
         raise HTTPException(status_code=400, detail="no_days_in_period")
-    # Local ./run-local.sh (OPEN_EMS_SERVE_SPA=0): no Monobank / access password gate.
-    payment_required = not is_test_payment_enabled()
+    # Prod always requires Monobank (or AA9220YD). Free only with DEYE_BACKFILL_ALLOW_FREE=1.
+    payment_required = not is_backfill_free_enabled()
     return JSONResponse(
         content={
             "ok": True,
             "configured": True,
             "deviceSn": sn,
             "paymentRequired": payment_required,
+            "localFreeEnabled": not payment_required,
             **quote,
         },
         headers=_NO_STORE_CACHE,
@@ -869,7 +883,7 @@ async def post_energy_backfill_pay(
 @router.post("/energy-backfill/pay-test")
 async def post_energy_backfill_pay_test(body: EnergyBackfillPayBody) -> JSONResponse:
     """Local-only: mark a backfill payment as SUCCESS without Monobank."""
-    if not is_test_payment_enabled():
+    if not is_backfill_free_enabled():
         raise HTTPException(status_code=404, detail="not found")
     if not deye_configured():
         return JSONResponse(
@@ -991,9 +1005,9 @@ async def post_energy_backfill(body: EnergyBackfillBody) -> JSONResponse:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD") from exc
 
-    # Local ./run-local.sh: skip payment + inverter PIN. Otherwise require access
-    # password (AA9220YD, also accepted from the pin field) or a paid paymentId.
-    local_skip = is_test_payment_enabled()
+    # Local DEYE_BACKFILL_ALLOW_FREE=1: skip payment + inverter PIN. Otherwise require
+    # access password (AA9220YD, also accepted from the pin field) or a paid paymentId.
+    local_skip = is_backfill_free_enabled()
     access_ok = access_password_ok(body.accessPassword) or access_password_ok(body.pin)
     if not local_skip and not access_ok:
         await assert_deye_write_pin(sn, body.pin)

@@ -20,7 +20,6 @@ import HuaweiTotalsPanel from './HuaweiTotalsPanel';
 import UbetterTotalsPanel from './UbetterTotalsPanel';
 import GridLabTotalsPanel from './GridLabTotalsPanel';
 import DeyeTotalsPanel from './DeyeTotalsPanel';
-import KwhDisplay from './KwhDisplay';
 import { useKwhCalibration } from './KwhCalibrationContext';
 import { useTheme } from './useTheme';
 import { VYRIY_EMS_LOGO_SRC } from './vyriyEmsLogo';
@@ -250,55 +249,6 @@ function getHourlyDamPerKwhFromPayload(p) {
     return p.hourlyPriceDamUahPerKwh;
   }
   return null;
-}
-
-/** DAM price in UAH/kWh for billing; primary ENTSO-E series is EUR/kWh until scaled by NBU rate. */
-function hourlyDamPriceUahPerKwhFromRow(row, damMarket, eurUahRate) {
-  if (row.damPriceKwh == null || !Number.isFinite(row.damPriceKwh)) return null;
-  if (damMarket === 'oree') return row.damPriceKwh;
-  if (eurUahRate != null && eurUahRate > 0) return row.damPriceKwh * eurUahRate;
-  return null;
-}
-
-/**
- * Per calendar hour h (one row): import kWh from grid (gridKw > 0) and export kWh (gridKw < 0).
- * Same rule as landing ``arbitrageRevenueUah`` SQL: only hours with a DAM price contribute.
- *
- *   hour_net_UAH = +export_kWh × DAM_UAH/kWh − import_kWh × DAM_UAH/kWh
- *
- * Day arbitrage = Σ hour_net. Import/export lines still use volume-weighted averages from the same sums.
- */
-function computeDamWeightedGridMoneyUah(rows, damMarket, eurUahRate) {
-  let importKwh = 0;
-  let exportKwh = 0;
-  let importUah = 0;
-  let exportUah = 0;
-  let netArbitrageUah = 0;
-  let anyHourWithDamAndGrid = false;
-  for (const r of rows) {
-    const g = r.gridKw;
-    if (g == null || !Number.isFinite(g)) continue;
-    const pUah = hourlyDamPriceUahPerKwhFromRow(r, damMarket, eurUahRate);
-    if (pUah == null) continue;
-    const impKwh = g > 0 ? g : 0;
-    const expKwh = g < 0 ? -g : 0;
-    if (impKwh <= 0 && expKwh <= 0) continue;
-    anyHourWithDamAndGrid = true;
-    importKwh += impKwh;
-    exportKwh += expKwh;
-    importUah += impKwh * pUah;
-    exportUah += expKwh * pUah;
-    netArbitrageUah += expKwh * pUah - impKwh * pUah;
-  }
-  return {
-    importKwhWeighted: importKwh,
-    exportKwhWeighted: exportKwh,
-    importCostUah: importKwh > 0 ? importUah : null,
-    exportValueUah: exportKwh > 0 ? exportUah : null,
-    importAvgUahPerKwh: importKwh > 0 ? importUah / importKwh : null,
-    exportAvgUahPerKwh: exportKwh > 0 ? exportUah / exportKwh : null,
-    netArbitrageUah: anyHourWithDamAndGrid ? netArbitrageUah : null,
-  };
 }
 
 function readDamChartParamsFromUrl() {
@@ -849,6 +799,9 @@ export default function DamChartPanel({
   const [socPayload, setSocPayload] = useState(null);
   const [socError, setSocError] = useState('');
   const [socLoading, setSocLoading] = useState(false);
+  /** After Deye Cloud backfill, day kWh are exact counters — drop ``~`` approximation. */
+  const energyBackfilled = Boolean(socPayload?.energyBackfilled);
+  const energyIsApproximate = isApproximate && !energyBackfilled;
   /** Live grid power (W, Deye signed); used when hourly DB aggregates are missing. */
   const [liveGridPowerW, setLiveGridPowerW] = useState(null);
   const [liveLoadPowerW, setLiveLoadPowerW] = useState(null);
@@ -1336,9 +1289,18 @@ export default function DamChartPanel({
     const pollId = setInterval(() => {
       loadSoc(false);
     }, 60_000);
+    const onBackfillDone = ev => {
+      const sn = String(ev?.detail?.deviceSn || '').trim();
+      const day = String(ev?.detail?.date || '').trim();
+      if (sn && effectiveInverterSn && sn !== effectiveInverterSn) return;
+      if (day && day !== tradeDay) return;
+      loadSoc(false);
+    };
+    window.addEventListener('deye-energy-backfill-done', onBackfillDone);
     return () => {
       cancelled = true;
       clearInterval(pollId);
+      window.removeEventListener('deye-energy-backfill-done', onBackfillDone);
     };
   }, [tradeDay, effectiveInverterSn, effectiveUbetterDevice, effectiveGridlabDevice, effectiveHuaweiStation]);
 
@@ -1822,110 +1784,6 @@ export default function DamChartPanel({
   }, [rows]);
 
   const pvLoadYTicks = useMemo(() => fiveSymmetricTicks(pvLoadDomain[0], pvLoadDomain[1]), [pvLoadDomain]);
-
-  /** Approximate kWh for the selected Kyiv calendar day from hourly series (kW·h for grid; kWh per hour for PV/load). */
-  const damDayEnergyTotals = useMemo(() => {
-    if (!rows.length) {
-      return {
-        importKwh: null,
-        exportKwh: null,
-        generationKwh: null,
-        consumptionKwh: null,
-        lostSolarKwh: null,
-      };
-    }
-    let importKwh = 0;
-    let exportKwh = 0;
-    let generationKwh = 0;
-    let consumptionKwh = 0;
-    let anyImport = false;
-    let anyExport = false;
-    let anyGen = false;
-    let anyCons = false;
-    for (const r of rows) {
-      const g = r.gridKw;
-      if (g != null && Number.isFinite(g)) {
-        if (g > 0) {
-          importKwh += g;
-          anyImport = true;
-        } else if (g < 0) {
-          exportKwh += -g;
-          anyExport = true;
-        }
-      }
-      const pv = r.pvKwh;
-      if (pv != null && Number.isFinite(pv)) {
-        generationKwh += Math.max(0, pv);
-        anyGen = true;
-      }
-      const c = r.consKwhNeg;
-      if (c != null && Number.isFinite(c)) {
-        consumptionKwh += Math.abs(c);
-        anyCons = true;
-      }
-    }
-    const lostSolarKwh =
-      lostSolarForecast != null && Number.isFinite(lostSolarForecast.totalKwh) ? lostSolarForecast.totalKwh : null;
-    return {
-      importKwh: anyImport ? importKwh : null,
-      exportKwh: anyExport ? exportKwh : null,
-      generationKwh: anyGen ? generationKwh : null,
-      consumptionKwh: anyCons ? consumptionKwh : null,
-      lostSolarKwh,
-    };
-  }, [rows, lostSolarForecast]);
-
-  const damGridWeightedMoneyUah = useMemo(() => {
-    if (!(effectiveInverterSn || effectiveHuaweiStation || effectiveEvPortsAcdc) || !rows.length) return null;
-    return computeDamWeightedGridMoneyUah(rows, damMarket, eurUahRate);
-  }, [rows, damMarket, eurUahRate, effectiveInverterSn, effectiveHuaweiStation, effectiveEvPortsAcdc]);
-
-  const damGridMoneyPartialNote = useMemo(() => {
-    if (!damGridWeightedMoneyUah) return false;
-    const imp =
-      damDayEnergyTotals.importKwh != null &&
-      damDayEnergyTotals.importKwh - damGridWeightedMoneyUah.importKwhWeighted > 0.05;
-    const exp =
-      damDayEnergyTotals.exportKwh != null &&
-      damDayEnergyTotals.exportKwh - damGridWeightedMoneyUah.exportKwhWeighted > 0.05;
-    return Boolean(imp || exp);
-  }, [damGridWeightedMoneyUah, damDayEnergyTotals.importKwh, damDayEnergyTotals.exportKwh]);
-
-  /** Σ_h (+export_kWh×DAM − import_kWh×DAM); same hour logic as landing-totals ``arbitrageRevenueUah``. */
-  const damArbitrageRevenueDisplay = useMemo(() => {
-    const hasGridActivity = damDayEnergyTotals.importKwh != null || damDayEnergyTotals.exportKwh != null;
-    if (!damGridWeightedMoneyUah) {
-      return { value: null, showDamUnavailable: Boolean(hasGridActivity) };
-    }
-    const net = damGridWeightedMoneyUah.netArbitrageUah;
-    if (net == null) {
-      return { value: null, showDamUnavailable: Boolean(hasGridActivity) };
-    }
-    return { value: net, showDamUnavailable: false };
-  }, [damGridWeightedMoneyUah, damDayEnergyTotals.importKwh, damDayEnergyTotals.exportKwh]);
-
-  /** Hide grid arbitrage line when there was no grid export energy this Kyiv day (import-only is not arbitrage UX here). */
-  const showDamGridArbitrageRow = useMemo(() => {
-    const ex = damDayEnergyTotals.exportKwh;
-    return ex != null && Number.isFinite(ex) && ex > 1e-9;
-  }, [damDayEnergyTotals.exportKwh]);
-
-  const damMoneyDisplayEur = preferEurDisplay && eurUahRate > 0;
-  const damEnergyUnavailableLabel = preferEurDisplay
-    ? t('damEnergyDamEurUnavailable')
-    : t('damEnergyDamUahUnavailable');
-  const formatDamEnergyMoneyLine = (kind, costUah, avgUah) => {
-    if (damMoneyDisplayEur) {
-      return t(kind === 'import' ? 'damEnergyGridImportDamLineEur' : 'damEnergyGridExportDamLineEur', {
-        eur: fmtEur.format(costUah / eurUahRate),
-        avg: fmtEur.format(avgUah / eurUahRate),
-      });
-    }
-    return t(kind === 'import' ? 'damEnergyGridImportDamLine' : 'damEnergyGridExportDamLine', {
-      uah: fmtUah.format(costUah),
-      avg: fmtUah.format(avgUah),
-    });
-  };
 
   const hzDomain = useMemo(() => {
     const vals = rows.map(r => r.gridFreqHz).filter(v => v != null && Number.isFinite(v));
@@ -2851,100 +2709,6 @@ export default function DamChartPanel({
               <span className="dam-grid-bars-caption">{t('damGridBarsCaption')}</span>
             </summary>
             <div className="dam-energy-bars-details-body">
-            <ul className="dam-day-energy-totals dam-day-energy-totals--grid" aria-label={t('damEnergyTotalsGridAria')}>
-              <li className="dam-day-energy-totals__item">
-                <span className="dam-day-energy-totals__swatch" style={{ background: '#f59e0b' }} aria-hidden />
-                <div className="dam-day-energy-totals__stack">
-                  <span className="dam-day-energy-totals__text">
-                    {t('damEnergyTotalImport')}:{` `}
-                    <span className="dam-day-energy-totals__value">
-                      <KwhDisplay
-                        value={damDayEnergyTotals.importKwh}
-                        fmt={fmt1}
-                        unit={t('damEnergyKwhUnit')}
-                      />
-                    </span>
-                  </span>
-                  {damDayEnergyTotals.importKwh != null && damGridWeightedMoneyUah?.importCostUah != null ? (
-                    <span className="dam-day-energy-totals__dam-sub">
-                      {preferEurDisplay && !damMoneyDisplayEur
-                        ? damEnergyUnavailableLabel
-                        : formatDamEnergyMoneyLine(
-                            'import',
-                            damGridWeightedMoneyUah.importCostUah,
-                            damGridWeightedMoneyUah.importAvgUahPerKwh
-                          )}
-                    </span>
-                  ) : null}
-                  {damDayEnergyTotals.importKwh != null &&
-                  damGridWeightedMoneyUah &&
-                  damGridWeightedMoneyUah.importCostUah == null ? (
-                    <span className="dam-day-energy-totals__dam-sub">{damEnergyUnavailableLabel}</span>
-                  ) : null}
-                </div>
-              </li>
-              <li className="dam-day-energy-totals__item">
-                <span className="dam-day-energy-totals__swatch" style={{ background: '#38bdf8' }} aria-hidden />
-                <div className="dam-day-energy-totals__stack">
-                  <span className="dam-day-energy-totals__text">
-                    {t('damEnergyTotalExport')}:{` `}
-                    <span className="dam-day-energy-totals__value">
-                      <KwhDisplay
-                        value={damDayEnergyTotals.exportKwh}
-                        fmt={fmt1}
-                        unit={t('damEnergyKwhUnit')}
-                      />
-                    </span>
-                  </span>
-                  {damDayEnergyTotals.exportKwh != null && damGridWeightedMoneyUah?.exportValueUah != null ? (
-                    <span className="dam-day-energy-totals__dam-sub">
-                      {preferEurDisplay && !damMoneyDisplayEur
-                        ? damEnergyUnavailableLabel
-                        : formatDamEnergyMoneyLine(
-                            'export',
-                            damGridWeightedMoneyUah.exportValueUah,
-                            damGridWeightedMoneyUah.exportAvgUahPerKwh
-                          )}
-                    </span>
-                  ) : null}
-                  {damDayEnergyTotals.exportKwh != null &&
-                  damGridWeightedMoneyUah &&
-                  damGridWeightedMoneyUah.exportValueUah == null ? (
-                    <span className="dam-day-energy-totals__dam-sub">{damEnergyUnavailableLabel}</span>
-                  ) : null}
-                </div>
-              </li>
-              {showDamGridArbitrageRow ? (
-                <li className="dam-day-energy-totals__item">
-                  <span className="dam-day-energy-totals__swatch" style={{ background: '#4ade80' }} aria-hidden />
-                  <div className="dam-day-energy-totals__stack">
-                    <span className="dam-day-energy-totals__text">
-                      {t('damEnergyArbitrageRevenue')}:{` `}
-                      <span className="dam-day-energy-totals__value">
-                        {damArbitrageRevenueDisplay.value != null
-                          ? preferEurDisplay && !damMoneyDisplayEur
-                            ? '—'
-                            : damMoneyDisplayEur
-                              ? `${fmtEur.format(damArbitrageRevenueDisplay.value / eurUahRate)} ${t('roiValueEurUnit')}`
-                              : `${fmtUah.format(damArbitrageRevenueDisplay.value)} ${t('roiValueUahUnit')}`
-                          : '—'}
-                      </span>
-                    </span>
-                    {damArbitrageRevenueDisplay.showDamUnavailable ? (
-                      <span className="dam-day-energy-totals__dam-sub">{damEnergyUnavailableLabel}</span>
-                    ) : null}
-                    {damArbitrageRevenueDisplay.value != null ? (
-                      <span className="dam-day-energy-totals__dam-sub">{t('damEnergyArbitrageRevenueSub')}</span>
-                    ) : null}
-                  </div>
-                </li>
-              ) : null}
-            </ul>
-            {damGridMoneyPartialNote ? (
-              <p className="dam-grid-dam-money-footnote" role="note">
-                {t('damEnergyDamPartialHoursNote')}
-              </p>
-            ) : null}
             {renderSectionDateBar(tradeDayGridInputRef, 'grid', 'dam-date-bar--above-chart')}
             <ResponsiveContainer width="100%" height={gridBarH}>
               <ComposedChart data={rows} syncId="dam-day" margin={damComposedChartMargin} isAnimationActive={false}>
@@ -3017,7 +2781,7 @@ export default function DamChartPanel({
                     if (raw != null && raw !== '') {
                       const kw = Number(raw);
                       if (Number.isFinite(kw)) {
-                        if (isApproximate) {
+                        if (energyIsApproximate) {
                           valueLine =
                             kw < 0
                               ? `~- ${fmt1.format(Math.abs(kw))} ${unit}`
@@ -3099,50 +2863,6 @@ export default function DamChartPanel({
               <span className="dam-grid-bars-caption">{t('damPvLoadBarsCaption')}</span>
             </summary>
             <div className="dam-energy-bars-details-body">
-            <ul
-              className="dam-day-energy-totals dam-day-energy-totals--pv-load"
-              aria-label={t('damEnergyTotalsPvLoadAria')}
-            >
-              <li className="dam-day-energy-totals__item">
-                <span className="dam-day-energy-totals__swatch" style={{ background: '#22c55e' }} aria-hidden />
-                <span className="dam-day-energy-totals__text">
-                  {t('damEnergyTotalGeneration')}:{` `}
-                  <span className="dam-day-energy-totals__value">
-                    <KwhDisplay
-                      value={damDayEnergyTotals.generationKwh}
-                      fmt={fmt1}
-                      unit={t('damEnergyKwhUnit')}
-                    />
-                  </span>
-                </span>
-              </li>
-              <li className="dam-day-energy-totals__item">
-                <span className="dam-day-energy-totals__swatch" style={{ background: '#fb923c' }} aria-hidden />
-                <span className="dam-day-energy-totals__text">
-                  {t('damEnergyTotalConsumption')}:{` `}
-                  <span className="dam-day-energy-totals__value">
-                    <KwhDisplay
-                      value={damDayEnergyTotals.consumptionKwh}
-                      fmt={fmt1}
-                      unit={t('damEnergyKwhUnit')}
-                    />
-                  </span>
-                </span>
-              </li>
-              <li className="dam-day-energy-totals__item">
-                <span className="dam-day-energy-totals__swatch" style={{ background: '#facc15' }} aria-hidden />
-                <span className="dam-day-energy-totals__text">
-                  {t('damEnergyTotalLostSolar')}:{` `}
-                  <span className="dam-day-energy-totals__value">
-                    <KwhDisplay
-                      value={damDayEnergyTotals.lostSolarKwh}
-                      fmt={fmt1}
-                      unit={t('damEnergyKwhUnit')}
-                    />
-                  </span>
-                </span>
-              </li>
-            </ul>
             {renderSectionDateBar(tradeDayPvInputRef, 'pv', 'dam-date-bar--above-chart')}
             <ResponsiveContainer width="100%" height={gridBarH}>
               <ComposedChart data={rows} syncId="dam-day" margin={damComposedChartMargin} isAnimationActive={false}>
@@ -3172,7 +2892,9 @@ export default function DamChartPanel({
                   hide={damChartMobile}
                   tick={{ fill: CHART.axisTextMuted, fontSize: 10 }}
                   tickLine={false}
-                  tickFormatter={v => (isApproximate ? `~ ${fmtKwhTick.format(v)}` : fmtKwhTick.format(v))}
+                  tickFormatter={v =>
+                    energyIsApproximate ? `~ ${fmtKwhTick.format(v)}` : fmtKwhTick.format(v)
+                  }
                   label={{
                     value: t('damPvLoadEnergyAxis'),
                     angle: -90,
@@ -3210,14 +2932,20 @@ export default function DamChartPanel({
                     if (!active || !payload?.length) return null;
                     const row = payload[0]?.payload;
                     const unit = t('damEnergyKwhUnit');
-                    const genVal = formatEnergyKwh(row?.pvKwh, fmt1, unit);
+                    const genVal = energyBackfilled
+                      ? row?.pvKwh != null && Number.isFinite(Number(row.pvKwh))
+                        ? `${fmt1.format(Number(row.pvKwh))} ${unit}`
+                        : `— ${unit}`
+                      : formatEnergyKwh(row?.pvKwh, fmt1, unit);
                     const consRaw = row?.consKwhNeg;
                     const consVal =
                       consRaw != null &&
                       consRaw !== '' &&
                       Number.isFinite(Number(consRaw)) &&
                       Number.isFinite(Math.abs(Number(consRaw)))
-                        ? formatEnergyKwh(Math.abs(Number(consRaw)), fmt1, unit)
+                        ? energyBackfilled
+                          ? `${fmt1.format(Math.abs(Number(consRaw)))} ${unit}`
+                          : formatEnergyKwh(Math.abs(Number(consRaw)), fmt1, unit)
                         : '—';
                     const genLine = `${t('damPvLoadTooltipGen')}: ${genVal}`;
                     const consLine = `${t('damPvLoadTooltipCons')}: ${consVal}`;

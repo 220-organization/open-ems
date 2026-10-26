@@ -269,6 +269,21 @@ class TestBackfillPaymentGate(unittest.TestCase):
         self.assertFalse(access_password_ok(""))
         self.assertFalse(access_password_ok(None))
 
+    def test_free_backfill_only_with_explicit_env(self) -> None:
+        import os
+
+        from app.deye_energy_backfill_payment import is_backfill_free_enabled
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("DEYE_BACKFILL_ALLOW_FREE", None)
+            self.assertFalse(is_backfill_free_enabled())
+        with patch.dict(os.environ, {"DEYE_BACKFILL_ALLOW_FREE": "1"}, clear=False):
+            self.assertTrue(is_backfill_free_enabled())
+        with patch.dict(os.environ, {"OPEN_EMS_SERVE_SPA": "0"}, clear=False):
+            os.environ.pop("DEYE_BACKFILL_ALLOW_FREE", None)
+            # SPA=0 alone must not unlock free backfill (prod also uses SPA=0).
+            self.assertFalse(is_backfill_free_enabled())
+
     def test_access_password_bypasses_payment_gate_helper(self) -> None:
         """AA9220YD is accepted from either accessPassword or pin field."""
         from app.deye_energy_backfill_payment import access_password_ok

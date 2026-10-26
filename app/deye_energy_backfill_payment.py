@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hmac
 import logging
+import os
 from typing import Any, Dict, Optional
 
 from app.rdn_consultation_payment import (
@@ -20,6 +21,16 @@ BACKFILL_ACCESS_PASSWORD = "AA9220YD"
 BACKFILL_PAYMENT_DESCRIPTION = "Open EMS · Deye kWh backfill"
 BACKFILL_MAX_DAYS = 400
 BACKFILL_MAX_AMOUNT_UAH = BACKFILL_UAH_PER_DAY * BACKFILL_MAX_DAYS
+
+
+def is_backfill_free_enabled() -> bool:
+    """
+    Free backfill without Monobank — local ./run-local.sh only.
+
+    Do **not** key off OPEN_EMS_SERVE_SPA: production can also run SPA=0 and must still charge.
+    """
+    raw = (os.environ.get("DEYE_BACKFILL_ALLOW_FREE") or "").strip().lower()
+    return raw in ("1", "true", "yes", "on")
 
 
 def backfill_amount_uah(days: int) -> int:

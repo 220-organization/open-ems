@@ -1135,5 +1135,7 @@
   "adminColViews": "Views",
   "adminColStatus": "Status",
   "adminColCreated": "Created",
-  "adminColActions": "Actions"
+  "adminColActions": "Actions",
+  "deyeBackfillLocalBypass": "Local bypass (free)",
+  "damEnergyBackfillNote": "kWh for this day come from Deye Cloud counters (backfilled) — not approximate samples."
 }

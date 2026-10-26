@@ -477,5 +477,7 @@
   "deyeBackfillUnlock": "Unlock",
   "marketplaceLeadFormCommentLabel": "Comment",
   "marketplaceLeadFormCommentPlaceholder": "Additional details (optional)",
-  "adminFieldComment": "Comment"
+  "adminFieldComment": "Comment",
+  "deyeBackfillLocalBypass": "Lokale bypass (gratis)",
+  "damEnergyBackfillNote": "kWh voor deze dag komen van Deye Cloud-tellers (backfill) — geen geschatte samples."
 }

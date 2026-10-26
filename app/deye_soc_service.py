@@ -248,6 +248,30 @@ def _effective_pv_watts_for_sample(
     return float(effective_pv_generation_watts(device_sn, float(pv_w)))
 
 
+async def kyiv_day_has_energy_backfill(
+    session: AsyncSession,
+    device_sns: list[str],
+    trade_day: date,
+) -> bool:
+    """True when at least one ``deye_hourly_energy`` row exists for the Kyiv calendar day."""
+    sns = sorted({(s or "").strip() for s in device_sns if (s or "").strip()})
+    if not sns:
+        return False
+    start_kyiv, end_kyiv = _kyiv_day_bounds(trade_day)
+    start_utc = start_kyiv.astimezone(timezone.utc)
+    end_utc = end_kyiv.astimezone(timezone.utc)
+    result = await session.execute(
+        select(DeyeHourlyEnergy.device_sn)
+        .where(
+            DeyeHourlyEnergy.device_sn.in_(sns),
+            DeyeHourlyEnergy.hour_start >= start_utc,
+            DeyeHourlyEnergy.hour_start < end_utc,
+        )
+        .limit(1)
+    )
+    return result.first() is not None
+
+
 async def _hourly_energy_overrides(
     session: AsyncSession,
     device_sns: list[str],

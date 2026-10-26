@@ -477,5 +477,7 @@
   "deyeBackfillUnlock": "Unlock",
   "marketplaceLeadFormCommentLabel": "Comment",
   "marketplaceLeadFormCommentPlaceholder": "Additional details (optional)",
-  "adminFieldComment": "Comment"
+  "adminFieldComment": "Comment",
+  "deyeBackfillLocalBypass": "Lokální bypass (zdarma)",
+  "damEnergyBackfillNote": "kWh za tento den pocházejí z počítadel Deye Cloud (backfill) — ne z odhadů."
 }

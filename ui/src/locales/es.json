@@ -1121,5 +1121,7 @@
   "adminColStatus": "Status",
   "adminColCreated": "Created",
   "adminColActions": "Actions",
-  "adminFieldComment": "Comentario"
+  "adminFieldComment": "Comentario",
+  "deyeBackfillLocalBypass": "Bypass local (gratis)",
+  "damEnergyBackfillNote": "Los kWh de este día provienen de contadores Deye Cloud (backfill), no de muestras aproximadas."
 }
