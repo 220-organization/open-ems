@@ -105,6 +105,80 @@
   color: var(--pf-label, #f5e6ff);
 }
 
+.rdn-admin-lead {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--pf-text-secondary, rgba(245, 230, 255, 0.78));
+}
+
+.rdn-admin__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.rdn-admin__refresh {
+  border: 1px solid var(--pf-border, rgba(255, 255, 255, 0.14));
+  background: transparent;
+  color: var(--pf-text-secondary, rgba(245, 230, 255, 0.78));
+  border-radius: 8px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.rdn-admin-login {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rdn-admin-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rdn-admin-item {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--pf-border, rgba(255, 255, 255, 0.12));
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.rdn-admin-item__top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-weight: 650;
+}
+
+.rdn-admin-item__when,
+.rdn-admin-item__meta {
+  color: var(--pf-text-secondary, rgba(245, 230, 255, 0.78));
+  font-weight: 500;
+}
+
+.rdn-admin-item__when {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+}
+
+.rdn-admin-item__meta,
+.rdn-admin-item__desc {
+  margin: 4px 0 0;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
 .rdn-callback-card__fields {
   display: flex;
   flex-direction: column;
@@ -539,6 +613,14 @@
 .rdn-callback-card__btn--pay {
   background: linear-gradient(145deg, #fc019b 0%, #b0006e 100%);
   border-color: #9a0060;
+}
+
+.rdn-callback-card__actions--pay > .rdn-callback-card__btn--pay {
+  min-height: 68px;
+  font-size: 1.55rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.15;
 }
 
 .rdn-callback-card__actions--pay {
@@ -1963,6 +2045,10 @@ a.dam-oree-embed-external:hover {
 [data-theme="light"] .rdn-callback-card__mode-btn.is-active {
   background: rgba(252, 1, 155, 0.12);
   color: #3a1048;
+}
+
+[data-theme="light"] .rdn-admin-item {
+  background: rgba(255, 255, 255, 0.9);
 }
 
 [data-theme="light"] .rdn-callback-card__amount-option {

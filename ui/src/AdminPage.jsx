@@ -1,12 +1,27 @@
 import { useCallback, useEffect, useState } from "react";
 import { useOpenEmsSeo } from "./useOpenEmsSeo";
+import BessLeadCrud from "./admin/BessLeadCrud";
 import MarketplaceModeration from "./admin/MarketplaceModeration";
+import RdnConsultationCrud from "./admin/RdnConsultationCrud";
 import styles from "./AdminPage.module.css";
 
 const TOKEN_KEY = "openEmsAdminToken";
+const SECTIONS = ["marketplace", "rdn", "bess"];
 
 function apiBase() {
   return (process.env.REACT_APP_API_BASE_URL || "").replace(/\/$/, "");
+}
+
+function isLocalAdmin() {
+  if (typeof window === "undefined") return false;
+  const host = window.location.hostname;
+  return host === "localhost" || host === "127.0.0.1";
+}
+
+function sectionLabel(t, section) {
+  if (section === "rdn") return t("adminSectionRdn");
+  if (section === "bess") return t("adminSectionBess");
+  return t("adminSectionMarketplace");
 }
 
 export default function AdminPage({ t, locale }) {
@@ -15,7 +30,9 @@ export default function AdminPage({ t, locale }) {
     canonicalPath: "/admin",
   });
 
+  const localOpen = isLocalAdmin();
   const [token, setToken] = useState(() => {
+    if (isLocalAdmin()) return "local";
     try {
       return window.localStorage.getItem(TOKEN_KEY) || "";
     } catch {
@@ -26,8 +43,10 @@ export default function AdminPage({ t, locale }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
+  const [section, setSection] = useState("marketplace");
 
   const logout = useCallback(() => {
+    if (isLocalAdmin()) return;
     setToken("");
     try {
       window.localStorage.removeItem(TOKEN_KEY);
@@ -112,7 +131,7 @@ export default function AdminPage({ t, locale }) {
             </h1>
             <p className={styles.lead}>{t("adminPageLead")}</p>
           </div>
-          {token ? (
+          {token && !localOpen ? (
             <button type="button" className={styles.logout} onClick={logout}>
               {t("adminLogout")}
             </button>
@@ -141,12 +160,35 @@ export default function AdminPage({ t, locale }) {
             </button>
           </form>
         ) : (
-          <MarketplaceModeration
-            t={t}
-            token={token}
-            onLogout={logout}
-            onPendingCountChange={setPendingCount}
-          />
+          <>
+            <div className={styles.tabs} role="tablist" aria-label={t("adminSectionsAria")}>
+              {SECTIONS.map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={section === id}
+                  className={section === id ? styles.tabActive : styles.tab}
+                  onClick={() => setSection(id)}
+                >
+                  {sectionLabel(t, id)}
+                  {id === "marketplace" && pendingCount > 0 ? (
+                    <span className={styles.badge}>{pendingCount}</span>
+                  ) : null}
+                </button>
+              ))}
+            </div>
+            {section === "marketplace" ? (
+              <MarketplaceModeration
+                t={t}
+                token={token}
+                onLogout={logout}
+                onPendingCountChange={setPendingCount}
+              />
+            ) : null}
+            {section === "rdn" ? <RdnConsultationCrud t={t} token={token} /> : null}
+            {section === "bess" ? <BessLeadCrud t={t} token={token} /> : null}
+          </>
         )}
       </div>
     </div>

@@ -110,8 +110,120 @@
   font-size: 0.9rem;
 }
 
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.tab,
+.tabActive {
+  border-radius: 999px;
+  padding: 0.45rem 0.9rem;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.tab {
+  background: rgba(255, 255, 255, 0.72);
+  color: #1a2b22;
+  border: 1px solid #b7c4bc;
+}
+
+.tabActive {
+  background: #1f6b4a;
+  color: #fff;
+  border: 1px solid #1f6b4a;
+}
+
+.crud {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.crudBar,
+.crudActions,
+.formButtons,
+.rowActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.crudBar {
+  justify-content: space-between;
+}
+
+.crudTitle {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid #c9d5ce;
+  border-radius: 12px;
+}
+
+.span2,
+.formButtons {
+  grid-column: 1 / -1;
+}
+
+.tableWrap {
+  overflow-x: auto;
+  border: 1px solid #c9d5ce;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.table th,
+.table td {
+  padding: 0.55rem 0.7rem;
+  text-align: left;
+  border-bottom: 1px solid #e1ebe5;
+  vertical-align: top;
+}
+
+.table th {
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  color: #4a5c52;
+}
+
+.linkBtn {
+  border: none;
+  background: none;
+  padding: 0;
+  color: #1f6b4a;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
 @media (max-width: 640px) {
   .header {
     flex-direction: column;
+  }
+
+  .form {
+    grid-template-columns: 1fr;
   }
 }

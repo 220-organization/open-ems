@@ -510,6 +510,10 @@ if settings.OPEN_EMS_SERVE_SPA:
     async def rdn_consultation_page() -> FileResponse:
         return _react_spa_index()
 
+    @app.get("/rdn-consultation/{amount_uah}", include_in_schema=False)
+    async def rdn_consultation_amount_page(amount_uah: int) -> FileResponse:
+        return _react_spa_index()
+
     @app.get("/dam-chart", include_in_schema=False)
     async def dam_chart_page_redirect(request: Request) -> RedirectResponse:
         qs = request.url.query

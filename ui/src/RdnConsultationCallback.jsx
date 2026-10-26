@@ -1,5 +1,10 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { OPEN_EMS_ROUTES } from './openEmsRoutes';
+import {
+  OPEN_EMS_ROUTES,
+  isRdnConsultationPath,
+  rdnConsultationAmountFromPath,
+  rdnConsultationPathForAmount,
+} from './openEmsRoutes';
 import './dam-chart.css';
 
 const MIN_AMOUNT_UAH = 200;
@@ -72,8 +77,33 @@ function takePaymentIdFromUrl() {
 }
 
 function buildRedirectUrl() {
-  const url = new URL(OPEN_EMS_ROUTES.rdnConsultation, window.location.origin);
-  return url.toString();
+  const path = isRdnConsultationPath(window.location.pathname)
+    ? window.location.pathname
+    : OPEN_EMS_ROUTES.rdnConsultation;
+  return new URL(path, window.location.origin).toString();
+}
+
+function initialPayAmount(payOnly) {
+  if (payOnly) {
+    const fromPath = rdnConsultationAmountFromPath(window.location.pathname);
+    if (isValidAmountUah(fromPath)) return fromPath;
+    if (fromPath != null) {
+      const snapped = snapAmountUah(fromPath);
+      if (isValidAmountUah(snapped)) return snapped;
+    }
+  }
+  return DEFAULT_AMOUNT_UAH;
+}
+
+function writeConsultationAmountPath(amount) {
+  if (!isValidAmountUah(amount)) return;
+  if (!isRdnConsultationPath(window.location.pathname)) return;
+  const nextPath = rdnConsultationPathForAmount(amount);
+  const current = (window.location.pathname || "/").replace(/\/$/, "") || "/";
+  if (current === nextPath) return;
+  const url = new URL(window.location.href);
+  url.pathname = nextPath;
+  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
 }
 
 const TOV_REQUISITES_EXAMPLE = [
@@ -287,7 +317,7 @@ export default function RdnConsultationCallback({
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [description, setDescription] = useState('');
-  const [amountText, setAmountText] = useState(String(DEFAULT_AMOUNT_UAH));
+  const [amountText, setAmountText] = useState(() => String(initialPayAmount(payOnly)));
   const [paidAmountUah, setPaidAmountUah] = useState(null);
   const [paymentTime, setPaymentTime] = useState('');
   const [payBusy, setPayBusy] = useState(false);
@@ -331,6 +361,11 @@ export default function RdnConsultationCallback({
   const selectedDay = slotDays.find(d => d.date === selectedDate) || null;
   const weekdayNames = weekdayLabels(bcp47);
   const slotMonthTitle = monthHeading(slotDays, bcp47);
+
+  useEffect(() => {
+    if (!payOnly || !amountOk) return;
+    writeConsultationAmountPath(amountUah);
+  }, [payOnly, amountOk, amountUah]);
 
   const setAmountFromUi = (raw) => {
     const parsed = parseAmountUah(raw);
