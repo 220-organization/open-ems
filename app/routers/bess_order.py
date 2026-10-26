@@ -7,15 +7,18 @@ import io
 import logging
 import re
 import time
+from datetime import datetime
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import settings
+from app.admin_auth import require_admin_token
 from app.db import get_db
 from app.models import BessDiscountRequest
 from app.telegram_notify import format_bess_lead_message, send_telegram_message
@@ -1123,3 +1126,100 @@ async def create_discount_request(
     )
     notified = await send_telegram_message(msg)
     return DiscountRequestResponse(id=lead_id, ok=True, notified=notified)
+
+
+class BessLeadAdmin(BaseModel):
+    id: int
+    preset_id: str
+    business_type: str
+    units: int
+    total_usd: Optional[float] = None
+    contact: Optional[str] = None
+    created_on: datetime
+
+
+class BessLeadAdminList(BaseModel):
+    items: list[BessLeadAdmin]
+
+
+class BessLeadWrite(BaseModel):
+    preset_id: str = Field(..., min_length=1, max_length=64)
+    business_type: str = Field(..., min_length=1, max_length=32)
+    units: int = Field(..., ge=1, le=500)
+    total_usd: Optional[float] = Field(None, ge=0)
+    contact: Optional[str] = Field(None, max_length=200)
+
+
+def _bess_lead_admin(row: BessDiscountRequest) -> BessLeadAdmin:
+    return BessLeadAdmin(
+        id=int(row.id),
+        preset_id=row.preset_id,
+        business_type=row.business_type,
+        units=int(row.units),
+        total_usd=row.total_usd,
+        contact=row.contact,
+        created_on=row.created_on,
+    )
+
+
+@router.get("/discount-requests/admin", response_model=BessLeadAdminList)
+async def list_bess_leads_admin(
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_admin_token),
+) -> BessLeadAdminList:
+    result = await db.execute(
+        select(BessDiscountRequest).order_by(BessDiscountRequest.created_on.desc()).limit(200)
+    )
+    return BessLeadAdminList(items=[_bess_lead_admin(row) for row in result.scalars().all()])
+
+
+@router.post("/discount-requests/admin", response_model=BessLeadAdmin, status_code=201)
+async def create_bess_lead_admin(
+    payload: BessLeadWrite,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_admin_token),
+) -> BessLeadAdmin:
+    row = BessDiscountRequest(
+        preset_id=payload.preset_id.strip()[:64],
+        business_type=payload.business_type.strip()[:32],
+        units=payload.units,
+        total_usd=payload.total_usd,
+        contact=(payload.contact or "").strip() or None,
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return _bess_lead_admin(row)
+
+
+@router.put("/discount-requests/admin/{lead_id}", response_model=BessLeadAdmin)
+async def update_bess_lead_admin(
+    lead_id: int,
+    payload: BessLeadWrite,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_admin_token),
+) -> BessLeadAdmin:
+    row = await db.get(BessDiscountRequest, lead_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    row.preset_id = payload.preset_id.strip()[:64]
+    row.business_type = payload.business_type.strip()[:32]
+    row.units = payload.units
+    row.total_usd = payload.total_usd
+    row.contact = (payload.contact or "").strip() or None
+    await db.commit()
+    await db.refresh(row)
+    return _bess_lead_admin(row)
+
+
+@router.delete("/discount-requests/admin/{lead_id}", status_code=204)
+async def delete_bess_lead_admin(
+    lead_id: int,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_admin_token),
+) -> None:
+    row = await db.get(BessDiscountRequest, lead_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    await db.delete(row)
+    await db.commit()

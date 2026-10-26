@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import datetime
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.admin_auth import require_admin_token
+from app.db import get_db
 from app.rdn_consultation_payment import (
     MAX_AMOUNT_UAH,
     MIN_AMOUNT_UAH,
@@ -20,6 +24,14 @@ from app.rdn_consultation_payment import (
     with_query,
 )
 from app.rdn_consultation_slots import list_consultation_days, require_available_slot, slot_label_uk
+from app.rdn_consultation_store import (
+    create_consultation_admin,
+    delete_consultation_admin,
+    list_consultations,
+    save_consultation,
+    update_consultation_admin,
+    update_consultation_status,
+)
 from app.tov_invoice_xlsx import build_tov_invoice_xlsx, buyer_from_requisites
 from app.telegram_notify import (
     format_rdn_consultation_callback_message,
@@ -129,6 +141,24 @@ def _status_response(payment_id: str, row: dict) -> PayStatusResponse:
     )
 
 
+async def _store_consultation(db: AsyncSession, **fields: Any) -> None:
+    await save_consultation(db, **fields)
+
+
+async def _store_status(db: AsyncSession, row: dict, *, payment_id: str = "") -> None:
+    await update_consultation_status(
+        db,
+        status=str(row.get("status") or "created"),
+        payment_id=payment_id or None,
+        invoice_id=row.get("invoice_id"),
+        name=row.get("name"),
+        phone=row.get("phone"),
+        slot_id=row.get("slot_id"),
+        slot_label=row.get("slot_label"),
+        description=row.get("description"),
+    )
+
+
 async def _notify_rdn_paid(row: dict) -> None:
     if str(row.get("status") or "").upper() not in SUCCESS_STATUSES:
         return
@@ -171,8 +201,114 @@ async def create_tov_invoice(payload: TovInvoiceRequest) -> Response:
     )
 
 
+class AdminConsultationItem(BaseModel):
+    id: str
+    kind: str
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    slot_label: Optional[str] = None
+    description: Optional[str] = None
+    amount_uah: Optional[int] = None
+    status: str
+    created_on: datetime
+
+
+class AdminConsultationListResponse(BaseModel):
+    items: list[AdminConsultationItem]
+
+
+class AdminConsultationWrite(BaseModel):
+    kind: str = Field(..., min_length=1, max_length=16)
+    name: Optional[str] = Field(None, max_length=200)
+    phone: Optional[str] = Field(None, max_length=40)
+    slot_label: Optional[str] = Field(None, max_length=80)
+    description: Optional[str] = Field(None, max_length=2000)
+    amount_uah: Optional[int] = Field(None, ge=0, le=100_000)
+    status: str = Field(..., min_length=1, max_length=32)
+
+
+_ADMIN_KINDS = frozenset({"payment", "callback"})
+
+
+def _require_admin_kind(kind: str) -> str:
+    value = (kind or "").strip()
+    if value not in _ADMIN_KINDS:
+        raise HTTPException(status_code=400, detail="kind must be payment or callback")
+    return value
+
+
+@router.get("/admin", response_model=AdminConsultationListResponse)
+async def list_admin_consultations(
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_admin_token),
+) -> AdminConsultationListResponse:
+    """Consultation requests. Local runs skip the password."""
+    items = await list_consultations(db)
+    return AdminConsultationListResponse(items=[AdminConsultationItem(**row) for row in items])
+
+
+@router.post("/admin", response_model=AdminConsultationItem, status_code=201)
+async def create_admin_consultation(
+    payload: AdminConsultationWrite,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_admin_token),
+) -> AdminConsultationItem:
+    kind = _require_admin_kind(payload.kind)
+    row = await create_consultation_admin(
+        db,
+        kind=kind,
+        status=payload.status.strip(),
+        name=payload.name,
+        phone=payload.phone,
+        slot_label=payload.slot_label,
+        description=payload.description,
+        amount_uah=payload.amount_uah,
+    )
+    return AdminConsultationItem(**row)
+
+
+@router.put("/admin/{row_id}", response_model=AdminConsultationItem)
+async def update_admin_consultation(
+    row_id: str,
+    payload: AdminConsultationWrite,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_admin_token),
+) -> AdminConsultationItem:
+    kind = _require_admin_kind(payload.kind)
+    row = await update_consultation_admin(
+        db,
+        row_id,
+        kind=kind,
+        status=payload.status.strip(),
+        name=payload.name,
+        phone=payload.phone,
+        slot_label=payload.slot_label,
+        description=payload.description,
+        amount_uah=payload.amount_uah,
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Consultation not found")
+    return AdminConsultationItem(**row)
+
+
+@router.delete("/admin/{row_id}", status_code=204)
+async def delete_admin_consultation(
+    row_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_admin_token),
+) -> Response:
+    deleted = await delete_consultation_admin(db, row_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Consultation not found")
+    return Response(status_code=204)
+
+
 @router.post("/pay", response_model=PayCreateResponse)
-async def create_pay(payload: PayCreateRequest, request: Request) -> PayCreateResponse:
+async def create_pay(
+    payload: PayCreateRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> PayCreateResponse:
     if not is_valid_amount_uah(payload.amount_uah):
         raise HTTPException(
             status_code=400,
@@ -210,6 +346,19 @@ async def create_pay(payload: PayCreateRequest, request: Request) -> PayCreateRe
         "description": description,
         "status": "created",
     }
+    await _store_consultation(
+        db,
+        kind="payment",
+        status="created",
+        name=_PENDING[payment_id]["name"],
+        phone=_PENDING[payment_id]["phone"],
+        slot_id=slot_id,
+        slot_label=slot_label,
+        description=description,
+        amount_uah=payload.amount_uah,
+        invoice_id=invoice_id,
+        payment_id=payment_id,
+    )
     return PayCreateResponse(
         payment_id=payment_id,
         invoice_id=invoice_id,
@@ -219,7 +368,10 @@ async def create_pay(payload: PayCreateRequest, request: Request) -> PayCreateRe
 
 
 @router.get("/payments/{payment_id}", response_model=PayStatusResponse)
-async def get_payment_status(payment_id: str) -> PayStatusResponse:
+async def get_payment_status(
+    payment_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> PayStatusResponse:
     row = _PENDING.get(payment_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Payment not found")
@@ -231,6 +383,7 @@ async def get_payment_status(payment_id: str) -> PayStatusResponse:
             row["status"] = status
     if status in SUCCESS_STATUSES:
         await _notify_rdn_paid(row)
+    await _store_status(db, row, payment_id=payment_id)
     return _status_response(payment_id, row)
 
 
@@ -247,7 +400,10 @@ class InvoiceStatusRequest(BaseModel):
 
 
 @router.post("/invoice-status", response_model=PayStatusResponse)
-async def post_invoice_status(payload: InvoiceStatusRequest) -> PayStatusResponse:
+async def post_invoice_status(
+    payload: InvoiceStatusRequest,
+    db: AsyncSession = Depends(get_db),
+) -> PayStatusResponse:
     """Fallback when in-memory payment map was lost after redirect (multi-restart)."""
     if not is_valid_amount_uah(payload.amount_uah):
         raise HTTPException(
@@ -286,11 +442,15 @@ async def post_invoice_status(payload: InvoiceStatusRequest) -> PayStatusRespons
             row["description"] = payload.description.strip()
     if remote in SUCCESS_STATUSES:
         await _notify_rdn_paid(row)
+    await _store_status(db, row, payment_id="")
     return _status_response("", row)
 
 
 @router.post("/webhook")
-async def monobank_webhook(request: Request) -> dict[str, Any]:
+async def monobank_webhook(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
     """Monobank invoice webhook — notify support as soon as payment succeeds."""
     try:
         body = await request.json()
@@ -309,11 +469,15 @@ async def monobank_webhook(request: Request) -> dict[str, Any]:
         row["status"] = status
     if status in SUCCESS_STATUSES:
         await _notify_rdn_paid(row)
+    await _store_status(db, row, payment_id="")
     return {"ok": True}
 
 
 @router.post("/pay-test", response_model=PayStatusResponse)
-async def create_test_pay(payload: PayTestRequest) -> PayStatusResponse:
+async def create_test_pay(
+    payload: PayTestRequest,
+    db: AsyncSession = Depends(get_db),
+) -> PayStatusResponse:
     """Local/dev only: mark payment SUCCESS without Monobank."""
     if not is_test_payment_enabled():
         raise HTTPException(status_code=404, detail="Not found")
@@ -336,6 +500,19 @@ async def create_test_pay(payload: PayTestRequest) -> PayStatusResponse:
         "description": description,
         "status": "SUCCESS",
     }
+    await _store_consultation(
+        db,
+        kind="payment",
+        status="SUCCESS",
+        name=_PENDING[payment_id]["name"],
+        phone=_PENDING[payment_id]["phone"],
+        slot_id=slot_id,
+        slot_label=slot_label,
+        description=description,
+        amount_uah=payload.amount_uah,
+        invoice_id=invoice_id,
+        payment_id=payment_id,
+    )
     await _notify_rdn_paid(_PENDING[payment_id])
     return _status_response(payment_id, _PENDING[payment_id])
 
@@ -359,7 +536,10 @@ async def get_consultation_slots() -> dict[str, Any]:
 
 
 @router.post("/callback", response_model=CallbackResponse)
-async def create_callback(payload: CallbackRequest) -> CallbackResponse:
+async def create_callback(
+    payload: CallbackRequest,
+    db: AsyncSession = Depends(get_db),
+) -> CallbackResponse:
     """Notify support chat about a callback request. Does not open Telegram for the user."""
     name = payload.name.strip()
     phone = payload.phone.strip()
@@ -370,5 +550,14 @@ async def create_callback(payload: CallbackRequest) -> CallbackResponse:
     notified = await send_telegram_message(msg)
     if not notified:
         raise HTTPException(status_code=502, detail="Unable to notify support")
+    await _store_consultation(
+        db,
+        kind="callback",
+        status="requested",
+        name=name,
+        phone=phone,
+        slot_id=_slot_id,
+        slot_label=slot_label,
+    )
     logger.info("RDN consultation callback notified name=%s slot=%s", name, _slot_id)
     return CallbackResponse(ok=True, notified=True)

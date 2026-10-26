@@ -576,6 +576,30 @@ class MarketplaceLocation(Base):
     )
 
 
+class RdnConsultation(Base):
+    """Paid consultation or callback request shown on the RDN consultation admin tab."""
+
+    __tablename__ = "rdn_consultation"
+
+    id: Mapped[Any] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    phone: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    slot_id: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    slot_label: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    amount_uah: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, server_default="'created'")
+    invoice_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    payment_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
 class MarketplaceInfoPayment(Base):
     """Monobank payment for location info unlock / publication / heatmap zoom."""
 

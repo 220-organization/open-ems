@@ -1,0 +1,93 @@
+-- Local dev rows for the RDN consultation admin tab. Idempotent by primary key.
+INSERT INTO rdn_consultation (
+    id,
+    kind,
+    name,
+    phone,
+    slot_id,
+    slot_label,
+    description,
+    amount_uah,
+    status,
+    invoice_id,
+    payment_id,
+    created_on,
+    updated_on
+)
+VALUES
+    (
+        'a38c0001-0001-4001-8001-000000000001'::uuid,
+        'payment',
+        'Олена Коваль',
+        '+380671112201',
+        '2026-10-28T10:00',
+        '28.10.2026, 10:00',
+        'Нічний заряд і розряд у пік РДН для СЕС 30 кВт.',
+        2200,
+        'SUCCESS',
+        'local-seed-invoice-1',
+        'local-seed-payment-1',
+        NOW() - INTERVAL '2 days',
+        NOW() - INTERVAL '2 days'
+    ),
+    (
+        'a38c0002-0002-4002-8002-000000000002'::uuid,
+        'payment',
+        'Ігор Мельник',
+        '+380501112202',
+        '2026-10-29T14:00',
+        '29.10.2026, 14:00',
+        'Підключити комерційний інвертор до Open EMS.',
+        5000,
+        'created',
+        'local-seed-invoice-2',
+        'local-seed-payment-2',
+        NOW() - INTERVAL '5 hours',
+        NOW() - INTERVAL '5 hours'
+    ),
+    (
+        'a38c0003-0003-4003-8003-000000000003'::uuid,
+        'callback',
+        'Марія Шевченко',
+        '+380931112203',
+        '2026-10-30T18:00',
+        '30.10.2026, 18:00',
+        NULL,
+        NULL,
+        'requested',
+        NULL,
+        NULL,
+        NOW() - INTERVAL '3 hours',
+        NOW() - INTERVAL '3 hours'
+    ),
+    (
+        'a38c0004-0004-4004-8004-000000000004'::uuid,
+        'payment',
+        'Андрій Бондар',
+        '+380671112204',
+        '2026-10-27T14:00',
+        '27.10.2026, 14:00',
+        'Оплата не пройшла, просить передзвонити.',
+        2000,
+        'FAILURE',
+        'local-seed-invoice-4',
+        'local-seed-payment-4',
+        NOW() - INTERVAL '1 day',
+        NOW() - INTERVAL '1 day'
+    ),
+    (
+        'a38c0005-0005-4005-8005-000000000005'::uuid,
+        'callback',
+        'Наталія Гриценко',
+        '+380501112205',
+        '2026-11-02T10:00',
+        '02.11.2026, 10:00',
+        NULL,
+        NULL,
+        'requested',
+        NULL,
+        NULL,
+        NOW() - INTERVAL '40 minutes',
+        NOW() - INTERVAL '40 minutes'
+    )
+ON CONFLICT (id) DO NOTHING;

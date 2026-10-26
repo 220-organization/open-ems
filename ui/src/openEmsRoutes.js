@@ -13,6 +13,26 @@ export const OPEN_EMS_ROUTES = {
 
 const LEGACY_POWER_PATH = "/power-flow";
 const LEGACY_DAM_PATH = "/dam-chart";
+const RDN_AMOUNT_PATH = /^\/rdn-consultation\/(\d+)$/;
+
+/** `/rdn-consultation` and `/rdn-consultation/9700` are the same page. */
+export function isRdnConsultationPath(pathname) {
+  const p = (pathname || "/").replace(/\/$/, "") || "/";
+  return p === OPEN_EMS_ROUTES.rdnConsultation || RDN_AMOUNT_PATH.test(p);
+}
+
+/** Integer UAH from `/rdn-consultation/{amount}`, or null when the path has none. */
+export function rdnConsultationAmountFromPath(pathname) {
+  const p = (pathname || "/").replace(/\/$/, "") || "/";
+  const match = p.match(RDN_AMOUNT_PATH);
+  if (!match) return null;
+  const amount = Number.parseInt(match[1], 10);
+  return Number.isFinite(amount) ? amount : null;
+}
+
+export function rdnConsultationPathForAmount(amount) {
+  return `${OPEN_EMS_ROUTES.rdnConsultation}/${amount}`;
+}
 
 /** Redirect legacy `/dam-chart` bookmarks to demo (`/`), keeping query string for chart state. */
 export function redirectLegacyDamChartPath() {
@@ -39,8 +59,7 @@ export function normalizeOpenEmsPathname(pathname) {
     return OPEN_EMS_ROUTES.buyHomeCharger;
   if (p === OPEN_EMS_ROUTES.buyCommercialCharger)
     return OPEN_EMS_ROUTES.buyCommercialCharger;
-  if (p === OPEN_EMS_ROUTES.rdnConsultation)
-    return OPEN_EMS_ROUTES.rdnConsultation;
+  if (isRdnConsultationPath(p)) return OPEN_EMS_ROUTES.rdnConsultation;
   if (
     p === OPEN_EMS_ROUTES.power ||
     p === LEGACY_POWER_PATH ||

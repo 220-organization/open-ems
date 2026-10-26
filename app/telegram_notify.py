@@ -15,7 +15,7 @@ from app import settings
 
 logger = logging.getLogger(__name__)
 
-OPEN_EMS_SUPPORT_TAG = "#open-ems"
+OPEN_EMS_SUPPORT_TAG = "#open_ems"
 
 
 def tag_open_ems_support_message(text_msg: str) -> str:

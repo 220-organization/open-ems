@@ -47,12 +47,16 @@ def test_admin_password_default_matches_committed_secret():
     assert verify_admin_password("") is False
 
 
-def test_require_admin_token_accepts_configured_token():
+def test_require_admin_token_accepts_configured_token(monkeypatch):
+    monkeypatch.setenv("RDN_CONSULTATION_ADMIN_OPEN", "0")
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://openems:openems@db:5432/openems")
     token = settings.OPEN_EMS_ADMIN_TOKEN
     assert require_admin_token(token) == token
 
 
-def test_require_admin_token_rejects_missing_or_wrong():
+def test_require_admin_token_rejects_missing_or_wrong(monkeypatch):
+    monkeypatch.setenv("RDN_CONSULTATION_ADMIN_OPEN", "0")
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://openems:openems@db:5432/openems")
     with pytest.raises(HTTPException) as missing:
         require_admin_token(None)
     assert missing.value.status_code == 401
@@ -60,6 +64,15 @@ def test_require_admin_token_rejects_missing_or_wrong():
     with pytest.raises(HTTPException) as wrong:
         require_admin_token("not-the-token")
     assert wrong.value.status_code == 401
+
+
+def test_require_admin_token_open_on_local_run(monkeypatch):
+    monkeypatch.delenv("RDN_CONSULTATION_ADMIN_OPEN", raising=False)
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://openems:openems@127.0.0.1:5433/openems",
+    )
+    assert require_admin_token(None) == "local"
 
 
 def test_payment_amount_defaults():

@@ -89,6 +89,8 @@ OPENEMS_OPEN_SWAGGER="${OPENEMS_OPEN_SWAGGER:-0}"
 export OPEN_EMS_SERVE_SPA=0
 # Skip Monobank for RDN consultation pay on localhost (UI shows “Skip payment”)
 export RDN_CONSULTATION_ALLOW_TEST_PAYMENT="${RDN_CONSULTATION_ALLOW_TEST_PAYMENT:-1}"
+# Admin tab on /rdn-consultation: no password while this local API is running.
+export RDN_CONSULTATION_ADMIN_OPEN="${RDN_CONSULTATION_ADMIN_OPEN:-1}"
 
 if [[ "${USE_HUAWEI_API}" -eq 0 ]]; then
   export HUAWEI_ENABLED=0
@@ -141,6 +143,16 @@ docker compose run --rm migrate
 echo "Seeding marketplace location points…" >&2
 if ! docker compose exec -T db psql -U openems -d openems -v ON_ERROR_STOP=1 -f - < ./scripts/seed_marketplace_locations.sql; then
   echo "WARN: marketplace location seed failed (non-fatal)." >&2
+fi
+
+echo "Seeding RDN consultation admin rows…" >&2
+if ! docker compose exec -T db psql -U openems -d openems -v ON_ERROR_STOP=1 -f - < ./scripts/seed_rdn_consultation.sql; then
+  echo "WARN: RDN consultation seed failed (non-fatal)." >&2
+fi
+
+echo "Seeding BESS discount admin rows…" >&2
+if ! docker compose exec -T db psql -U openems -d openems -v ON_ERROR_STOP=1 -f - < ./scripts/seed_bess_discount_requests.sql; then
+  echo "WARN: BESS discount seed failed (non-fatal)." >&2
 fi
 
 echo "Running ROI dev DB seed for DEVICE_SN=${DEVICE_SN} (./scripts/seed_roi_dev_data.sh)…" >&2
