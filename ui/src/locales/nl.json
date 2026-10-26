@@ -462,5 +462,20 @@
   "adminColViews": "Views",
   "adminColStatus": "Status",
   "adminColCreated": "Created",
-  "adminColActions": "Actions"
+  "adminColActions": "Actions",
+  "deyeBackfillButton": "Backfill",
+  "deyeBackfillConfirm": "Open EMS-kWh voor deze periode overschrijven met uurlijkse Deye Cloud-gegevens?",
+  "deyeBackfillProgress": "{done}/{total} dagen",
+  "deyeBackfillDone": "Backfill klaar — Open EMS vernieuwd",
+  "deyeBackfillError": "Backfill mislukt",
+  "deyeBackfillCancel": "Annuleren",
+  "deyeBackfillPrice": "{days} × {uahPerDay} ₴ = {amount} ₴",
+  "deyeBackfillPay": "Pay",
+  "deyeBackfillPaying": "Waiting for payment…",
+  "deyeBackfillPaymentRequired": "Payment required for backfill",
+  "deyeBackfillAccessPassword": "Access password",
+  "deyeBackfillUnlock": "Unlock",
+  "marketplaceLeadFormCommentLabel": "Comment",
+  "marketplaceLeadFormCommentPlaceholder": "Additional details (optional)",
+  "adminFieldComment": "Comment"
 }

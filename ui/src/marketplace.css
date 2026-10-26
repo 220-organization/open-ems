@@ -338,6 +338,12 @@ html:has(.marketplace-page--fullscreen) .app-root-layout__main {
   font-size: 0.95rem;
 }
 
+.marketplace-lead-textarea {
+  resize: vertical;
+  min-height: 4.5rem;
+  line-height: 1.4;
+}
+
 .marketplace-lead-input:focus {
   outline: none;
   border-color: var(--mp-accent);

@@ -51,6 +51,7 @@ class MarketplaceLocationCreate(BaseModel):
     request_type: MarketplaceRequestType
     name: str
     phone: str
+    comment: Optional[str] = Field(default=None, max_length=4000)
     kw_available: str
     distribution_contract: Optional[bool] = None
     messenger: Optional[str] = None
@@ -75,6 +76,14 @@ class MarketplaceLocationCreate(BaseModel):
         if not normalized:
             raise ValueError("Field is required")
         return normalized
+
+    @field_validator("comment")
+    @classmethod
+    def strip_comment(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
 
     @field_validator("locations")
     @classmethod
@@ -149,6 +158,7 @@ class MarketplaceLocationAdmin(BaseModel):
     request_type: MarketplaceRequestType
     name: str
     phone: str
+    comment: Optional[str] = None
     kw_available: str
     distribution_contract: Optional[bool] = None
     messenger: Optional[str] = None
@@ -177,6 +187,7 @@ class MarketplaceLocationUpdate(BaseModel):
     status: Optional[MarketplaceStatus] = None
     name: Optional[str] = None
     phone: Optional[str] = None
+    comment: Optional[str] = Field(default=None, max_length=4000)
     kw_available: Optional[str] = None
     distribution_contract: Optional[bool] = None
     distance_meters: Optional[int] = None
@@ -206,6 +217,14 @@ class MarketplaceLocationUpdate(BaseModel):
         if not normalized:
             raise ValueError("Field cannot be empty")
         return normalized
+
+    @field_validator("comment")
+    @classmethod
+    def strip_optional_comment(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
 
 
 class MarketplaceLocationListPublicResponse(BaseModel):
@@ -258,6 +277,7 @@ class MarketplaceInfoPaymentCreateResponse(BaseModel):
 class MarketplaceLocationOwnerInfo(BaseModel):
     name: str
     phone: str
+    comment: Optional[str] = None
     distribution_contract_photos: List[str] = Field(default_factory=list)
     view_count: int = 0
 

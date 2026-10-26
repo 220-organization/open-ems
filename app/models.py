@@ -58,6 +58,30 @@ class DeyeSocSample(Base):
     )
 
 
+class DeyeHourlyEnergy(Base):
+    """
+    Hourly kWh backfilled from Deye Cloud ``/device/history`` (frame shape scaled to daily totals).
+
+    ``hour_start`` is the UTC start of the Kyiv-local hour. Prefer these rows over 5-min sample
+    approximations when reading Open EMS energy totals / charts.
+    """
+
+    __tablename__ = "deye_hourly_energy"
+
+    device_sn: Mapped[str] = mapped_column(String(64), primary_key=True)
+    hour_start: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), primary_key=True
+    )
+    consumption_kwh: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    generation_kwh: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    import_kwh: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    export_kwh: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    source: Mapped[str] = mapped_column(String(16), nullable=False, server_default="deye_cloud")
+    updated_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class EvPortPowerSample(Base):
     """
     Aggregate EV charger power (W) per fleet (dc | ac | bb) in 5-minute UTC buckets.
@@ -548,6 +572,7 @@ class MarketplaceLocation(Base):
     request_type: Mapped[str] = mapped_column(String(16), nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     phone: Mapped[str] = mapped_column(Text, nullable=False)
+    comment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     kw_available: Mapped[str] = mapped_column(String(16), nullable=False)
     distribution_contract: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
     messenger: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)

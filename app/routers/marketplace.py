@@ -248,6 +248,7 @@ def _row_to_admin(row) -> MarketplaceLocationAdmin:
         request_type=row.request_type,
         name=row.name,
         phone=row.phone,
+        comment=getattr(row, "comment", None),
         kw_available=row.kw_available,
         distribution_contract=row.distribution_contract,
         messenger=row.messenger,
@@ -288,6 +289,7 @@ def _row_to_owner_info(row) -> MarketplaceLocationOwnerInfo:
     return MarketplaceLocationOwnerInfo(
         name=row.name,
         phone=row.phone,
+        comment=getattr(row, "comment", None),
         distribution_contract_photos=_filter_existing_photo_urls(row.distribution_contract_photos),
         view_count=int(row.view_count or 0),
     )

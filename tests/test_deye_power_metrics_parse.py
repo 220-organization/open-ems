@@ -260,4 +260,5 @@ def test_device_history_energy_reads_kwh_counters():
         "consumptionKwh": None,
         "generationKwh": None,
         "importKwh": None,
+        "exportKwh": None,
     }

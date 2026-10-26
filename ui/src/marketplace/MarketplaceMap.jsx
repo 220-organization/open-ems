@@ -587,6 +587,14 @@ function OwnerInfoBody({ ownerInfo, t }) {
           {ownerInfo.phone}
         </a>
       </div>
+      {ownerInfo.comment ? (
+        <div className={styles.ownerInfoRow}>
+          <span className={styles.ownerInfoLabel}>
+            {t("marketplaceLeadFormCommentLabel")}
+          </span>
+          <span className={styles.ownerInfoValue}>{ownerInfo.comment}</span>
+        </div>
+      ) : null}
       {contractPhotos.length > 0 ? (
         <div className={styles.photoGroup}>
           <span className={styles.photoGroupLabel}>

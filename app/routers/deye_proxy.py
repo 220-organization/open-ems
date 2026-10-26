@@ -1,19 +1,30 @@
 """Expose Deye inverter list for the Power flow UI (server-side token; no secrets in browser)."""
 
+import asyncio
 import logging
+import uuid
 from datetime import date as date_cls
 from datetime import datetime
 from datetime import timedelta
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import async_session_factory, get_db
 from app.deye_manual_discharge_store import persist_manual_discharge_session_from_api_result
+from app.deye_energy_backfill_payment import (
+    BACKFILL_UAH_PER_DAY,
+    access_password_ok,
+    backfill_amount_uah,
+    create_backfill_invoice,
+    with_query as backfill_with_query,
+)
+from app.deye_energy_backfill_service import backfill_device_period, period_dates_kyiv
+from app.rdn_consultation_payment import fetch_invoice_status, is_test_payment_enabled
 from app.deye_api import (
     assert_deye_write_pin,
     assert_inverter_owned,
@@ -244,27 +255,170 @@ class RoiSettingsBody(BaseModel):
     )
 
 
+class EnergyBackfillBody(BaseModel):
+    deviceSn: str = Field(..., min_length=6, max_length=64)
+    period: SocHistoryPeriod = "day"
+    date: str = Field(
+        ...,
+        min_length=10,
+        max_length=10,
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+        description="Anchor calendar day YYYY-MM-DD (Kyiv).",
+    )
+    pin: Optional[str] = Field(default=None, max_length=12)
+    paymentId: Optional[str] = Field(
+        default=None,
+        max_length=64,
+        description="Paid Monobank payment id for this period (required unless accessPassword).",
+    )
+    accessPassword: Optional[str] = Field(
+        default=None,
+        max_length=64,
+        description="Special access password that skips payment.",
+    )
+
+
+class EnergyBackfillPayBody(BaseModel):
+    deviceSn: str = Field(..., min_length=6, max_length=64)
+    period: SocHistoryPeriod = "day"
+    date: str = Field(
+        ...,
+        min_length=10,
+        max_length=10,
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+    )
+    redirectUrl: str = Field(..., min_length=8, max_length=2000)
+    pin: Optional[str] = Field(default=None, max_length=12)
+
+
+# In-memory backfill job registry (single-process; lost on restart).
+_backfill_jobs: dict[str, dict[str, Any]] = {}
+_backfill_active_by_station: dict[str, str] = {}
+_backfill_jobs_lock = asyncio.Lock()
+# Paid entitlements: payment_id → metadata (consumed when backfill starts).
+_backfill_payments: dict[str, dict[str, Any]] = {}
+_BACKFILL_SUCCESS = frozenset({"SUCCESS"})
+
+
+def _backfill_quote(period: SocHistoryPeriod, date_iso: str) -> dict[str, Any]:
+    anchor = date_cls.fromisoformat(date_iso)
+    days = _period_dates_kyiv(period, anchor)
+    days_count = len(days)
+    amount = backfill_amount_uah(days_count)
+    return {
+        "period": period,
+        "date": date_iso,
+        "daysCount": days_count,
+        "uahPerDay": BACKFILL_UAH_PER_DAY,
+        "amountUah": amount,
+    }
+
+
+def _consume_backfill_payment(
+    payment_id: Optional[str],
+    *,
+    device_sn: str,
+    period: str,
+    date_iso: str,
+) -> None:
+    """Require a successful unused payment matching this backfill scope."""
+    pid = (payment_id or "").strip()
+    if not pid:
+        raise HTTPException(status_code=402, detail="payment_required")
+    row = _backfill_payments.get(pid)
+    if row is None:
+        raise HTTPException(status_code=402, detail="payment_not_found")
+    if row.get("consumed"):
+        raise HTTPException(status_code=402, detail="payment_already_used")
+    status = str(row.get("status") or "").upper()
+    if status not in _BACKFILL_SUCCESS:
+        raise HTTPException(status_code=402, detail="payment_not_paid")
+    if (
+        str(row.get("deviceSn") or "") != device_sn
+        or str(row.get("period") or "") != period
+        or str(row.get("date") or "") != date_iso
+    ):
+        raise HTTPException(status_code=402, detail="payment_scope_mismatch")
+    expected_days = int(row.get("daysCount") or 0)
+    actual_days = len(_period_dates_kyiv(period, date_cls.fromisoformat(date_iso)))  # type: ignore[arg-type]
+    if expected_days and expected_days != actual_days:
+        raise HTTPException(status_code=402, detail="payment_days_mismatch")
+    row["consumed"] = True
+
+
+async def _refresh_backfill_payment_status(payment_id: str) -> dict[str, Any]:
+    row = _backfill_payments.get(payment_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="payment not found")
+    if str(row.get("status") or "").upper() not in _BACKFILL_SUCCESS:
+        invoice_id = str(row.get("invoiceId") or "")
+        if invoice_id.startswith("local-test-"):
+            row["status"] = "SUCCESS"
+        else:
+            remote = await asyncio.to_thread(fetch_invoice_status, invoice_id)
+            if remote:
+                row["status"] = remote
+    return row
+
+
+def _backfill_job_public(job: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "jobId": job.get("jobId"),
+        "status": job.get("status"),
+        "deviceSn": job.get("deviceSn"),
+        "period": job.get("period"),
+        "date": job.get("date"),
+        "daysDone": job.get("daysDone", 0),
+        "daysTotal": job.get("daysTotal", 0),
+        "rowsWritten": job.get("rowsWritten"),
+        "error": job.get("error"),
+    }
+
+
+async def _run_energy_backfill_job(
+    job_id: str,
+    station_key: str,
+    device_sn: str,
+    period: str,
+    date_iso: str,
+) -> None:
+    try:
+        async with async_session_factory() as session:
+
+            def _progress(done: int, total: int) -> None:
+                job = _backfill_jobs.get(job_id)
+                if job is not None:
+                    job["daysDone"] = done
+                    job["daysTotal"] = total
+
+            result = await backfill_device_period(
+                session,
+                device_sn,
+                period,
+                date_iso,
+                progress_cb=_progress,
+            )
+        job = _backfill_jobs.get(job_id)
+        if job is not None:
+            job["status"] = "done"
+            job["daysDone"] = result.get("daysDone", job.get("daysDone", 0))
+            job["daysTotal"] = result.get("daysTotal", job.get("daysTotal", 0))
+            job["rowsWritten"] = result.get("rowsWritten")
+            job["error"] = None
+    except Exception as exc:
+        logger.exception("energy-backfill job %s failed: %s", job_id, exc)
+        job = _backfill_jobs.get(job_id)
+        if job is not None:
+            job["status"] = "error"
+            job["error"] = str(exc)
+    finally:
+        async with _backfill_jobs_lock:
+            if _backfill_active_by_station.get(station_key) == job_id:
+                _backfill_active_by_station.pop(station_key, None)
+
+
 def _period_dates_kyiv(period: SocHistoryPeriod, anchor_day: date_cls) -> list[date_cls]:
-    today_kyiv = datetime.now(_KYIV_TZ).date()
-    if period == "day":
-        return [anchor_day] if anchor_day <= today_kyiv else []
-    if period == "month":
-        cursor = anchor_day.replace(day=1)
-        out: list[date_cls] = []
-        while cursor.month == anchor_day.month and cursor.year == anchor_day.year:
-            if cursor > today_kyiv:
-                break
-            out.append(cursor)
-            cursor += timedelta(days=1)
-        return out
-    cursor = anchor_day.replace(month=1, day=1)
-    out = []
-    while cursor.year == anchor_day.year:
-        if cursor > today_kyiv:
-            break
-        out.append(cursor)
-        cursor += timedelta(days=1)
-    return out
+    return period_dates_kyiv(period, anchor_day)
 
 
 def _sum_from_hourly_arr(arr: list[Optional[float]]) -> tuple[Optional[float], bool]:
@@ -285,10 +439,24 @@ def _sum_from_hourly_arr(arr: list[Optional[float]]) -> tuple[Optional[float], b
     return (total if has_any else None), has_any
 
 
-def _sum_grid_import_kwh(hourly_grid_w: list[Optional[float]]) -> tuple[Optional[float], bool]:
+def _sum_grid_import_kwh(
+    hourly_grid_w: list[Optional[float]],
+    hourly_import_kwh: Optional[list[Optional[float]]] = None,
+) -> tuple[Optional[float], bool]:
+    """Sum grid import kWh; prefer explicit override kWh when present for an hour."""
     total = 0.0
     has_any = False
     for i in range(24):
+        ovr = None
+        if hourly_import_kwh is not None and i < len(hourly_import_kwh):
+            ovr = hourly_import_kwh[i]
+        if ovr is not None:
+            try:
+                total += max(0.0, float(ovr))
+                has_any = True
+            except (TypeError, ValueError):
+                pass
+            continue
         raw = hourly_grid_w[i] if i < len(hourly_grid_w) else None
         if raw is None:
             continue
@@ -429,11 +597,11 @@ async def get_soc_history_day(
     try:
         cluster = await station_cluster_device_sns(deviceSn.strip())
         if len(cluster) > 1:
-            hourly_soc, hourly_grid_w, hourly_grid_hz, hourly_pv_kwh, hourly_load_kwh = (
+            hourly_soc, hourly_grid_w, hourly_grid_hz, hourly_pv_kwh, hourly_load_kwh, _ = (
                 await hourly_inverter_history_for_kyiv_day_cluster(db, cluster, trade_day)
             )
         else:
-            hourly_soc, hourly_grid_w, hourly_grid_hz, hourly_pv_kwh, hourly_load_kwh = (
+            hourly_soc, hourly_grid_w, hourly_grid_hz, hourly_pv_kwh, hourly_load_kwh, _ = (
                 await hourly_inverter_history_for_kyiv_day(db, deviceSn, trade_day)
             )
         return JSONResponse(
@@ -511,13 +679,23 @@ async def get_soc_history_totals(
         days_with_data = 0
         for day in period_days:
             if len(cluster) > 1:
-                _, hourly_grid_w, _, hourly_pv_kwh, hourly_load_kwh = await hourly_inverter_history_for_kyiv_day_cluster(
-                    db, cluster, day
-                )
+                (
+                    _,
+                    hourly_grid_w,
+                    _,
+                    hourly_pv_kwh,
+                    hourly_load_kwh,
+                    hourly_import_kwh,
+                ) = await hourly_inverter_history_for_kyiv_day_cluster(db, cluster, day)
             else:
-                _, hourly_grid_w, _, hourly_pv_kwh, hourly_load_kwh = await hourly_inverter_history_for_kyiv_day(
-                    db, deviceSn, day
-                )
+                (
+                    _,
+                    hourly_grid_w,
+                    _,
+                    hourly_pv_kwh,
+                    hourly_load_kwh,
+                    hourly_import_kwh,
+                ) = await hourly_inverter_history_for_kyiv_day(db, deviceSn, day)
             day_has_data = False
             cons, has_cons = _sum_from_hourly_arr(hourly_load_kwh)
             if has_cons and cons is not None:
@@ -529,7 +707,7 @@ async def get_soc_history_totals(
                 sum_gen += gen
                 any_gen = True
                 day_has_data = True
-            imp, has_imp = _sum_grid_import_kwh(hourly_grid_w)
+            imp, has_imp = _sum_grid_import_kwh(hourly_grid_w, hourly_import_kwh)
             if has_imp and imp is not None:
                 sum_import += imp
                 any_import = True
@@ -564,6 +742,321 @@ async def get_soc_history_totals(
     except Exception as exc:
         logger.exception("GET /api/deye/soc-history-totals — failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/energy-backfill/quote")
+async def get_energy_backfill_quote(
+    deviceSn: str = Query(..., min_length=6, max_length=32, pattern=r"^[0-9]+$"),
+    period: SocHistoryPeriod = Query("day"),
+    date: str = Query(..., min_length=10, max_length=10, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> JSONResponse:
+    """Price for backfilling the selected period (22 UAH × calendar days)."""
+    if not deye_configured():
+        return JSONResponse(
+            content={"ok": False, "configured": False},
+            status_code=503,
+            headers=_NO_STORE_CACHE,
+        )
+    sn = deviceSn.strip()
+    try:
+        await assert_inverter_owned(sn)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        quote = _backfill_quote(period, date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD") from exc
+    if int(quote["daysCount"]) < 1:
+        raise HTTPException(status_code=400, detail="no_days_in_period")
+    # Local ./run-local.sh (OPEN_EMS_SERVE_SPA=0): no Monobank / access password gate.
+    payment_required = not is_test_payment_enabled()
+    return JSONResponse(
+        content={
+            "ok": True,
+            "configured": True,
+            "deviceSn": sn,
+            "paymentRequired": payment_required,
+            **quote,
+        },
+        headers=_NO_STORE_CACHE,
+    )
+
+
+@router.post("/energy-backfill/pay")
+async def post_energy_backfill_pay(
+    body: EnergyBackfillPayBody,
+    request: Request,
+) -> JSONResponse:
+    """Create a Monobank invoice for the selected backfill period."""
+    if not deye_configured():
+        return JSONResponse(
+            content={"ok": False, "configured": False},
+            status_code=503,
+            headers=_NO_STORE_CACHE,
+        )
+    sn = body.deviceSn.strip()
+    try:
+        await assert_inverter_owned(sn)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await assert_deye_write_pin(sn, body.pin)
+    try:
+        quote = _backfill_quote(body.period, body.date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD") from exc
+    days_count = int(quote["daysCount"])
+    amount_uah = int(quote["amountUah"])
+    if days_count < 1 or amount_uah < 1:
+        raise HTTPException(status_code=400, detail="no_days_in_period")
+
+    payment_id = str(uuid.uuid4())
+    redirect_url = backfill_with_query(body.redirectUrl, deyeBackfillPayment=payment_id)
+    host = (request.headers.get("x-forwarded-host") or request.url.hostname or "").split(",")[0].strip()
+    webhook_url = None
+    if host and host not in {"localhost", "127.0.0.1"}:
+        proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "https").split(",")[0].strip()
+        webhook_url = f"{proto}://{host}/api/deye/energy-backfill/webhook"
+
+    try:
+        invoice = await asyncio.to_thread(
+            create_backfill_invoice,
+            amount_uah=amount_uah,
+            days=days_count,
+            redirect_url=redirect_url,
+            reference=payment_id,
+            webhook_url=webhook_url,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        logger.exception("energy-backfill pay Monobank failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    invoice_id = str(invoice.get("invoiceId") or "").strip()
+    page_url = str(invoice.get("pageUrl") or "").strip()
+    if not invoice_id or not page_url:
+        raise HTTPException(status_code=502, detail="Monobank invoice incomplete")
+
+    _backfill_payments[payment_id] = {
+        "paymentId": payment_id,
+        "invoiceId": invoice_id,
+        "status": "CREATED",
+        "deviceSn": sn,
+        "period": body.period,
+        "date": body.date,
+        "daysCount": days_count,
+        "amountUah": amount_uah,
+        "uahPerDay": BACKFILL_UAH_PER_DAY,
+        "consumed": False,
+        "pageUrl": page_url,
+    }
+    return JSONResponse(
+        status_code=201,
+        content={
+            "ok": True,
+            "configured": True,
+            "paymentId": payment_id,
+            "invoiceId": invoice_id,
+            "pageUrl": page_url,
+            "amountUah": amount_uah,
+            "daysCount": days_count,
+            "uahPerDay": BACKFILL_UAH_PER_DAY,
+        },
+        headers=_NO_STORE_CACHE,
+    )
+
+
+@router.post("/energy-backfill/pay-test")
+async def post_energy_backfill_pay_test(body: EnergyBackfillPayBody) -> JSONResponse:
+    """Local-only: mark a backfill payment as SUCCESS without Monobank."""
+    if not is_test_payment_enabled():
+        raise HTTPException(status_code=404, detail="not found")
+    if not deye_configured():
+        return JSONResponse(
+            content={"ok": False, "configured": False},
+            status_code=503,
+            headers=_NO_STORE_CACHE,
+        )
+    sn = body.deviceSn.strip()
+    try:
+        await assert_inverter_owned(sn)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await assert_deye_write_pin(sn, body.pin)
+    quote = _backfill_quote(body.period, body.date)
+    days_count = int(quote["daysCount"])
+    amount_uah = int(quote["amountUah"])
+    if days_count < 1:
+        raise HTTPException(status_code=400, detail="no_days_in_period")
+    payment_id = str(uuid.uuid4())
+    _backfill_payments[payment_id] = {
+        "paymentId": payment_id,
+        "invoiceId": f"local-test-{payment_id}",
+        "status": "SUCCESS",
+        "deviceSn": sn,
+        "period": body.period,
+        "date": body.date,
+        "daysCount": days_count,
+        "amountUah": amount_uah,
+        "uahPerDay": BACKFILL_UAH_PER_DAY,
+        "consumed": False,
+        "pageUrl": None,
+    }
+    return JSONResponse(
+        content={
+            "ok": True,
+            "configured": True,
+            "paymentId": payment_id,
+            "invoiceId": f"local-test-{payment_id}",
+            "status": "SUCCESS",
+            "amountUah": amount_uah,
+            "daysCount": days_count,
+            "uahPerDay": BACKFILL_UAH_PER_DAY,
+        },
+        headers=_NO_STORE_CACHE,
+    )
+
+
+@router.get("/energy-backfill/pay/{paymentId}")
+async def get_energy_backfill_payment(paymentId: str) -> JSONResponse:
+    """Poll Monobank status for a backfill payment."""
+    pid = str(paymentId or "").strip()
+    row = await _refresh_backfill_payment_status(pid)
+    return JSONResponse(
+        content={
+            "ok": True,
+            "paymentId": pid,
+            "invoiceId": row.get("invoiceId"),
+            "status": row.get("status"),
+            "deviceSn": row.get("deviceSn"),
+            "period": row.get("period"),
+            "date": row.get("date"),
+            "daysCount": row.get("daysCount"),
+            "amountUah": row.get("amountUah"),
+            "uahPerDay": row.get("uahPerDay"),
+            "consumed": bool(row.get("consumed")),
+        },
+        headers=_NO_STORE_CACHE,
+    )
+
+
+@router.post("/energy-backfill/webhook")
+async def post_energy_backfill_webhook(request: Request) -> JSONResponse:
+    """Monobank webhook: mark payment SUCCESS when invoice pays."""
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    invoice_id = str(payload.get("invoiceId") or "").strip()
+    status = str(payload.get("status") or "").upper()
+    reference = str(payload.get("reference") or "").strip()
+    if reference and reference in _backfill_payments:
+        if status:
+            _backfill_payments[reference]["status"] = status
+    elif invoice_id:
+        for row in _backfill_payments.values():
+            if str(row.get("invoiceId") or "") == invoice_id and status:
+                row["status"] = status
+                break
+    return JSONResponse(content={"ok": True}, headers=_NO_STORE_CACHE)
+
+
+@router.post("/energy-backfill")
+async def post_energy_backfill(body: EnergyBackfillBody) -> JSONResponse:
+    """
+    Start a background job that backfills hourly kWh from Deye Cloud into ``deye_hourly_energy``
+    for the selected day/month/year (Kyiv calendar). Requires paid paymentId or accessPassword.
+    """
+    if not deye_configured():
+        missing = deye_missing_env_names()
+        return JSONResponse(
+            content={
+                "ok": False,
+                "configured": False,
+                "detail": "DEYE_* not set"
+                + (f" (missing: {', '.join(missing)})" if missing else ""),
+            },
+            status_code=503,
+            headers=_NO_STORE_CACHE,
+        )
+    sn = body.deviceSn.strip()
+    try:
+        await assert_inverter_owned(sn)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        date_cls.fromisoformat(body.date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD") from exc
+
+    # Local ./run-local.sh: skip payment + inverter PIN. Otherwise require access
+    # password (AA9220YD, also accepted from the pin field) or a paid paymentId.
+    local_skip = is_test_payment_enabled()
+    access_ok = access_password_ok(body.accessPassword) or access_password_ok(body.pin)
+    if not local_skip and not access_ok:
+        await assert_deye_write_pin(sn, body.pin)
+        pid = (body.paymentId or "").strip()
+        if pid:
+            await _refresh_backfill_payment_status(pid)
+        _consume_backfill_payment(
+            body.paymentId,
+            device_sn=sn,
+            period=body.period,
+            date_iso=body.date,
+        )
+
+    cluster = await station_cluster_device_sns(sn)
+    station_key = ",".join(cluster) if cluster else sn
+
+    async with _backfill_jobs_lock:
+        existing_id = _backfill_active_by_station.get(station_key)
+        if existing_id:
+            existing = _backfill_jobs.get(existing_id)
+            if existing and existing.get("status") == "running":
+                return JSONResponse(
+                    status_code=202,
+                    content={"ok": True, "configured": True, **_backfill_job_public(existing)},
+                    headers=_NO_STORE_CACHE,
+                )
+        job_id = str(uuid.uuid4())
+        days = _period_dates_kyiv(body.period, date_cls.fromisoformat(body.date))
+        job = {
+            "jobId": job_id,
+            "status": "running",
+            "deviceSn": sn,
+            "period": body.period,
+            "date": body.date,
+            "daysDone": 0,
+            "daysTotal": len(days),
+            "rowsWritten": None,
+            "error": None,
+            "stationKey": station_key,
+        }
+        _backfill_jobs[job_id] = job
+        _backfill_active_by_station[station_key] = job_id
+
+    asyncio.create_task(
+        _run_energy_backfill_job(job_id, station_key, sn, body.period, body.date)
+    )
+    return JSONResponse(
+        status_code=202,
+        content={"ok": True, "configured": True, **_backfill_job_public(job)},
+        headers=_NO_STORE_CACHE,
+    )
+
+
+@router.get("/energy-backfill/job/{jobId}")
+async def get_energy_backfill_job(jobId: str) -> JSONResponse:
+    """Poll status of a Deye energy backfill job."""
+    job = _backfill_jobs.get(str(jobId or "").strip())
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    return JSONResponse(
+        content={"ok": True, **_backfill_job_public(job)},
+        headers=_NO_STORE_CACHE,
+    )
 
 
 @router.get("/roi-stats")

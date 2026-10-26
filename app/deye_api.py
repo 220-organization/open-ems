@@ -575,6 +575,11 @@ _DEVICE_HISTORY_KWH_FIELDS = {
     "consumption": "consumptionKwh",
     "production": "generationKwh",
     "electricitypurchasing": "importKwh",
+    "gridfeedin": "exportKwh",
+    "electricityselling": "exportKwh",
+    "feedin": "exportKwh",
+    "gridselling": "exportKwh",
+    "export": "exportKwh",
 }
 
 
@@ -586,7 +591,8 @@ def _device_history_item_label(item: dict[str, Any]) -> str:
 def parse_device_history_energy_kwh(payload: Any) -> dict[str, Optional[float]]:
     """Sum Deye ``POST /device/history`` kWh counters.
 
-    ``Production`` is PV, ``Consumption`` is load, ``ElectricityPurchasing`` is grid import.
+    ``Production`` is PV, ``Consumption`` is load, ``ElectricityPurchasing`` is grid import,
+    ``GridFeedIn`` / ``ElectricitySelling`` is grid export.
     """
     rows: list[dict[str, Any]] = []
     if isinstance(payload, dict) and isinstance(payload.get("dataList"), list):
@@ -595,6 +601,7 @@ def parse_device_history_energy_kwh(payload: Any) -> dict[str, Optional[float]]:
         "consumptionKwh": None,
         "generationKwh": None,
         "importKwh": None,
+        "exportKwh": None,
     }
     for row in rows:
         items = row.get("itemList")
@@ -613,6 +620,31 @@ def parse_device_history_energy_kwh(payload: Any) -> dict[str, Optional[float]]:
 
 _station_history_cache: dict[tuple[str, int, str], tuple[float, dict[str, Any]]] = {}
 _STATION_HISTORY_CACHE_TTL_SEC = 120.0
+_measure_points_cache: dict[str, tuple[float, list[str]]] = {}
+_MEASURE_POINTS_CACHE_TTL_SEC = 3600.0
+# Deye /device/history (granularity=1, full day) rejects >5 measurePoints ("list too long").
+_FRAME_MEASURE_POINTS_MAX = 5
+
+# Prefer load + grid + PV channels (max 5). Many hybrids expose DCPowerPV* instead of PPV.
+_FRAME_MEASURE_POINT_PREFERRED = (
+    "UPSLoadPower",
+    "TotalGridPower",
+    "TotalDCInputPower",
+    "DCPowerPV1",
+    "DCPowerPV2",
+    "DCPowerPV3",
+    "DCPowerPV4",
+    "PPV",
+    "TotalSolarPower",
+    "TotalConsumptionPower",
+    "LoadPower",
+    "TotalLoadPower",
+    "PVPower",
+    "GridPower",
+    "GridActivePower",
+    "BatteryPower",
+    "SOC",
+)
 
 
 def _station_history_window(period: str, anchor_iso: str) -> tuple[int, str]:
@@ -623,6 +655,196 @@ def _station_history_window(period: str, anchor_iso: str) -> tuple[int, str]:
     if period == "month":
         return 3, raw[:7]
     return 2, raw[:10]
+
+
+def clear_station_history_cache_for_cluster(cluster: list[str], period: str, anchor_iso: str) -> None:
+    """Drop cached Deye Cloud totals so the UI refreshes after a backfill."""
+    granularity, start_at = _station_history_window(period, anchor_iso)
+    if not start_at:
+        return
+    sns = sorted({(s or "").strip() for s in cluster if (s or "").strip()})
+    if not sns:
+        return
+    _station_history_cache.pop((",".join(sns), granularity, start_at), None)
+
+
+def _normalize_measure_point_key(name: str) -> str:
+    return str(name or "").strip().upper().replace("-", "").replace("_", "").replace(" ", "")
+
+
+def _filter_frame_measure_points(raw: list[str]) -> list[str]:
+    """Keep a short list of power points; Deye history fails if measurePoints is huge."""
+    available = [str(n).strip() for n in raw if str(n or "").strip()]
+    by_norm = {_normalize_measure_point_key(n): n for n in available}
+    out: list[str] = []
+    seen: set[str] = set()
+    for preferred in _FRAME_MEASURE_POINT_PREFERRED:
+        hit = by_norm.get(_normalize_measure_point_key(preferred))
+        if not hit or hit in seen:
+            continue
+        seen.add(hit)
+        out.append(hit)
+        if len(out) >= _FRAME_MEASURE_POINTS_MAX:
+            return out
+    if out:
+        return out
+    # Fallback: first N available names (still capped).
+    return available[:_FRAME_MEASURE_POINTS_MAX]
+
+
+async def fetch_device_measure_points(device_sn: str) -> list[str]:
+    """Cached measure-point names from ``POST /device/measurePoints``."""
+    sn = (device_sn or "").strip()
+    if not sn:
+        return []
+    now = time.monotonic()
+    cached = _measure_points_cache.get(sn)
+    if cached is not None and now - cached[0] < _MEASURE_POINTS_CACHE_TTL_SEC:
+        return list(cached[1])
+    payload = await _post_deye_json(
+        "/device/measurePoints",
+        {"deviceSn": sn, "deviceType": "INVERTER"},
+        timeout=30.0,
+    )
+    raw: list[str] = []
+    if isinstance(payload, dict):
+        mp = payload.get("measurePoints")
+        if isinstance(mp, list):
+            raw = [str(x) for x in mp if x is not None]
+    filtered = _filter_frame_measure_points(raw)
+    _measure_points_cache[sn] = (now, filtered)
+    return list(filtered)
+
+
+def _parse_history_frame_timestamp(raw: Any) -> Optional[datetime]:
+    """Parse ``collectionTime`` from granularity=1 history rows into timezone-aware UTC."""
+    unix = _collection_time_unix_sec(raw)
+    if unix is not None:
+        return datetime.fromtimestamp(unix, tz=timezone.utc)
+    if isinstance(raw, str):
+        s = raw.strip()
+        if not s:
+            return None
+        # Deye sometimes returns "yyyy-MM-dd HH:mm:ss" (station local; treat as UTC if no offset).
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%SZ"):
+            try:
+                parsed = datetime.strptime(s.replace("Z", ""), fmt.replace("Z", ""))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                return parsed.astimezone(timezone.utc)
+            except ValueError:
+                continue
+        try:
+            parsed = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
+        except ValueError:
+            return None
+    return None
+
+
+async def _history_day_frames_payload(
+    sn: str,
+    day: str,
+    measure_points: list[str],
+) -> dict[str, Any]:
+    """POST /device/history granularity=1 for one day; retries with fewer points on 2101007."""
+    pts = [p for p in measure_points if p][:_FRAME_MEASURE_POINTS_MAX]
+    if not pts:
+        raise RuntimeError("if granularity == 1，measurePoints should be passed")
+    last_exc: Optional[BaseException] = None
+    # Full-day frames reject more than ~5 points; shrink to essentials if needed.
+    for limit in (len(pts), 3, 1):
+        if limit <= 0:
+            break
+        body: dict[str, Any] = {
+            "deviceSn": sn,
+            "granularity": 1,
+            "startAt": day,
+            "endAt": day,
+            "measurePoints": pts[:limit],
+        }
+        try:
+            return await _post_deye_json("/device/history", body, timeout=60.0)
+        except RuntimeError as exc:
+            last_exc = exc
+            msg = str(exc).lower()
+            if "list too long" not in msg:
+                raise
+            logger.warning(
+                "Deye day frames list too long sn=%s day=%s points=%s; retrying with fewer",
+                sn,
+                day,
+                limit,
+            )
+            continue
+    assert last_exc is not None
+    raise last_exc
+
+
+async def fetch_device_day_frames(
+    device_sn: str,
+    day_iso: str,
+) -> list[tuple[datetime, list[dict[str, Any]]]]:
+    """
+    Frame-level history for one calendar day (``granularity=1``).
+
+    Returns sorted ``(collection_ts_utc, itemList)`` tuples. ``itemList`` entries are the raw
+    measure-point dicts from Deye (same shape as ``/device/latest`` dataList rows).
+    """
+    sn = (device_sn or "").strip()
+    day = (day_iso or "").strip()[:10]
+    if not sn or len(day) < 10:
+        return []
+    if not deye_configured():
+        return []
+    measure_points = await fetch_device_measure_points(sn)
+    if not measure_points:
+        # Still required by Deye for granularity=1; use hard preferred names.
+        measure_points = list(_FRAME_MEASURE_POINT_PREFERRED[:3])
+    payload = await _history_day_frames_payload(sn, day, measure_points)
+    rows: list[dict[str, Any]] = []
+    if isinstance(payload, dict) and isinstance(payload.get("dataList"), list):
+        rows = [row for row in payload["dataList"] if isinstance(row, dict)]
+    out: list[tuple[datetime, list[dict[str, Any]]]] = []
+    for row in rows:
+        # granularity=1 rows use ``time`` (unix sec string); some payloads use collectionTime.
+        ts = _parse_history_frame_timestamp(row.get("collectionTime") or row.get("time"))
+        if ts is None:
+            continue
+        items = row.get("itemList")
+        if not isinstance(items, list):
+            items = []
+        item_dicts = [it for it in items if isinstance(it, dict)]
+        out.append((ts, item_dicts))
+    out.sort(key=lambda x: x[0])
+    return out
+
+
+async def fetch_device_day_totals(device_sn: str, day_iso: str) -> dict[str, Optional[float]]:
+    """Daily kWh counters for one day (``granularity=2``)."""
+    sn = (device_sn or "").strip()
+    day = (day_iso or "").strip()[:10]
+    empty = {
+        "consumptionKwh": None,
+        "generationKwh": None,
+        "importKwh": None,
+        "exportKwh": None,
+    }
+    if not sn or len(day) < 10 or not deye_configured():
+        return empty
+    payload = await _post_deye_json(
+        "/device/history",
+        {
+            "deviceSn": sn,
+            "granularity": 2,
+            "startAt": day,
+            "endAt": day,
+        },
+        timeout=30.0,
+    )
+    return parse_device_history_energy_kwh(payload)
 
 
 async def fetch_device_station_history_energy(
@@ -649,6 +871,7 @@ async def fetch_device_station_history_energy(
         "consumptionKwh": None,
         "generationKwh": None,
         "importKwh": None,
+        "exportKwh": None,
         "stationId": station_id,
         "deviceSns": cluster,
     }
@@ -664,7 +887,7 @@ async def fetch_device_station_history_energy(
             timeout=30.0,
         )
         part = parse_device_history_energy_kwh(payload)
-        for field in ("consumptionKwh", "generationKwh", "importKwh"):
+        for field in ("consumptionKwh", "generationKwh", "importKwh", "exportKwh"):
             value = part.get(field)
             if value is None:
                 continue
