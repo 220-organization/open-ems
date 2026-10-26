@@ -183,7 +183,12 @@ function TotalsMetrics({ stats, fmt, t, note, exact = false }) {
       ) : null}
       {note ? (
         <p className="hw-totals__approx-note">
-          <span aria-hidden="true">*</span> {note}
+          {!exact ? (
+            <>
+              <span aria-hidden="true">*</span>{' '}
+            </>
+          ) : null}
+          {note}
         </p>
       ) : null}
     </div>
@@ -323,7 +328,12 @@ export default function DeyeTotalsPanel({
           setError('noDataYet');
           return;
         }
-        setData({ openEms, deyeCloud, deyeCloudError });
+        setData({
+          openEms,
+          deyeCloud,
+          deyeCloudError,
+          energyBackfilled: json?.energyBackfilled === true,
+        });
         setError(null);
       } catch (e) {
         if (e?.name === 'AbortError') return;
@@ -388,7 +398,9 @@ export default function DeyeTotalsPanel({
         daysCount: Number(json?.daysCount) || 0,
         amountUah: Number(json?.amountUah) || 0,
         uahPerDay: Number(json?.uahPerDay) || 22,
+        // Prod always requires payment unless API explicitly allows free local backfill.
         paymentRequired: json?.paymentRequired !== false,
+        localFreeEnabled: json?.localFreeEnabled === true || json?.paymentRequired === false,
       };
       setBackfillQuote(quote);
       return quote;
@@ -429,6 +441,15 @@ export default function DeyeTotalsPanel({
             setBackfillPaymentId('');
             stopBackfillPoll();
             fetchTotals(activeTab, selectedDate);
+            try {
+              window.dispatchEvent(
+                new CustomEvent('deye-energy-backfill-done', {
+                  detail: { deviceSn: deyeSn, date: selectedDate },
+                })
+              );
+            } catch {
+              /* ignore */
+            }
             return;
           }
           if (st === 'error') {
@@ -445,7 +466,7 @@ export default function DeyeTotalsPanel({
       tick();
       backfillPollRef.current = setInterval(tick, 2000);
     },
-    [apiUrl, activeTab, selectedDate, fetchTotals, stopBackfillPoll, t]
+    [apiUrl, activeTab, selectedDate, deyeSn, fetchTotals, stopBackfillPoll, t]
   );
 
   const startBackfill = useCallback(
@@ -781,14 +802,27 @@ export default function DeyeTotalsPanel({
             stats={openEms}
             fmt={fmt}
             t={t}
-            note={t('kwhCalibrationPrecisionNote')}
+            exact={Boolean(data?.energyBackfilled)}
+            note={
+              data?.energyBackfilled ? t('damEnergyBackfillNote') : t('kwhCalibrationPrecisionNote')
+            }
           />
         ) : null}
         {hasCoreRows && showOrigins ? (
           <div className="hw-totals__origins">
             <OriginBlock title={t('deyeTotalsOriginOpenEms')}>
               {openEms.hasRows ? (
-                <TotalsMetrics stats={openEms} fmt={fmt} t={t} note={t('kwhCalibrationPrecisionNote')} />
+                <TotalsMetrics
+                  stats={openEms}
+                  fmt={fmt}
+                  t={t}
+                  exact={Boolean(data?.energyBackfilled)}
+                  note={
+                    data?.energyBackfilled
+                      ? t('damEnergyBackfillNote')
+                      : t('kwhCalibrationPrecisionNote')
+                  }
+                />
               ) : (
                 <p className="hw-totals__status">{t('huaweiTotalsNoData')}</p>
               )}
@@ -821,7 +855,7 @@ export default function DeyeTotalsPanel({
               {backfillStatus === 'confirm' ? (
                 <div className="hw-totals__backfill-panel">
                   <p className="hw-totals__status">{t('deyeBackfillConfirm')}</p>
-                  {backfillQuote && backfillQuote.paymentRequired !== false ? (
+                  {backfillQuote ? (
                     <p className="hw-totals__status">
                       {String(t('deyeBackfillPrice') || '{days} days × {uahPerDay} ₴ = {amount} ₴')
                         .replace('{days}', String(backfillQuote.daysCount))
@@ -839,7 +873,7 @@ export default function DeyeTotalsPanel({
                         className="hw-totals__backfill-btn hw-totals__backfill-btn--primary"
                         onClick={() => startBackfill()}
                       >
-                        {t('deyeBackfillButton') || 'Backfill'}
+                        {t('deyeBackfillLocalBypass') || 'Local bypass (free)'}
                       </button>
                       <button
                         type="button"

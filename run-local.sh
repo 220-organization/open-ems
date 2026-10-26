@@ -87,6 +87,8 @@ OPENEMS_OPEN_SWAGGER="${OPENEMS_OPEN_SWAGGER:-0}"
 
 # API process does not serve legacy / built HTML; UI is only from the CRA dev server.
 export OPEN_EMS_SERVE_SPA=0
+# Free Deye kWh backfill on local only (prod must charge 22 UAH/day via Monobank).
+export DEYE_BACKFILL_ALLOW_FREE="${DEYE_BACKFILL_ALLOW_FREE:-1}"
 # Skip Monobank for RDN consultation pay on localhost (UI shows “Skip payment”)
 export RDN_CONSULTATION_ALLOW_TEST_PAYMENT="${RDN_CONSULTATION_ALLOW_TEST_PAYMENT:-1}"
 # Admin tab on /rdn-consultation: no password while this local API is running.

@@ -997,6 +997,19 @@
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
 }
 
+.dam-day-energy-totals__backfill-note {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: rgba(255, 248, 252, 0.55);
+  max-width: 42rem;
+}
+
+.dam-day-energy-totals__item--note {
+  grid-column: 1 / -1;
+  list-style: none;
+}
+
 .dam-day-energy-totals__value {
   color: var(--pf-label);
   font-variant-numeric: tabular-nums;

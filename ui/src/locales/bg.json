@@ -477,5 +477,7 @@
   "deyeBackfillUnlock": "Unlock",
   "marketplaceLeadFormCommentLabel": "Comment",
   "marketplaceLeadFormCommentPlaceholder": "Additional details (optional)",
-  "adminFieldComment": "Comment"
+  "adminFieldComment": "Comment",
+  "deyeBackfillLocalBypass": "Локален bypass (безплатно)",
+  "damEnergyBackfillNote": "kWh за този ден са от броячите на Deye Cloud (backfill) — не приблизителни семпли."
 }

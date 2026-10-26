@@ -1136,5 +1136,7 @@
   "adminColViews": "Перегляди",
   "adminColStatus": "Статус",
   "adminColCreated": "Створено",
-  "adminColActions": "Дії"
+  "adminColActions": "Дії",
+  "deyeBackfillLocalBypass": "Локальний bypass (безкоштовно)",
+  "damEnergyBackfillNote": "кВт·год за цей день з лічильників Deye Cloud (backfill) — не приблизні семпли."
 }

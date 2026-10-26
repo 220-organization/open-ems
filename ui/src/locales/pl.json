@@ -496,5 +496,7 @@
   "deyeBackfillUnlock": "Unlock",
   "marketplaceLeadFormCommentLabel": "Comment",
   "marketplaceLeadFormCommentPlaceholder": "Additional details (optional)",
-  "adminFieldComment": "Comment"
+  "adminFieldComment": "Comment",
+  "deyeBackfillLocalBypass": "Lokalny bypass (bezpłatnie)",
+  "damEnergyBackfillNote": "kWh za ten dzień pochodzą z liczników Deye Cloud (backfill) — nie z przybliżonych próbek."
 }
