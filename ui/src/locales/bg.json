@@ -462,5 +462,20 @@
   "adminColViews": "Views",
   "adminColStatus": "Status",
   "adminColCreated": "Created",
-  "adminColActions": "Actions"
+  "adminColActions": "Actions",
+  "deyeBackfillButton": "Backfill",
+  "deyeBackfillConfirm": "Презаписване на Open EMS kWh за периода с часови данни от Deye Cloud?",
+  "deyeBackfillProgress": "{done}/{total} дни",
+  "deyeBackfillDone": "Backfill готов — Open EMS обновен",
+  "deyeBackfillError": "Грешка при backfill",
+  "deyeBackfillCancel": "Отказ",
+  "deyeBackfillPrice": "{days} × {uahPerDay} ₴ = {amount} ₴",
+  "deyeBackfillPay": "Pay",
+  "deyeBackfillPaying": "Waiting for payment…",
+  "deyeBackfillPaymentRequired": "Payment required for backfill",
+  "deyeBackfillAccessPassword": "Access password",
+  "deyeBackfillUnlock": "Unlock",
+  "marketplaceLeadFormCommentLabel": "Comment",
+  "marketplaceLeadFormCommentPlaceholder": "Additional details (optional)",
+  "adminFieldComment": "Comment"
 }

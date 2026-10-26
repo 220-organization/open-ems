@@ -24,6 +24,7 @@ async def create_marketplace_location(
         request_type=payload.request_type.value,
         name=payload.name,
         phone=payload.phone,
+        comment=payload.comment,
         kw_available=payload.kw_available,
         distribution_contract=payload.distribution_contract,
         messenger=payload.messenger,
@@ -127,6 +128,7 @@ async def update_marketplace_location(
     for field in (
         "name",
         "phone",
+        "comment",
         "kw_available",
         "distribution_contract",
         "distance_meters",

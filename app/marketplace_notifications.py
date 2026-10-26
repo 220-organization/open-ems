@@ -45,10 +45,17 @@ def _build_submission_message(row) -> str:
         f"Тип: <b>{html.escape(str(row.request_type or ''))}</b>",
         f"Імʼя: {html.escape(str(row.name or ''))}",
         f"Телефон: {html.escape(str(row.phone or ''))}",
-        f"Потужність: {html.escape(str(row.kw_available or ''))} кВт",
-        f"Договір на розподіл: {_format_contract(row.distribution_contract)}",
-        f"Точок на карті: {len(locations)}",
     ]
+    comment = getattr(row, "comment", None)
+    if comment:
+        lines.append(f"Коментар: {html.escape(str(comment))}")
+    lines.extend(
+        [
+            f"Потужність: {html.escape(str(row.kw_available or ''))} кВт",
+            f"Договір на розподіл: {_format_contract(row.distribution_contract)}",
+            f"Точок на карті: {len(locations)}",
+        ]
+    )
     if location_lines:
         lines.append("Локації:")
         lines.extend(location_lines)

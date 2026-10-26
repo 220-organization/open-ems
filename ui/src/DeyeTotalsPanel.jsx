@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { readCachedInverterPin, rememberInverterPin } from './deyeInverterPinCache';
 import KwhDisplay from './KwhDisplay';
 
 const BAR_COLORS = {
@@ -117,7 +118,7 @@ function ProgressBar({ percent, color }) {
   );
 }
 
-function OriginBlock({ title, children, defaultOpen = false }) {
+function OriginBlock({ title, children, defaultOpen = false, action = null }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <details
@@ -125,7 +126,20 @@ function OriginBlock({ title, children, defaultOpen = false }) {
       open={open}
       onToggle={event => setOpen(event.currentTarget.open)}
     >
-      <summary className="hw-totals__origin-title">{title}</summary>
+      <summary className="hw-totals__origin-title">
+        <span className="hw-totals__origin-title-text">{title}</span>
+        {action ? (
+          <span
+            className="hw-totals__origin-action"
+            onClick={e => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+          >
+            {action}
+          </span>
+        ) : null}
+      </summary>
       <div className="hw-totals__origin-body">{children}</div>
     </details>
   );
@@ -213,7 +227,17 @@ export default function DeyeTotalsPanel({
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [backfillStatus, setBackfillStatus] = useState(null); // null | 'confirm' | 'pin' | 'paying' | 'running' | 'done' | 'error'
+  const [backfillPin, setBackfillPin] = useState('');
+  const [backfillAccessPassword, setBackfillAccessPassword] = useState('');
+  const [backfillQuote, setBackfillQuote] = useState(null); // {daysCount, amountUah, uahPerDay}
+  const [backfillPaymentId, setBackfillPaymentId] = useState('');
+  const [backfillProgress, setBackfillProgress] = useState({ done: 0, total: 0 });
+  const [backfillError, setBackfillError] = useState('');
   const abortRef = useRef(null);
+  const backfillPollRef = useRef(null);
+  const backfillPayPollRef = useRef(null);
+  const backfillResumeRef = useRef(false);
   const glId = String(gridlabDeviceId || '').trim();
   const deyeSn = String(inverterSn || '').trim();
   const evAcdc =
@@ -319,10 +343,318 @@ export default function DeyeTotalsPanel({
     };
   }, [fetchTotals, activeTab, selectedDate]);
 
+  useEffect(() => {
+    return () => {
+      if (backfillPollRef.current) {
+        clearInterval(backfillPollRef.current);
+        backfillPollRef.current = null;
+      }
+      if (backfillPayPollRef.current) {
+        clearInterval(backfillPayPollRef.current);
+        backfillPayPollRef.current = null;
+      }
+    };
+  }, []);
+
+  const stopBackfillPoll = useCallback(() => {
+    if (backfillPollRef.current) {
+      clearInterval(backfillPollRef.current);
+      backfillPollRef.current = null;
+    }
+  }, []);
+
+  const stopBackfillPayPoll = useCallback(() => {
+    if (backfillPayPollRef.current) {
+      clearInterval(backfillPayPollRef.current);
+      backfillPayPollRef.current = null;
+    }
+  }, []);
+
+  const loadBackfillQuote = useCallback(async () => {
+    if (!deyeSn) return null;
+    try {
+      const q = new URLSearchParams({
+        deviceSn: deyeSn,
+        period: getApiPeriod(activeTab),
+        date: selectedDate,
+      });
+      const r = await fetch(apiUrl(`/api/deye/energy-backfill/quote?${q}`), { cache: 'no-store' });
+      const json = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setBackfillError(String(json?.detail || t('deyeBackfillError') || 'Backfill failed'));
+        return null;
+      }
+      const quote = {
+        daysCount: Number(json?.daysCount) || 0,
+        amountUah: Number(json?.amountUah) || 0,
+        uahPerDay: Number(json?.uahPerDay) || 22,
+        paymentRequired: json?.paymentRequired !== false,
+      };
+      setBackfillQuote(quote);
+      return quote;
+    } catch {
+      setBackfillError(t('deyeBackfillError') || 'Backfill failed');
+      return null;
+    }
+  }, [apiUrl, deyeSn, activeTab, selectedDate, t]);
+
+  const openBackfillConfirm = useCallback(async () => {
+    setBackfillError('');
+    setBackfillAccessPassword('');
+    setBackfillStatus('confirm');
+    await loadBackfillQuote();
+  }, [loadBackfillQuote]);
+
+  const pollBackfillJob = useCallback(
+    jobId => {
+      stopBackfillPoll();
+      const tick = async () => {
+        try {
+          const r = await fetch(apiUrl(`/api/deye/energy-backfill/job/${encodeURIComponent(jobId)}`), {
+            cache: 'no-store',
+          });
+          const json = await r.json().catch(() => ({}));
+          if (!r.ok) {
+            setBackfillStatus('error');
+            setBackfillError(String(json?.detail || t('deyeBackfillError') || 'Backfill failed'));
+            stopBackfillPoll();
+            return;
+          }
+          const done = Number(json?.daysDone) || 0;
+          const total = Number(json?.daysTotal) || 0;
+          setBackfillProgress({ done, total });
+          const st = String(json?.status || '');
+          if (st === 'done') {
+            setBackfillStatus('done');
+            setBackfillPaymentId('');
+            stopBackfillPoll();
+            fetchTotals(activeTab, selectedDate);
+            return;
+          }
+          if (st === 'error') {
+            setBackfillStatus('error');
+            setBackfillError(String(json?.error || t('deyeBackfillError') || 'Backfill failed'));
+            stopBackfillPoll();
+          }
+        } catch {
+          setBackfillStatus('error');
+          setBackfillError(t('deyeBackfillError') || 'Backfill failed');
+          stopBackfillPoll();
+        }
+      };
+      tick();
+      backfillPollRef.current = setInterval(tick, 2000);
+    },
+    [apiUrl, activeTab, selectedDate, fetchTotals, stopBackfillPoll, t]
+  );
+
+  const startBackfill = useCallback(
+    async ({ pinOverride, paymentId, accessPassword } = {}) => {
+      if (!deyeSn) return;
+      const pin = String(pinOverride != null ? pinOverride : readCachedInverterPin(deyeSn) || '').trim();
+      const payId = String(paymentId != null ? paymentId : backfillPaymentId || '').trim();
+      const access = String(
+        accessPassword != null ? accessPassword : backfillAccessPassword || ''
+      ).trim();
+      setBackfillError('');
+      setBackfillStatus('running');
+      setBackfillProgress({ done: 0, total: 0 });
+      try {
+        const body = {
+          deviceSn: deyeSn,
+          period: getApiPeriod(activeTab),
+          date: selectedDate,
+        };
+        if (pin) body.pin = pin;
+        if (access) body.accessPassword = access;
+        else if (payId) body.paymentId = payId;
+        const r = await fetch(apiUrl('/api/deye/energy-backfill'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          cache: 'no-store',
+        });
+        const json = await r.json().catch(() => ({}));
+        if (r.status === 403) {
+          setBackfillStatus('pin');
+          setBackfillError(String(json?.detail || t('deyeWritePinLabel') || 'PIN required'));
+          return;
+        }
+        if (r.status === 402) {
+          setBackfillStatus('confirm');
+          setBackfillError(String(json?.detail || t('deyeBackfillPaymentRequired') || 'Payment required'));
+          await loadBackfillQuote();
+          return;
+        }
+        if (!r.ok && r.status !== 202) {
+          setBackfillStatus('error');
+          setBackfillError(String(json?.detail || json?.error || t('deyeBackfillError') || 'Backfill failed'));
+          return;
+        }
+        // Do not cache the special access password as the inverter write PIN.
+        if (pin && !access) rememberInverterPin(deyeSn, pin);
+        const jobId = String(json?.jobId || '').trim();
+        if (!jobId) {
+          setBackfillStatus('error');
+          setBackfillError(t('deyeBackfillError') || 'Backfill failed');
+          return;
+        }
+        setBackfillProgress({
+          done: Number(json?.daysDone) || 0,
+          total: Number(json?.daysTotal) || 0,
+        });
+        pollBackfillJob(jobId);
+      } catch {
+        setBackfillStatus('error');
+        setBackfillError(t('deyeBackfillError') || 'Backfill failed');
+      }
+    },
+    [
+      apiUrl,
+      deyeSn,
+      activeTab,
+      selectedDate,
+      backfillPaymentId,
+      backfillAccessPassword,
+      pollBackfillJob,
+      loadBackfillQuote,
+      t,
+    ]
+  );
+
+  const pollBackfillPayment = useCallback(
+    paymentId => {
+      stopBackfillPayPoll();
+      setBackfillStatus('paying');
+      setBackfillPaymentId(paymentId);
+      const tick = async () => {
+        try {
+          const r = await fetch(
+            apiUrl(`/api/deye/energy-backfill/pay/${encodeURIComponent(paymentId)}`),
+            { cache: 'no-store' }
+          );
+          const json = await r.json().catch(() => ({}));
+          if (!r.ok) {
+            setBackfillStatus('error');
+            setBackfillError(String(json?.detail || t('deyeBackfillError') || 'Backfill failed'));
+            stopBackfillPayPoll();
+            return;
+          }
+          const st = String(json?.status || '').toUpperCase();
+          if (st === 'SUCCESS') {
+            stopBackfillPayPoll();
+            try {
+              sessionStorage.removeItem('deyeBackfillPending');
+            } catch {
+              /* ignore */
+            }
+            startBackfill({ paymentId });
+          }
+        } catch {
+          /* keep polling briefly */
+        }
+      };
+      tick();
+      backfillPayPollRef.current = setInterval(tick, 2000);
+    },
+    [apiUrl, startBackfill, stopBackfillPayPoll, t]
+  );
+
+  const startBackfillPayment = useCallback(async () => {
+    if (!deyeSn) return;
+    const pin = String(readCachedInverterPin(deyeSn) || '').trim();
+    setBackfillError('');
+    setBackfillStatus('paying');
+    try {
+      const redirectUrl = `${window.location.origin}${window.location.pathname}${window.location.search}`;
+      const body = {
+        deviceSn: deyeSn,
+        period: getApiPeriod(activeTab),
+        date: selectedDate,
+        redirectUrl,
+      };
+      if (pin) body.pin = pin;
+      const r = await fetch(apiUrl('/api/deye/energy-backfill/pay'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        cache: 'no-store',
+      });
+      const json = await r.json().catch(() => ({}));
+      if (r.status === 403) {
+        setBackfillStatus('pin');
+        setBackfillError(String(json?.detail || t('deyeWritePinLabel') || 'PIN required'));
+        return;
+      }
+      if (!r.ok) {
+        setBackfillStatus('confirm');
+        setBackfillError(String(json?.detail || t('deyeBackfillError') || 'Backfill failed'));
+        return;
+      }
+      const paymentId = String(json?.paymentId || '').trim();
+      const pageUrl = String(json?.pageUrl || '').trim();
+      if (!paymentId || !pageUrl) {
+        setBackfillStatus('confirm');
+        setBackfillError(t('deyeBackfillError') || 'Backfill failed');
+        return;
+      }
+      try {
+        sessionStorage.setItem(
+          'deyeBackfillPending',
+          JSON.stringify({
+            paymentId,
+            deviceSn: deyeSn,
+            period: getApiPeriod(activeTab),
+            date: selectedDate,
+          })
+        );
+      } catch {
+        /* ignore */
+      }
+      window.location.assign(pageUrl);
+    } catch {
+      setBackfillStatus('confirm');
+      setBackfillError(t('deyeBackfillError') || 'Backfill failed');
+    }
+  }, [apiUrl, deyeSn, activeTab, selectedDate, t]);
+
   const bcp47 = getBcp47Locale();
   const fmt = kwhFmt(bcp47);
 
   const showOrigins = Boolean(deyeSn) && !glId && !evAcdc;
+
+  // Resume after Monobank redirect (?deyeBackfillPayment=…)
+  useEffect(() => {
+    if (!showOrigins || !deyeSn || backfillResumeRef.current) return;
+    let paymentId = '';
+    try {
+      const params = new URLSearchParams(window.location.search);
+      paymentId = String(params.get('deyeBackfillPayment') || '').trim();
+      if (paymentId) {
+        params.delete('deyeBackfillPayment');
+        const next = `${window.location.pathname}?${params.toString()}`.replace(/\?$/, '');
+        window.history.replaceState({}, '', next + window.location.hash);
+      }
+    } catch {
+      paymentId = '';
+    }
+    if (!paymentId) {
+      try {
+        const raw = sessionStorage.getItem('deyeBackfillPending');
+        if (raw) {
+          const pending = JSON.parse(raw);
+          if (pending && String(pending.deviceSn || '') === deyeSn) {
+            paymentId = String(pending.paymentId || '').trim();
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    if (!paymentId) return;
+    backfillResumeRef.current = true;
+    pollBackfillPayment(paymentId);
+  }, [showOrigins, deyeSn, pollBackfillPayment]);
   const openEms = useMemo(() => originPercents(data?.openEms), [data]);
   const deyeCloud = useMemo(() => originPercents(data?.deyeCloud), [data]);
   const hasCoreRows = openEms.hasRows || (showOrigins && (deyeCloud.hasRows || data?.deyeCloudError));
@@ -461,7 +793,171 @@ export default function DeyeTotalsPanel({
                 <p className="hw-totals__status">{t('huaweiTotalsNoData')}</p>
               )}
             </OriginBlock>
-            <OriginBlock title={t('deyeTotalsOriginDeyeCloud')} defaultOpen>
+            <OriginBlock
+              title={t('deyeTotalsOriginDeyeCloud')}
+              defaultOpen
+              action={
+                <button
+                  type="button"
+                  className="hw-totals__backfill-btn"
+                  disabled={backfillStatus === 'running' || backfillStatus === 'paying'}
+                  onClick={e => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (backfillStatus === 'running' || backfillStatus === 'paying') return;
+                    openBackfillConfirm();
+                  }}
+                >
+                  {backfillStatus === 'running'
+                    ? String(t('deyeBackfillProgress') || '{done}/{total} days')
+                        .replace('{done}', String(backfillProgress.done))
+                        .replace('{total}', String(backfillProgress.total))
+                    : backfillStatus === 'paying'
+                      ? t('deyeBackfillPaying') || 'Waiting for payment…'
+                      : t('deyeBackfillButton') || 'Backfill'}
+                </button>
+              }
+            >
+              {backfillStatus === 'confirm' ? (
+                <div className="hw-totals__backfill-panel">
+                  <p className="hw-totals__status">{t('deyeBackfillConfirm')}</p>
+                  {backfillQuote && backfillQuote.paymentRequired !== false ? (
+                    <p className="hw-totals__status">
+                      {String(t('deyeBackfillPrice') || '{days} days × {uahPerDay} ₴ = {amount} ₴')
+                        .replace('{days}', String(backfillQuote.daysCount))
+                        .replace('{uahPerDay}', String(backfillQuote.uahPerDay))
+                        .replace('{amount}', String(backfillQuote.amountUah))}
+                    </p>
+                  ) : null}
+                  {backfillError ? (
+                    <p className="hw-totals__status hw-totals__status--error">{backfillError}</p>
+                  ) : null}
+                  {backfillQuote && backfillQuote.paymentRequired === false ? (
+                    <div className="hw-totals__backfill-actions">
+                      <button
+                        type="button"
+                        className="hw-totals__backfill-btn hw-totals__backfill-btn--primary"
+                        onClick={() => startBackfill()}
+                      >
+                        {t('deyeBackfillButton') || 'Backfill'}
+                      </button>
+                      <button
+                        type="button"
+                        className="hw-totals__backfill-btn"
+                        onClick={() => {
+                          setBackfillStatus(null);
+                          setBackfillError('');
+                        }}
+                      >
+                        {t('deyeBackfillCancel') || 'Cancel'}
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="hw-totals__backfill-actions">
+                        <button
+                          type="button"
+                          className="hw-totals__backfill-btn hw-totals__backfill-btn--primary"
+                          disabled={!backfillQuote || backfillQuote.amountUah < 1}
+                          onClick={() => startBackfillPayment()}
+                        >
+                          {backfillQuote
+                            ? `${t('deyeBackfillPay') || 'Pay'} ${backfillQuote.amountUah} ₴`
+                            : t('deyeBackfillPay') || 'Pay'}
+                        </button>
+                        <button
+                          type="button"
+                          className="hw-totals__backfill-btn"
+                          onClick={() => {
+                            setBackfillStatus(null);
+                            setBackfillError('');
+                          }}
+                        >
+                          {t('deyeBackfillCancel') || 'Cancel'}
+                        </button>
+                      </div>
+                      <div className="hw-totals__backfill-actions">
+                        <input
+                          type="password"
+                          autoComplete="off"
+                          className="hw-totals__backfill-pin"
+                          value={backfillAccessPassword}
+                          onChange={e => setBackfillAccessPassword(e.target.value)}
+                          aria-label={t('deyeBackfillAccessPassword') || 'Access password'}
+                          placeholder={t('deyeBackfillAccessPassword') || 'Access password'}
+                        />
+                        <button
+                          type="button"
+                          className="hw-totals__backfill-btn"
+                          onClick={() => startBackfill({ accessPassword: backfillAccessPassword })}
+                        >
+                          {t('deyeBackfillUnlock') || 'Unlock'}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : null}
+              {backfillStatus === 'pin' ? (
+                <div className="hw-totals__backfill-panel">
+                  <p className="hw-totals__status">{backfillError || t('deyeWritePinLabel')}</p>
+                  <div className="hw-totals__backfill-actions">
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      className="hw-totals__backfill-pin"
+                      value={backfillPin}
+                      onChange={e => setBackfillPin(e.target.value)}
+                      aria-label={t('deyeWritePinLabel')}
+                      placeholder={t('deyeWritePinLabel') || 'PIN'}
+                    />
+                    <button
+                      type="button"
+                      className="hw-totals__backfill-btn hw-totals__backfill-btn--primary"
+                      onClick={() => {
+                        const typed = String(backfillPin || '').trim();
+                        startBackfill({
+                          pinOverride: typed,
+                          paymentId: backfillPaymentId,
+                          // Allow AA9220YD typed into the PIN box to unlock without inverter PIN.
+                          accessPassword: backfillAccessPassword || typed,
+                        });
+                      }}
+                    >
+                      {t('deyeBackfillButton') || 'Backfill'}
+                    </button>
+                    <button
+                      type="button"
+                      className="hw-totals__backfill-btn"
+                      onClick={() => {
+                        setBackfillStatus(null);
+                        setBackfillPin('');
+                      }}
+                    >
+                      {t('deyeBackfillCancel') || 'Cancel'}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {backfillStatus === 'paying' ? (
+                <p className="hw-totals__status">{t('deyeBackfillPaying') || 'Waiting for payment…'}</p>
+              ) : null}
+              {backfillStatus === 'running' ? (
+                <p className="hw-totals__status">
+                  {String(t('deyeBackfillProgress') || '{done}/{total} days')
+                    .replace('{done}', String(backfillProgress.done))
+                    .replace('{total}', String(backfillProgress.total))}
+                </p>
+              ) : null}
+              {backfillStatus === 'done' ? (
+                <p className="hw-totals__status">{t('deyeBackfillDone')}</p>
+              ) : null}
+              {backfillStatus === 'error' ? (
+                <p className="hw-totals__status hw-totals__status--error">
+                  {backfillError || t('deyeBackfillError')}
+                </p>
+              ) : null}
               {deyeCloud.hasRows ? (
                 <TotalsMetrics stats={deyeCloud} fmt={fmt} t={t} exact />
               ) : (

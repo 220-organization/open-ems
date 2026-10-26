@@ -116,7 +116,7 @@ async def lost_solar_kwh_one_kyiv_day(
     sn = (device_sn or "").strip()
     if not sn:
         return None
-    hourly_soc, _grid, _freq, hourly_pv_kwh, _load = await hourly_inverter_history_for_kyiv_day(
+    hourly_soc, _grid, _freq, hourly_pv_kwh, _load, _imp = await hourly_inverter_history_for_kyiv_day(
         session, sn, trade_day
     )
     if lat is not None and lon is not None:
@@ -138,7 +138,7 @@ async def lost_solar_hourly_breakdown_one_kyiv_day(
     sn = (device_sn or "").strip()
     if not sn:
         return None
-    hourly_soc, _grid, _freq, hourly_pv_kwh, _load = await hourly_inverter_history_for_kyiv_day(
+    hourly_soc, _grid, _freq, hourly_pv_kwh, _load, _imp = await hourly_inverter_history_for_kyiv_day(
         session, sn, trade_day
     )
     if lat is not None and lon is not None:

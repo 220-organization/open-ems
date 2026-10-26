@@ -15,7 +15,7 @@ from app.deye_flow_balance import (
     FLOW_BALANCE_PV_FACTOR,
     effective_pv_generation_watts,
 )
-from app.models import DeyeSocSample
+from app.models import DeyeHourlyEnergy, DeyeSocSample
 from app.oree_dam_service import KYIV
 
 # Cached True once columns exist. Before that, re-probe each call (migration may run without restart).
@@ -248,6 +248,95 @@ def _effective_pv_watts_for_sample(
     return float(effective_pv_generation_watts(device_sn, float(pv_w)))
 
 
+async def _hourly_energy_overrides(
+    session: AsyncSession,
+    device_sns: list[str],
+    start_utc: datetime,
+    end_utc: datetime,
+) -> tuple[
+    list[Optional[float]],
+    list[Optional[float]],
+    list[Optional[float]],
+    list[Optional[float]],
+]:
+    """
+    Sum ``deye_hourly_energy`` rows for the given serials into 24 Kyiv-hour slots.
+
+    Returns (consumption_kwh, generation_kwh, import_kwh, export_kwh). A slot is None when
+    no override row exists for that hour.
+    """
+    sns = sorted({(s or "").strip() for s in device_sns if (s or "").strip()})
+    cons = [None] * 24
+    gen = [None] * 24
+    imp = [None] * 24
+    exp = [None] * 24
+    if not sns:
+        return cons, gen, imp, exp
+    result = await session.execute(
+        select(
+            DeyeHourlyEnergy.hour_start,
+            DeyeHourlyEnergy.consumption_kwh,
+            DeyeHourlyEnergy.generation_kwh,
+            DeyeHourlyEnergy.import_kwh,
+            DeyeHourlyEnergy.export_kwh,
+        ).where(
+            DeyeHourlyEnergy.device_sn.in_(sns),
+            DeyeHourlyEnergy.hour_start >= start_utc,
+            DeyeHourlyEnergy.hour_start < end_utc,
+        )
+    )
+    for hour_start, c, g, i, e in result.all():
+        local = hour_start.astimezone(KYIV)
+        h = int(local.hour)
+        if not (0 <= h <= 23):
+            continue
+        if c is not None:
+            cons[h] = (cons[h] or 0.0) + float(c)
+        if g is not None:
+            gen[h] = (gen[h] or 0.0) + float(g)
+        if i is not None:
+            imp[h] = (imp[h] or 0.0) + float(i)
+        if e is not None:
+            exp[h] = (exp[h] or 0.0) + float(e)
+    return cons, gen, imp, exp
+
+
+def _apply_hourly_energy_overrides(
+    grid_out: list[Optional[float]],
+    pv_kwh_out: list[Optional[float]],
+    load_kwh_out: list[Optional[float]],
+    ovr_cons: list[Optional[float]],
+    ovr_gen: list[Optional[float]],
+    ovr_imp: list[Optional[float]],
+    ovr_exp: list[Optional[float]],
+) -> list[Optional[float]]:
+    """
+    Prefer backfilled kWh for load/PV/grid. Returns hourly import kWh (override or None).
+
+    Grid mean W for an overridden hour is ``(import - export) * 1000``.
+    """
+    import_kwh_out: list[Optional[float]] = [None] * 24
+    for h in range(24):
+        has = (
+            ovr_cons[h] is not None
+            or ovr_gen[h] is not None
+            or ovr_imp[h] is not None
+            or ovr_exp[h] is not None
+        )
+        if not has:
+            continue
+        if ovr_cons[h] is not None:
+            load_kwh_out[h] = float(ovr_cons[h])
+        if ovr_gen[h] is not None:
+            pv_kwh_out[h] = float(ovr_gen[h])
+        imp_v = float(ovr_imp[h]) if ovr_imp[h] is not None else 0.0
+        exp_v = float(ovr_exp[h]) if ovr_exp[h] is not None else 0.0
+        if ovr_imp[h] is not None or ovr_exp[h] is not None:
+            grid_out[h] = (imp_v - exp_v) * 1000.0
+            import_kwh_out[h] = imp_v if ovr_imp[h] is not None else 0.0
+    return import_kwh_out
+
+
 async def hourly_inverter_history_for_kyiv_day(
     session: AsyncSession,
     device_sn: str,
@@ -258,18 +347,22 @@ async def hourly_inverter_history_for_kyiv_day(
     list[Optional[float]],
     list[Optional[float]],
     list[Optional[float]],
+    list[Optional[float]],
 ]:
     """
-    Five lists of 24 values (chart hours 0..23 mapped to display hours 1..24):
+    Six lists of 24 values (chart hours 0..23 mapped to display hours 1..24):
 
     - mean SoC %, mean grid power (W signed), mean grid frequency (Hz)
-    - mean PV energy (kWh) and mean load energy (kWh) per Kyiv hour from 5-min samples
-      (kWh ≈ mean power in W / 1000 for that hour).
+    - PV energy (kWh) and load energy (kWh) per Kyiv hour
+    - grid import energy (kWh) when a ``deye_hourly_energy`` override exists for that hour
+      (otherwise None — callers fall back to positive grid W / 1000)
+
+    Backfilled ``deye_hourly_energy`` rows override load/PV/grid for those hours.
     """
     sn = (device_sn or "").strip()
     if not sn:
         empty = [None] * 24
-        return empty, empty, empty, empty, empty
+        return empty, empty, empty, empty, empty, empty
 
     start_kyiv, end_kyiv = _kyiv_day_bounds(trade_day)
     start_utc = start_kyiv.astimezone(timezone.utc)
@@ -354,7 +447,14 @@ async def hourly_inverter_history_for_kyiv_day(
         pv_kwh_out = [None] * 24
         load_kwh_out = [None] * 24
 
-    return soc_out, grid_out, freq_out, pv_kwh_out, load_kwh_out
+    ovr_cons, ovr_gen, ovr_imp, ovr_exp = await _hourly_energy_overrides(
+        session, [sn], start_utc, end_utc
+    )
+    import_kwh_out = _apply_hourly_energy_overrides(
+        grid_out, pv_kwh_out, load_kwh_out, ovr_cons, ovr_gen, ovr_imp, ovr_exp
+    )
+
+    return soc_out, grid_out, freq_out, pv_kwh_out, load_kwh_out, import_kwh_out
 
 
 def _round_for_dedup(value: Optional[float]) -> Optional[float]:
@@ -369,6 +469,7 @@ async def hourly_inverter_history_for_kyiv_day_cluster(
     device_sns: list[str],
     trade_day: date,
 ) -> tuple[
+    list[Optional[float]],
     list[Optional[float]],
     list[Optional[float]],
     list[Optional[float]],
@@ -390,7 +491,7 @@ async def hourly_inverter_history_for_kyiv_day_cluster(
     sns = sorted({(s or "").strip() for s in device_sns if (s or "").strip()})
     if not sns:
         empty = [None] * 24
-        return empty, empty, empty, empty, empty
+        return empty, empty, empty, empty, empty, empty
     if len(sns) == 1:
         return await hourly_inverter_history_for_kyiv_day(session, sns[0], trade_day)
 
@@ -511,4 +612,11 @@ async def hourly_inverter_history_for_kyiv_day_cluster(
     freq_out = [_mean_or_none(freq_buckets[i]) for i in range(24)]
     pv_kwh_out = [_mean_power_w_to_kwh_hour(_mean_or_none(pv_w_buckets[i])) for i in range(24)]
     load_kwh_out = [_mean_power_w_to_kwh_hour(_mean_or_none(load_w_buckets[i])) for i in range(24)]
-    return soc_out, grid_out, freq_out, pv_kwh_out, load_kwh_out
+
+    ovr_cons, ovr_gen, ovr_imp, ovr_exp = await _hourly_energy_overrides(
+        session, sns, start_utc, end_utc
+    )
+    import_kwh_out = _apply_hourly_energy_overrides(
+        grid_out, pv_kwh_out, load_kwh_out, ovr_cons, ovr_gen, ovr_imp, ovr_exp
+    )
+    return soc_out, grid_out, freq_out, pv_kwh_out, load_kwh_out, import_kwh_out

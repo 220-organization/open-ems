@@ -64,6 +64,7 @@ function buildEditForm(row) {
     status: row.status || "PENDING",
     name: row.name || "",
     phone: row.phone || "",
+    comment: row.comment || "",
     kw_available: row.kw_available || "",
     distribution_contract: contractToFormValue(row.distribution_contract),
     distance_meters:
@@ -318,6 +319,7 @@ export default function MarketplaceModeration({
         status: editForm.status,
         name: editForm.name.trim(),
         phone: editForm.phone.trim(),
+        comment: editForm.comment.trim() || null,
         kw_available: editForm.kw_available.trim(),
         distribution_contract: contractFromFormValue(
           editForm.distribution_contract,
@@ -462,6 +464,15 @@ export default function MarketplaceModeration({
               <input
                 name="phone"
                 value={editForm.phone}
+                onChange={handleEditChange}
+              />
+            </label>
+            <label>
+              {t("adminFieldComment") || t("marketplaceLeadFormCommentLabel")}
+              <textarea
+                name="comment"
+                rows={3}
+                value={editForm.comment}
                 onChange={handleEditChange}
               />
             </label>

@@ -90,6 +90,7 @@ export default function LeadFormModal({
 }) {
   const [leadName, setLeadName] = useState("");
   const [leadPhone, setLeadPhone] = useState("");
+  const [leadComment, setLeadComment] = useState("");
   const [leadKwAvailable, setLeadKwAvailable] = useState(String(KW_DEFAULT));
   const [leadDistributionContract, setLeadDistributionContract] = useState("");
   const [leadLocations, setLeadLocations] = useState([]);
@@ -127,6 +128,7 @@ export default function LeadFormModal({
   const resetForm = () => {
     setLeadName("");
     setLeadPhone("");
+    setLeadComment("");
     setLeadKwAvailable(String(KW_DEFAULT));
     setLeadDistributionContract("");
     setLeadLocations([]);
@@ -159,6 +161,10 @@ export default function LeadFormModal({
     const lines = [];
     if (n) lines.push(`${t("marketplaceLeadFormNameLabel")}: ${n}`);
     if (p) lines.push(`${t("marketplaceLeadFormPhoneLabel")}: ${p}`);
+    const comment = leadComment.trim();
+    if (comment) {
+      lines.push(`${t("marketplaceLeadFormCommentLabel")}: ${comment}`);
+    }
     if (isLocationLeadForm) {
       if (leadKwAvailable)
         lines.push(
@@ -383,6 +389,7 @@ export default function LeadFormModal({
       request_type: formType === "proposeLocation" ? "PROPOSE" : "LOOKING",
       name,
       phone,
+      comment: leadComment.trim() || null,
       kw_available: leadKwAvailable,
       distribution_contract:
         formType === "proposeLocation"
@@ -548,6 +555,21 @@ export default function LeadFormModal({
           {leadFormErrors.phone ? (
             <p className="marketplace-lead-error">{leadFormErrors.phone}</p>
           ) : null}
+
+          <label
+            className="marketplace-lead-label"
+            htmlFor="marketplace-lead-comment"
+          >
+            {t("marketplaceLeadFormCommentLabel")}
+          </label>
+          <textarea
+            id="marketplace-lead-comment"
+            className="marketplace-lead-input marketplace-lead-textarea"
+            rows={3}
+            value={leadComment}
+            onChange={(e) => setLeadComment(e.target.value)}
+            placeholder={t("marketplaceLeadFormCommentPlaceholder")}
+          />
 
           {isLocationLeadForm ? (
             <>

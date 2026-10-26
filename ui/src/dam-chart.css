@@ -1858,6 +1858,76 @@ a.dam-oree-embed-external:hover {
   color: var(--pf-text-secondary);
 }
 
+.hw-totals__origin-title-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.hw-totals__origin-action {
+  flex: 0 0 auto;
+  margin-left: auto;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 600;
+}
+
+.hw-totals__backfill-btn {
+  appearance: none;
+  border: 1px solid color-mix(in srgb, var(--pf-border) 80%, transparent 20%);
+  background: color-mix(in srgb, var(--pf-surface, transparent) 88%, var(--pf-border) 12%);
+  color: var(--pf-label);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.hw-totals__backfill-btn:hover:not(:disabled) {
+  border-color: var(--pf-border);
+  color: var(--pf-text);
+}
+
+.hw-totals__backfill-btn:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.hw-totals__backfill-btn--primary {
+  background: color-mix(in srgb, var(--pf-accent, #3b82f6) 18%, transparent);
+  border-color: color-mix(in srgb, var(--pf-accent, #3b82f6) 45%, var(--pf-border));
+}
+
+.hw-totals__backfill-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.hw-totals__backfill-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.hw-totals__backfill-pin {
+  appearance: none;
+  border: 1px solid var(--pf-border);
+  background: transparent;
+  color: var(--pf-text);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  min-width: 96px;
+  max-width: 140px;
+}
+
 .hw-totals__origin-title::-webkit-details-marker {
   display: none;
 }

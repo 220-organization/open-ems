@@ -103,10 +103,10 @@ function damXlsxRedirectUrl() {
   return url.toString();
 }
 
-const DAM_GRID_BARS_OPEN_KEY = 'pf-dam-grid-bars-open-v2';
-const DAM_PV_LOAD_BARS_OPEN_KEY = 'pf-dam-pv-load-bars-open-v2';
+const DAM_GRID_BARS_OPEN_KEY = 'pf-dam-grid-bars-open-v3';
+const DAM_PV_LOAD_BARS_OPEN_KEY = 'pf-dam-pv-load-bars-open-v3';
 
-/** Persist expand/collapse; default open so Мережа / Gen·Cons charts are visible. */
+/** Persist expand/collapse; default collapsed (user opens Мережа / Gen·Cons when needed). */
 function readDamEnergySectionOpen(storageKey) {
   try {
     const v = localStorage.getItem(storageKey);
@@ -115,7 +115,7 @@ function readDamEnergySectionOpen(storageKey) {
   } catch {
     /* ignore */
   }
-  return true;
+  return false;
 }
 
 function writeDamEnergySectionOpen(storageKey, open) {

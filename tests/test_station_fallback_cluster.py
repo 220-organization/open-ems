@@ -160,10 +160,17 @@ class TestHourlyClusterDedup(unittest.IsolatedAsyncioTestCase):
             async def execute(self, query):
                 return await fake_execute(query)
 
-        with patch.object(
-            deye_soc_service, "deye_soc_balance_input_columns_ready", new=fake_extras_ready
+        async def fake_overrides(*_a, **_k):
+            empty = [None] * 24
+            return empty, empty, empty, empty
+
+        with (
+            patch.object(
+                deye_soc_service, "deye_soc_balance_input_columns_ready", new=fake_extras_ready
+            ),
+            patch.object(deye_soc_service, "_hourly_energy_overrides", new=fake_overrides),
         ):
-            soc, grid, freq, pv_kwh, load_kwh = (
+            soc, grid, freq, pv_kwh, load_kwh, _imp = (
                 await deye_soc_service.hourly_inverter_history_for_kyiv_day_cluster(
                     _StubSession(), sns, date(2026, 5, 10)
                 )
@@ -205,10 +212,17 @@ class TestHourlyClusterDedup(unittest.IsolatedAsyncioTestCase):
         async def fake_extras_ready(_session):
             return True
 
-        with patch.object(
-            deye_soc_service, "deye_soc_balance_input_columns_ready", new=fake_extras_ready
+        async def fake_overrides(*_a, **_k):
+            empty = [None] * 24
+            return empty, empty, empty, empty
+
+        with (
+            patch.object(
+                deye_soc_service, "deye_soc_balance_input_columns_ready", new=fake_extras_ready
+            ),
+            patch.object(deye_soc_service, "_hourly_energy_overrides", new=fake_overrides),
         ):
-            soc, grid, freq, pv_kwh, load_kwh = (
+            soc, grid, freq, pv_kwh, load_kwh, _imp = (
                 await deye_soc_service.hourly_inverter_history_for_kyiv_day_cluster(
                     _StubSession(), sns, date(2026, 5, 10)
                 )
