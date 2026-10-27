@@ -675,29 +675,61 @@ async def _monthly_grid_balancing_bars(
 async def _deye_import_weighted_dam_kyiv(
     session: AsyncSession, device_sn: str, d0: date, d1: date
 ) -> tuple[float, Optional[float]]:
-    """Grid import kWh and import-weighted DAM UAH/kWh for one Deye inverter over a Kyiv date range."""
+    """Grid import kWh and import-weighted DAM UAH/kWh for one Deye inverter over a Kyiv date range.
+
+    Hours present in ``deye_hourly_energy`` use that backfill ``import_kwh`` (including 0).
+    Hours without a backfill row fall back to 5‑min ``deye_soc_sample`` (W/12000).
+    """
     sn = (device_sn or "").strip()
     if not sn:
         return 0.0, None
     zone = settings.OREE_COMPARE_ZONE_EIC
     sql = """
+        WITH sample_hourly AS (
+            SELECT
+                ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date) AS kyiv_day,
+                (EXTRACT(HOUR FROM (s.bucket_start AT TIME ZONE 'Europe/Kiev'))::int) AS kyiv_hour,
+                SUM(
+                    CASE WHEN s.grid_power_w > 0
+                        THEN s.grid_power_w::double precision / 12000.0
+                        ELSE 0
+                    END
+                ) AS import_kwh
+            FROM deye_soc_sample s
+            WHERE s.device_sn = :sn
+              AND s.grid_power_w IS NOT NULL
+              AND ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date) >= :d0
+              AND ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date) <= :d1
+            GROUP BY 1, 2
+        ),
+        backfill_hourly AS (
+            SELECT
+                ((e.hour_start AT TIME ZONE 'Europe/Kiev')::date) AS kyiv_day,
+                (EXTRACT(HOUR FROM (e.hour_start AT TIME ZONE 'Europe/Kiev'))::int) AS kyiv_hour,
+                e.import_kwh::double precision AS import_kwh
+            FROM deye_hourly_energy e
+            WHERE e.device_sn = :sn
+              AND e.import_kwh IS NOT NULL
+              AND ((e.hour_start AT TIME ZONE 'Europe/Kiev')::date) >= :d0
+              AND ((e.hour_start AT TIME ZONE 'Europe/Kiev')::date) <= :d1
+        ),
+        hourly AS (
+            SELECT
+                COALESCE(b.kyiv_day, s.kyiv_day) AS kyiv_day,
+                COALESCE(b.kyiv_hour, s.kyiv_hour) AS kyiv_hour,
+                COALESCE(b.import_kwh, s.import_kwh) AS import_kwh
+            FROM sample_hourly s
+            FULL OUTER JOIN backfill_hourly b
+                ON b.kyiv_day = s.kyiv_day AND b.kyiv_hour = s.kyiv_hour
+        )
         SELECT
-            COALESCE(SUM(
-                CASE WHEN s.grid_power_w > 0 THEN s.grid_power_w::double precision / 12000.0 ELSE 0 END
-            ), 0)::double precision AS import_kwh,
-            COALESCE(SUM(
-                (CASE WHEN s.grid_power_w > 0 THEN s.grid_power_w::double precision / 12000.0 ELSE 0 END)
-                * (p.price_uah_mwh / 1000.0)
-            ), 0)::double precision AS cost_uah
-        FROM deye_soc_sample s
-        INNER JOIN oree_dam_price p ON p.trade_day = ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date)
+            COALESCE(SUM(h.import_kwh), 0)::double precision AS import_kwh,
+            COALESCE(SUM(h.import_kwh * (p.price_uah_mwh / 1000.0)), 0)::double precision AS cost_uah
+        FROM hourly h
+        INNER JOIN oree_dam_price p ON p.trade_day = h.kyiv_day
             AND p.zone_eic = :zone
-            AND p.period = (EXTRACT(HOUR FROM (s.bucket_start AT TIME ZONE 'Europe/Kiev'))::int + 1)
-        WHERE s.device_sn = :sn
-          AND s.grid_power_w IS NOT NULL
-          AND s.grid_power_w > 0
-          AND ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date) >= :d0
-          AND ((s.bucket_start AT TIME ZONE 'Europe/Kiev')::date) <= :d1
+            AND p.period = h.kyiv_hour + 1
+        WHERE h.import_kwh > 0
     """
     r = await session.execute(text(sql), {"sn": sn, "zone": zone, "d0": d0, "d1": d1})
     row = r.one()
@@ -815,7 +847,7 @@ async def _monthly_retail_tariff_bars(
     One bar per Kyiv calendar month: retail incl. distribution + VAT.
 
     Fleet (no device): plain average DAM over the month.
-    Per inverter/plant: volume-weighted DAM from grid-import 5‑min samples (import × hourly DAM).
+    Per Deye inverter: volume-weighted DAM from backfilled hourly import when present, else 5‑min samples.
     Oldest month first.
     """
     if not oree_dam_configured():
@@ -1146,8 +1178,9 @@ async def landing_totals(
     or one device when ``deviceSn`` is set). It does **not** use peak-DAM or manual-discharge session aggregates.
     Also DAM average UAH/kWh for Kyiv current month MTD vs previous full calendar month (OREE_COMPARE_ZONE_EIC).
     When ``deviceSn`` is set, ``dam.currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd`` is the volume-weighted
-    OREE DAM UAH/kWh over **grid import** 5‑min samples (``grid_power_w > 0``) for Kyiv MTD, joined to hourly DAM
-    (same join as arbitrage). ``dam.currentMonthDeviceGridImportKwhMtd`` is the matched import kWh sum.
+    OREE DAM UAH/kWh over grid import for Kyiv MTD. Hours in ``deye_hourly_energy`` use backfilled
+    ``import_kwh``; other hours use 5‑min samples (``grid_power_w > 0``, W/12000), joined to hourly DAM.
+    ``dam.currentMonthDeviceGridImportKwhMtd`` is the matched import kWh sum.
     ``arbitrageRevenueUah`` is the sum over Kyiv days of per‑day net (export − import) × DAM UAH/kWh on
     hourly buckets from ``deye_soc_sample``, matching the DAM chart «arbitrage for this day» summed across days.
     ``arbitrageKyivMonthMomPct`` compares current Kyiv month MTD arbitrage to the same calendar-day span
@@ -1785,7 +1818,7 @@ async def monthly_retail_tariff_bars(
         min_length=6,
         max_length=32,
         pattern=r"^[0-9]+$",
-        description="Deye inverter — import-weighted DAM per month from deye_soc_sample.",
+        description="Deye inverter — import-weighted DAM per month; backfill hours override 5-min samples.",
     ),
     huawei_station_code: Optional[str] = Query(
         default=None,

@@ -212,9 +212,11 @@ export default function MonthlyRetailTariffChartModal({
     }
     let cancelled = false;
     const uahUnit = t('powerFlowPeakHourlyChartYAxisUah');
-    (async () => {
-      setStatus('loading');
-      setRows([]);
+    const load = async (initial = true) => {
+      if (initial) {
+        setStatus('loading');
+        setRows([]);
+      }
       try {
         const r = await fetch(fetchUrl, { cache: 'no-store' });
         const data = await r.json().catch(() => ({}));
@@ -261,9 +263,15 @@ export default function MonthlyRetailTariffChartModal({
         }
         setStatus('error');
       }
-    })();
+    };
+    void load();
+    const onBackfillDone = () => {
+      void load(false);
+    };
+    window.addEventListener('deye-energy-backfill-done', onBackfillDone);
     return () => {
       cancelled = true;
+      window.removeEventListener('deye-energy-backfill-done', onBackfillDone);
     };
   }, [open, fetchUrl, bcp47, t]);
 

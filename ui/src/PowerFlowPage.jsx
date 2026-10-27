@@ -4962,9 +4962,17 @@ export default function PowerFlowPage({
     };
     void load();
     const id = setInterval(() => void poll(), 300_000);
+    const onBackfillDone = ev => {
+      const sn = String(ev?.detail?.deviceSn || '').trim();
+      const selected = selInverterSn.trim();
+      if (sn && selected && sn !== selected) return;
+      void poll();
+    };
+    window.addEventListener('deye-energy-backfill-done', onBackfillDone);
     return () => {
       cancelled = true;
       clearInterval(id);
+      window.removeEventListener('deye-energy-backfill-done', onBackfillDone);
     };
   }, [selInverterSn, selHuaweiStationCode, selGridlabDeviceId, selEvPortsAcdc, inverterListReady]);
 
