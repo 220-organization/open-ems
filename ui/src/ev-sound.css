@@ -1,0 +1,15 @@
+.ev-sound-page {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - var(--open-ems-site-header-h, 72px));
+  min-height: 480px;
+  background: #110c17;
+}
+
+.ev-sound-page__frame {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: #110c17;
+}

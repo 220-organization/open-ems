@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { trackPageView } from "./analytics";
 import LandingPage from "./LandingPage";
 import EvTvPage from "./EvTvPage";
+import EvSoundPage from "./EvSoundPage";
 import LocationMarketplacePage from "./LocationMarketplacePage";
 import AdminPage from "./AdminPage";
 import OrderBessPage from "./OrderBessPage";
@@ -74,7 +75,10 @@ export default function App() {
 
   const showKiosk = kioskMode && page === "power";
   const hideChromeFooter =
-    showKiosk || page === "marketplace" || page === "admin";
+    showKiosk ||
+    page === "marketplace" ||
+    page === "admin" ||
+    page === "evSound";
 
   return (
     <div className="app-root-layout">
@@ -95,6 +99,8 @@ export default function App() {
           <LandingPage {...i18n} />
         ) : page === "evTv" ? (
           <EvTvPage {...i18n} />
+        ) : page === "evSound" ? (
+          <EvSoundPage {...i18n} />
         ) : page === "marketplace" ? (
           <LocationMarketplacePage {...i18n} />
         ) : page === "admin" ? (
