@@ -28,12 +28,13 @@ from app.oree_dam_service import KYIV, get_hourly_dam_uah_mwh
 logger = logging.getLogger(__name__)
 
 # Stored column ``discharge_soc_delta_pct`` holds target SoC % (floor after discharge), not a delta.
-DISCHARGE_TARGET_SOC_PCT_ALLOWED: tuple[int, ...] = (0, 1, 5, 10, 20, 50, 80, 95)
+# 0–95 in steps of 5, plus 1%.
+DISCHARGE_TARGET_SOC_PCT_ALLOWED: tuple[int, ...] = tuple(sorted({*range(0, 96, 5), 1}))
 _LEGACY_TO_TARGET: dict[int, int] = {2: 80, 10: 50, 20: 20, 100: 5}
 
 
 def normalize_discharge_soc_delta_pct(pct: int) -> int:
-    """Map stored / legacy values to an allowed target SoC % (0, 1, 5, 10, 20, 50, 80, 95)."""
+    """Map stored / legacy values to an allowed target SoC % (0–95 step 5, or 1)."""
     p = int(pct)
     if p in DISCHARGE_TARGET_SOC_PCT_ALLOWED:
         return p

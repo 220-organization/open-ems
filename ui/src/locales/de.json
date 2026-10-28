@@ -37,7 +37,7 @@
   "dischargeConfirmInsufficientSoc": "{{target}}% SoC nicht erreichbar: aktueller Stand ({{current}}%) liegt bereits an oder unter diesem Ziel.",
   "chargeGoButton": "Jetzt laden",
   "chargeGoAria": "Netzgestütztes Laden auf höheren SoC starten (kann mehrere Minuten dauern).",
-  "chargeSocDeltaAria": "Ziel-SoC-Anstieg: 2, 10, 20, 50 oder 100 Prozentpunkte (max. 100%). Für diesen Wechselrichter gespeichert.",
+  "chargeSocDeltaAria": "Ziel-SoC-Anstieg in 5-Prozentpunkt-Schritten von 5 bis 100, oder 2 (max. 100%). Für diesen Wechselrichter gespeichert.",
   "chargeSocDeltaValue": "+ {{pct}} % SoC",
   "chargeSoc2Hint": "Hebt den Batterie-SoC über dynamicControl an (gleiche TOU-Überschreibung wie Entladung). Kann mehrere Minuten dauern.",
   "chargeSoc2Busy": "Wird geladen…",

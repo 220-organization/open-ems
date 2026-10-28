@@ -810,9 +810,41 @@ body {
 
 .pf-deye-command-line { width: 100%; }
 
-.pf-deye-command-line--charge {
+.pf-deye-command-line--charge,
+.pf-deye-command-line--limits {
   padding-top: 10px;
   border-top: 1px solid var(--pf-divider);
+}
+
+.pf-power-limit-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+
+.pf-power-limit-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--pf-text-secondary);
+}
+
+.pf-power-limit-input {
+  width: 5.2rem;
+  background: var(--pf-surface);
+  border: 1px solid var(--pf-border);
+  border-radius: 8px;
+  color: var(--pf-label);
+  padding: 8px 10px;
+  font-size: 14px;
+  font-family: var(--pf-font-sans);
+}
+
+.pf-power-limit-amps {
+  color: var(--pf-text-muted);
+  font-size: 0.75rem;
 }
 
 .pf-discharge-toolbar .pf-grid-discharge-actions--header { gap: 8px 10px; }
@@ -4030,7 +4062,8 @@ a.pf-node { cursor: pointer; }
   color: var(--pf-text-secondary);
 }
 
-[data-theme="light"] .pf-deye-command-line--charge {
+[data-theme="light"] .pf-deye-command-line--charge,
+[data-theme="light"] .pf-deye-command-line--limits {
   border-top-color: var(--pf-divider);
 }
 

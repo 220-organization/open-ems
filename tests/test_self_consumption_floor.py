@@ -5,7 +5,11 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from app.deye_api import apply_self_consumption_zero_export_ct
+from app.deye_api import (
+    _body_selling_first,
+    _body_zero_export_target_soc,
+    apply_self_consumption_zero_export_ct,
+)
 
 
 class TestSelfConsumptionFloor(unittest.IsolatedAsyncioTestCase):
@@ -51,6 +55,15 @@ class TestSelfConsumptionFloor(unittest.IsolatedAsyncioTestCase):
         items = body.get("timeUseSettingItems") or []
         for it in items:
             self.assertEqual(it.get("soc"), 5.0)
+        self.assertNotIn("maxSolarPower", body)
+
+    def test_strategy_bodies_omit_max_solar_power(self) -> None:
+        selling = _body_selling_first("1234567890", 20.0, 10_000)
+        zero = _body_zero_export_target_soc("1234567890", 80.0, 10_000)
+        self.assertNotIn("maxSolarPower", selling)
+        self.assertNotIn("maxSolarPower", zero)
+        self.assertEqual(selling["maxSellPower"], 10_000)
+        self.assertEqual(zero["maxSellPower"], 10_000)
 
 
 if __name__ == "__main__":

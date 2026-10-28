@@ -361,7 +361,8 @@ HUAWEI_STATION_ENERGY_YEAR_TTL_SEC: int = _env_int(
     "HUAWEI_STATION_ENERGY_YEAR_TTL_SEC", 7200, 300, 604800
 )
 
-# POST /strategy/dynamicControl — template power (W) for timeUseSettingItems; also maxSell/maxSolar when SELLING_FIRST.
+# POST /strategy/dynamicControl — template power (W) for timeUseSettingItems and maxSellPower.
+# Never sent as maxSolarPower: that field is the inverter PV ceiling and must stay unchanged.
 DEYE_DYNAMIC_CONTROL_RATED_POWER_W: int = _env_int("DEYE_DYNAMIC_CONTROL_RATED_POWER_W", 10_000, 500, 200_000)
 # discharge-2pct: poll SoC and max wait (blocking HTTP — raise reverse-proxy read timeouts if needed).
 DEYE_DISCHARGE_SOC_POLL_SEC: int = _env_int("DEYE_DISCHARGE_SOC_POLL_SEC", 15, 5, 120)

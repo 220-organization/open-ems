@@ -20,6 +20,7 @@ from sqlalchemy.sql import func
 
 from app import settings
 from app.deye_api import (
+    CHARGE_SOC_DELTA_PCT_ALLOWED,
     assert_inverter_owned,
     apply_self_consumption_zero_export_ct,
     charge_soc_delta_then_zero_export_ct,
@@ -32,7 +33,6 @@ from app.oree_dam_service import KYIV, get_hourly_dam_uah_mwh
 
 logger = logging.getLogger(__name__)
 
-CHARGE_SOC_DELTA_PCT_ALLOWED: tuple[int, ...] = (2, 10, 20, 50, 100)
 LOW_DAM_CHARGE_HOURS = 3
 LOW_DAM_ANALYSIS_RADIUS_HOURS = 3
 

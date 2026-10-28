@@ -1429,8 +1429,10 @@ function formatLandingTotalsDisplay(landingTotals, bcp47, t) {
   };
 }
 
-/** Target SoC (%) after discharge; same order as the toolbar dropdown. */
-const DISCHARGE_TARGET_SOC_OPTIONS = Object.freeze([95, 80, 50, 20, 10, 5, 1, 0]);
+/** Target SoC (%) after discharge, descending: 5% steps from 95 to 0, plus 1%. */
+const DISCHARGE_TARGET_SOC_OPTIONS = Object.freeze(
+  Array.from({ length: 20 }, (_, i) => 95 - i * 5).flatMap(n => (n === 0 ? [1, 0] : [n]))
+);
 
 function peakPrefDischargePctForApi(pct) {
   return normalizeDischargeSocDeltaPct(pct);
@@ -1445,6 +1447,36 @@ function effectiveDischargeDeltaForApi(targetSocPct, currentSoc) {
   return Math.min(100, Math.max(1, d));
 }
 
+function wattsToKwInput(watts) {
+  if (watts == null || !Number.isFinite(Number(watts))) return '';
+  const kw = Math.round(Number(watts) / 100) / 10;
+  return String(kw);
+}
+
+function kwInputToAmps(rawKw, voltageV) {
+  const kw = Number(String(rawKw ?? '').trim().replace(',', '.'));
+  const voltage = Number(voltageV);
+  if (!Number.isFinite(kw) || !Number.isFinite(voltage) || voltage < 40) return null;
+  return Math.round((kw * 1000) / voltage);
+}
+
+/** Show the inverter's stored amps while the kW field still matches the loaded value. */
+function limitAmpsToShow(rawKw, loadedKw, loadedAmps, voltageV) {
+  const kw = Number(String(rawKw ?? '').trim().replace(',', '.'));
+  const prev = loadedKw == null || loadedKw === '' ? null : Number(loadedKw);
+  const amps = Number(loadedAmps);
+  if (
+    Number.isFinite(kw) &&
+    prev != null &&
+    Number.isFinite(prev) &&
+    Number.isFinite(amps) &&
+    Math.abs(prev - kw) < 0.05
+  ) {
+    return amps;
+  }
+  return kwInputToAmps(rawKw, voltageV);
+}
+
 function normalizeDischargeSocDeltaPct(p) {
   const n = Math.round(Number(p));
   if (!Number.isFinite(n)) return 80;
@@ -1454,7 +1486,8 @@ function normalizeDischargeSocDeltaPct(p) {
   return DISCHARGE_TARGET_SOC_OPTIONS.reduce((best, x) => (Math.abs(x - n) < Math.abs(best - n) ? x : best));
 }
 
-const CHARGE_SOC_DELTA_OPTIONS = Object.freeze([2, 10, 20, 50, 100]);
+/** Charge rise in percentage points: 5% steps from 5 to 100, plus 2%. */
+const CHARGE_SOC_DELTA_OPTIONS = Object.freeze([2, ...Array.from({ length: 20 }, (_, i) => 5 + i * 5)]);
 
 function normalizeChargeSocDeltaPct(p) {
   const n = Math.round(Number(p));
@@ -2512,6 +2545,11 @@ export default function PowerFlowPage({
   const [chargeSocDeltaPct, setChargeSocDeltaPct] = useState(10);
   const [selfConsumptionEnabled, setSelfConsumptionEnabled] = useState(false);
   const [nightChargeEnabled, setNightChargeEnabled] = useState(false);
+  const [powerLimitSolarKw, setPowerLimitSolarKw] = useState('');
+  const [powerLimitChargeKw, setPowerLimitChargeKw] = useState('');
+  const [powerLimitDischargeKw, setPowerLimitDischargeKw] = useState('');
+  const [powerLimitLoaded, setPowerLimitLoaded] = useState(null);
+  const [powerLimitBusy, setPowerLimitBusy] = useState(false);
   const [, setSmartLoadEnabled] = useState(false);
   const [, setGenOnGridAlwaysOn] = useState(false);
   const [, setGenOnGridAlwaysOnLoading] = useState(false);
@@ -2932,6 +2970,62 @@ export default function PowerFlowPage({
     };
   }, [selInverterSn, inverterRows.configured, inverterRows.error, inverterRows.loading]);
 
+  useEffect(() => {
+    const sn = (selInverterSn || '').trim();
+    if (!sn || !inverterRows.configured) {
+      setPowerLimitSolarKw('');
+      setPowerLimitChargeKw('');
+      setPowerLimitDischargeKw('');
+      setPowerLimitLoaded(null);
+      return undefined;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        let r;
+        let data = {};
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+          r = await fetch(`${apiUrl('/api/deye/power-limits')}?deviceSn=${encodeURIComponent(sn)}`, {
+            cache: 'no-store',
+          });
+          data = await r.json().catch(() => ({}));
+          if (cancelled) return;
+          const detail = data.detail != null ? String(data.detail) : '';
+          if ((r.ok && data.ok) || !/concurrent/i.test(detail) || attempt === 3) break;
+          await new Promise(resolve => {
+            window.setTimeout(resolve, 2000 * (attempt + 1));
+          });
+          if (cancelled) return;
+        }
+        if (!r.ok || !data.ok) {
+          const detail = data.detail != null ? String(data.detail) : String(r.status);
+          setDischarge2Feedback(`${t('powerLimitLoadError')}: ${detail}`);
+          return;
+        }
+        const solar = wattsToKwInput(data.maxSolarPowerW);
+        const charge = wattsToKwInput(data.maxChargePowerW);
+        const discharge = wattsToKwInput(data.maxDischargePowerW);
+        setPowerLimitSolarKw(solar);
+        setPowerLimitChargeKw(charge);
+        setPowerLimitDischargeKw(discharge);
+        setPowerLimitLoaded({
+          solarKw: solar,
+          chargeKw: charge,
+          dischargeKw: discharge,
+          voltageV: data.batteryVoltageV,
+          chargeA: data.maxChargeCurrentA,
+          dischargeA: data.maxDischargeCurrentA,
+        });
+        setDischarge2Feedback(prev => (prev.startsWith(t('powerLimitLoadError')) ? '' : prev));
+      } catch {
+        /* inputs stay empty; the user can still type a value */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selInverterSn, inverterRows.configured, t]);
+
   const savePeakAutoPref = useCallback(
     async (nextEnabled, nextPct, pin) => {
       const sn = selInverterSn?.trim();
@@ -3079,6 +3173,78 @@ export default function PowerFlowPage({
     },
     [selInverterSn]
   );
+
+  const savePowerLimits = useCallback(
+    async (draft, pin) => {
+      const sn = selInverterSn?.trim();
+      if (!sn) return null;
+      const body = { deviceSn: sn };
+      const addIfChanged = (key, raw, loaded) => {
+        const text = String(raw ?? '').trim().replace(',', '.');
+        if (!text) return;
+        const n = Number(text);
+        if (!Number.isFinite(n)) return;
+        const prev = loaded == null || loaded === '' ? null : Number(loaded);
+        if (prev != null && Number.isFinite(prev) && Math.abs(prev - n) < 0.05) return;
+        body[key] = n;
+      };
+      addIfChanged('maxSolarPowerKw', draft.solarKw, draft.loadedSolar);
+      addIfChanged('maxChargePowerKw', draft.chargeKw, draft.loadedCharge);
+      addIfChanged('maxDischargePowerKw', draft.dischargeKw, draft.loadedDischarge);
+      if (
+        body.maxSolarPowerKw == null &&
+        body.maxChargePowerKw == null &&
+        body.maxDischargePowerKw == null
+      ) {
+        return { ok: true, unchanged: true };
+      }
+      const p = pin != null ? String(pin).trim() : '';
+      if (p) body.pin = p;
+      const r = await fetch(apiUrl('/api/deye/power-limits'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        cache: 'no-store',
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        if (r.status === 403) {
+          clearInverterPinCache(sn);
+          setPinCacheBust(x => x + 1);
+        }
+        let msg = data.detail ?? r.statusText;
+        if (Array.isArray(msg)) {
+          msg = msg.map(x => (x && typeof x === 'object' ? x.msg || JSON.stringify(x) : x)).join('; ');
+        }
+        throw new Error(String(msg || 'Save failed'));
+      }
+      if (p) {
+        rememberInverterPin(sn, p);
+        setPinCacheBust(x => x + 1);
+      }
+      return data;
+    },
+    [selInverterSn]
+  );
+
+  const applyPowerLimitResult = useCallback((data, draft) => {
+    if (!data || data.unchanged) return;
+    const solar = data.maxSolarPowerW != null ? wattsToKwInput(data.maxSolarPowerW) : draft.solarKw;
+    const charge = data.maxChargePowerW != null ? wattsToKwInput(data.maxChargePowerW) : draft.chargeKw;
+    const discharge =
+      data.maxDischargePowerW != null ? wattsToKwInput(data.maxDischargePowerW) : draft.dischargeKw;
+    setPowerLimitSolarKw(solar);
+    setPowerLimitChargeKw(charge);
+    setPowerLimitDischargeKw(discharge);
+    setPowerLimitLoaded(prev => ({
+      solarKw: solar,
+      chargeKw: charge,
+      dischargeKw: discharge,
+      voltageV: data.batteryVoltageV ?? prev?.voltageV ?? null,
+      chargeA: data.maxChargeCurrentA ?? prev?.chargeA ?? null,
+      dischargeA: data.maxDischargeCurrentA ?? prev?.dischargeA ?? null,
+    }));
+  }, []);
 
   const saveSmartLoadPref = useCallback(
     async (nextEnabled, pin) => {
@@ -4798,6 +4964,15 @@ export default function PowerFlowPage({
         } else if (data && typeof data.enabled === 'boolean') {
           setSmartLoadEnabled(data.enabled);
         }
+      } else if (g.kind === 'powerLimits') {
+        setPowerLimitBusy(true);
+        try {
+          const data = await savePowerLimits(g.draft, pin);
+          applyPowerLimitResult(data, g.draft);
+          if (data && !data.unchanged) setDischarge2Feedback(t('powerLimitSaved'));
+        } finally {
+          setPowerLimitBusy(false);
+        }
       } else if (g.kind === 'genOnGrid') {
         try {
           await runGenOnGridAlwaysOnSave(g.nextEnabled, pin);
@@ -4821,6 +4996,8 @@ export default function PowerFlowPage({
     saveLowDamChargePref,
     saveSelfConsumptionPref,
     saveNightChargePref,
+    savePowerLimits,
+    applyPowerLimitResult,
     saveSmartLoadPref,
     runGenOnGridAlwaysOnSave,
     applyNightChargeToolbarSnap,
@@ -6843,6 +7020,142 @@ export default function PowerFlowPage({
                                   </span>
                                 </label>
                               </div>
+                              <div className="pf-deye-command-line pf-deye-command-line--limits">
+                                <div className="pf-power-limit-row">
+                                  <label className="pf-power-limit-field">
+                                    <span>{t('powerLimitSolar')}</span>
+                                    <input
+                                      type="number"
+                                      min="0.5"
+                                      max="200"
+                                      step="0.1"
+                                      inputMode="decimal"
+                                      className="pf-power-limit-input"
+                                      value={powerLimitSolarKw}
+                                      disabled={deyeWritesHardBlocked || powerLimitBusy}
+                                      aria-label={t('powerLimitSolarAria')}
+                                      onChange={e => setPowerLimitSolarKw(e.target.value)}
+                                    />
+                                    <span>{t('powerLimitUnit')}</span>
+                                  </label>
+                                  <label className="pf-power-limit-field">
+                                    <span>{t('powerLimitCharge')}</span>
+                                    <input
+                                      type="number"
+                                      min="0.5"
+                                      max="200"
+                                      step="0.1"
+                                      inputMode="decimal"
+                                      className="pf-power-limit-input"
+                                      value={powerLimitChargeKw}
+                                      disabled={
+                                        deyeWritesHardBlocked ||
+                                        powerLimitBusy ||
+                                        (powerLimitLoaded != null && !(Number(powerLimitLoaded.voltageV) >= 40))
+                                      }
+                                      aria-label={t('powerLimitChargeAria')}
+                                      onChange={e => setPowerLimitChargeKw(e.target.value)}
+                                    />
+                                    <span>{t('powerLimitUnit')}</span>
+                                    {limitAmpsToShow(
+                                      powerLimitChargeKw,
+                                      powerLimitLoaded?.chargeKw,
+                                      powerLimitLoaded?.chargeA,
+                                      powerLimitLoaded?.voltageV
+                                    ) != null ? (
+                                      <span className="pf-power-limit-amps">
+                                        {limitAmpsToShow(
+                                          powerLimitChargeKw,
+                                          powerLimitLoaded?.chargeKw,
+                                          powerLimitLoaded?.chargeA,
+                                          powerLimitLoaded?.voltageV
+                                        )}{' '}
+                                        A
+                                      </span>
+                                    ) : null}
+                                  </label>
+                                  <label className="pf-power-limit-field">
+                                    <span>{t('powerLimitDischarge')}</span>
+                                    <input
+                                      type="number"
+                                      min="0.5"
+                                      max="200"
+                                      step="0.1"
+                                      inputMode="decimal"
+                                      className="pf-power-limit-input"
+                                      value={powerLimitDischargeKw}
+                                      disabled={
+                                        deyeWritesHardBlocked ||
+                                        powerLimitBusy ||
+                                        (powerLimitLoaded != null && !(Number(powerLimitLoaded.voltageV) >= 40))
+                                      }
+                                      aria-label={t('powerLimitDischargeAria')}
+                                      onChange={e => setPowerLimitDischargeKw(e.target.value)}
+                                    />
+                                    <span>{t('powerLimitUnit')}</span>
+                                    {limitAmpsToShow(
+                                      powerLimitDischargeKw,
+                                      powerLimitLoaded?.dischargeKw,
+                                      powerLimitLoaded?.dischargeA,
+                                      powerLimitLoaded?.voltageV
+                                    ) != null ? (
+                                      <span className="pf-power-limit-amps">
+                                        {limitAmpsToShow(
+                                          powerLimitDischargeKw,
+                                          powerLimitLoaded?.dischargeKw,
+                                          powerLimitLoaded?.dischargeA,
+                                          powerLimitLoaded?.voltageV
+                                        )}{' '}
+                                        A
+                                      </span>
+                                    ) : null}
+                                  </label>
+                                  <button
+                                    type="button"
+                                    className="pf-discharge-btn pf-discharge-go-btn"
+                                    disabled={deyeWritesHardBlocked || powerLimitBusy || !selInverterSn?.trim()}
+                                    onClick={() => {
+                                      if (!remoteWriteConfigured) {
+                                        setRemoteWriteNeedsPinOpen(true);
+                                        return;
+                                      }
+                                      const sn = selInverterSn?.trim();
+                                      if (!sn) return;
+                                      const draft = {
+                                        solarKw: powerLimitSolarKw,
+                                        chargeKw: powerLimitChargeKw,
+                                        dischargeKw: powerLimitDischargeKw,
+                                        loadedSolar: powerLimitLoaded?.solarKw ?? '',
+                                        loadedCharge: powerLimitLoaded?.chargeKw ?? '',
+                                        loadedDischarge: powerLimitLoaded?.dischargeKw ?? '',
+                                      };
+                                      const run = async pin => {
+                                        setPowerLimitBusy(true);
+                                        setDischarge2Feedback('');
+                                        try {
+                                          const data = await savePowerLimits(draft, pin);
+                                          applyPowerLimitResult(data, draft);
+                                          if (data?.unchanged) setDischarge2Feedback(t('powerLimitUnchanged'));
+                                          else if (data) setDischarge2Feedback(t('powerLimitSaved'));
+                                        } catch (err) {
+                                          const m = err instanceof Error ? err.message : String(err);
+                                          setDischarge2Feedback(`${t('powerLimitSaveError')}: ${m}`);
+                                        } finally {
+                                          setPowerLimitBusy(false);
+                                        }
+                                      };
+                                      const cached = readCachedInverterPin(sn);
+                                      if (cached || selInverterEvportBound) {
+                                        void run(cached || '');
+                                        return;
+                                      }
+                                      setWritePinGate({ kind: 'powerLimits', draft });
+                                    }}
+                                  >
+                                    {powerLimitBusy ? t('powerLimitSaving') : t('powerLimitSet')}
+                                  </button>
+                                </div>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -7072,7 +7385,9 @@ export default function PowerFlowPage({
                                 ? t('deyeWritePinTitleSmartLoad')
                                 : writePinGate.kind === 'genOnGrid'
                                   ? t('deyeWritePinTitleGenOnGrid')
-                                  : t('deyeWritePinTitleLowPct')}
+                                  : writePinGate.kind === 'powerLimits'
+                                    ? t('deyeWritePinTitlePowerLimits')
+                                    : t('deyeWritePinTitleLowPct')}
                 </p>
                 <div className="pf-modal-pin-row">
                   <label htmlFor="pf-write-pin-input" className="pf-modal-pin-label">
