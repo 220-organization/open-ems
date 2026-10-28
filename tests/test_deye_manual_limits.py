@@ -6,6 +6,7 @@ import unittest
 
 from app.deye_api import (
     DeyeOrderFailed,
+    _parse_modbus_read_u16s,
     deye_order_failure_is_retryable,
     deye_order_failure_message,
     modbus_write_from_order_result,
@@ -104,6 +105,11 @@ class TestManualPowerLimits(unittest.TestCase):
         self.assertEqual(solar_watts_from_registers(6000, 20), 6000)
         self.assertIsNone(solar_watts_from_registers(0, 20))
         self.assertIsNone(solar_watts_from_registers(None, None))
+
+    def test_fc3_pair_returns_both_registers(self) -> None:
+        # Charge 80 A then discharge 62 A. CRC bytes are not checked.
+        self.assertEqual(_parse_modbus_read_u16s("0103040050003EABCD"), [80, 62])
+        self.assertIsNone(_parse_modbus_read_u16s("018302C1"))
 
     def test_discharge_order_frame_is_register_006d(self) -> None:
         # Order 864535587234309 echoed the 87 A write (70 kW at ~800 V) then failed 540.

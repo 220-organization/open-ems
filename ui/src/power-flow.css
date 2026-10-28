@@ -2563,19 +2563,19 @@ a.pf-node { cursor: pointer; }
 }
 
 .pf-grid-discharge-actions--header .pf-discharge-go-btn {
-  border-color: var(--pf-border-strong);
+  border-color: rgba(76, 155, 232, 0.85);
   background: var(--pf-surface);
   color: var(--pf-label);
   box-shadow: none;
 }
 
-.pf-grid-discharge-actions--header .pf-discharge-go-btn--armed:not(:disabled) {
-  border-color: #d89a12;
-  box-shadow: 0 0 0 2px rgba(245, 185, 66, 0.9);
+.pf-grid-discharge-actions--header .pf-discharge-go-btn--armed:not(.pf-charge-go-btn):not(:disabled) {
+  border-color: #3d8fd4;
+  box-shadow: 0 0 0 2px rgba(76, 155, 232, 0.9);
 }
 
-.pf-grid-discharge-actions--header .pf-discharge-go-btn:hover:not(:disabled) {
-  border-color: var(--pf-pink-soft);
+.pf-grid-discharge-actions--header .pf-discharge-go-btn:not(.pf-charge-go-btn):hover:not(:disabled) {
+  border-color: rgba(120, 185, 245, 0.95);
   background: var(--pf-surface-elev);
 }
 
@@ -2585,12 +2585,17 @@ a.pf-node { cursor: pointer; }
 }
 
 .pf-charge-go-btn.pf-discharge-go-btn {
-  border-color: rgba(126, 200, 138, 0.45);
+  border-color: rgba(245, 185, 66, 0.85);
   background: var(--pf-surface);
 }
 
+.pf-grid-discharge-actions--header .pf-charge-go-btn.pf-discharge-go-btn--armed:not(:disabled) {
+  border-color: #d89a12;
+  box-shadow: 0 0 0 2px rgba(245, 185, 66, 0.9);
+}
+
 .pf-charge-go-btn.pf-discharge-go-btn:hover:not(:disabled) {
-  border-color: rgba(126, 200, 138, 0.7);
+  border-color: rgba(245, 200, 90, 1);
   background: var(--pf-surface-elev);
 }
 
@@ -4313,15 +4318,15 @@ a.pf-node { cursor: pointer; }
 }
 
 [data-theme="light"] .pf-grid-discharge-actions--header .pf-discharge-go-btn {
-  border-color: var(--pf-border-strong);
+  border-color: rgba(46, 120, 196, 0.75);
   background: #ffffff;
   color: var(--pf-label);
   box-shadow: none;
 }
 
-[data-theme="light"] .pf-grid-discharge-actions--header .pf-discharge-go-btn--armed:not(:disabled) {
-  border-color: #d89a12;
-  box-shadow: 0 0 0 2px rgba(245, 185, 66, 0.9);
+[data-theme="light"] .pf-grid-discharge-actions--header .pf-discharge-go-btn--armed:not(.pf-charge-go-btn):not(:disabled) {
+  border-color: #2e78c4;
+  box-shadow: 0 0 0 2px rgba(46, 120, 196, 0.85);
 }
 
 [data-theme="light"] .pf-header-discharge-row .pf-toolbar-submit {
@@ -4347,20 +4352,25 @@ a.pf-node { cursor: pointer; }
   box-shadow: 0 0 0 3px rgba(252, 1, 155, 0.45);
 }
 
-[data-theme="light"] .pf-grid-discharge-actions--header .pf-discharge-go-btn:hover:not(:disabled) {
-  border-color: var(--pf-pink-soft);
-  background: rgba(252, 1, 155, 0.04);
+[data-theme="light"] .pf-grid-discharge-actions--header .pf-discharge-go-btn:not(.pf-charge-go-btn):hover:not(:disabled) {
+  border-color: rgba(46, 120, 196, 0.95);
+  background: rgba(46, 120, 196, 0.06);
 }
 
 [data-theme="light"] .pf-charge-go-btn.pf-discharge-go-btn {
-  border-color: rgba(47, 122, 75, 0.35);
+  border-color: rgba(196, 138, 16, 0.75);
   background: #ffffff;
   color: var(--pf-label);
 }
 
+[data-theme="light"] .pf-grid-discharge-actions--header .pf-charge-go-btn.pf-discharge-go-btn--armed:not(:disabled) {
+  border-color: #c48a10;
+  box-shadow: 0 0 0 2px rgba(196, 138, 16, 0.85);
+}
+
 [data-theme="light"] .pf-charge-go-btn.pf-discharge-go-btn:hover:not(:disabled) {
-  border-color: rgba(47, 122, 75, 0.55);
-  background: rgba(47, 122, 75, 0.04);
+  border-color: rgba(196, 138, 16, 0.95);
+  background: rgba(196, 138, 16, 0.06);
 }
 
 [data-theme="light"] .pf-roi-prev-month-delta { color: var(--pf-text-secondary); text-shadow: none; }
