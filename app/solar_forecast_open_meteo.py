@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from datetime import datetime, timedelta
+import math
+import time
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
@@ -12,9 +15,19 @@ import httpx
 logger = logging.getLogger(__name__)
 
 _OPEN_METEO_FORECAST = "https://api.open-meteo.com/v1/forecast"
+_MET_NORWAY_FORECAST = "https://api.met.no/weatherapi/locationforecast/2.0/compact"
+_MET_USER_AGENT = "OpenEMS/1.0 https://220-km.com"
 
 # Daily mean cloud cover (0–100): at or above ⇒ "cloudy" icon for today.
 _CLOUD_COVER_MEAN_CLOUDY_THRESHOLD = 45.0
+# Forecasts barely move within a few hours. Caching keeps the free daily quota.
+_FORECAST_CACHE_SEC = 6 * 60 * 60.0
+
+_open_meteo_blocked_until = 0.0
+_open_meteo_limit_logged = False
+_forecast_cache: dict[tuple, tuple[float, Any]] = {}
+_forecast_inflight: dict[tuple, asyncio.Task] = {}
+_forecast_guard = asyncio.Lock()
 
 
 def _insolation_pct_from_daily_slice(
@@ -59,14 +72,9 @@ async def fetch_daily_insolation_percent(
         "forecast_days": min(need_days, 16),
         "timezone": "auto",
     }
-    try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            r = await client.get(_OPEN_METEO_FORECAST, params=params)
-            r.raise_for_status()
-            data = r.json()
-    except Exception:
-        logger.exception("Open-Meteo forecast request failed (daily insolation)")
-        return None, None
+    data = await _get_open_meteo(params)
+    if data is None:
+        return await _met_daily_insolation(lat, lon, day_index)
     daily = data.get("daily") if isinstance(data, dict) else None
     if not isinstance(daily, dict):
         return None, None
@@ -160,14 +168,9 @@ async def fetch_today_tomorrow_insolation_forecast(
         "forecast_days": 3,
         "timezone": "auto",
     }
-    try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            r = await client.get(_OPEN_METEO_FORECAST, params=params)
-            r.raise_for_status()
-            data = r.json()
-    except Exception:
-        logger.exception("Open-Meteo forecast request failed (today/tomorrow insolation)")
-        return None
+    data = await _get_open_meteo(params)
+    if data is None:
+        return await _cached_forecast("met-daily", lat, lon, lambda: _met_today_tomorrow(lat, lon))
     daily = data.get("daily") if isinstance(data, dict) else None
     if not isinstance(daily, dict):
         return None
@@ -303,14 +306,9 @@ async def fetch_hourly_insolation_by_day(lat: float, lon: float) -> Optional[dic
         "forecast_days": 2,
         "timezone": "auto",
     }
-    try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            r = await client.get(_OPEN_METEO_FORECAST, params=params)
-            r.raise_for_status()
-            data = r.json()
-    except Exception:
-        logger.exception("Open-Meteo forecast request failed (hourly insolation)")
-        return None
+    data = await _get_open_meteo(params)
+    if data is None:
+        return await _cached_forecast("met-hourly", lat, lon, lambda: _met_hourly(lat, lon))
 
     if not isinstance(data, dict):
         return None
@@ -334,3 +332,267 @@ async def fetch_hourly_insolation_by_day(lat: float, lon: float) -> Optional[dic
         return None
 
     return {"today": today, "tomorrow": tomorrow}
+
+
+def _coords_key(kind: str, lat: float, lon: float) -> tuple:
+    return (kind, round(float(lat), 2), round(float(lon), 2))
+
+
+def _tz_for_longitude(lon: float) -> timezone:
+    hours = max(-12, min(14, int(round(float(lon) / 15.0))))
+    return timezone(timedelta(hours=hours))
+
+
+def _sun_is_up(lat_deg: float, when: datetime) -> bool:
+    """True when a simple solar elevation at ``when`` (already in local time) is above the horizon."""
+    lat = math.radians(float(lat_deg))
+    decl = math.radians(23.44 * math.sin(math.radians((360.0 / 365.0) * (when.timetuple().tm_yday - 81))))
+    hour = when.hour + when.minute / 60.0 + when.second / 3600.0
+    hour_angle = math.radians(15.0 * (hour - 12.0))
+    sin_elev = math.sin(lat) * math.sin(decl) + math.cos(lat) * math.cos(decl) * math.cos(hour_angle)
+    return sin_elev > 0.0
+
+
+def _block_open_meteo(body: str) -> None:
+    global _open_meteo_blocked_until, _open_meteo_limit_logged
+    now = datetime.now(timezone.utc)
+    if "Daily API request limit" in body:
+        until = (now + timedelta(days=1)).replace(hour=0, minute=5, second=0, microsecond=0)
+    else:
+        until = now + timedelta(minutes=10)
+    _open_meteo_blocked_until = until.timestamp()
+    if not _open_meteo_limit_logged:
+        _open_meteo_limit_logged = True
+        logger.warning(
+            "Open-Meteo is rate limited; insolation uses MET Norway until %s",
+            until.isoformat(),
+        )
+
+
+async def _get_open_meteo(params: dict[str, Any]) -> Optional[dict[str, Any]]:
+    if time.time() < _open_meteo_blocked_until:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.get(_OPEN_METEO_FORECAST, params=params)
+            if response.status_code == 429:
+                _block_open_meteo(response.text or "")
+                return None
+            response.raise_for_status()
+            data = response.json()
+    except Exception:
+        logger.exception("Open-Meteo forecast request failed")
+        return None
+    return data if isinstance(data, dict) else None
+
+
+async def _cached_forecast(kind: str, lat: float, lon: float, loader) -> Any:
+    key = _coords_key(kind, lat, lon)
+    now = time.monotonic()
+    cached = _forecast_cache.get(key)
+    if cached is not None and now - cached[0] < _FORECAST_CACHE_SEC:
+        return cached[1]
+    async with _forecast_guard:
+        cached = _forecast_cache.get(key)
+        now = time.monotonic()
+        if cached is not None and now - cached[0] < _FORECAST_CACHE_SEC:
+            return cached[1]
+        task = _forecast_inflight.get(key)
+        if task is None:
+            task = asyncio.create_task(loader())
+            _forecast_inflight[key] = task
+    try:
+        value = await task
+    finally:
+        async with _forecast_guard:
+            if _forecast_inflight.get(key) is task:
+                _forecast_inflight.pop(key, None)
+    if value is not None:
+        _forecast_cache[key] = (time.monotonic(), value)
+    return value
+
+
+def _cloud_samples(payload: dict[str, Any], tz: timezone) -> list[tuple[datetime, float]]:
+    series = (payload.get("properties") or {}).get("timeseries")
+    if not isinstance(series, list):
+        return []
+    samples: list[tuple[datetime, float]] = []
+    for row in series:
+        if not isinstance(row, dict):
+            continue
+        raw_time = row.get("time")
+        details = ((row.get("data") or {}).get("instant") or {}).get("details") or {}
+        cloud = details.get("cloud_area_fraction") if isinstance(details, dict) else None
+        if not isinstance(raw_time, str) or cloud is None:
+            continue
+        try:
+            moment = datetime.fromisoformat(raw_time.replace("Z", "+00:00")).astimezone(tz)
+            cover = max(0.0, min(100.0, float(cloud)))
+        except (TypeError, ValueError):
+            continue
+        samples.append((moment, cover))
+    return samples
+
+
+def _daylight_pct(cloud_cover: float) -> float:
+    """Diffuse light stays visible under full cloud; clear sky is 100."""
+    cover = max(0.0, min(100.0, float(cloud_cover)))
+    return 15.0 + 85.0 * (1.0 - cover / 100.0)
+
+
+def insolation_pct_from_clouds(
+    samples: list[tuple[datetime, float]],
+    lat: float,
+    date_key: str,
+    *,
+    now: datetime,
+    zero_at_night: bool,
+) -> Optional[int]:
+    """Daylight-hour mean of cloud-adjusted sun, 0 after sunset when ``zero_at_night``."""
+    daylight = [
+        (moment, cover)
+        for moment, cover in samples
+        if moment.strftime("%Y-%m-%d") == date_key and _sun_is_up(lat, moment)
+    ]
+    if not daylight:
+        return 0 if zero_at_night else None
+    mean_clear = sum(_daylight_pct(cover) for _, cover in daylight) / len(daylight)
+    pct = int(round(max(0.0, min(100.0, mean_clear))))
+    if zero_at_night and not _sun_is_up(lat, now):
+        return 0
+    return pct
+
+
+def hourly_bars_from_clouds(
+    samples: list[tuple[datetime, float]],
+    lat: float,
+    date_key: str,
+    now: datetime,
+    tz: timezone,
+) -> Optional[dict[str, Any]]:
+    by_hour: dict[int, tuple[datetime, float]] = {}
+    for moment, cover in samples:
+        if moment.strftime("%Y-%m-%d") != date_key:
+            continue
+        by_hour[moment.hour] = (moment, cover)
+    if not by_hour:
+        return None
+    levels: list[tuple[int, float, datetime]] = []
+    for hour in sorted(by_hour):
+        moment, cover = by_hour[hour]
+        clear = 0.0 if not _sun_is_up(lat, moment) else _daylight_pct(cover)
+        levels.append((hour, clear, moment))
+    peak = max((level for _, level, _ in levels), default=0.0)
+    local_now = now.astimezone(tz)
+    today_key = local_now.strftime("%Y-%m-%d")
+    hours = []
+    for hour, level, moment in levels:
+        level_pct = 0 if not _sun_is_up(lat, moment) else int(round(level))
+        hours.append(
+            {
+                "hour": hour,
+                "levelPct": level_pct,
+                "isCurrent": date_key == today_key and hour == local_now.hour,
+                "isPast": date_key == today_key and hour < local_now.hour,
+            }
+        )
+    return {"timeZone": str(tz), "date": date_key, "hours": hours, "maxRadiationWm2": peak}
+
+
+async def _fetch_met_norway(lat: float, lon: float) -> Optional[dict[str, Any]]:
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.get(
+                _MET_NORWAY_FORECAST,
+                params={"lat": f"{float(lat):.4f}", "lon": f"{float(lon):.4f}"},
+                headers={"User-Agent": _MET_USER_AGENT},
+            )
+            response.raise_for_status()
+            data = response.json()
+    except Exception:
+        logger.warning("MET Norway forecast request failed")
+        return None
+    return data if isinstance(data, dict) else None
+
+
+async def _met_cloud_bundle(lat: float, lon: float) -> Optional[dict[str, Any]]:
+    async def load() -> Optional[dict[str, Any]]:
+        payload = await _fetch_met_norway(lat, lon)
+        if payload is None:
+            return None
+        tz = _tz_for_longitude(lon)
+        samples = _cloud_samples(payload, tz)
+        if not samples:
+            return None
+        return {"samples": samples, "tz": tz}
+
+    return await _cached_forecast("met-raw", lat, lon, load)
+
+
+async def _met_today_tomorrow(lat: float, lon: float) -> Optional[dict[str, Any]]:
+    bundle = await _met_cloud_bundle(lat, lon)
+    if bundle is None:
+        return None
+    tz: timezone = bundle["tz"]
+    samples = bundle["samples"]
+    now = datetime.now(tz)
+    today_key = now.strftime("%Y-%m-%d")
+    tomorrow_key = _add_days_to_date_key(today_key, 1)
+    if not tomorrow_key:
+        return None
+    today_pct = insolation_pct_from_clouds(samples, lat, today_key, now=now, zero_at_night=True)
+    tomorrow_pct = insolation_pct_from_clouds(
+        samples, lat, tomorrow_key, now=now, zero_at_night=False
+    )
+    if today_pct is None or tomorrow_pct is None:
+        return None
+    daylight = [
+        cover
+        for moment, cover in samples
+        if moment.strftime("%Y-%m-%d") == today_key and _sun_is_up(lat, moment)
+    ]
+    cloudy = (sum(daylight) / len(daylight)) >= _CLOUD_COVER_MEAN_CLOUDY_THRESHOLD if daylight else None
+    return {
+        "today": {"insolationPct": today_pct, "cloudy": cloudy, "date": today_key},
+        "tomorrow": {"insolationPct": tomorrow_pct, "date": tomorrow_key},
+    }
+
+
+async def _met_hourly(lat: float, lon: float) -> Optional[dict[str, Any]]:
+    bundle = await _met_cloud_bundle(lat, lon)
+    if bundle is None:
+        return None
+    tz = bundle["tz"]
+    samples = bundle["samples"]
+    now = datetime.now(tz)
+    today_key = now.strftime("%Y-%m-%d")
+    tomorrow_key = _add_days_to_date_key(today_key, 1)
+    if not tomorrow_key:
+        return None
+    today = hourly_bars_from_clouds(samples, lat, today_key, now, tz)
+    tomorrow = hourly_bars_from_clouds(samples, lat, tomorrow_key, now, tz)
+    if today is None and tomorrow is None:
+        return None
+    return {"today": today, "tomorrow": tomorrow}
+
+
+async def _met_daily_insolation(
+    lat: float, lon: float, day_index: int
+) -> tuple[Optional[int], Optional[str]]:
+    bundle = await _met_cloud_bundle(lat, lon)
+    if bundle is None:
+        return None, None
+    tz = bundle["tz"]
+    now = datetime.now(tz)
+    today_key = now.strftime("%Y-%m-%d")
+    date_key = today_key if int(day_index) <= 0 else _add_days_to_date_key(today_key, int(day_index))
+    if not date_key:
+        return None, None
+    pct = insolation_pct_from_clouds(
+        bundle["samples"],
+        lat,
+        date_key,
+        now=now,
+        zero_at_night=int(day_index) <= 0,
+    )
+    return pct, date_key
