@@ -202,6 +202,15 @@ Areas where contributions are especially valuable:
 
 ---
 
+## Contact
+
+**Max Pavlov**
+
+Telegram, WhatsApp, and Viber: [+380971983759](tel:+380971983759)
+
+- [WhatsApp](https://wa.me/380971983759)
+- [Viber](viber://chat?number=%2B380971983759)
+
 ## License
 
 GNU General Public License v3.0 — see [LICENSE](LICENSE).

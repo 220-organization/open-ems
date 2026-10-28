@@ -1,0 +1,194 @@
+/*
+ * Z-Audio (jetaudio) theme override.
+ * Tokens are copied from activecharge/src-js/react/src/pages/b2bPage/b2bPage.css
+ * so this page uses the B2B palette instead of the original green theme.
+ */
+:root {
+  --b2b-accent: #f94caf;
+  --b2b-accent-dim: #ff65c8;
+  --b2b-accent-gradient: linear-gradient(
+    90deg,
+    #ff6680 0%,
+    #ff4da9 45%,
+    #cd42d7 100%
+  );
+  --b2b-logo-stop-1: #ff6680;
+  --b2b-logo-stop-2: #ff4da9;
+  --b2b-logo-stop-3: #cd42d7;
+  --b2b-toggle-glow:
+    0 0 20px rgba(249, 76, 175, 0.45), 0 0 40px rgba(128, 0, 255, 0.2);
+  --b2b-bg: #110c17;
+  --b2b-card-surface: #31233e;
+  --b2b-card-surface-muted: #241631;
+  --b2b-body: #dad1e6;
+  --b2b-card-border: rgba(249, 76, 175, 0.32);
+  --b2b-button-radius: 20px;
+  --b2b-button-fill: linear-gradient(
+    135deg,
+    #ff726d 0%,
+    #ff4da9 50%,
+    #cd42d7 100%
+  );
+  --b2b-button-text: #fff;
+  --b2b-button-font-family:
+    "Fira Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --history-button-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+}
+
+html,
+body {
+  background-color: var(--b2b-bg);
+  color: var(--b2b-body);
+  font-family: var(--b2b-button-font-family);
+}
+
+body.home-intro,
+body.home-intro .intro {
+  display: block;
+  width: 100%;
+}
+
+.intro {
+  color: var(--b2b-body);
+  background:
+    radial-gradient(
+      900px 420px at 50% -8%,
+      rgba(249, 76, 175, 0.32),
+      transparent 58%
+    ),
+    var(--b2b-bg);
+}
+
+.intro-title,
+.post-header .post-title {
+  color: var(--b2b-button-text);
+}
+
+a {
+  color: var(--b2b-accent-dim);
+}
+
+a:active,
+a:focus,
+a:hover,
+.post-title a:hover,
+.post-title a:focus,
+.post-title a:active,
+.post-meta a:hover,
+.post-meta a:focus,
+.post-meta a:active {
+  color: var(--b2b-accent);
+}
+
+button,
+input[type="button"],
+input[type="reset"],
+input[type="submit"],
+.button {
+  background: var(--b2b-button-fill);
+  background-color: transparent;
+  border-radius: var(--b2b-button-radius);
+  box-shadow: var(--history-button-shadow);
+  color: var(--b2b-button-text);
+  font-family: var(--b2b-button-font-family);
+}
+
+button:hover,
+button:focus,
+input[type="button"]:hover,
+input[type="button"]:focus,
+input[type="reset"]:hover,
+input[type="reset"]:focus,
+input[type="submit"]:hover,
+input[type="submit"]:focus,
+.button:hover,
+.button:focus {
+  background: var(--b2b-button-fill);
+  background-color: transparent;
+  filter: brightness(1.06);
+  color: var(--b2b-button-text);
+}
+
+button:disabled,
+input[type="button"]:disabled,
+input[type="reset"]:disabled,
+input[type="submit"]:disabled,
+.button:disabled,
+button:disabled:hover,
+.button:disabled:hover {
+  background: var(--b2b-card-surface);
+  background-color: var(--b2b-card-surface);
+  filter: none;
+  opacity: 0.55;
+}
+
+button.start-stop-button {
+  border: 0;
+  box-shadow: var(--b2b-toggle-glow);
+}
+
+/* Needle tip stays on the tick radius while the gauge rotates. */
+.pointer {
+  -webkit-transform: translate(100.1px, 173.6px) rotate(72deg) !important;
+  transform: translate(100.1px, 173.6px) rotate(72deg) !important;
+}
+
+.menu-burger {
+  background: var(--b2b-button-fill);
+  background-color: transparent;
+}
+
+.navbar {
+  background-color: var(--b2b-bg);
+}
+
+.navbar h2 {
+  color: var(--b2b-accent);
+}
+
+select {
+  background: var(--b2b-card-surface);
+  color: var(--b2b-body);
+  border: 1px solid var(--b2b-card-border);
+  border-radius: 8px;
+  padding: 4px 8px;
+}
+
+.post-content {
+  color: var(--b2b-body);
+}
+
+.post-content blockquote {
+  margin: 0 0 1.2em;
+  padding: 1em 1.2em;
+  border-left: 3px solid var(--b2b-accent);
+  background: var(--b2b-card-surface);
+  border-radius: 12px;
+  color: var(--b2b-body);
+}
+
+.site-footer .container {
+  border-top-color: var(--b2b-card-border);
+}
+
+.site-footer p,
+.social a {
+  color: var(--b2b-body);
+}
+
+.sketches-media {
+  text-align: center;
+}
+
+.sketches-media img,
+.sketches-media iframe {
+  max-width: 100%;
+  height: auto;
+  margin: 0.5em;
+}
+
+.sketches-media iframe {
+  width: min(560px, 100%);
+  aspect-ratio: 16 / 9;
+  height: auto;
+}

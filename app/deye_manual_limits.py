@@ -2,8 +2,9 @@
 
 Read: Modbus holding registers (works while dynamicControl/read is busy).
 Single-phase: 0x0035 solar W, 0x00D2 charge A, 0x00D3 discharge A.
-HV 3-phase: 0x00D4 charge A, 0x00D5 discharge A (0x00D2 is charge voltage).
-/config/system and /config/battery often return 2106001.
+HV 3-phase: 0x0154 solar in 10 W steps (80 kW is 8000), 0x00D4 charge A,
+0x00D5 discharge A (0x00D2 is charge voltage). 0x0035 stays 0 on HV, and
+/config/system keeps the old maxSolarPower, so that field is not the HV ceiling.
 
 Write: POST /order/sys/power/update (MAX_SOLAR_POWER, watts) and
 POST /order/battery/parameter/update (MAX_CHARGE_CURRENT / MAX_DISCHARGE_CURRENT, amperes).
@@ -35,6 +36,9 @@ _CURRENT_A_MAX = 1000
 
 # Single-phase hybrid (confirmed on 2410102121 via dynamicControl/read and Modbus).
 _REG_MAX_SOLAR_POWER = 0x0035
+# HV 3-phase: MAX_SOLAR_POWER order writes 0x0154. Counts are watts/10 (80 kW → 8000).
+_REG_HV_MAX_SOLAR_POWER = 0x0154
+_HV_SOLAR_WATTS_PER_COUNT = 10
 _REG_LV_MAX_CHARGE_CURRENT = 0x00D2
 _REG_LV_MAX_DISCHARGE_CURRENT = 0x00D3
 # HV 3-phase: 0x00D2 is charge voltage (0.1 V), not amps. Currents are the next registers.
@@ -108,7 +112,7 @@ def _int_or_none(raw: Any) -> Optional[int]:
     return int(round(value))
 
 
-def battery_voltage_v_from_latest(payload: Any) -> Optional[float]:
+def _latest_metric_map(payload: Any) -> dict[str, float]:
     devices = None
     if isinstance(payload, dict):
         devices = payload.get("deviceDataList") or payload.get("dataList")
@@ -116,11 +120,11 @@ def battery_voltage_v_from_latest(payload: Any) -> Optional[float]:
         if devices is None and isinstance(inner, dict):
             devices = inner.get("deviceDataList") or inner.get("dataList")
     if not isinstance(devices, list) or not devices:
-        return None
+        return {}
     entry = devices[0]
     rows = entry.get("dataList") if isinstance(entry, dict) else None
     if not isinstance(rows, list):
-        return None
+        return {}
     by_key: dict[str, float] = {}
     for row in rows:
         if not isinstance(row, dict):
@@ -133,6 +137,24 @@ def battery_voltage_v_from_latest(payload: Any) -> Optional[float]:
         if value != value:
             continue
         by_key[key] = value
+    return by_key
+
+
+def rated_power_w_from_latest(payload: Any) -> Optional[int]:
+    """Inverter nameplate watts (RATED_POWER). The kW dropdown stops here."""
+    raw = _latest_metric_map(payload).get("RATED_POWER")
+    if raw is None:
+        return None
+    watts = int(round(raw))
+    if watts < _POWER_W_MIN or watts > _POWER_W_MAX:
+        return None
+    return watts
+
+
+def battery_voltage_v_from_latest(payload: Any) -> Optional[float]:
+    by_key = _latest_metric_map(payload)
+    if not by_key:
+        return None
     for key in _BATTERY_VOLTAGE_KEYS:
         if key in by_key and _VOLTAGE_V_MIN <= by_key[key] <= _VOLTAGE_V_MAX:
             return by_key[key]
@@ -257,6 +279,16 @@ def _plausible_solar_w(raw: Optional[int]) -> Optional[int]:
     return int(raw)
 
 
+def solar_watts_from_registers(lv_raw: Optional[int], hv_raw: Optional[int]) -> Optional[int]:
+    """Prefer the single-phase watt register. HV stores the same limit at 0x0154 in 10 W steps."""
+    lv = _plausible_solar_w(lv_raw)
+    if lv is not None:
+        return lv
+    if hv_raw is None:
+        return None
+    return _plausible_solar_w(int(hv_raw) * _HV_SOLAR_WATTS_PER_COUNT)
+
+
 def _plausible_current_a(raw: Optional[int]) -> Optional[int]:
     if raw is None or raw < _CURRENT_A_MIN or raw > _CURRENT_A_MAX:
         return None
@@ -269,6 +301,9 @@ async def _read_manual_power_limits_uncached(device_sn: str) -> dict[str, Any]:
     voltage = battery_voltage_v_from_latest(latest)
     # Modbus reads still work when /strategy/dynamicControl/read is busy ("command concurrent running").
     solar_raw = await _holding_register(sn, _REG_MAX_SOLAR_POWER)
+    hv_solar_raw = None
+    if _plausible_solar_w(solar_raw) is None:
+        hv_solar_raw = await _holding_register(sn, _REG_HV_MAX_SOLAR_POWER)
     lv_charge = await _holding_register(sn, _REG_LV_MAX_CHARGE_CURRENT)
     lv_discharge = await _holding_register(sn, _REG_LV_MAX_DISCHARGE_CURRENT)
     lv_map = (
@@ -284,7 +319,7 @@ async def _read_manual_power_limits_uncached(device_sn: str) -> dict[str, Any]:
         charge_a = await _holding_register(sn, _REG_HV_MAX_CHARGE_CURRENT)
         discharge_a = await _holding_register(sn, _REG_HV_MAX_DISCHARGE_CURRENT)
     from_regs = limits_view(
-        {"maxSolarPower": _plausible_solar_w(solar_raw)},
+        {"maxSolarPower": solar_watts_from_registers(solar_raw, hv_solar_raw)},
         {
             "maxChargeCurrent": _plausible_current_a(charge_a),
             "maxDischargeCurrent": _plausible_current_a(discharge_a),
@@ -320,6 +355,7 @@ async def _read_manual_power_limits_uncached(device_sn: str) -> dict[str, Any]:
     ):
         raise RuntimeError("inverter did not return power limits")
     view["deviceSn"] = sn
+    view["ratedPowerW"] = rated_power_w_from_latest(latest)
     return view
 
 
