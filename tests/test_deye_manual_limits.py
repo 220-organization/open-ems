@@ -13,6 +13,7 @@ from app.deye_manual_limits import (
     registers_from_dynamic_read,
     solar_power_update_body,
     solar_watts_from_registers,
+    uses_lv_current_registers,
     watts_to_charge_amps,
 )
 
@@ -76,6 +77,12 @@ class TestManualPowerLimits(unittest.TestCase):
         self.assertEqual(view["maxSolarPowerW"], 10000)
         self.assertEqual(view["maxChargePowerW"], 995)
         self.assertEqual(view["maxDischargePowerW"], 2043)
+
+    def test_hv_charge_voltage_is_not_treated_as_amps(self) -> None:
+        # 2503291033: 0x00D2 is 864.0 V in 0.1 V steps. User charge current is 0x006C.
+        self.assertFalse(uses_lv_current_registers(8640, 0))
+        self.assertTrue(uses_lv_current_registers(113, 113))
+        self.assertFalse(uses_lv_current_registers(None, 80))
 
     def test_hv_solar_register_is_ten_watt_steps(self) -> None:
         # 2503291033: 0x0035 is 0, 0x0154 is 8000 after a manual 80 kW write.

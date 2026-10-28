@@ -2,9 +2,11 @@
 
 Read: Modbus holding registers (works while dynamicControl/read is busy).
 Single-phase: 0x0035 solar W, 0x00D2 charge A, 0x00D3 discharge A.
-HV 3-phase: 0x0154 solar in 10 W steps (80 kW is 8000), 0x00D4 charge A,
-0x00D5 discharge A (0x00D2 is charge voltage). 0x0035 stays 0 on HV, and
-/config/system keeps the old maxSolarPower, so that field is not the HV ceiling.
+HV 3-phase: 0x0154 solar in 10 W steps (80 kW is 8000). User battery
+currents stay at 0x006C / 0x006D (same addresses as the LV settings page).
+0x00D2 is the BMS charge voltage in 0.1 V, and 0x00D4 / 0x00D5 are the BMS
+current limits, not the currents the UI just wrote. 0x0035 stays 0 on HV,
+and /config/system keeps the old maxSolarPower, so that field is not the HV ceiling.
 
 Write: POST /order/sys/power/update (MAX_SOLAR_POWER, watts) and
 POST /order/battery/parameter/update (MAX_CHARGE_CURRENT / MAX_DISCHARGE_CURRENT, amperes).
@@ -15,8 +17,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 from app.deye_api import (
     _metric_key,
@@ -41,9 +46,9 @@ _REG_HV_MAX_SOLAR_POWER = 0x0154
 _HV_SOLAR_WATTS_PER_COUNT = 10
 _REG_LV_MAX_CHARGE_CURRENT = 0x00D2
 _REG_LV_MAX_DISCHARGE_CURRENT = 0x00D3
-# HV 3-phase: 0x00D2 is charge voltage (0.1 V), not amps. Currents are the next registers.
-_REG_HV_MAX_CHARGE_CURRENT = 0x00D4
-_REG_HV_MAX_DISCHARGE_CURRENT = 0x00D5
+# Battery settings page. On HV these stay the user limits (60 kW at 800 V is 75 A).
+_REG_USER_MAX_CHARGE_CURRENT = 0x006C
+_REG_USER_MAX_DISCHARGE_CURRENT = 0x006D
 _LV_CURRENT_MAX_A = 400
 
 _BATTERY_VOLTAGE_KEYS = (
@@ -289,6 +294,16 @@ def solar_watts_from_registers(lv_raw: Optional[int], hv_raw: Optional[int]) -> 
     return _plausible_solar_w(int(hv_raw) * _HV_SOLAR_WATTS_PER_COUNT)
 
 
+def uses_lv_current_registers(lv_charge: Optional[int], lv_discharge: Optional[int]) -> bool:
+    """True when 0x00D2/0x00D3 are amp limits. On HV, 0x00D2 is charge voltage in 0.1 V."""
+    return (
+        lv_charge is not None
+        and lv_discharge is not None
+        and 0 < lv_charge <= _LV_CURRENT_MAX_A
+        and 0 <= lv_discharge <= _LV_CURRENT_MAX_A
+    )
+
+
 def _plausible_current_a(raw: Optional[int]) -> Optional[int]:
     if raw is None or raw < _CURRENT_A_MIN or raw > _CURRENT_A_MAX:
         return None
@@ -306,18 +321,14 @@ async def _read_manual_power_limits_uncached(device_sn: str) -> dict[str, Any]:
         hv_solar_raw = await _holding_register(sn, _REG_HV_MAX_SOLAR_POWER)
     lv_charge = await _holding_register(sn, _REG_LV_MAX_CHARGE_CURRENT)
     lv_discharge = await _holding_register(sn, _REG_LV_MAX_DISCHARGE_CURRENT)
-    lv_map = (
-        lv_charge is not None
-        and lv_discharge is not None
-        and 0 < lv_charge <= _LV_CURRENT_MAX_A
-        and 0 <= lv_discharge <= _LV_CURRENT_MAX_A
-    )
-    if lv_map:
+    if uses_lv_current_registers(lv_charge, lv_discharge):
         charge_a = lv_charge
         discharge_a = lv_discharge
     else:
-        charge_a = await _holding_register(sn, _REG_HV_MAX_CHARGE_CURRENT)
-        discharge_a = await _holding_register(sn, _REG_HV_MAX_DISCHARGE_CURRENT)
+        # HV: 0x00D4/0x00D5 are the BMS current ceiling (84 A / 168 A on 2503291033),
+        # not the max charge/discharge the user set.
+        charge_a = await _holding_register(sn, _REG_USER_MAX_CHARGE_CURRENT)
+        discharge_a = await _holding_register(sn, _REG_USER_MAX_DISCHARGE_CURRENT)
     from_regs = limits_view(
         {"maxSolarPower": solar_watts_from_registers(solar_raw, hv_solar_raw)},
         {
@@ -414,4 +425,15 @@ async def apply_manual_power_limits(
             applied["maxDischargePowerW"] = int(max_discharge_power_w)
             applied["maxDischargeCurrentA"] = amps
         applied["batteryVoltageV"] = voltage
-    return applied
+    # The order ACK is the request, not the register. Read the inverter again so the
+    # UI shows the stored watts and amps, including limits that were not part of this write.
+    async with _read_guard:
+        _read_cache.pop(sn, None)
+    try:
+        view = await _read_manual_power_limits_uncached(sn)
+    except Exception:
+        logger.exception("power limits read-back failed sn=%s", sn)
+        return applied
+    async with _read_guard:
+        _read_cache[sn] = (time.monotonic(), view)
+    return view

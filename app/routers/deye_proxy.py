@@ -10,13 +10,14 @@ from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import async_session_factory, get_db
 from app.deye_manual_discharge_store import persist_manual_discharge_session_from_api_result
 from app.deye_manual_limits import apply_manual_power_limits, kw_to_watts, read_manual_power_limits
+from app.askoe_export import ASKOE_PAYMENT_DESCRIPTION, build_askoe_for_period
 from app.deye_energy_backfill_payment import (
     BACKFILL_UAH_PER_DAY,
     access_password_ok,
@@ -35,6 +36,7 @@ from app.deye_api import (
     deye_missing_env_names,
     discharge_soc_delta_then_zero_export_ct,
     DeyeInverterOrderError,
+    fetch_device_alerts,
     fetch_device_soc_percent,
     fetch_device_station_history_energy,
     get_inverter_station_coordinates,
@@ -314,6 +316,7 @@ _backfill_active_by_station: dict[str, str] = {}
 _backfill_jobs_lock = asyncio.Lock()
 # Paid entitlements: payment_id → metadata (consumed when backfill starts).
 _backfill_payments: dict[str, dict[str, Any]] = {}
+_askoe_payments: dict[str, dict[str, Any]] = {}
 _BACKFILL_SUCCESS = frozenset({"SUCCESS"})
 
 
@@ -811,6 +814,208 @@ async def get_energy_backfill_quote(
     )
 
 
+class AskoeExportBody(BaseModel):
+    deviceSn: str = Field(..., min_length=6, max_length=64)
+    period: SocHistoryPeriod = "day"
+    date: str = Field(..., min_length=10, max_length=10, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    paymentId: Optional[str] = Field(default=None, max_length=80)
+    accessPassword: Optional[str] = Field(default=None, max_length=64)
+    pin: Optional[str] = Field(default=None, max_length=64)
+
+
+def _askoe_authorized(body: AskoeExportBody, sn: str) -> None:
+    """Local free flag or the access password, otherwise a paid unused invoice."""
+    if is_backfill_free_enabled():
+        return
+    if access_password_ok(body.accessPassword) or access_password_ok(body.pin):
+        return
+    pid = (body.paymentId or "").strip()
+    row = _askoe_payments.get(pid)
+    if row is None or row.get("consumed"):
+        raise HTTPException(status_code=402, detail="payment_required")
+    if str(row.get("status") or "").upper() not in _BACKFILL_SUCCESS:
+        raise HTTPException(status_code=402, detail="payment_not_paid")
+    if (
+        str(row.get("deviceSn") or "") != sn
+        or str(row.get("period") or "") != body.period
+        or str(row.get("date") or "") != body.date
+    ):
+        raise HTTPException(status_code=402, detail="payment_scope_mismatch")
+    row["consumed"] = True
+
+
+@router.get("/askoe-export/quote")
+async def get_askoe_export_quote(
+    deviceSn: str = Query(..., min_length=6, max_length=64),
+    period: SocHistoryPeriod = Query("day"),
+    date: str = Query(..., min_length=10, max_length=10, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> JSONResponse:
+    """Price for an ASKOE workbook of the selected period (22 UAH × calendar days)."""
+    if not deye_configured():
+        return JSONResponse(
+            content={"ok": False, "configured": False},
+            status_code=503,
+            headers=_NO_STORE_CACHE,
+        )
+    sn = deviceSn.strip()
+    try:
+        await assert_inverter_owned(sn)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        quote = _backfill_quote(period, date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD") from exc
+    if int(quote["daysCount"]) < 1:
+        raise HTTPException(status_code=400, detail="no_days_in_period")
+    payment_required = not is_backfill_free_enabled()
+    return JSONResponse(
+        content={
+            "ok": True,
+            "configured": True,
+            "deviceSn": sn,
+            "paymentRequired": payment_required,
+            **quote,
+        },
+        headers=_NO_STORE_CACHE,
+    )
+
+
+@router.post("/askoe-export/pay")
+async def post_askoe_export_pay(body: EnergyBackfillPayBody, request: Request) -> JSONResponse:
+    """Monobank invoice for an ASKOE download. Same 22 UAH per day as energy backfill."""
+    if not deye_configured():
+        return JSONResponse(
+            content={"ok": False, "configured": False},
+            status_code=503,
+            headers=_NO_STORE_CACHE,
+        )
+    sn = body.deviceSn.strip()
+    try:
+        await assert_inverter_owned(sn)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        quote = _backfill_quote(body.period, body.date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD") from exc
+    days_count = int(quote["daysCount"])
+    amount_uah = int(quote["amountUah"])
+    if days_count < 1 or amount_uah < 1:
+        raise HTTPException(status_code=400, detail="no_days_in_period")
+    payment_id = str(uuid.uuid4())
+    redirect_url = backfill_with_query(body.redirectUrl, askoePayment=payment_id)
+    host = (request.headers.get("x-forwarded-host") or request.url.hostname or "").split(",")[0].strip()
+    webhook_url = None
+    if host and host not in {"localhost", "127.0.0.1"}:
+        proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "https").split(",")[0].strip()
+        webhook_url = f"{proto}://{host}/api/deye/energy-backfill/webhook"
+    try:
+        invoice = await asyncio.to_thread(
+            create_backfill_invoice,
+            amount_uah=amount_uah,
+            days=days_count,
+            redirect_url=redirect_url,
+            reference=payment_id,
+            webhook_url=webhook_url,
+            description=ASKOE_PAYMENT_DESCRIPTION,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        logger.exception("askoe-export pay Monobank failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    invoice_id = str(invoice.get("invoiceId") or "").strip()
+    page_url = str(invoice.get("pageUrl") or "").strip()
+    if not invoice_id or not page_url:
+        raise HTTPException(status_code=502, detail="Monobank invoice incomplete")
+    _askoe_payments[payment_id] = {
+        "paymentId": payment_id,
+        "invoiceId": invoice_id,
+        "status": "CREATED",
+        "deviceSn": sn,
+        "period": body.period,
+        "date": body.date,
+        "daysCount": days_count,
+        "amountUah": amount_uah,
+        "consumed": False,
+        "pageUrl": page_url,
+    }
+    return JSONResponse(
+        status_code=201,
+        content={
+            "ok": True,
+            "paymentId": payment_id,
+            "invoiceId": invoice_id,
+            "pageUrl": page_url,
+            "amountUah": amount_uah,
+            "daysCount": days_count,
+            "uahPerDay": BACKFILL_UAH_PER_DAY,
+        },
+        headers=_NO_STORE_CACHE,
+    )
+
+
+@router.get("/askoe-export/pay/{paymentId}")
+async def get_askoe_export_payment(paymentId: str) -> JSONResponse:
+    pid = str(paymentId or "").strip()
+    row = _askoe_payments.get(pid)
+    if row is None:
+        raise HTTPException(status_code=404, detail="payment not found")
+    if str(row.get("status") or "").upper() not in _BACKFILL_SUCCESS:
+        invoice_id = str(row.get("invoiceId") or "")
+        if invoice_id.startswith("local-test-"):
+            row["status"] = "SUCCESS"
+        else:
+            remote = await asyncio.to_thread(fetch_invoice_status, invoice_id)
+            if remote:
+                row["status"] = remote
+    return JSONResponse(
+        content={
+            "ok": True,
+            "paymentId": pid,
+            "status": row.get("status"),
+            "deviceSn": row.get("deviceSn"),
+            "period": row.get("period"),
+            "date": row.get("date"),
+            "amountUah": row.get("amountUah"),
+            "daysCount": row.get("daysCount"),
+        },
+        headers=_NO_STORE_CACHE,
+    )
+
+
+@router.post("/askoe-export")
+async def post_askoe_export(
+    body: AskoeExportBody,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Download hourly consumption as an ASKOE xlsx. 22 UAH per calendar day."""
+    if not deye_configured():
+        raise HTTPException(status_code=503, detail="DEYE_* not set")
+    sn = body.deviceSn.strip()
+    try:
+        await assert_inverter_owned(sn)
+        anchor = date_cls.fromisoformat(body.date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if body.paymentId:
+        await get_askoe_export_payment(body.paymentId)
+    _askoe_authorized(body, sn)
+    try:
+        blob, filename, _days = await build_askoe_for_period(db, sn, body.period, anchor)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return Response(
+        content=blob,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
 @router.post("/energy-backfill/pay")
 async def post_energy_backfill_pay(
     body: EnergyBackfillPayBody,
@@ -981,14 +1186,17 @@ async def post_energy_backfill_webhook(request: Request) -> JSONResponse:
     invoice_id = str(payload.get("invoiceId") or "").strip()
     status = str(payload.get("status") or "").upper()
     reference = str(payload.get("reference") or "").strip()
-    if reference and reference in _backfill_payments:
-        if status:
-            _backfill_payments[reference]["status"] = status
+    stores = (_backfill_payments, _askoe_payments)
+    if reference:
+        for store in stores:
+            if reference in store and status:
+                store[reference]["status"] = status
     elif invoice_id:
-        for row in _backfill_payments.values():
-            if str(row.get("invoiceId") or "") == invoice_id and status:
-                row["status"] = status
-                break
+        for store in stores:
+            for row in store.values():
+                if str(row.get("invoiceId") or "") == invoice_id and status:
+                    row["status"] = status
+                    break
     return JSONResponse(content={"ok": True}, headers=_NO_STORE_CACHE)
 
 
@@ -1459,6 +1667,44 @@ async def get_solar_insolation_tomorrow(
         )
     return JSONResponse(
         content={"ok": True, "configured": True, "insolationPct": pct, "date": day},
+        headers=_NO_STORE_CACHE,
+    )
+
+
+@router.get("/alerts")
+async def get_device_alerts(
+    deviceSn: str = Query(
+        ...,
+        min_length=6,
+        max_length=32,
+        pattern=r"^[0-9]+$",
+        description="Deye inverter serial",
+    ),
+    hours: int = Query(168, ge=1, le=720),
+) -> JSONResponse:
+    """Inverter alarm events from Deye POST /device/alertList. Polled by the power-flow page."""
+    if not deye_configured():
+        return JSONResponse(
+            content={"ok": False, "configured": False, "items": [], "total": 0},
+            headers=_NO_STORE_CACHE,
+        )
+    sn = deviceSn.strip()
+    try:
+        await assert_inverter_owned(sn)
+        data = await fetch_device_alerts(sn, hours=hours)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("GET /api/deye/alerts — failed sn=%s: %s", sn, exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return JSONResponse(
+        content={
+            "ok": True,
+            "configured": True,
+            "deviceSn": data["deviceSn"],
+            "total": data["total"],
+            "items": data["items"],
+        },
         headers=_NO_STORE_CACHE,
     )
 

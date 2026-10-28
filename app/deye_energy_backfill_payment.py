@@ -63,11 +63,12 @@ def create_backfill_invoice(
     redirect_url: str,
     reference: str,
     webhook_url: Optional[str] = None,
+    description: str = BACKFILL_PAYMENT_DESCRIPTION,
 ) -> Dict[str, Any]:
     if not is_valid_backfill_amount_uah(amount_uah, days):
         raise ValueError(f"Unsupported backfill amount_uah={amount_uah} days={days}")
     amount_cents = amount_uah_to_cents(amount_uah)
-    dest = f"{BACKFILL_PAYMENT_DESCRIPTION} ({days} дн.)"
+    dest = f"{description} ({days} дн.)"
     payload: Dict[str, Any] = {
         "amount": amount_cents,
         "ccy": 980,
