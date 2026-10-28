@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import async_session_factory, get_db
 from app.deye_manual_discharge_store import persist_manual_discharge_session_from_api_result
+from app.deye_manual_limits import apply_manual_power_limits, kw_to_watts, read_manual_power_limits
 from app.deye_energy_backfill_payment import (
     BACKFILL_UAH_PER_DAY,
     access_password_ok,
@@ -162,8 +163,12 @@ def _deye_client_error_payload(
 
 _MAX_INVERTER_SOCS = 200
 
-DischargeSocDeltaPctOption = Literal[0, 1, 5, 10, 20, 50, 80, 95]
-ChargeSocDeltaPctOption = Literal[2, 10, 20, 50, 100]
+DischargeSocDeltaPctOption = Literal[
+    0, 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95
+]
+ChargeSocDeltaPctOption = Literal[
+    2, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100
+]
 SocHistoryPeriod = Literal["day", "month", "year"]
 
 
@@ -184,7 +189,7 @@ class Discharge2PctBody(BaseModel):
         default=None,
         ge=1,
         le=100,
-        description="SoC drop in percentage points (1–100). Peak-auto prefs: target SoC 0/1/5/10/20/50/80/95 (%).",
+        description="SoC drop in percentage points (1–100). Peak-auto prefs: target SoC 0–95 step 5, or 1 (%).",
     )
     respondAfterStart: bool = False
     pin: Optional[str] = Field(default=None, max_length=12)
@@ -194,6 +199,16 @@ class PeakAutoDischargeBody(BaseModel):
     deviceSn: str = Field(..., min_length=6, max_length=64)
     enabled: bool
     dischargeSocDeltaPct: DischargeSocDeltaPctOption = 80
+    pin: Optional[str] = Field(default=None, max_length=12)
+
+
+class ManualPowerLimitsBody(BaseModel):
+    """Explicit manual limits. Omitted fields are left unchanged on the inverter."""
+
+    deviceSn: str = Field(..., min_length=6, max_length=64)
+    maxSolarPowerKw: Optional[float] = Field(default=None, ge=0.5, le=200)
+    maxChargePowerKw: Optional[float] = Field(default=None, ge=0.5, le=200)
+    maxDischargePowerKw: Optional[float] = Field(default=None, ge=0.5, le=200)
     pin: Optional[str] = Field(default=None, max_length=12)
 
 
@@ -1659,6 +1674,53 @@ async def post_peak_auto_discharge(
         },
         headers=_NO_STORE_CACHE,
     )
+
+
+@router.get("/power-limits")
+async def get_power_limits(deviceSn: str = Query(..., min_length=6, max_length=64)) -> JSONResponse:
+    """Current maxSolarPower and battery charge/discharge limits (battery also as kW when voltage is known)."""
+    if not deye_configured():
+        return JSONResponse(
+            content={"ok": False, "configured": False, "detail": "DEYE_* not set"},
+            headers=_NO_STORE_CACHE,
+        )
+    try:
+        view = await read_manual_power_limits(deviceSn.strip())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("GET /api/deye/power-limits — failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return JSONResponse(content={"ok": True, "configured": True, **view}, headers=_NO_STORE_CACHE)
+
+
+@router.post("/power-limits")
+async def post_power_limits(body: ManualPowerLimitsBody) -> JSONResponse:
+    """Manual set: maxSolarPower (W) and battery max charge/discharge power (converted to current)."""
+    if not deye_configured():
+        return JSONResponse(
+            content={"ok": False, "configured": False, "detail": "DEYE_* not set"},
+            headers=_NO_STORE_CACHE,
+        )
+    sn = body.deviceSn.strip()
+    try:
+        await assert_deye_write_pin(sn, body.pin)
+        applied = await apply_manual_power_limits(
+            sn,
+            max_solar_power_w=None if body.maxSolarPowerKw is None else kw_to_watts(body.maxSolarPowerKw),
+            max_charge_power_w=None if body.maxChargePowerKw is None else kw_to_watts(body.maxChargePowerKw),
+            max_discharge_power_w=None
+            if body.maxDischargePowerKw is None
+            else kw_to_watts(body.maxDischargePowerKw),
+        )
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("POST /api/deye/power-limits — failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return JSONResponse(content={"ok": True, "configured": True, **applied}, headers=_NO_STORE_CACHE)
 
 
 @router.post("/discharge-2pct")

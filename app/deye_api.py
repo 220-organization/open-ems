@@ -2338,11 +2338,11 @@ def _body_selling_first(
     *,
     solar_sell_action: str = "on",
 ) -> dict[str, Any]:
+    """SELLING_FIRST TOU template. Does not include ``maxSolarPower`` (PV ceiling stays on the inverter)."""
     rp = int(rated_power)
     return {
         "deviceSn": device_sn,
         "maxSellPower": rp,
-        "maxSolarPower": rp,
         "solarSellAction": solar_sell_action,
         "touAction": "on",
         "touDays": list(_TOU_DAYS),
@@ -2360,14 +2360,14 @@ def _body_zero_export_target_soc(
 ) -> dict[str, Any]:
     """ZERO_EXPORT_TO_CT with a uniform TOU SoC target (used to bias battery toward a higher SoC).
 
-    ``maxSellPower`` / ``maxSolarPower`` are set to ``rated_power`` so a prior SELLING_FIRST session
-    (e.g. EV-port export capped at job powerWt) does not leave PV capped at 500 W after restore.
+    ``maxSellPower`` is set to ``rated_power`` so a prior SELLING_FIRST session (e.g. EV-port export
+    capped at job powerWt) does not leave grid sell capped at 500 W after restore.
+    ``maxSolarPower`` is omitted: dynamicControl must not change the inverter PV ceiling.
     """
     power = int(rated_power)
     return {
         "deviceSn": device_sn,
         "maxSellPower": power,
-        "maxSolarPower": power,
         "solarSellAction": solar_sell_action,
         "touAction": "on",
         "touDays": list(_TOU_DAYS),
@@ -2380,9 +2380,13 @@ async def _post_strategy_dynamic_control(body: dict[str, Any]) -> None:
     """
     POST /strategy/dynamicControl — overwrites device TOU / work mode per Deye cloud semantics.
     See official samples: clientcode/strategy/dynamic_control_*.py
+
+    ``maxSolarPower`` is always dropped. Sending it overwrites the inverter PV ceiling
+    (the 10 kW template capped an 80 kW plant).
     """
     if not deye_configured():
         raise RuntimeError("Deye API credentials not configured")
+    payload = {k: v for k, v in body.items() if k != "maxSolarPower"}
     base = settings.DEYE_API_BASE_URL.rstrip("/")
     async with httpx.AsyncClient(timeout=90.0) as client:
         token = await _ensure_token(client)
@@ -2392,7 +2396,7 @@ async def _post_strategy_dynamic_control(body: dict[str, Any]) -> None:
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {token}",
             },
-            json=body,
+            json=payload,
         )
         snippet = (r.text or "")[:900]
         if r.status_code >= 400:
@@ -2419,7 +2423,8 @@ async def apply_selling_first_max_power_w(
     tou_soc: float,
 ) -> None:
     """
-    SELLING_FIRST with max sell / solar power set to ``max_power_w`` (e.g. EV station job powerWt).
+    SELLING_FIRST with max sell power set to ``max_power_w`` (e.g. EV station job powerWt).
+    Does not send ``maxSolarPower``.
     ``tou_soc`` should be low enough to allow discharge during the session (see Deye TOU template).
 
     Solar sell stays off (``solarSellAction`` ``off``) so EV-port automation does not enable PV export
@@ -2437,8 +2442,9 @@ async def restore_zero_export_ct_current_soc(device_sn: str) -> None:
     """
     ZERO_EXPORT_TO_CT with TOU SoC = max(5%, current SoC) — template power from DEYE_DYNAMIC_CONTROL_RATED_POWER_W.
 
-    Used after EV-port SELLING_FIRST; resets maxSolarPower/maxSellPower to rated so PV is not left capped at
-    the last EV job powerWt (minimum 500 W). Keeps solar sell off to match pre-session zero-export / Solar Sell disabled.
+    Used after EV-port SELLING_FIRST; resets maxSellPower to rated so grid sell is not left capped at
+    the last EV job powerWt (minimum 500 W). Does not send maxSolarPower. Keeps solar sell off to match
+    pre-session zero-export / Solar Sell disabled.
     """
     await assert_inverter_owned(device_sn)
     sn = device_sn.strip()
@@ -2693,7 +2699,8 @@ async def discharge_two_percent_then_zero_export_ct(device_sn: str) -> dict[str,
     return await discharge_soc_delta_then_zero_export_ct(device_sn, 2.0)
 
 
-_CHARGE_SOC_DELTA_ALLOWED: tuple[int, ...] = (2, 10, 20, 50, 100)
+# Percentage points to add: 5–100 in steps of 5, plus 2.
+CHARGE_SOC_DELTA_PCT_ALLOWED: tuple[int, ...] = tuple(sorted({*range(5, 101, 5), 2}))
 
 
 async def _charge_soc_delta_poll_loop_and_restore(
@@ -2761,7 +2768,7 @@ async def charge_soc_delta_then_zero_export_ct(
     2) Poll until SoC rises by approximately soc_delta_pct or timeout.
     3) Re-apply ZERO_EXPORT_TO_CT with TOU SoC set to the charge target (keeps that level in slots).
 
-    soc_delta_pct: one of 2, 10, 20, 50, 100 (percentage points to add toward 100% SoC).
+    soc_delta_pct: 5–100 in steps of 5, or 2 (percentage points to add toward 100% SoC).
 
     When return_after_start is True, step 1 is awaited and the caller may return immediately;
     steps 2–3 continue in a background task.
@@ -2772,8 +2779,8 @@ async def charge_soc_delta_then_zero_export_ct(
     """
     delta_f = float(soc_delta_pct)
     delta_i = int(round(delta_f))
-    if delta_i not in _CHARGE_SOC_DELTA_ALLOWED:
-        allowed = ", ".join(str(x) for x in _CHARGE_SOC_DELTA_ALLOWED)
+    if delta_i not in CHARGE_SOC_DELTA_PCT_ALLOWED:
+        allowed = ", ".join(str(x) for x in CHARGE_SOC_DELTA_PCT_ALLOWED)
         raise ValueError(f"soc_delta_pct for charge must be one of: {allowed}")
 
     await assert_inverter_owned(device_sn)

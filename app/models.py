@@ -274,12 +274,12 @@ class OreeDamLazyFetch(Base):
 
 
 class DeyePeakAutoDischargePref(Base):
-    """Per-inverter: peak-DAM auto flag; discharge_soc_delta_pct is target SoC % (0, 1, 5, 10, 20, 50, 80, or 95) after discharge."""
+    """Per-inverter: peak-DAM auto flag; discharge_soc_delta_pct is target SoC % (0–95 step 5, or 1)."""
 
     __tablename__ = "deye_peak_auto_discharge_pref"
     __table_args__ = (
         CheckConstraint(
-            "discharge_soc_delta_pct IN (0, 1, 5, 10, 20, 50, 80, 95)",
+            "discharge_soc_delta_pct IN (0, 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95)",
             name="chk_peak_pref_discharge_soc_delta_pct",
         ),
     )
@@ -358,7 +358,7 @@ class DeyeSelfConsumptionAutoDamPref(Base):
 
 
 class DeyeLowDamChargePref(Base):
-    """Per-inverter: low-DAM auto charge flag and SoC rise % (10/20/50/100)."""
+    """Per-inverter: low-DAM auto charge flag and SoC rise % (5–100 step 5, or 2)."""
 
     __tablename__ = "deye_low_dam_charge_pref"
 
