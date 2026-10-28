@@ -127,6 +127,12 @@ button.start-stop-button {
   box-shadow: var(--b2b-toggle-glow);
 }
 
+/* Needle tip stays on the tick radius while the gauge rotates. */
+.pointer {
+  -webkit-transform: translate(100.1px, 173.6px) rotate(72deg) !important;
+  transform: translate(100.1px, 173.6px) rotate(72deg) !important;
+}
+
 .menu-burger {
   background: var(--b2b-button-fill);
   background-color: transparent;
