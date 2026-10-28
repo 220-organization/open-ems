@@ -30,6 +30,7 @@ from app.deye_api import (
     _poll_deye_order_if_needed,
     _post_deye_json,
     _read_holding_register_modbus,
+    _read_holding_registers_modbus,
     assert_inverter_owned,
     deye_order_failure_is_retryable,
     modbus_write_from_order_result,
@@ -284,10 +285,37 @@ async def read_manual_power_limits(device_sn: str) -> dict[str, Any]:
     return dict(view)
 
 
+# Page load must finish inside nginx proxy_read_timeout (60s). One register used to
+# poll for 60s and retry six times, and the HV path issued up to six of those.
+_PAGE_READ_POLL_SEC = 12.0
+_PAGE_READ_ATTEMPTS = 1
+
+
 async def _holding_register(device_sn: str, register: int) -> Optional[int]:
     try:
         return await _read_holding_register_modbus(device_sn, register)
     except RuntimeError:
+        return None
+
+
+async def _page_registers(device_sn: str, register: int, count: int = 1) -> Optional[list[int]]:
+    """Short Modbus read used while the per-device custom-control lock is already held."""
+    try:
+        return await _read_holding_registers_modbus(
+            device_sn,
+            register,
+            count,
+            assume_locked=True,
+            poll_timeout_sec=_PAGE_READ_POLL_SEC,
+            max_attempts=_PAGE_READ_ATTEMPTS,
+        )
+    except Exception:
+        logger.info(
+            "power limit register read failed sn=%s reg=%s count=%s",
+            device_sn,
+            hex(register),
+            count,
+        )
         return None
 
 
@@ -325,23 +353,38 @@ def _plausible_current_a(raw: Optional[int]) -> Optional[int]:
 
 async def _read_manual_power_limits_uncached(device_sn: str) -> dict[str, Any]:
     sn = device_sn
-    latest = await _post_deye_json("/device/latest", {"deviceList": [sn]}, timeout=30.0)
+    latest = await _post_deye_json("/device/latest", {"deviceList": [sn]}, timeout=15.0)
     voltage = battery_voltage_v_from_latest(latest)
-    # Modbus reads still work when /strategy/dynamicControl/read is busy ("command concurrent running").
-    solar_raw = await _holding_register(sn, _REG_MAX_SOLAR_POWER)
-    hv_solar_raw = None
-    if _plausible_solar_w(solar_raw) is None:
-        hv_solar_raw = await _holding_register(sn, _REG_HV_MAX_SOLAR_POWER)
-    lv_charge = await _holding_register(sn, _REG_LV_MAX_CHARGE_CURRENT)
-    lv_discharge = await _holding_register(sn, _REG_LV_MAX_DISCHARGE_CURRENT)
-    if uses_lv_current_registers(lv_charge, lv_discharge):
-        charge_a = lv_charge
-        discharge_a = lv_discharge
-    else:
-        # HV: 0x00D4/0x00D5 are the BMS current ceiling (84 A / 168 A on 2503291033),
-        # not the max charge/discharge the user set.
-        charge_a = await _holding_register(sn, _REG_USER_MAX_CHARGE_CURRENT)
-        discharge_a = await _holding_register(sn, _REG_USER_MAX_DISCHARGE_CURRENT)
+    # One lock for the whole read so a parallel smart-load poll cannot stretch this
+    # past the nginx timeout. Adjacent registers share one FC3.
+    lock = await _custom_control_lock_for(sn)
+    async with lock:
+        lv_pair = await _page_registers(sn, _REG_LV_MAX_CHARGE_CURRENT, 2)
+        lv_charge = lv_pair[0] if lv_pair else None
+        lv_discharge = lv_pair[1] if lv_pair and len(lv_pair) > 1 else None
+        solar_raw: Optional[int] = None
+        hv_solar_raw: Optional[int] = None
+        if uses_lv_current_registers(lv_charge, lv_discharge):
+            charge_a = lv_charge
+            discharge_a = lv_discharge
+            solar_pair = await _page_registers(sn, _REG_MAX_SOLAR_POWER, 1)
+            solar_raw = solar_pair[0] if solar_pair else None
+        elif lv_pair is not None:
+            # HV: 0x00D2 is BMS charge voltage in 0.1 V, not amps. User currents
+            # are 0x006C/0x006D. 0x0035 stays 0, so solar is the 10 W register.
+            user_pair = await _page_registers(sn, _REG_USER_MAX_CHARGE_CURRENT, 2)
+            charge_a = user_pair[0] if user_pair else None
+            discharge_a = user_pair[1] if user_pair and len(user_pair) > 1 else None
+            hv_pair = await _page_registers(sn, _REG_HV_MAX_SOLAR_POWER, 1)
+            hv_solar_raw = hv_pair[0] if hv_pair else None
+        else:
+            charge_a = None
+            discharge_a = None
+            solar_pair = await _page_registers(sn, _REG_MAX_SOLAR_POWER, 1)
+            solar_raw = solar_pair[0] if solar_pair else None
+            if _plausible_solar_w(solar_raw) is None:
+                hv_pair = await _page_registers(sn, _REG_HV_MAX_SOLAR_POWER, 1)
+                hv_solar_raw = hv_pair[0] if hv_pair else None
     from_regs = limits_view(
         {"maxSolarPower": solar_watts_from_registers(solar_raw, hv_solar_raw)},
         {

@@ -3459,7 +3459,8 @@ def _deye_modbus_analysis_failed(analysis: Any, *, expect_fc: Optional[int] = No
     return False
 
 
-def _parse_modbus_read_u16(analysis: Any) -> Optional[int]:
+def _parse_modbus_read_u16s(analysis: Any) -> Optional[list[int]]:
+    """Every register in an FC3 response. None when the frame is not a read."""
     raw = _deye_modbus_analysis_hex(analysis)
     if _deye_modbus_analysis_failed(raw, expect_fc=3):
         return None
@@ -3470,9 +3471,16 @@ def _parse_modbus_read_u16(analysis: Any) -> Optional[int]:
     if len(data) < 5 or data[1] != 3:
         return None
     byte_count = data[2]
-    if len(data) < 3 + byte_count + 2 or byte_count < 2:
+    if byte_count < 2 or byte_count % 2 or len(data) < 3 + byte_count + 2:
         return None
-    return (data[3] << 8) | data[4]
+    return [(data[3 + i] << 8) | data[4 + i] for i in range(0, byte_count, 2)]
+
+
+def _parse_modbus_read_u16(analysis: Any) -> Optional[int]:
+    values = _parse_modbus_read_u16s(analysis)
+    if not values:
+        return None
+    return values[0]
 
 
 def _on_grid_always_on_from_register_value(value: int) -> bool:
@@ -3531,26 +3539,55 @@ async def _post_deye_custom_control_hex(
         return await _send()
 
 
+async def _read_holding_registers_modbus(
+    device_sn: str,
+    register: int,
+    count: int,
+    *,
+    assume_locked: bool = False,
+    poll_timeout_sec: float = 60.0,
+    max_attempts: int = 6,
+) -> Optional[list[int]]:
+    """FC3 of ``count`` registers. None when the frame is short or the order fails."""
+    width = max(1, int(count))
+    content = _build_modbus_rtu_hex(
+        _DEYE_MODBUS_SLAVE_ID,
+        3,
+        register,
+        count=width,
+    )
+    polled = await _post_deye_custom_control_hex(
+        device_sn,
+        content,
+        max_attempts=max_attempts,
+        assume_locked=assume_locked,
+        poll_timeout_sec=poll_timeout_sec,
+    )
+    values = _parse_modbus_read_u16s(polled.get("analysisResult"))
+    if values is None or len(values) < width:
+        return None
+    return values[:width]
+
+
 async def _read_holding_register_modbus(
     device_sn: str,
     register: int,
     *,
     assume_locked: bool = False,
     poll_timeout_sec: float = 60.0,
+    max_attempts: int = 6,
 ) -> Optional[int]:
-    content = _build_modbus_rtu_hex(
-        _DEYE_MODBUS_SLAVE_ID,
-        3,
-        register,
-        count=1,
-    )
-    polled = await _post_deye_custom_control_hex(
+    values = await _read_holding_registers_modbus(
         device_sn,
-        content,
+        register,
+        1,
         assume_locked=assume_locked,
         poll_timeout_sec=poll_timeout_sec,
+        max_attempts=max_attempts,
     )
-    return _parse_modbus_read_u16(polled.get("analysisResult"))
+    if not values:
+        return None
+    return values[0]
 
 
 async def _write_holding_register_modbus(device_sn: str, register: int, value: int) -> dict[str, Any]:
