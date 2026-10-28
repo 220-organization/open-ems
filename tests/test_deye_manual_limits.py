@@ -4,6 +4,12 @@ from __future__ import annotations
 
 import unittest
 
+from app.deye_api import (
+    DeyeOrderFailed,
+    deye_order_failure_is_retryable,
+    deye_order_failure_message,
+    modbus_write_from_order_result,
+)
 from app.deye_manual_limits import (
     battery_current_update_body,
     battery_voltage_v_from_latest,
@@ -11,6 +17,7 @@ from app.deye_manual_limits import (
     limits_view,
     rated_power_w_from_latest,
     registers_from_dynamic_read,
+    sell_power_update_body,
     solar_power_update_body,
     solar_watts_from_registers,
     uses_lv_current_registers,
@@ -24,6 +31,11 @@ class TestManualPowerLimits(unittest.TestCase):
         self.assertEqual(body["powerType"], "MAX_SOLAR_POWER")
         self.assertEqual(body["value"], 80_000)
         self.assertNotIn("maxSolarPower", body)
+
+    def test_sell_body_is_discharge_watts(self) -> None:
+        body = sell_power_update_body("2503291033", kw_to_watts(80))
+        self.assertEqual(body["powerType"], "MAX_SELL_POWER")
+        self.assertEqual(body["value"], 80_000)
 
     def test_battery_bodies_are_current_not_watts(self) -> None:
         charge = battery_current_update_body("2503291033", "MAX_CHARGE_CURRENT", 70)
@@ -92,6 +104,31 @@ class TestManualPowerLimits(unittest.TestCase):
         self.assertEqual(solar_watts_from_registers(6000, 20), 6000)
         self.assertIsNone(solar_watts_from_registers(0, 20))
         self.assertIsNone(solar_watts_from_registers(None, None))
+
+    def test_discharge_order_frame_is_register_006d(self) -> None:
+        # Order 864535587234309 echoed the 87 A write (70 kW at ~800 V) then failed 540.
+        parsed = modbus_write_from_order_result("0110006D0001020057EF13")
+        self.assertEqual(parsed, (0x006D, 87))
+        self.assertIsNone(modbus_write_from_order_result(""))
+        self.assertIsNone(modbus_write_from_order_result("not-hex"))
+
+    def test_silent_inverter_is_retryable_and_named(self) -> None:
+        payload = {
+            "orderId": 864535587234309,
+            "status": 500,
+            "error": "540",
+            "msg": "success",
+            "orderResult": "0110006D0001020057EF13",
+        }
+        message = deye_order_failure_message(payload)
+        self.assertIn("did not respond", message)
+        self.assertIn("540", message)
+        self.assertNotIn("success", message)
+        failed = DeyeOrderFailed(message, code="540", status=500, deye_order=payload)
+        self.assertTrue(deye_order_failure_is_retryable(failed))
+        rejected = DeyeOrderFailed("no", code="530", status=500)
+        self.assertFalse(deye_order_failure_is_retryable(rejected))
+        self.assertTrue(deye_order_failure_is_retryable(DeyeOrderFailed("Deye order 1 timed out")))
 
     def test_rated_power_is_nameplate_watts(self) -> None:
         latest = {

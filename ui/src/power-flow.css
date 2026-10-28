@@ -1607,6 +1607,25 @@ select.pf-power-limit-select {
   margin-top: 10px;
 }
 
+.pf-arbitrage-fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-inline-size: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.pf-arbitrage-fieldset:disabled {
+  pointer-events: none;
+}
+
+.pf-arbitrage-fieldset:disabled .pf-discharge-toolbar {
+  opacity: 0.4;
+}
+
 .pf-post-charts-bar:has(.pf-arbitrage-details) .pf-toolbar-submit {
   width: 100%;
   max-width: 100%;
@@ -1641,7 +1660,13 @@ select.pf-power-limit-select {
 
 .pf-header-discharge-row .pf-toolbar-submit:disabled {
   opacity: 1;
-  cursor: default;
+  cursor: not-allowed;
+  background: var(--pf-surface, #fff);
+  color: var(--pf-text-muted);
+  border-color: var(--pf-border);
+  border-left-color: var(--pf-border);
+  border-right-color: var(--pf-border);
+  box-shadow: none;
 }
 
 .pf-header-discharge-row .pf-toolbar-submit:hover:not(:disabled),
@@ -4303,6 +4328,15 @@ a.pf-node { cursor: pointer; }
   background: var(--pf-pink, #fc019b);
   border-color: var(--pf-pink, #fc019b);
   color: #fff;
+  box-shadow: none;
+}
+
+[data-theme="light"] .pf-header-discharge-row .pf-toolbar-submit:disabled {
+  background: #fff;
+  color: var(--pf-text-muted);
+  border-color: var(--pf-border);
+  border-left-color: var(--pf-border);
+  border-right-color: var(--pf-border);
   box-shadow: none;
 }
 

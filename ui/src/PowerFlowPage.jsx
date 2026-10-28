@@ -1479,19 +1479,19 @@ function batteryKwOptions(ratedPowerW, voltageV, extraWatts) {
   return options;
 }
 
-function snapToKwOption(watts, options) {
-  if (!options.length || watts == null || !Number.isFinite(Number(watts))) return '';
-  const kw = Number(watts) / 1000;
-  let best = options[0];
-  let diff = Math.abs(best - kw);
-  for (const opt of options) {
-    const gap = Math.abs(opt - kw);
-    if (gap < diff) {
-      best = opt;
-      diff = gap;
-    }
-  }
-  return String(best);
+/** Integer kW of the watts the inverter stored (amps × voltage, or the solar register). */
+function storedKwFromWatts(watts) {
+  const n = Number(watts);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  return String(Math.max(1, Math.round(n / 1000)));
+}
+
+function withStoredKw(options, kw) {
+  const n = Number(kw);
+  if (!Number.isFinite(n) || n < 1) return options;
+  const rounded = Math.round(n);
+  if (options.includes(rounded)) return options;
+  return [...options, rounded].sort((a, b) => a - b);
 }
 
 function kwInputToAmps(rawKw, voltageV) {
@@ -3089,12 +3089,13 @@ export default function PowerFlowPage({
           setToolbarFeedbackError(true);
           return;
         }
-        const solarOptions = integerKwOptions(data.ratedPowerW, data.maxSolarPowerW);
-        const chargeOptions = batteryKwOptions(data.ratedPowerW, data.batteryVoltageV, data.maxChargePowerW);
-        const dischargeOptions = batteryKwOptions(data.ratedPowerW, data.batteryVoltageV);
-        const solar = snapToKwOption(data.maxSolarPowerW, solarOptions);
-        const charge = snapToKwOption(data.maxChargePowerW, chargeOptions);
-        const discharge = snapToKwOption(data.maxDischargePowerW, dischargeOptions);
+        const solar = storedKwFromWatts(data.maxSolarPowerW);
+        const charge = storedKwFromWatts(data.maxChargePowerW);
+        const discharge = storedKwFromWatts(data.maxDischargePowerW);
+        const dischargeOptions = withStoredKw(
+          batteryKwOptions(data.ratedPowerW, data.batteryVoltageV),
+          discharge
+        );
         const dischargeStoredKw =
           data.maxDischargePowerW != null && Number.isFinite(Number(data.maxDischargePowerW))
             ? String(Math.round(Number(data.maxDischargePowerW) / 1000))
@@ -3341,15 +3342,11 @@ export default function PowerFlowPage({
     if (!data || data.unchanged) return null;
     const rated = data.ratedPowerW ?? powerLimitLoaded?.ratedPowerW;
     const voltage = data.batteryVoltageV ?? powerLimitLoaded?.voltageV;
-    const solarWatts = data.maxSolarPowerW != null ? data.maxSolarPowerW : Number(draft?.solarKw) * 1000;
-    const chargeWatts = data.maxChargePowerW != null ? data.maxChargePowerW : Number(draft?.chargeKw) * 1000;
-    const solarOptions = integerKwOptions(rated, solarWatts);
-    const chargeOptions = batteryKwOptions(rated, voltage, chargeWatts);
-    const dischargeOptions = batteryKwOptions(rated, voltage);
-    const solar = data.maxSolarPowerW != null ? snapToKwOption(data.maxSolarPowerW, solarOptions) : String(draft?.solarKw ?? '');
-    const charge = data.maxChargePowerW != null ? snapToKwOption(data.maxChargePowerW, chargeOptions) : String(draft?.chargeKw ?? '');
+    const solar = data.maxSolarPowerW != null ? storedKwFromWatts(data.maxSolarPowerW) : String(draft?.solarKw ?? '');
+    const charge = data.maxChargePowerW != null ? storedKwFromWatts(data.maxChargePowerW) : String(draft?.chargeKw ?? '');
     const discharge =
-      data.maxDischargePowerW != null ? snapToKwOption(data.maxDischargePowerW, dischargeOptions) : String(draft?.dischargeKw ?? '');
+      data.maxDischargePowerW != null ? storedKwFromWatts(data.maxDischargePowerW) : String(draft?.dischargeKw ?? '');
+    const dischargeOptions = withStoredKw(batteryKwOptions(rated, voltage), discharge);
     const dischargeStoredKw =
       data.maxDischargePowerW != null && Number.isFinite(Number(data.maxDischargePowerW))
         ? String(Math.round(Number(data.maxDischargePowerW) / 1000))
@@ -4990,15 +4987,19 @@ export default function PowerFlowPage({
   ]);
 
   const solarKwOptions = useMemo(
-    () => integerKwOptions(powerLimitLoaded?.ratedPowerW, Number(powerLimitLoaded?.solarKw) * 1000),
+    () => withStoredKw(integerKwOptions(powerLimitLoaded?.ratedPowerW, Number(powerLimitLoaded?.solarKw) * 1000), powerLimitLoaded?.solarKw),
     [powerLimitLoaded]
   );
   const chargeKwOptions = useMemo(
-    () => batteryKwOptions(powerLimitLoaded?.ratedPowerW, powerLimitLoaded?.voltageV, Number(powerLimitLoaded?.chargeKw) * 1000),
+    () =>
+      withStoredKw(
+        batteryKwOptions(powerLimitLoaded?.ratedPowerW, powerLimitLoaded?.voltageV, Number(powerLimitLoaded?.chargeKw) * 1000),
+        powerLimitLoaded?.chargeKw
+      ),
     [powerLimitLoaded]
   );
   const dischargeKwOptions = useMemo(
-    () => batteryKwOptions(powerLimitLoaded?.ratedPowerW, powerLimitLoaded?.voltageV),
+    () => withStoredKw(batteryKwOptions(powerLimitLoaded?.ratedPowerW, powerLimitLoaded?.voltageV), powerLimitLoaded?.dischargeKw),
     [powerLimitLoaded]
   );
 
@@ -6925,6 +6926,11 @@ export default function PowerFlowPage({
                               <span className="pf-arbitrage-details-summary-label pf-roi-details-summary-label">{t('arbitrageSettings')}</span>
                             </summary>
                             <div className="pf-arbitrage-details-body">
+                          <fieldset
+                            className="pf-arbitrage-fieldset"
+                            disabled={toolbarSubmitBusy || powerLimitBusy}
+                            aria-busy={toolbarSubmitBusy || powerLimitBusy ? 'true' : 'false'}
+                          >
                           <div className="pf-discharge-toolbar pf-discharge-toolbar--combined">
                             <div
                               className={`pf-deye-command-stack${
@@ -7215,6 +7221,7 @@ export default function PowerFlowPage({
                           >
                             {toolbarSubmitBusy || powerLimitBusy ? t('powerLimitSaving') : t('powerLimitSet')}
                           </button>
+                          </fieldset>
                             </div>
                           </details>
                         </div>
