@@ -218,6 +218,164 @@
   cursor: pointer;
 }
 
+.weekBar {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.weekNav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.weekTitle {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 650;
+  text-transform: capitalize;
+}
+
+.weekScroll {
+  overflow-x: auto;
+  border: 1px solid #c9d5ce;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.weekGrid {
+  display: grid;
+  grid-template-columns: 4.4rem repeat(7, minmax(0, 1fr));
+  min-width: 760px;
+}
+
+.weekRow {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+}
+
+.weekCorner,
+.weekHead,
+.weekTime,
+.weekCell {
+  border-bottom: 1px solid #e1ebe5;
+  border-right: 1px solid #e1ebe5;
+  min-width: 0;
+}
+
+.weekHead,
+.weekTime {
+  padding: 0.4rem 0.35rem;
+  background: #f4f7f5;
+}
+
+.weekHead {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  text-align: center;
+}
+
+.weekHeadWd {
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: #4a5c52;
+  text-transform: lowercase;
+}
+
+.weekHeadDay {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.weekHeadToday,
+.weekCellToday {
+  background: #e7f5ee;
+}
+
+.weekHeadWeekend .weekHeadWd,
+.weekHeadWeekend .weekHeadDay {
+  color: #7d8d84;
+}
+
+.weekCellWeekend {
+  background: #f7f8f7;
+}
+
+.weekTime {
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: #4a5c52;
+}
+
+.weekCell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.3rem;
+  min-height: 4.4rem;
+}
+
+.weekEventCallback,
+.weekEventPayment {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.35rem 0.4rem;
+  border: none;
+  border-radius: 8px;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.weekEventCallback {
+  background: #e7f5ee;
+  box-shadow: inset 3px 0 0 #1f6b4a;
+}
+
+.weekEventPayment {
+  background: #e8eef8;
+  box-shadow: inset 3px 0 0 #2a4d8f;
+}
+
+.weekEventName {
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.weekEventMeta {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #4a5c52;
+  line-height: 1.25;
+}
+
+.weekLooseList {
+  margin: 0.35rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.weekLooseList li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: baseline;
+}
+
 @media (max-width: 640px) {
   .header {
     flex-direction: column;

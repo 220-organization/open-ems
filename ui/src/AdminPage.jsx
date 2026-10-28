@@ -43,7 +43,7 @@ export default function AdminPage({ t, locale }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
-  const [section, setSection] = useState("marketplace");
+  const [section, setSection] = useState("rdn");
 
   const logout = useCallback(() => {
     if (isLocalAdmin()) return;
@@ -186,7 +186,9 @@ export default function AdminPage({ t, locale }) {
                 onPendingCountChange={setPendingCount}
               />
             ) : null}
-            {section === "rdn" ? <RdnConsultationCrud t={t} token={token} /> : null}
+            {section === "rdn" ? (
+              <RdnConsultationCrud t={t} token={token} locale={locale} />
+            ) : null}
             {section === "bess" ? <BessLeadCrud t={t} token={token} /> : null}
           </>
         )}
