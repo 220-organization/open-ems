@@ -2318,17 +2318,21 @@ _TOU_TIMES: tuple[str, ...] = ("02:30", "06:30", "20:30", "21:30", "22:30", "23:
 _ZERO_EXPORT_CT_DEFAULT_TOU_SOC_PCT = 5.0
 
 
-def _tou_setting_items(soc: float, power: int) -> list[dict[str, Any]]:
-    return [
-        {
-            "enableGeneration": True,
-            "enableGridCharge": True,
+def _tou_setting_items(soc: float, power: int, *, enable_sell: bool = False) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for t in _TOU_TIMES:
+        item: dict[str, Any] = {
+            "enableGeneration": not enable_sell,
+            "enableGridCharge": not enable_sell,
             "power": int(power),
             "soc": float(soc),
             "time": t,
         }
-        for t in _TOU_TIMES
-    ]
+        # Grid/gen charge (register value 3) hides Sell on the time-of-use screen.
+        if enable_sell:
+            item["enableSell"] = True
+        items.append(item)
+    return items
 
 
 def _body_selling_first(
@@ -2347,7 +2351,7 @@ def _body_selling_first(
         "touAction": "on",
         "touDays": list(_TOU_DAYS),
         "workMode": "SELLING_FIRST",
-        "timeUseSettingItems": _tou_setting_items(tou_soc, rp),
+        "timeUseSettingItems": _tou_setting_items(tou_soc, rp, enable_sell=True),
     }
 
 
@@ -2417,6 +2421,30 @@ def _clamp_sell_power_w(p: int) -> int:
     return max(500, min(200_000, int(p)))
 
 
+async def strategy_power_w(device_sn: str) -> int:
+    """Watts for maxSellPower and each time-of-use slot.
+
+    The 10 kW env default capped an 80 kW inverter. Prefer the discharge limit
+    the user stored, then the nameplate, and only then the template.
+    """
+    sn = (device_sn or "").strip()
+    view: dict[str, Any] = {}
+    if sn and deye_configured():
+        try:
+            from app.deye_manual_limits import read_manual_power_limits
+
+            loaded = await read_manual_power_limits(sn)
+            if isinstance(loaded, dict):
+                view = loaded
+        except Exception:
+            logger.info("Deye strategy power: limits unavailable sn=%s", sn)
+    for key in ("maxDischargePowerW", "ratedPowerW"):
+        raw = view.get(key)
+        if isinstance(raw, (int, float)) and not isinstance(raw, bool) and int(raw) >= 500:
+            return _clamp_sell_power_w(int(raw))
+    return _clamp_sell_power_w(settings.DEYE_DYNAMIC_CONTROL_RATED_POWER_W)
+
+
 async def apply_selling_first_max_power_w(
     device_sn: str,
     max_power_w: int,
@@ -2440,7 +2468,7 @@ async def apply_selling_first_max_power_w(
 
 async def restore_zero_export_ct_current_soc(device_sn: str) -> None:
     """
-    ZERO_EXPORT_TO_CT with TOU SoC = max(5%, current SoC) — template power from DEYE_DYNAMIC_CONTROL_RATED_POWER_W.
+    ZERO_EXPORT_TO_CT with TOU SoC = max(5%, current SoC) — power from the discharge limit.
 
     Used after EV-port SELLING_FIRST; resets maxSellPower to rated so grid sell is not left capped at
     the last EV job powerWt (minimum 500 W). Does not send maxSolarPower. Keeps solar sell off to match
@@ -2448,7 +2476,7 @@ async def restore_zero_export_ct_current_soc(device_sn: str) -> None:
     """
     await assert_inverter_owned(device_sn)
     sn = device_sn.strip()
-    rated = settings.DEYE_DYNAMIC_CONTROL_RATED_POWER_W
+    rated = await strategy_power_w(sn)
     soc_map = await fetch_soc_map_refresh([sn])
     soc = soc_map.get(sn)
     if soc is None:
@@ -2473,7 +2501,7 @@ async def apply_self_consumption_zero_export_ct(
     Used when self-consumption mode is enabled and after peak export completes in self-consumption mode.
     """
     sn = (device_sn or "").strip()
-    rated = settings.DEYE_DYNAMIC_CONTROL_RATED_POWER_W
+    rated = await strategy_power_w(sn)
     if tou_soc_floor_pct is None:
         tou_soc = _ZERO_EXPORT_CT_DEFAULT_TOU_SOC_PCT
     else:
@@ -2541,7 +2569,7 @@ async def _discharge_soc_delta_poll_loop_and_restore(
         try:
             tou_soc_rest = max(_ZERO_EXPORT_CT_DEFAULT_TOU_SOC_PCT, round(float(target), 2))
             await _post_strategy_dynamic_control(
-                _body_zero_export_target_soc(sn, tou_soc_rest, rated, solar_sell_action="off")
+                _body_zero_export_target_soc(sn, tou_soc_rest, rated, solar_sell_action="on")
             )
         except Exception as exc:
             restore_error = str(exc)
@@ -2576,7 +2604,8 @@ async def discharge_soc_delta_then_zero_export_ct(
 
     Warning: replaces the device's TOU schedule with the template (Deye API limitation).
 
-    Solar sell is not enabled during this sequence (``solarSellAction`` ``off``), consistent with EV-port export.
+    Solar sell is turned on for this sequence. Leaving it off drops System Work Mode
+    Selling First on the inverter, so the battery only covers the house load.
     """
     delta = float(soc_delta_pct)
     if delta < _DISCHARGE_SOC_DELTA_MIN or delta > _DISCHARGE_SOC_DELTA_MAX:
@@ -2586,7 +2615,7 @@ async def discharge_soc_delta_then_zero_export_ct(
 
     await assert_inverter_owned(device_sn)
     sn = device_sn.strip()
-    rated = settings.DEYE_DYNAMIC_CONTROL_RATED_POWER_W
+    rated = await strategy_power_w(sn)
     soc_map = await fetch_soc_map_refresh([sn])
     soc0 = soc_map.get(sn)
     if soc0 is None:
@@ -2603,8 +2632,14 @@ async def discharge_soc_delta_then_zero_export_ct(
     # TOU soc floor = desired SoC after discharge target (Deye samples use low soc to allow discharge)
     tou_soc_discharge = round(target, 2)
 
-    await _post_strategy_dynamic_control(
-        _body_selling_first(sn, tou_soc_discharge, rated, solar_sell_action="off")
+    selling = _body_selling_first(sn, tou_soc_discharge, rated, solar_sell_action="on")
+    await _post_strategy_dynamic_control(selling)
+    # dynamicControl drops enableSell. /order/sys/tou/update is what sets Sell on each slot.
+    from app.deye_manual_limits import _post_order
+
+    await _post_order(
+        "/order/sys/tou/update",
+        {"deviceSn": sn, "timeUseSettingItems": selling["timeUseSettingItems"]},
     )
     export_started_at = datetime.now(timezone.utc)
 
@@ -2785,7 +2820,7 @@ async def charge_soc_delta_then_zero_export_ct(
 
     await assert_inverter_owned(device_sn)
     sn = device_sn.strip()
-    rated = settings.DEYE_DYNAMIC_CONTROL_RATED_POWER_W
+    rated = await strategy_power_w(sn)
     soc_map = await fetch_soc_map_refresh([sn])
     soc0 = soc_map.get(sn)
     if soc0 is None:
@@ -3090,36 +3125,168 @@ async def _post_deye_json(path: str, body: dict[str, Any], *, timeout: float = 9
         return data if isinstance(data, dict) else {"data": data}
 
 
+# GET /order/{id} status: 0 waiting, 100 sending, 300 upgrading, 400 terminated,
+# 500 failed, 666 succeeded. error is a device/cloud code; msg is often the
+# envelope word "success" even when the order failed.
+_DEYE_ORDER_PENDING = {0, 100, 300}
+_DEYE_ORDER_ERROR_TEXT = {
+    "501": "another command is already running",
+    "502": "this inverter does not support the command",
+    "505": "Deye system error",
+    "510": "Deye could not parse the command",
+    "511": "invalid command version",
+    "530": "the inverter rejected the command",
+    "540": "the inverter did not respond",
+    "570": "firmware download failed",
+    "571": "firmware verification failed",
+    "572": "firmware name error",
+    "573": "the inverter did not accept the command",
+}
+_DEYE_ORDER_RETRY_CODES = {None, "501", "540", "573"}
+
+
+class DeyeOrderFailed(DeyeInverterOrderError):
+    """Polled order ended in failure or never left the sending state."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        order_id: Any = None,
+        code: Optional[str] = None,
+        status: Optional[int] = None,
+        deye_order: Optional[dict[str, Any]] = None,
+    ):
+        super().__init__(message, deye_order=deye_order)
+        self.order_id = order_id
+        self.code = code
+        self.status = status
+
+
+def _deye_order_status(payload: Any) -> Optional[int]:
+    if not isinstance(payload, dict):
+        return None
+    raw = payload.get("status")
+    if raw is None or isinstance(raw, bool):
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def deye_order_failure_message(payload: dict[str, Any]) -> str:
+    """Human text for a finished non-success order. Ignores envelope msg='success'."""
+    order_id = payload.get("orderId")
+    code = str(payload.get("error") or "").strip()
+    reason = _DEYE_ORDER_ERROR_TEXT.get(code)
+    if reason:
+        return f"Deye order {order_id} failed: {reason} ({code})"
+    status = _deye_order_status(payload)
+    detail = str(payload.get("error") or "").strip()
+    if not detail:
+        detail = f"order status {status}"
+    return f"Deye order {order_id} failed: {detail}"
+
+
+def deye_order_failure_is_retryable(exc: BaseException) -> bool:
+    """True when the inverter was busy or silent, so the same command can be sent again."""
+    if not isinstance(exc, DeyeOrderFailed):
+        return "timed out" in str(exc)
+    return exc.code in _DEYE_ORDER_RETRY_CODES
+
+
+def modbus_write_from_order_result(order_result: Any) -> Optional[tuple[int, int]]:
+    """Register and value from a Modbus FC6/FC16 frame echoed in orderResult."""
+    raw = str(order_result or "").strip().replace(" ", "")
+    if not raw:
+        return None
+    try:
+        data = bytes.fromhex(raw)
+    except ValueError:
+        return None
+    if len(data) < 6:
+        return None
+    function = data[1]
+    register = (data[2] << 8) | data[3]
+    if function == 6 and len(data) >= 6:
+        return register, (data[4] << 8) | data[5]
+    if function == 16 and len(data) >= 9 and data[6] >= 2:
+        return register, (data[7] << 8) | data[8]
+    return None
+
+
+def _deye_order_failed(payload: dict[str, Any]) -> DeyeOrderFailed:
+    return DeyeOrderFailed(
+        deye_order_failure_message(payload),
+        order_id=payload.get("orderId"),
+        code=str(payload.get("error") or "").strip() or None,
+        status=_deye_order_status(payload),
+        deye_order=payload,
+    )
+
+
 async def _poll_deye_order_if_needed(data: dict[str, Any], *, timeout_sec: float = 60.0) -> dict[str, Any]:
     order_id = data.get("orderId")
     if order_id is None:
         return data
     base = settings.DEYE_API_BASE_URL.rstrip("/")
     deadline = time.monotonic() + max(5.0, timeout_sec)
+    last: Optional[dict[str, Any]] = None
+
+    async def _fetch(client: httpx.AsyncClient, hdrs: dict[str, str]) -> Optional[dict[str, Any]]:
+        r = await client.get(f"{base}/order/{order_id}", headers=hdrs)
+        if r.status_code >= 400:
+            return None
+        try:
+            payload = r.json()
+        except Exception:
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def _finish(payload: dict[str, Any]) -> Optional[dict[str, Any]]:
+        status = _deye_order_status(payload)
+        if status == 666:
+            return payload
+        if status not in _DEYE_ORDER_PENDING and status is not None:
+            logger.warning(
+                "Deye order %s failed status=%s error=%s",
+                order_id,
+                status,
+                payload.get("error"),
+            )
+            raise _deye_order_failed(payload)
+        return None
+
     async with httpx.AsyncClient(timeout=25.0) as client:
         token = await _ensure_token(client)
         hdrs = {"Authorization": f"Bearer {token}"}
         while time.monotonic() < deadline:
-            r = await client.get(f"{base}/order/{order_id}", headers=hdrs)
-            if r.status_code >= 400:
+            payload = await _fetch(client, hdrs)
+            if payload is None:
                 await asyncio.sleep(2.0)
                 continue
-            try:
-                payload = r.json()
-            except Exception:
-                await asyncio.sleep(2.0)
-                continue
-            if not isinstance(payload, dict):
-                await asyncio.sleep(2.0)
-                continue
-            status = payload.get("status")
-            if status == 666:
-                return payload
-            if status not in (0, 100, None):
-                msg = str(payload.get("error") or payload.get("msg") or f"order status {status}")
-                raise RuntimeError(msg)
+            last = payload
+            done = _finish(payload)
+            if done is not None:
+                return done
             await asyncio.sleep(2.0)
-    raise RuntimeError(f"Deye order {order_id} timed out")
+        # Cloud often flips 100 → 500 a moment after its own 60s device timeout.
+        await asyncio.sleep(2.0)
+        payload = await _fetch(client, hdrs)
+        if payload is not None:
+            last = payload
+            done = _finish(payload)
+            if done is not None:
+                return done
+    status = _deye_order_status(last)
+    raise DeyeOrderFailed(
+        f"Deye order {order_id} timed out",
+        order_id=order_id,
+        code=None,
+        status=status,
+        deye_order=last,
+    )
 
 
 async def _post_deye_first_working(
@@ -3317,15 +3484,18 @@ async def _post_deye_custom_control_hex(
     content_hex: str,
     *,
     max_attempts: int = 6,
+    assume_locked: bool = False,
+    poll_timeout_sec: float = 60.0,
 ) -> dict[str, Any]:
     """POST /order/customControl with Modbus RTU hex payload (official Deye remote-control format)."""
     sn = (device_sn or "").strip()
     if not sn:
         raise ValueError("device_sn required")
-    lock = await _custom_control_lock_for(sn)
-    last_exc: Optional[Exception] = None
-    async with lock:
-        for attempt in range(max(1, max_attempts)):
+
+    async def _send() -> dict[str, Any]:
+        last_exc: Optional[Exception] = None
+        attempts = max(1, max_attempts)
+        for attempt in range(attempts):
             try:
                 data = await _post_deye_json(
                     "/order/customControl",
@@ -3335,34 +3505,51 @@ async def _post_deye_custom_control_hex(
                         "timeoutSeconds": 600,
                     },
                 )
-                return await _poll_deye_order_if_needed(data)
+                return await _poll_deye_order_if_needed(data, timeout_sec=poll_timeout_sec)
             except RuntimeError as exc:
-                if _deye_error_is_concurrent(exc) and attempt + 1 < max_attempts:
+                if _deye_error_is_concurrent(exc) and attempt + 1 < attempts:
                     wait = min(15.0, 2.0 * (attempt + 1))
                     logger.info(
                         "Deye customControl modbus concurrent sn=%s — retry in %.0fs (%s/%s)",
                         sn,
                         wait,
                         attempt + 1,
-                        max_attempts,
+                        attempts,
                     )
                     last_exc = exc
                     await asyncio.sleep(wait)
                     continue
                 raise
-    if last_exc:
-        raise last_exc
-    raise RuntimeError("customControl modbus failed")
+        if last_exc:
+            raise last_exc
+        raise RuntimeError("customControl modbus failed")
+
+    if assume_locked:
+        return await _send()
+    lock = await _custom_control_lock_for(sn)
+    async with lock:
+        return await _send()
 
 
-async def _read_holding_register_modbus(device_sn: str, register: int) -> Optional[int]:
+async def _read_holding_register_modbus(
+    device_sn: str,
+    register: int,
+    *,
+    assume_locked: bool = False,
+    poll_timeout_sec: float = 60.0,
+) -> Optional[int]:
     content = _build_modbus_rtu_hex(
         _DEYE_MODBUS_SLAVE_ID,
         3,
         register,
         count=1,
     )
-    polled = await _post_deye_custom_control_hex(device_sn, content)
+    polled = await _post_deye_custom_control_hex(
+        device_sn,
+        content,
+        assume_locked=assume_locked,
+        poll_timeout_sec=poll_timeout_sec,
+    )
     return _parse_modbus_read_u16(polled.get("analysisResult"))
 
 

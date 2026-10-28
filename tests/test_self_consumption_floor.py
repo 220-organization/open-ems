@@ -19,7 +19,12 @@ class TestSelfConsumptionFloor(unittest.IsolatedAsyncioTestCase):
         async def fake_post(body: dict) -> None:
             captured["body"] = body
 
-        with patch("app.deye_api._post_strategy_dynamic_control", new=fake_post):
+        async def fake_power(_sn: str) -> int:
+            return 10_000
+
+        with patch("app.deye_api.strategy_power_w", new=fake_power), patch(
+            "app.deye_api._post_strategy_dynamic_control", new=fake_post
+        ):
             await apply_self_consumption_zero_export_ct("1234567890", tou_soc_floor_pct=80.0)
 
         body = captured.get("body") or {}
@@ -34,7 +39,12 @@ class TestSelfConsumptionFloor(unittest.IsolatedAsyncioTestCase):
         async def fake_post(body: dict) -> None:
             captured["body"] = body
 
-        with patch("app.deye_api._post_strategy_dynamic_control", new=fake_post):
+        async def fake_power(_sn: str) -> int:
+            return 10_000
+
+        with patch("app.deye_api.strategy_power_w", new=fake_power), patch(
+            "app.deye_api._post_strategy_dynamic_control", new=fake_post
+        ):
             await apply_self_consumption_zero_export_ct("1234567890", tou_soc_floor_pct=3.0)
 
         body = captured.get("body") or {}
@@ -48,7 +58,12 @@ class TestSelfConsumptionFloor(unittest.IsolatedAsyncioTestCase):
         async def fake_post(body: dict) -> None:
             captured["body"] = body
 
-        with patch("app.deye_api._post_strategy_dynamic_control", new=fake_post):
+        async def fake_power(_sn: str) -> int:
+            return 10_000
+
+        with patch("app.deye_api.strategy_power_w", new=fake_power), patch(
+            "app.deye_api._post_strategy_dynamic_control", new=fake_post
+        ):
             await apply_self_consumption_zero_export_ct("1234567890")
 
         body = captured.get("body") or {}
@@ -64,6 +79,13 @@ class TestSelfConsumptionFloor(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("maxSolarPower", zero)
         self.assertEqual(selling["maxSellPower"], 10_000)
         self.assertEqual(zero["maxSellPower"], 10_000)
+        for it in selling["timeUseSettingItems"]:
+            self.assertTrue(it.get("enableSell"))
+            self.assertFalse(it.get("enableGridCharge"))
+            self.assertFalse(it.get("enableGeneration"))
+        for it in zero["timeUseSettingItems"]:
+            self.assertNotIn("enableSell", it)
+            self.assertTrue(it.get("enableGridCharge"))
 
 
 if __name__ == "__main__":

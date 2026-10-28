@@ -24,11 +24,15 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 from app.deye_api import (
+    _custom_control_lock_for,
+    _deye_error_is_concurrent,
     _metric_key,
     _poll_deye_order_if_needed,
     _post_deye_json,
     _read_holding_register_modbus,
     assert_inverter_owned,
+    deye_order_failure_is_retryable,
+    modbus_write_from_order_result,
 )
 
 # Same window as DEYE_DYNAMIC_CONTROL_RATED_POWER_W.
@@ -83,6 +87,15 @@ def solar_power_update_body(device_sn: str, watts: int) -> dict[str, Any]:
     return {
         "deviceSn": device_sn,
         "powerType": "MAX_SOLAR_POWER",
+        "value": int(watts),
+    }
+
+
+def sell_power_update_body(device_sn: str, watts: int) -> dict[str, Any]:
+    """Time-of-use / grid sell ceiling. Same watts as the discharge limit, not the 10 kW template."""
+    return {
+        "deviceSn": device_sn,
+        "powerType": "MAX_SELL_POWER",
         "value": int(watts),
     }
 
@@ -370,13 +383,80 @@ async def _read_manual_power_limits_uncached(device_sn: str) -> dict[str, Any]:
     return view
 
 
-async def _post_order(path: str, body: dict[str, Any]) -> None:
+_LIMIT_ORDER_POLL_SEC = 75.0
+_LIMIT_READBACK_POLL_SEC = 20.0
+
+
+async def _limit_already_stored(sn: str, exc: BaseException) -> bool:
+    """True when the failed order's Modbus write is already in the register."""
+    payload = getattr(exc, "deye_order", None)
+    written = modbus_write_from_order_result(
+        payload.get("orderResult") if isinstance(payload, dict) else None
+    )
+    if written is None:
+        return False
+    register, value = written
+    try:
+        got = await _read_holding_register_modbus(
+            sn,
+            register,
+            assume_locked=True,
+            poll_timeout_sec=_LIMIT_READBACK_POLL_SEC,
+        )
+    except Exception:
+        logger.info("power limit read-back failed sn=%s reg=%s", sn, hex(register))
+        return False
+    if got == value:
+        logger.info(
+            "power limit already stored sn=%s reg=%s value=%s after %s",
+            sn,
+            hex(register),
+            value,
+            exc,
+        )
+        return True
+    return False
+
+
+async def _post_order_once(path: str, body: dict[str, Any]) -> None:
     data = await _post_deye_json(path, body, timeout=60.0)
     if isinstance(data, dict) and data.get("orderId") is not None:
-        await _poll_deye_order_if_needed(data)
+        await _poll_deye_order_if_needed(data, timeout_sec=_LIMIT_ORDER_POLL_SEC)
     inner = data.get("data") if isinstance(data, dict) else None
     if isinstance(inner, dict) and inner.get("orderId") is not None:
-        await _poll_deye_order_if_needed(inner)
+        await _poll_deye_order_if_needed(inner, timeout_sec=_LIMIT_ORDER_POLL_SEC)
+
+
+async def _post_order(path: str, body: dict[str, Any]) -> None:
+    """Send one limit order while this process is not also reading Modbus.
+
+    A silent inverter (error 540) or a colliding command (501) is tried once more.
+    If the register already holds the written value, the lost ACK is not an error.
+    """
+    sn = str(body.get("deviceSn") or "").strip()
+    lock = await _custom_control_lock_for(sn) if sn else None
+    if lock is None:
+        await _post_order_once(path, body)
+        return
+    async with lock:
+        last_exc: Optional[BaseException] = None
+        for attempt in range(2):
+            try:
+                await _post_order_once(path, body)
+                return
+            except Exception as exc:
+                last_exc = exc
+                if await _limit_already_stored(sn, exc):
+                    return
+                if attempt == 0 and (
+                    deye_order_failure_is_retryable(exc) or _deye_error_is_concurrent(exc)
+                ):
+                    logger.info("retrying Deye limit order sn=%s path=%s after %s", sn, path, exc)
+                    await asyncio.sleep(1.5)
+                    continue
+                raise
+        if last_exc:
+            raise last_exc
 
 
 async def apply_manual_power_limits(
@@ -424,6 +504,9 @@ async def apply_manual_power_limits(
             )
             applied["maxDischargePowerW"] = int(max_discharge_power_w)
             applied["maxDischargeCurrentA"] = amps
+            # TOU slot power and max sell stay on the 10 kW template unless this is sent.
+            await _post_order("/order/sys/power/update", sell_power_update_body(sn, int(max_discharge_power_w)))
+            applied["maxSellPowerW"] = int(max_discharge_power_w)
         applied["batteryVoltageV"] = voltage
     # The order ACK is the request, not the register. Read the inverter again so the
     # UI shows the stored watts and amps, including limits that were not part of this write.
