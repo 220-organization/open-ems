@@ -1884,6 +1884,14 @@ a.dam-oree-embed-external:hover {
   font-weight: 600;
 }
 
+.hw-totals__askoe {
+  padding: 8px 14px 0;
+}
+
+.hw-totals__askoe-btn {
+  width: 100%;
+}
+
 .hw-totals__backfill-btn {
   appearance: none;
   border: 1px solid color-mix(in srgb, var(--pf-border) 80%, transparent 20%);

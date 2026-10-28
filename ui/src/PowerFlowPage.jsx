@@ -2564,6 +2564,7 @@ export default function PowerFlowPage({
   /** Deye live metrics when an inverter is selected: battery, load, PV, grid. */
   const [deyeLive, setDeyeLive] = useState(null);
   const [deyeLiveLoading, setDeyeLiveLoading] = useState(false);
+  const [deyeAlerts, setDeyeAlerts] = useState({ loading: false, items: [], error: false });
   /** Matches `selInverterSn` after Deye ess-power has completed for that SN (avoids blur on 20s poll). */
   /** Huawei real power (getDevRealKpi meter + inverter via GET /api/huawei/power-flow). */
   const [huaweiLive, setHuaweiLive] = useState(null);
@@ -3098,23 +3099,24 @@ export default function PowerFlowPage({
           data.maxDischargePowerW != null && Number.isFinite(Number(data.maxDischargePowerW))
             ? String(Math.round(Number(data.maxDischargePowerW) / 1000))
             : discharge;
+        const dischargeMatchesStored = dischargeOptions.includes(Number(dischargeStoredKw));
         setPowerLimitSolarKw(solar);
         setPowerLimitChargeKw(charge);
         setPowerLimitDischargeKw(discharge);
         setPowerLimitLoaded({
           solarKw: solar,
           chargeKw: charge,
-          dischargeKw: dischargeOptions.includes(Number(dischargeStoredKw)) ? discharge : dischargeStoredKw,
+          dischargeKw: discharge,
           voltageV: data.batteryVoltageV,
           ratedPowerW: data.ratedPowerW,
           chargeA: data.maxChargeCurrentA,
-          dischargeA: data.maxDischargeCurrentA,
+          dischargeA: dischargeMatchesStored ? data.maxDischargeCurrentA : undefined,
         });
         setToolbarBaseline(prev => ({
           ...prev,
           solarKw: solar,
           chargeKw: charge,
-          dischargeKw: dischargeOptions.includes(Number(dischargeStoredKw)) ? discharge : dischargeStoredKw,
+          dischargeKw: discharge,
         }));
         setDischarge2Feedback(prev => {
           if (String(prev).startsWith(t('powerLimitLoadError'))) {
@@ -3336,21 +3338,23 @@ export default function PowerFlowPage({
   );
 
   const applyPowerLimitResult = useCallback((data, draft) => {
-    if (!data || data.unchanged) return;
+    if (!data || data.unchanged) return null;
     const rated = data.ratedPowerW ?? powerLimitLoaded?.ratedPowerW;
     const voltage = data.batteryVoltageV ?? powerLimitLoaded?.voltageV;
-    const solar =
-      data.maxSolarPowerW != null
-        ? snapToKwOption(data.maxSolarPowerW, integerKwOptions(rated, data.maxSolarPowerW))
-        : draft.solarKw;
-    const charge =
-      data.maxChargePowerW != null
-        ? snapToKwOption(data.maxChargePowerW, batteryKwOptions(rated, voltage, data.maxChargePowerW))
-        : draft.chargeKw;
+    const solarWatts = data.maxSolarPowerW != null ? data.maxSolarPowerW : Number(draft?.solarKw) * 1000;
+    const chargeWatts = data.maxChargePowerW != null ? data.maxChargePowerW : Number(draft?.chargeKw) * 1000;
+    const solarOptions = integerKwOptions(rated, solarWatts);
+    const chargeOptions = batteryKwOptions(rated, voltage, chargeWatts);
+    const dischargeOptions = batteryKwOptions(rated, voltage);
+    const solar = data.maxSolarPowerW != null ? snapToKwOption(data.maxSolarPowerW, solarOptions) : String(draft?.solarKw ?? '');
+    const charge = data.maxChargePowerW != null ? snapToKwOption(data.maxChargePowerW, chargeOptions) : String(draft?.chargeKw ?? '');
     const discharge =
-      data.maxDischargePowerW != null
-        ? snapToKwOption(data.maxDischargePowerW, batteryKwOptions(rated, voltage))
-        : draft.dischargeKw;
+      data.maxDischargePowerW != null ? snapToKwOption(data.maxDischargePowerW, dischargeOptions) : String(draft?.dischargeKw ?? '');
+    const dischargeStoredKw =
+      data.maxDischargePowerW != null && Number.isFinite(Number(data.maxDischargePowerW))
+        ? String(Math.round(Number(data.maxDischargePowerW) / 1000))
+        : discharge;
+    const dischargeMatchesStored = dischargeOptions.includes(Number(dischargeStoredKw));
     setPowerLimitSolarKw(solar);
     setPowerLimitChargeKw(charge);
     setPowerLimitDischargeKw(discharge);
@@ -3358,10 +3362,18 @@ export default function PowerFlowPage({
       solarKw: solar,
       chargeKw: charge,
       dischargeKw: discharge,
-      voltageV: data.batteryVoltageV ?? prev?.voltageV ?? null,
-      chargeA: data.maxChargeCurrentA ?? prev?.chargeA ?? null,
-      dischargeA: data.maxDischargeCurrentA ?? prev?.dischargeA ?? null,
+      voltageV: voltage ?? prev?.voltageV ?? null,
+      ratedPowerW: rated ?? prev?.ratedPowerW,
+      chargeA: data.maxChargeCurrentA ?? prev?.chargeA,
+      dischargeA: dischargeMatchesStored ? data.maxDischargeCurrentA ?? prev?.dischargeA : undefined,
     }));
+    setToolbarBaseline(prev => ({
+      ...prev,
+      solarKw: solar,
+      chargeKw: charge,
+      dischargeKw: discharge,
+    }));
+    return { solarKw: solar, chargeKw: charge, dischargeKw: discharge };
   }, [powerLimitLoaded]);
 
   const saveSmartLoadPref = useCallback(
@@ -3621,6 +3633,40 @@ export default function PowerFlowPage({
       clearInterval(id);
     };
   }, [selInverterSn, selDeyeClusterSns, inverterRows.configured, inverterRows.error]);
+
+  useEffect(() => {
+    if (!selInverterSn || !inverterRows.configured || inverterRows.error) {
+      setDeyeAlerts({ loading: false, items: [], error: false });
+      return undefined;
+    }
+    let cancelled = false;
+    const loadAlerts = async () => {
+      try {
+        const q = new URLSearchParams({ deviceSn: selInverterSn, hours: '168' });
+        const r = await fetch(`${apiUrl('/api/deye/alerts')}?${q}`, { cache: 'no-store' });
+        const data = await r.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!r.ok || data?.ok === false) {
+          setDeyeAlerts({ loading: false, items: [], error: true });
+          return;
+        }
+        setDeyeAlerts({
+          loading: false,
+          items: Array.isArray(data.items) ? data.items : [],
+          error: false,
+        });
+      } catch {
+        if (!cancelled) setDeyeAlerts({ loading: false, items: [], error: true });
+      }
+    };
+    setDeyeAlerts(prev => ({ ...prev, loading: true, error: false }));
+    void loadAlerts();
+    const id = setInterval(() => void loadAlerts(), 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [selInverterSn, inverterRows.configured, inverterRows.error]);
 
   useLayoutEffect(() => {
     if (selInverterSn && inverterRows.configured && !inverterRows.error) {
@@ -5035,26 +5081,12 @@ export default function PowerFlowPage({
             loadedDischarge: toolbarBaseline.dischargeKw,
           };
           const data = await savePowerLimits(draft, pin);
-          applyPowerLimitResult(data, draft);
-          if (data?.maxSolarPowerW != null) {
-            nextSolar = snapToKwOption(
-              data.maxSolarPowerW,
-              integerKwOptions(powerLimitLoaded?.ratedPowerW, data.maxSolarPowerW)
-            );
-          }
-          if (data?.maxChargePowerW != null) {
-            nextChargeKw = snapToKwOption(
-              data.maxChargePowerW,
-              batteryKwOptions(powerLimitLoaded?.ratedPowerW, powerLimitLoaded?.voltageV, data.maxChargePowerW)
-            );
-          }
-          if (data?.maxDischargePowerW != null) {
-            nextDischargeKw = snapToKwOption(
-              data.maxDischargePowerW,
-              batteryKwOptions(powerLimitLoaded?.ratedPowerW, powerLimitLoaded?.voltageV)
-            );
-          }
-          if (data?.unchanged) {
+          const snapped = applyPowerLimitResult(data, draft);
+          if (snapped) {
+            nextSolar = snapped.solarKw;
+            nextChargeKw = snapped.chargeKw;
+            nextDischargeKw = snapped.dischargeKw;
+          } else if (data?.unchanged) {
             nextSolar = powerLimitSolarKw;
             nextChargeKw = powerLimitChargeKw;
             nextDischargeKw = powerLimitDischargeKw;
@@ -5103,7 +5135,6 @@ export default function PowerFlowPage({
       powerLimitSolarKw,
       powerLimitChargeKw,
       powerLimitDischargeKw,
-      powerLimitLoaded,
       toolbarCommand,
       saveNightChargePref,
       applyNightChargeToolbarSnap,
@@ -6889,6 +6920,11 @@ export default function PowerFlowPage({
                         </div>
                       ) : selHuaweiStationCode || selUbetterSn || selGridlabDeviceId || selEvPortsAggregate ? null : (
                         <div className="pf-header-discharge-row">
+                          <details className="pf-arbitrage-details pf-roi-details">
+                            <summary className="pf-arbitrage-details-summary pf-roi-details-summary">
+                              <span className="pf-arbitrage-details-summary-label pf-roi-details-summary-label">{t('arbitrageSettings')}</span>
+                            </summary>
+                            <div className="pf-arbitrage-details-body">
                           <div className="pf-discharge-toolbar pf-discharge-toolbar--combined">
                             <div
                               className={`pf-deye-command-stack${
@@ -7179,10 +7215,63 @@ export default function PowerFlowPage({
                           >
                             {toolbarSubmitBusy || powerLimitBusy ? t('powerLimitSaving') : t('powerLimitSet')}
                           </button>
+                            </div>
+                          </details>
                         </div>
                       )}
                     </>
                   )
+                ) : null}
+                {selInverterSn &&
+                !selHuaweiStationCode &&
+                !selUbetterSn &&
+                !selGridlabDeviceId &&
+                !selEvPortsAggregate ? (
+                  <details className="pf-inverter-events pf-roi-details">
+                    <summary className="pf-roi-details-summary">
+                      <span className="pf-roi-details-summary-label">{t('inverterEventsTitle')}</span>
+                    </summary>
+                    <div className="pf-roi-details-body" aria-live="polite">
+                      <p className="pf-inverter-events__live">{t('inverterEventsLive')}</p>
+                      {deyeAlerts.error ? (
+                        <p className="pf-inverter-events__empty">{t('inverterEventsError')}</p>
+                      ) : deyeAlerts.items.length === 0 ? (
+                        <p className="pf-inverter-events__empty">
+                          {deyeAlerts.loading ? '…' : t('inverterEventsEmpty')}
+                        </p>
+                      ) : (
+                        <ul className="pf-inverter-events__list">
+                          {deyeAlerts.items.slice(0, 12).map(item => {
+                            const start = Number(item.startTime);
+                            const when =
+                              Number.isFinite(start) && start > 0
+                                ? new Date(start * 1000).toLocaleString(bcp47, {
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })
+                                : '';
+                            return (
+                              <li
+                                key={item.id || `${item.name}-${item.startTime}`}
+                                className={`pf-inverter-events__item${
+                                  item.active ? ' pf-inverter-events__item--active' : ''
+                                }`}
+                              >
+                                <span className="pf-inverter-events__name">{item.title || item.name}</span>
+                                <span className="pf-inverter-events__meta">
+                                  {when}
+                                  {when ? ' · ' : ''}
+                                  {item.active ? t('inverterEventActive') : t('inverterEventCleared')}
+                                </span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </div>
+                  </details>
                 ) : null}
               </div>
 

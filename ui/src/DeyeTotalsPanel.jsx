@@ -239,6 +239,11 @@ export default function DeyeTotalsPanel({
   const [backfillPaymentId, setBackfillPaymentId] = useState('');
   const [backfillProgress, setBackfillProgress] = useState({ done: 0, total: 0 });
   const [backfillError, setBackfillError] = useState('');
+  const [askoeBusy, setAskoeBusy] = useState(false);
+  const [askoeStatus, setAskoeStatus] = useState(null);
+  const [askoeQuote, setAskoeQuote] = useState(null);
+  const [askoeError, setAskoeError] = useState('');
+  const [askoePassword, setAskoePassword] = useState('');
   const abortRef = useRef(null);
   const backfillPollRef = useRef(null);
   const backfillPayPollRef = useRef(null);
@@ -639,6 +644,131 @@ export default function DeyeTotalsPanel({
     }
   }, [apiUrl, deyeSn, activeTab, selectedDate, t]);
 
+  const saveAskoeBlob = useCallback((blob, filename) => {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const downloadAskoe = useCallback(
+    async ({ paymentId, accessPassword } = {}) => {
+      if (!deyeSn) return;
+      setAskoeBusy(true);
+      setAskoeError('');
+      try {
+        const body = {
+          deviceSn: deyeSn,
+          period: getApiPeriod(activeTab),
+          date: selectedDate,
+        };
+        if (paymentId) body.paymentId = paymentId;
+        if (accessPassword) body.accessPassword = accessPassword;
+        const r = await fetch(apiUrl('/api/deye/askoe-export'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          cache: 'no-store',
+        });
+        if (r.status === 402) {
+          setAskoeStatus('confirm');
+          setAskoeError(t('askoePaymentRequired') || 'Payment is required for this ASKOE file.');
+          return;
+        }
+        if (!r.ok) {
+          const json = await r.json().catch(() => ({}));
+          setAskoeStatus('error');
+          setAskoeError(String(json?.detail || t('askoeDownloadError') || 'Could not download the ASKOE file.'));
+          return;
+        }
+        const blob = await r.blob();
+        const disposition = r.headers.get('Content-Disposition') || '';
+        const match = /filename="([^"]+)"/.exec(disposition);
+        saveAskoeBlob(blob, match ? match[1] : `askoe-${deyeSn}.xlsx`);
+        setAskoeStatus(null);
+        setAskoePassword('');
+      } catch {
+        setAskoeStatus('error');
+        setAskoeError(t('askoeDownloadError') || 'Could not download the ASKOE file.');
+      } finally {
+        setAskoeBusy(false);
+      }
+    },
+    [apiUrl, deyeSn, activeTab, selectedDate, saveAskoeBlob, t]
+  );
+
+  const onAskoeClick = useCallback(async () => {
+    if (!deyeSn || askoeBusy) return;
+    setAskoeError('');
+    setAskoeBusy(true);
+    try {
+      const params = new URLSearchParams({
+        deviceSn: deyeSn,
+        period: getApiPeriod(activeTab),
+        date: selectedDate,
+      });
+      const r = await fetch(apiUrl(`/api/deye/askoe-export/quote?${params.toString()}`), { cache: 'no-store' });
+      const json = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setAskoeStatus('error');
+        setAskoeError(String(json?.detail || t('askoeDownloadError') || 'Could not download the ASKOE file.'));
+        return;
+      }
+      setAskoeQuote(json);
+      if (json.paymentRequired) {
+        setAskoeStatus('confirm');
+        return;
+      }
+      setAskoeBusy(false);
+      await downloadAskoe();
+    } catch {
+      setAskoeStatus('error');
+      setAskoeError(t('askoeDownloadError') || 'Could not download the ASKOE file.');
+    } finally {
+      setAskoeBusy(false);
+    }
+  }, [apiUrl, deyeSn, askoeBusy, activeTab, selectedDate, downloadAskoe, t]);
+
+  const startAskoePayment = useCallback(async () => {
+    if (!deyeSn) return;
+    setAskoeError('');
+    setAskoeStatus('paying');
+    try {
+      const redirectUrl = `${window.location.origin}${window.location.pathname}${window.location.search}`;
+      const r = await fetch(apiUrl('/api/deye/askoe-export/pay'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deviceSn: deyeSn,
+          period: getApiPeriod(activeTab),
+          date: selectedDate,
+          redirectUrl,
+        }),
+        cache: 'no-store',
+      });
+      const json = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setAskoeStatus('confirm');
+        setAskoeError(String(json?.detail || t('askoeDownloadError') || 'Could not download the ASKOE file.'));
+        return;
+      }
+      const pageUrl = String(json?.pageUrl || '').trim();
+      if (!pageUrl) {
+        setAskoeStatus('confirm');
+        setAskoeError(t('askoeDownloadError') || 'Could not download the ASKOE file.');
+        return;
+      }
+      window.location.assign(pageUrl);
+    } catch {
+      setAskoeStatus('confirm');
+      setAskoeError(t('askoeDownloadError') || 'Could not download the ASKOE file.');
+    }
+  }, [apiUrl, deyeSn, activeTab, selectedDate, t]);
+
   const bcp47 = getBcp47Locale();
   const fmt = kwhFmt(bcp47);
 
@@ -787,6 +917,67 @@ export default function DeyeTotalsPanel({
           </div>
         </div>
       </div>
+      {deyeSn ? (
+        <div className="hw-totals__askoe">
+          <button
+            type="button"
+            className="hw-totals__backfill-btn hw-totals__askoe-btn"
+            disabled={askoeBusy}
+            onClick={onAskoeClick}
+          >
+            {askoeBusy ? t('askoeDownloading') || 'Downloading…' : t('askoeDownloadButton') || 'ASKOE · 22 UAH/day'}
+          </button>
+          {askoeStatus === 'confirm' || askoeStatus === 'paying' || askoeStatus === 'error' ? (
+            <div className="hw-totals__backfill">
+              {askoeQuote ? (
+                <p className="hw-totals__backfill-price">
+                  {t('deyeBackfillPrice', {
+                    days: askoeQuote.daysCount,
+                    uahPerDay: askoeQuote.uahPerDay,
+                    amount: askoeQuote.amountUah,
+                  })}
+                </p>
+              ) : null}
+              {askoeError ? <p className="hw-totals__status hw-totals__status--error">{askoeError}</p> : null}
+              {askoeStatus !== 'error' ? (
+                <>
+                  <input
+                    type="password"
+                    className="hw-totals__backfill-pin"
+                    value={askoePassword}
+                    autoComplete="off"
+                    placeholder={t('deyeBackfillAccessPassword') || 'Access password'}
+                    onChange={e => setAskoePassword(e.target.value)}
+                  />
+                  <div className="hw-totals__backfill-actions">
+                    <button
+                      type="button"
+                      className="hw-totals__backfill-btn"
+                      disabled={askoeBusy || !askoePassword.trim()}
+                      onClick={() => downloadAskoe({ accessPassword: askoePassword.trim() })}
+                    >
+                      {t('deyeBackfillUnlock') || 'Unlock'}
+                    </button>
+                    <button
+                      type="button"
+                      className="hw-totals__backfill-btn"
+                      disabled={askoeBusy || askoeStatus === 'paying'}
+                      onClick={startAskoePayment}
+                    >
+                      {askoeStatus === 'paying'
+                        ? t('deyeBackfillPaying') || 'Waiting for payment…'
+                        : t('deyeBackfillPay') || 'Pay'}
+                    </button>
+                    <button type="button" className="hw-totals__backfill-btn" onClick={() => setAskoeStatus(null)}>
+                      {t('deyeBackfillCancel') || 'Cancel'}
+                    </button>
+                  </div>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className={`hw-totals__body${loading ? ' hw-totals__body--loading' : ''}${showOrigins ? ' hw-totals__body--origins' : ''}`}>
         {loading && !hasCoreRows ? <p className="hw-totals__status">{t('huaweiTotalsLoading')}</p> : null}

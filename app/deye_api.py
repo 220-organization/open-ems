@@ -2972,6 +2972,91 @@ def _find_on_grid_always_on_in_obj(obj: Any) -> Optional[bool]:
     return None
 
 
+def deye_alert_title(name: Any) -> str:
+    """Turn ``F14DC_OverCurr_Fault`` into ``F14 DC overcurrent``."""
+    raw = str(name or "").strip()
+    match = re.match(r"^(F\d+)", raw, flags=re.IGNORECASE)
+    code = match.group(1).upper() if match else ""
+    rest = raw[len(code) :] if code else raw
+    rest = rest.replace("_", " ")
+    rest = re.sub(r"over\s*curr", "overcurrent", rest, flags=re.IGNORECASE)
+    rest = re.sub(r"\bfault\b", "", rest, flags=re.IGNORECASE)
+    rest = re.sub(r"\s+", " ", rest).strip()
+    if code and rest:
+        return f"{code} {rest}"
+    return raw
+
+
+def normalize_deye_alert(row: Any) -> Optional[dict[str, Any]]:
+    """One Deye ``/device/alertList`` row, or None when the row has no identity."""
+    if not isinstance(row, dict):
+        return None
+    alert_id = str(row.get("alertId") or "").strip()
+    name = str(row.get("alertName") or "").strip()
+    if not alert_id and not name:
+        return None
+    try:
+        start = int(row.get("alertStartTime"))
+    except (TypeError, ValueError):
+        start = None
+    try:
+        end = int(row.get("alertEndTime") or 0)
+    except (TypeError, ValueError):
+        end = 0
+    status = row.get("status")
+    active = end <= 0 and str(status) != "0"
+    return {
+        "id": alert_id or name,
+        "name": name,
+        "title": deye_alert_title(name),
+        "protocol": row.get("protocolName"),
+        "code": row.get("alertCode"),
+        "level": row.get("level"),
+        "startTime": start,
+        "endTime": end or None,
+        "active": active,
+    }
+
+
+_ALERT_CACHE_TTL_SEC = 12.0
+_alert_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+
+
+async def fetch_device_alerts(device_sn: str, *, hours: int = 168) -> dict[str, Any]:
+    """Recent inverter alarms from Deye ``POST /device/alertList``. Cached for a few seconds."""
+    sn = str(device_sn or "").strip()
+    window_h = max(1, min(int(hours), 24 * 30))
+    cache_key = f"{sn}:{window_h}"
+    now_mono = time.monotonic()
+    cached = _alert_cache.get(cache_key)
+    if cached is not None and now_mono - cached[0] < _ALERT_CACHE_TTL_SEC:
+        return cached[1]
+    now = int(time.time())
+    payload = await _post_deye_json(
+        "/device/alertList",
+        {
+            "deviceSn": sn,
+            "startTimestamp": now - window_h * 3600,
+            "endTimestamp": now,
+            "page": 1,
+            "size": 50,
+        },
+    )
+    items: list[dict[str, Any]] = []
+    for row in payload.get("alertList") or []:
+        item = normalize_deye_alert(row)
+        if item is not None:
+            items.append(item)
+    items.sort(key=lambda item: (not item["active"], -(item["startTime"] or 0)))
+    result = {
+        "deviceSn": sn,
+        "total": payload.get("total") if isinstance(payload.get("total"), int) else len(items),
+        "items": items,
+    }
+    _alert_cache[cache_key] = (now_mono, result)
+    return result
+
+
 async def _post_deye_json(path: str, body: dict[str, Any], *, timeout: float = 90.0) -> dict[str, Any]:
     if not deye_configured():
         raise RuntimeError("Deye API credentials not configured")
