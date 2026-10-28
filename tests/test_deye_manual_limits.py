@@ -9,8 +9,10 @@ from app.deye_manual_limits import (
     battery_voltage_v_from_latest,
     kw_to_watts,
     limits_view,
+    rated_power_w_from_latest,
     registers_from_dynamic_read,
     solar_power_update_body,
+    solar_watts_from_registers,
     watts_to_charge_amps,
 )
 
@@ -74,6 +76,29 @@ class TestManualPowerLimits(unittest.TestCase):
         self.assertEqual(view["maxSolarPowerW"], 10000)
         self.assertEqual(view["maxChargePowerW"], 995)
         self.assertEqual(view["maxDischargePowerW"], 2043)
+
+    def test_hv_solar_register_is_ten_watt_steps(self) -> None:
+        # 2503291033: 0x0035 is 0, 0x0154 is 8000 after a manual 80 kW write.
+        self.assertEqual(solar_watts_from_registers(0, 8000), 80_000)
+        self.assertEqual(solar_watts_from_registers(None, 8000), 80_000)
+        # Single-phase keeps the watt register and ignores 0x0154.
+        self.assertEqual(solar_watts_from_registers(6000, 20), 6000)
+        self.assertIsNone(solar_watts_from_registers(0, 20))
+        self.assertIsNone(solar_watts_from_registers(None, None))
+
+    def test_rated_power_is_nameplate_watts(self) -> None:
+        latest = {
+            "deviceDataList": [
+                {
+                    "dataList": [
+                        {"key": "RatedPower", "value": "6000.00"},
+                        {"key": "BatteryVoltage", "value": "52.4"},
+                    ]
+                }
+            ]
+        }
+        self.assertEqual(rated_power_w_from_latest(latest), 6000)
+        self.assertIsNone(rated_power_w_from_latest({"deviceDataList": []}))
 
 
 if __name__ == "__main__":
