@@ -677,8 +677,8 @@ async def _deye_import_weighted_dam_kyiv(
 ) -> tuple[float, Optional[float]]:
     """Grid import kWh and import-weighted DAM UAH/kWh for one Deye inverter over a Kyiv date range.
 
-    Hours present in ``deye_hourly_energy`` use that backfill ``import_kwh`` (including 0).
-    Hours without a backfill row fall back to 5‑min ``deye_soc_sample`` (W/12000).
+    Completed Kyiv days present in ``deye_hourly_energy`` use that backfill ``import_kwh`` (including 0).
+    The current Kyiv day and hours without a backfill row use 5‑min ``deye_soc_sample`` (W/12000).
     """
     sn = (device_sn or "").strip()
     if not sn:
@@ -712,6 +712,7 @@ async def _deye_import_weighted_dam_kyiv(
               AND e.import_kwh IS NOT NULL
               AND ((e.hour_start AT TIME ZONE 'Europe/Kiev')::date) >= :d0
               AND ((e.hour_start AT TIME ZONE 'Europe/Kiev')::date) <= :d1
+              AND ((e.hour_start AT TIME ZONE 'Europe/Kiev')::date) < :today
         ),
         hourly AS (
             SELECT
@@ -731,7 +732,9 @@ async def _deye_import_weighted_dam_kyiv(
             AND p.period = h.kyiv_hour + 1
         WHERE h.import_kwh > 0
     """
-    r = await session.execute(text(sql), {"sn": sn, "zone": zone, "d0": d0, "d1": d1})
+    r = await session.execute(
+        text(sql), {"sn": sn, "zone": zone, "d0": d0, "d1": d1, "today": _kyiv_today()}
+    )
     row = r.one()
     import_kwh = float(row[0] or 0.0)
     cost_uah = float(row[1] or 0.0)
@@ -1178,8 +1181,8 @@ async def landing_totals(
     or one device when ``deviceSn`` is set). It does **not** use peak-DAM or manual-discharge session aggregates.
     Also DAM average UAH/kWh for Kyiv current month MTD vs previous full calendar month (OREE_COMPARE_ZONE_EIC).
     When ``deviceSn`` is set, ``dam.currentMonthDeviceImportWeightedAvgDamUahPerKwhMtd`` is the volume-weighted
-    OREE DAM UAH/kWh over grid import for Kyiv MTD. Hours in ``deye_hourly_energy`` use backfilled
-    ``import_kwh``; other hours use 5‑min samples (``grid_power_w > 0``, W/12000), joined to hourly DAM.
+    OREE DAM UAH/kWh over grid import for Kyiv MTD. Completed days in ``deye_hourly_energy`` use backfilled
+    ``import_kwh``; the current Kyiv day and other hours use 5‑min samples (``grid_power_w > 0``, W/12000).
     ``dam.currentMonthDeviceGridImportKwhMtd`` is the matched import kWh sum.
     ``arbitrageRevenueUah`` is the sum over Kyiv days of per‑day net (export − import) × DAM UAH/kWh on
     hourly buckets from ``deye_soc_sample``, matching the DAM chart «arbitrage for this day» summed across days.

@@ -42,6 +42,7 @@ from app.entsoe_dam_service import entsoe_dam_configured
 from app.oree_dam_scheduler import dam_daily_sync_loop
 from app.oree_dam_service import oree_dam_configured
 from app.deye_soc_scheduler import deye_soc_snapshot_loop
+from app.deye_hourly_energy_scheduler import deye_hourly_energy_sync_loop
 from app.ev_port_power_scheduler import ev_port_power_snapshot_loop
 from app.ubetter_power_scheduler import ubetter_power_snapshot_loop
 from app.gridlab_power_scheduler import gridlab_power_snapshot_loop
@@ -163,6 +164,18 @@ async def lifespan(app: FastAPI):
         logger.info(
             "Deye SoC: snapshot to DB every %ss (DEYE_SOC_SNAPSHOT_*)",
             settings.DEYE_SOC_SNAPSHOT_INTERVAL_SEC,
+        )
+
+    stop_deye_hourly: Optional[asyncio.Event] = None
+    deye_hourly_task: Optional[asyncio.Task[None]] = None
+    if settings.DEYE_HOURLY_ENERGY_SYNC_ENABLED and deye_configured():
+        stop_deye_hourly = asyncio.Event()
+        deye_hourly_task = asyncio.create_task(deye_hourly_energy_sync_loop(stop_deye_hourly))
+        logger.info(
+            "Deye hourly energy: previous day at Kyiv %02d:00, one inverter every %ss "
+            "(DEYE_HOURLY_ENERGY_*)",
+            settings.DEYE_HOURLY_ENERGY_SYNC_HOUR_KYIV,
+            settings.DEYE_HOURLY_ENERGY_DEVICE_INTERVAL_SEC,
         )
 
     stop_ubetter_power: Optional[asyncio.Event] = None
@@ -309,6 +322,13 @@ async def lifespan(app: FastAPI):
         deye_soc_task.cancel()
         try:
             await deye_soc_task
+        except asyncio.CancelledError:
+            pass
+    if deye_hourly_task is not None and stop_deye_hourly is not None:
+        stop_deye_hourly.set()
+        deye_hourly_task.cancel()
+        try:
+            await deye_hourly_task
         except asyncio.CancelledError:
             pass
     if ubetter_power_task is not None and stop_ubetter_power is not None:
