@@ -223,6 +223,19 @@ async def miner_power() -> Any:
     return JSONResponse(content=data, headers=_NO_STORE_CACHE)
 
 
+# Fleet stations sit around Kyiv. A browser far outside the search radius (Spain, Asia)
+# would otherwise get an empty port dropdown while the EV node still shows network power.
+_FLEET_ORIGIN_LAT = 50.4501
+_FLEET_ORIGIN_LON = 30.5234
+
+
+def use_fleet_origin_fallback(lat: float, lon: float, item_count: int) -> bool:
+    """Retry from the fleet origin when the caller's location has no active ports."""
+    if item_count > 0:
+        return False
+    return abs(float(lat) - _FLEET_ORIGIN_LAT) > 0.05 or abs(float(lon) - _FLEET_ORIGIN_LON) > 0.05
+
+
 def _job_is_in_progress(job: Any) -> bool:
     if not isinstance(job, dict):
         return False
@@ -232,52 +245,10 @@ def _job_is_in_progress(job: Any) -> bool:
     return str(state).strip().upper().replace("-", "_") == "IN_PROGRESS"
 
 
-@router.get("/charging-ports")
-async def charging_ports(
-    lat: float = Query(default=50.4501, description="Origin latitude (e.g. user or Kyiv default)"),
-    lon: float = Query(default=30.5234, description="Origin longitude"),
-    distance_m: int = Query(default=2_000_000, ge=1, le=20_000_000, description="Search radius, meters"),
-    top: int = Query(default=500, ge=1, le=2000, description="Max stations from upstream nearest API"),
-) -> JSONResponse:
-    """
-    Stations with an active charging job (job present, state IN_PROGRESS) for Power flow port filter.
-    Upstream: GET /api/device/v2/station/nearest (same base URL as B2B).
-    Each item includes ``costPerKwt`` (kopecks/kWh) when the upstream Station payload has it, for session tariff UI.
-    """
-    url = f"{B2B_API_BASE_URL}{_DEVICE_NEAREST_PATH}"
-    params = {
-        "lat": str(lat),
-        "lon": str(lon),
-        "distance_m": str(distance_m),
-        "top": str(top),
-    }
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(url, params=params)
-    except httpx.RequestError as exc:
-        logger.warning("Device nearest GET — transport error: %s", exc)
-        return JSONResponse(
-            content={"ok": False, "items": [], "detail": str(exc)},
-            headers=_NO_STORE_CACHE,
-        )
-    if response.status_code >= 400:
-        logger.warning(
-            "Device nearest GET — HTTP %s %s",
-            response.status_code,
-            (response.text or "")[:300],
-        )
-        return JSONResponse(
-            content={
-                "ok": False,
-                "items": [],
-                "detail": response.text[:500] if response.text else "Upstream error",
-            },
-            headers=_NO_STORE_CACHE,
-        )
-    raw = response.json()
+def _active_ports_from_nearest(raw: Any) -> list[dict[str, Any]]:
+    """Stations in ``nearest`` whose job state is IN_PROGRESS."""
     if not isinstance(raw, list):
-        return JSONResponse(content={"ok": True, "items": []}, headers=_NO_STORE_CACHE)
-
+        return []
     items_out: list[dict[str, Any]] = []
     seen: set[str] = set()
     for row in raw:
@@ -321,6 +292,78 @@ async def charging_ports(
             return (True, 0.0)
 
     items_out.sort(key=_dist_key)
+    return items_out
+
+
+async def _fetch_nearest_stations(
+    lat: float,
+    lon: float,
+    distance_m: int,
+    top: int,
+) -> tuple[Optional[list[Any]], Optional[str]]:
+    """GET station/nearest. ``(None, detail)`` on transport or HTTP failure."""
+    url = f"{B2B_API_BASE_URL}{_DEVICE_NEAREST_PATH}"
+    params = {
+        "lat": str(lat),
+        "lon": str(lon),
+        "distance_m": str(distance_m),
+        "top": str(top),
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, params=params)
+    except httpx.RequestError as exc:
+        logger.warning("Device nearest GET — transport error: %s", exc)
+        return None, str(exc)
+    if response.status_code >= 400:
+        logger.warning(
+            "Device nearest GET — HTTP %s %s",
+            response.status_code,
+            (response.text or "")[:300],
+        )
+        detail = response.text[:500] if response.text else "Upstream error"
+        return None, detail
+    raw = response.json()
+    return raw if isinstance(raw, list) else [], None
+
+
+@router.get("/charging-ports")
+async def charging_ports(
+    lat: float = Query(default=_FLEET_ORIGIN_LAT, description="Origin latitude (e.g. user or Kyiv default)"),
+    lon: float = Query(default=_FLEET_ORIGIN_LON, description="Origin longitude"),
+    distance_m: int = Query(default=2_000_000, ge=1, le=20_000_000, description="Search radius, meters"),
+    top: int = Query(default=500, ge=1, le=2000, description="Max stations from upstream nearest API"),
+) -> JSONResponse:
+    """
+    Stations with an active charging job (job present, state IN_PROGRESS) for Power flow port filter.
+    Upstream: GET /api/device/v2/station/nearest (same base URL as B2B).
+    Each item includes ``costPerKwt`` (kopecks/kWh) when the upstream Station payload has it, for session tariff UI.
+
+    When the browser location is outside the fleet (no active jobs in range), the list falls back
+    to the Kyiv origin so the dropdown matches the network-wide EV power on the node.
+    """
+    raw, detail = await _fetch_nearest_stations(lat, lon, distance_m, top)
+    if raw is None:
+        return JSONResponse(
+            content={"ok": False, "items": [], "detail": detail or "Upstream error"},
+            headers=_NO_STORE_CACHE,
+        )
+    items_out = _active_ports_from_nearest(raw)
+    if use_fleet_origin_fallback(lat, lon, len(items_out)):
+        logger.info(
+            "charging-ports empty at lat=%s lon=%s; falling back to fleet origin",
+            lat,
+            lon,
+        )
+        raw_fleet, detail_fleet = await _fetch_nearest_stations(
+            _FLEET_ORIGIN_LAT, _FLEET_ORIGIN_LON, distance_m, top
+        )
+        if raw_fleet is None:
+            return JSONResponse(
+                content={"ok": False, "items": [], "detail": detail_fleet or "Upstream error"},
+                headers=_NO_STORE_CACHE,
+            )
+        items_out = _active_ports_from_nearest(raw_fleet)
 
     return JSONResponse(content={"ok": True, "items": items_out}, headers=_NO_STORE_CACHE)
 
