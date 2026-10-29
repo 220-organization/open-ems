@@ -1,4 +1,4 @@
-"""Background task: daily Deye Cloud hourly kWh backfill for completed Kyiv days."""
+"""Background task: nightly Deye Cloud hourly kWh for the previous Kyiv day."""
 
 from __future__ import annotations
 
@@ -9,10 +9,13 @@ from datetime import datetime, time, timedelta
 from app import settings
 from app.db import async_session_factory
 from app.deye_api import deye_configured, list_inverter_devices
-from app.deye_energy_backfill_service import backfill_device_days, completed_kyiv_days
+from app.deye_energy_backfill_service import backfill_device_days
 from app.oree_dam_service import KYIV
 
 logger = logging.getLogger(__name__)
+
+# Resume a crashed night run until this Kyiv hour, then wait for the next night.
+_NIGHT_WINDOW_END_HOUR_KYIV = 6
 
 
 def _next_kyiv_hour_run(after: datetime, hour: int) -> datetime:
@@ -27,6 +30,18 @@ def _next_kyiv_hour_run(after: datetime, hour: int) -> datetime:
     return after + timedelta(days=1)
 
 
+def in_nightly_backfill_window(now: datetime, start_hour: int, end_hour: int = _NIGHT_WINDOW_END_HOUR_KYIV) -> bool:
+    """True from the nightly start hour until ``end_hour`` (Kyiv), wrapping past midnight."""
+    hour = int(now.astimezone(KYIV).hour)
+    start = max(0, min(23, int(start_hour)))
+    end = max(0, min(23, int(end_hour)))
+    if start == end:
+        return False
+    if start < end:
+        return start <= hour < end
+    return hour >= start or hour < end
+
+
 async def _inverter_serials() -> list[str]:
     devices = await list_inverter_devices()
     return sorted(
@@ -38,45 +53,56 @@ async def _inverter_serials() -> list[str]:
     )
 
 
-async def run_startup_hourly_energy_catchup() -> dict:
-    """Fill recent completed days that have no ``deye_hourly_energy`` row yet."""
-    today = datetime.now(KYIV).date()
-    days = completed_kyiv_days(today, settings.DEYE_HOURLY_ENERGY_CATCHUP_DAYS)
-    sns = await _inverter_serials()
-    async with async_session_factory() as session:
-        return await backfill_device_days(session, sns, days, only_missing=True, today=today)
+async def run_previous_day_backfill(
+    stop: asyncio.Event,
+    *,
+    only_missing: bool,
+) -> dict:
+    """
+    Refresh yesterday from Deye Cloud, one inverter at a time.
 
-
-async def run_daily_hourly_energy_sync() -> dict:
-    """Refresh yesterday from Deye Cloud for every inverter. Today stays on 5-min samples."""
+    Today is never requested. ``only_missing`` skips serials that already have a row,
+    so a restart in the same night does not repeat calls.
+    """
     today = datetime.now(KYIV).date()
     yesterday = today - timedelta(days=1)
     sns = await _inverter_serials()
+    pause = float(settings.DEYE_HOURLY_ENERGY_DEVICE_INTERVAL_SEC)
     async with async_session_factory() as session:
         return await backfill_device_days(
-            session, sns, [yesterday], only_missing=False, today=today
+            session,
+            sns,
+            [yesterday],
+            only_missing=only_missing,
+            today=today,
+            pause_sec=pause,
+            stop=stop,
         )
 
 
 async def deye_hourly_energy_sync_loop(stop: asyncio.Event) -> None:
     """
-    On startup: backfill the last DEYE_HOURLY_ENERGY_CATCHUP_DAYS completed days when missing.
-    Then at DEYE_HOURLY_ENERGY_SYNC_HOUR_KYIV: refresh yesterday for every inverter.
+    Each night at DEYE_HOURLY_ENERGY_SYNC_HOUR_KYIV, backfill yesterday for every inverter.
+
+    Inverters run one after another with DEYE_HOURLY_ENERGY_DEVICE_INTERVAL_SEC between them
+    so the job stays under the Deye Cloud per-minute limit. A restart before 06:00 Kyiv
+    continues only the serials still missing yesterday.
     """
-    if deye_configured():
+    hour = settings.DEYE_HOURLY_ENERGY_SYNC_HOUR_KYIV
+    if deye_configured() and in_nightly_backfill_window(datetime.now(KYIV), hour):
         try:
-            result = await run_startup_hourly_energy_catchup()
+            result = await run_previous_day_backfill(stop, only_missing=True)
             logger.info(
-                "Deye hourly energy startup catch-up: devices=%s deviceDays=%s rows=%s failed=%s",
+                "Deye hourly energy night resume: devices=%s deviceDays=%s rows=%s failed=%s stopped=%s",
                 result.get("devices"),
                 result.get("deviceDays"),
                 result.get("rowsWritten"),
                 result.get("failed"),
+                result.get("stopped"),
             )
         except Exception:
-            logger.exception("Deye hourly energy startup catch-up failed")
+            logger.exception("Deye hourly energy night resume failed")
 
-    hour = settings.DEYE_HOURLY_ENERGY_SYNC_HOUR_KYIV
     while not stop.is_set():
         now = datetime.now(KYIV)
         target = _next_kyiv_hour_run(now, hour)
@@ -93,14 +119,17 @@ async def deye_hourly_energy_sync_loop(stop: asyncio.Event) -> None:
             await asyncio.sleep(2)
             continue
         try:
-            result = await run_daily_hourly_energy_sync()
+            result = await run_previous_day_backfill(stop, only_missing=False)
             logger.info(
-                "Deye hourly energy daily sync (Kyiv %02d:00): devices=%s rows=%s failed=%s",
+                "Deye hourly energy night sync (Kyiv %02d:00, previous day): "
+                "devices=%s deviceDays=%s rows=%s failed=%s stopped=%s",
                 target.hour,
                 result.get("devices"),
+                result.get("deviceDays"),
                 result.get("rowsWritten"),
                 result.get("failed"),
+                result.get("stopped"),
             )
         except Exception:
-            logger.exception("Deye hourly energy daily sync failed")
+            logger.exception("Deye hourly energy night sync failed")
         await asyncio.sleep(2)

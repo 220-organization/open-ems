@@ -455,6 +455,22 @@ async def backfill_device_period(
     }
 
 
+async def _pause_between_devices(stop: Optional[asyncio.Event], pause_sec: float) -> bool:
+    """Wait ``pause_sec``. Return True when ``stop`` is set and the caller should exit."""
+    if stop is not None and stop.is_set():
+        return True
+    if pause_sec <= 0:
+        return False
+    if stop is None:
+        await asyncio.sleep(pause_sec)
+        return False
+    try:
+        await asyncio.wait_for(stop.wait(), timeout=pause_sec)
+        return True
+    except asyncio.TimeoutError:
+        return False
+
+
 async def backfill_device_days(
     session: AsyncSession,
     device_sns: list[str],
@@ -462,11 +478,15 @@ async def backfill_device_days(
     *,
     only_missing: bool,
     today: Optional[date] = None,
+    pause_sec: float = 0,
+    stop: Optional[asyncio.Event] = None,
 ) -> dict[str, Any]:
     """
     Pull completed Kyiv days from Deye Cloud into ``deye_hourly_energy``.
 
     The current Kyiv day is skipped: realtime charts stay on 5-min samples.
+    Devices are fetched one at a time. ``pause_sec`` spaces them so a fleet refresh
+    stays under the Deye Cloud per-minute request limit (about 3 POSTs per device-day).
     When ``only_missing`` is set, a device/day that already has a row is left as-is.
     One device failure does not abort the rest. Commits after each successful device-day.
     """
@@ -478,13 +498,25 @@ async def backfill_device_days(
     rows_written = 0
     device_days = 0
     failed = 0
-    sem = asyncio.Semaphore(_DEYE_CONCURRENCY)
+    stopped = False
+    # One in flight. The paid period backfill keeps its own semaphore.
+    sem = asyncio.Semaphore(1)
+    started = False
     for trade_day in pending:
+        if stopped:
+            break
         targets = sns
         if only_missing:
             have = await _device_sns_with_hourly_day(session, sns, trade_day)
             targets = [sn for sn in sns if sn not in have]
         for sn in targets:
+            if stop is not None and stop.is_set():
+                stopped = True
+                break
+            if started and await _pause_between_devices(stop, pause_sec):
+                stopped = True
+                break
+            started = True
             device_days += 1
             try:
                 n = await _backfill_one_device_day(session, sn, trade_day, sem)
@@ -504,4 +536,5 @@ async def backfill_device_days(
         "deviceDays": device_days,
         "rowsWritten": rows_written,
         "failed": failed,
+        "stopped": stopped,
     }

@@ -136,6 +136,28 @@ class TestCompletedKyivDays(unittest.TestCase):
         self.assertEqual(days, [date(2026, 10, 27), date(2026, 10, 28)])
 
 
+class TestNightlyBackfillWindow(unittest.TestCase):
+    def test_resume_only_during_the_night(self) -> None:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        from app.deye_hourly_energy_scheduler import in_nightly_backfill_window
+
+        kyiv = ZoneInfo("Europe/Kiev")
+        self.assertTrue(
+            in_nightly_backfill_window(datetime(2026, 10, 29, 2, 5, tzinfo=kyiv), 2)
+        )
+        self.assertTrue(
+            in_nightly_backfill_window(datetime(2026, 10, 29, 5, 59, tzinfo=kyiv), 2)
+        )
+        self.assertFalse(
+            in_nightly_backfill_window(datetime(2026, 10, 29, 6, 0, tzinfo=kyiv), 2)
+        )
+        self.assertFalse(
+            in_nightly_backfill_window(datetime(2026, 10, 29, 14, 0, tzinfo=kyiv), 2)
+        )
+
+
 class TestUpsertOverwrites(unittest.IsolatedAsyncioTestCase):
     async def test_upsert_on_conflict_do_update(self) -> None:
         from datetime import date
@@ -289,6 +311,45 @@ class TestDailyBackfillSkipsToday(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["rowsWritten"], 3)
         self.assertEqual(result["failed"], 0)
         self.assertNotIn("2026-10-29", result["days"])
+
+    async def test_spaces_inverters_one_by_one(self) -> None:
+        from app import deye_energy_backfill_service as svc
+
+        seen: list[str] = []
+        pauses: list[float] = []
+
+        async def fake_one(_session, sn, _trade_day, _sem):
+            seen.append(sn)
+            return 1
+
+        async def fake_sleep(seconds):
+            pauses.append(seconds)
+
+        class _Session:
+            async def commit(self):
+                return None
+
+            async def rollback(self):
+                return None
+
+        with (
+            patch.object(svc, "deye_configured", return_value=True),
+            patch.object(svc, "_backfill_one_device_day", new=fake_one),
+            patch.object(svc.asyncio, "sleep", new=fake_sleep),
+        ):
+            result = await svc.backfill_device_days(
+                _Session(),
+                ["2503291033", "2503291040"],
+                [date(2026, 10, 28)],
+                only_missing=False,
+                today=date(2026, 10, 29),
+                pause_sec=15,
+            )
+
+        self.assertEqual(seen, ["2503291033", "2503291040"])
+        self.assertEqual(pauses, [15])
+        self.assertEqual(result["deviceDays"], 2)
+        self.assertFalse(result["stopped"])
 
 
 class TestParseDeviceHistoryExport(unittest.TestCase):

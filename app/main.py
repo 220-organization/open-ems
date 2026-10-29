@@ -172,10 +172,10 @@ async def lifespan(app: FastAPI):
         stop_deye_hourly = asyncio.Event()
         deye_hourly_task = asyncio.create_task(deye_hourly_energy_sync_loop(stop_deye_hourly))
         logger.info(
-            "Deye hourly energy: daily sync at Kyiv hour %02d:00 + %s-day startup catch-up "
+            "Deye hourly energy: previous day at Kyiv %02d:00, one inverter every %ss "
             "(DEYE_HOURLY_ENERGY_*)",
             settings.DEYE_HOURLY_ENERGY_SYNC_HOUR_KYIV,
-            settings.DEYE_HOURLY_ENERGY_CATCHUP_DAYS,
+            settings.DEYE_HOURLY_ENERGY_DEVICE_INTERVAL_SEC,
         )
 
     stop_ubetter_power: Optional[asyncio.Event] = None
