@@ -1,11 +1,15 @@
 # Create or ensure a PR from develop to master on every push to develop.
-# Requires repo secret: GH_PAT — a Personal Access Token (classic) with scope "repo".
-# (GITHUB_TOKEN cannot create PRs when "Actions can create/approve PRs" is disabled.)
+# Uses the Actions token. Optional repo secret GH_PAT overrides it when the
+# org blocks Actions from opening pull requests.
 name: Create PR develop → master
 
 on:
   push:
     branches: [develop]
+
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
   create-pr:
@@ -17,15 +21,17 @@ jobs:
           ref: develop
       - name: Check for existing PR and create if missing
         env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GH_TOKEN: ${{ github.token }}
+          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
-          if [ -z "$GH_TOKEN" ]; then
-            echo "GH_PAT secret not set. Add a PAT with repo scope as repo secret GH_PAT to enable auto PR creation."
-            exit 0
+          set -euo pipefail
+          if [ -n "${GH_PAT}" ]; then
+            export GH_TOKEN="${GH_PAT}"
           fi
-          EXISTING=$(gh pr list --base master --head develop --state open --json number -q '.[].number' || true)
+          EXISTING=$(gh pr list --repo "${GITHUB_REPOSITORY}" --base master --head develop --state open --json number -q '.[].number')
           if [ -z "$EXISTING" ]; then
             gh pr create \
+              --repo "${GITHUB_REPOSITORY}" \
               --base master \
               --head develop \
               --title "Develop → master" \

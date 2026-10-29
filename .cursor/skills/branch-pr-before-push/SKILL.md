@@ -120,7 +120,7 @@ Stay on `develop`.
 | Never force-push | Warn if requested |
 | Never `git config` changes | Do not modify git config |
 | No `--no-verify` | Unless the user explicitly requests |
-| Do not open the PR by hand | `.github/workflows/create-pr-develop-to-master.yml` does it. Needs repo secret `GH_PAT` (classic PAT, `repo` scope) |
+| Do not open the PR by hand | `.github/workflows/create-pr-develop-to-master.yml` does it with the Actions token (`pull-requests: write`). Optional secret `GH_PAT` overrides that token |
 | Scope | Only `open-ems/` — ignore this skill for other repos in the monorepo |
 
 ## Quick reference
