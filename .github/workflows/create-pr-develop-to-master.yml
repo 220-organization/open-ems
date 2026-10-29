@@ -1,0 +1,36 @@
+# Create or ensure a PR from develop to master on every push to develop.
+# Requires repo secret: GH_PAT — a Personal Access Token (classic) with scope "repo".
+# (GITHUB_TOKEN cannot create PRs when "Actions can create/approve PRs" is disabled.)
+name: Create PR develop → master
+
+on:
+  push:
+    branches: [develop]
+
+jobs:
+  create-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+      - name: Check for existing PR and create if missing
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "GH_PAT secret not set. Add a PAT with repo scope as repo secret GH_PAT to enable auto PR creation."
+            exit 0
+          fi
+          EXISTING=$(gh pr list --base master --head develop --state open --json number -q '.[].number' || true)
+          if [ -z "$EXISTING" ]; then
+            gh pr create \
+              --base master \
+              --head develop \
+              --title "Develop → master" \
+              --body "Auto-created from push to develop. Merge when ready for production."
+            echo "Created new PR develop → master"
+          else
+            echo "Open PR already exists: #$EXISTING"
+          fi
