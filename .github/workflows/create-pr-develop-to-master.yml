@@ -27,16 +27,34 @@ jobs:
           set -euo pipefail
           if [ -n "${GH_PAT}" ]; then
             export GH_TOKEN="${GH_PAT}"
+            echo "::notice::Using GH_PAT"
+          else
+            echo "::notice::Using GITHUB_TOKEN"
           fi
-          EXISTING=$(gh pr list --repo "${GITHUB_REPOSITORY}" --base master --head develop --state open --json number -q '.[].number')
-          if [ -z "$EXISTING" ]; then
-            gh pr create \
+          set +e
+          LIST_OUT=$(gh pr list --repo "${GITHUB_REPOSITORY}" --base master --head develop --state open --json number -q '.[].number' 2>&1)
+          LIST_CODE=$?
+          set -e
+          if [ "$LIST_CODE" -ne 0 ]; then
+            echo "::error::gh pr list failed: ${LIST_OUT}"
+            exit 1
+          fi
+          if [ -z "$LIST_OUT" ]; then
+            set +e
+            CREATE_OUT=$(gh pr create \
               --repo "${GITHUB_REPOSITORY}" \
               --base master \
               --head develop \
               --title "Develop → master" \
-              --body "Auto-created from push to develop. Merge when ready for production."
+              --body "Auto-created from push to develop. Merge when ready for production." 2>&1)
+            CREATE_CODE=$?
+            set -e
+            if [ "$CREATE_CODE" -ne 0 ]; then
+              echo "::error::gh pr create failed: ${CREATE_OUT}"
+              exit 1
+            fi
             echo "Created new PR develop → master"
+            echo "::notice::${CREATE_OUT}"
           else
-            echo "Open PR already exists: #$EXISTING"
+            echo "Open PR already exists: #$LIST_OUT"
           fi
