@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from unittest.mock import MagicMock, patch
 
 from app.deye_energy_backfill_service import (
+    completed_kyiv_days,
     hourly_kwh_from_frames,
     scale_to_day_totals,
 )
-from app.deye_soc_service import _apply_hourly_energy_overrides
+from app.deye_soc_service import _apply_hourly_energy_overrides, prefer_hourly_energy_for_day
 
 
 def _item(key: str, value: float, unit: str = "W") -> dict:
@@ -117,6 +118,24 @@ class TestApplyHourlyEnergyOverrides(unittest.TestCase):
         self.assertIsNone(import_out[0])
 
 
+class TestPreferHourlyEnergyForDay(unittest.TestCase):
+    def test_today_uses_five_minute_samples(self) -> None:
+        today = date(2026, 10, 29)
+        self.assertFalse(prefer_hourly_energy_for_day(today, today=today))
+        self.assertFalse(prefer_hourly_energy_for_day(date(2026, 10, 30), today=today))
+
+    def test_older_dates_use_hourly_stat(self) -> None:
+        today = date(2026, 10, 29)
+        self.assertTrue(prefer_hourly_energy_for_day(date(2026, 10, 28), today=today))
+        self.assertTrue(prefer_hourly_energy_for_day(date(2026, 1, 26), today=today))
+
+
+class TestCompletedKyivDays(unittest.TestCase):
+    def test_window_excludes_today(self) -> None:
+        days = completed_kyiv_days(date(2026, 10, 29), 2)
+        self.assertEqual(days, [date(2026, 10, 27), date(2026, 10, 28)])
+
+
 class TestUpsertOverwrites(unittest.IsolatedAsyncioTestCase):
     async def test_upsert_on_conflict_do_update(self) -> None:
         from datetime import date
@@ -182,6 +201,7 @@ class TestReadPathPrefersOverride(unittest.IsolatedAsyncioTestCase):
             return cons, gen, imp, exp
 
         with (
+            patch.object(deye_soc_service, "prefer_hourly_energy_for_day", return_value=True),
             patch.object(deye_soc_service, "deye_soc_balance_input_columns_ready", new=fake_extras),
             patch.object(deye_soc_service, "_hourly_energy_overrides", new=fake_overrides),
         ):
@@ -193,6 +213,82 @@ class TestReadPathPrefersOverride(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pv[8], 1.0)
         self.assertEqual(imp[8], 2.0)
         self.assertAlmostEqual(grid[8], 2000.0, places=3)
+
+    async def test_current_day_keeps_five_minute_samples(self) -> None:
+        from app import deye_soc_service
+
+        class _StubResult:
+            def all(self):
+                return []
+
+        class _StubSession:
+            async def execute(self, query):  # noqa: ARG002
+                return _StubResult()
+
+        called = {"n": 0}
+
+        async def fake_extras(_s):
+            return True
+
+        async def fake_overrides(*_args):
+            called["n"] += 1
+            cons = [None] * 24
+            cons[8] = 9.0
+            return cons, [None] * 24, [None] * 24, [None] * 24
+
+        with (
+            patch.object(deye_soc_service, "prefer_hourly_energy_for_day", return_value=False),
+            patch.object(deye_soc_service, "deye_soc_balance_input_columns_ready", new=fake_extras),
+            patch.object(deye_soc_service, "_hourly_energy_overrides", new=fake_overrides),
+        ):
+            _soc, _grid, _freq, _pv, load, imp = await deye_soc_service.hourly_inverter_history_for_kyiv_day(
+                _StubSession(), "2503291033", date(2026, 10, 29)
+            )
+
+        self.assertEqual(called["n"], 0)
+        self.assertIsNone(load[8])
+        self.assertIsNone(imp[8])
+
+
+class TestDailyBackfillSkipsToday(unittest.IsolatedAsyncioTestCase):
+    async def test_missing_completed_days_only(self) -> None:
+        from app import deye_energy_backfill_service as svc
+
+        seen: list[tuple[str, date]] = []
+
+        async def fake_one(_session, sn, trade_day, _sem):
+            seen.append((sn, trade_day))
+            return 3
+
+        async def fake_have(_session, _sns, trade_day):
+            if trade_day == date(2026, 10, 27):
+                return {"2503291033"}
+            return set()
+
+        class _Session:
+            async def commit(self):
+                return None
+
+            async def rollback(self):
+                return None
+
+        with (
+            patch.object(svc, "deye_configured", return_value=True),
+            patch.object(svc, "_backfill_one_device_day", new=fake_one),
+            patch.object(svc, "_device_sns_with_hourly_day", new=fake_have),
+        ):
+            result = await svc.backfill_device_days(
+                _Session(),
+                ["2503291033"],
+                [date(2026, 10, 27), date(2026, 10, 28), date(2026, 10, 29)],
+                only_missing=True,
+                today=date(2026, 10, 29),
+            )
+
+        self.assertEqual(seen, [("2503291033", date(2026, 10, 28))])
+        self.assertEqual(result["rowsWritten"], 3)
+        self.assertEqual(result["failed"], 0)
+        self.assertNotIn("2026-10-29", result["days"])
 
 
 class TestParseDeviceHistoryExport(unittest.TestCase):

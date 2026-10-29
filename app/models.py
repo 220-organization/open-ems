@@ -63,7 +63,7 @@ class DeyeHourlyEnergy(Base):
     Hourly kWh backfilled from Deye Cloud ``/device/history`` (frame shape scaled to daily totals).
 
     ``hour_start`` is the UTC start of the Kyiv-local hour. Prefer these rows over 5-min sample
-    approximations when reading Open EMS energy totals / charts.
+    approximations for completed Kyiv days. The current day stays on 5-min samples.
     """
 
     __tablename__ = "deye_hourly_energy"

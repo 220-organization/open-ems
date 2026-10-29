@@ -11,6 +11,7 @@ import logging
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Callable, Optional
 
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -285,6 +286,39 @@ def scale_to_day_totals(
     return out
 
 
+def completed_kyiv_days(today: date, count: int) -> list[date]:
+    """Kyiv calendar days strictly before ``today``, oldest first. ``count`` is the window length."""
+    n = max(0, int(count))
+    return [today - timedelta(days=offset) for offset in range(n, 0, -1)]
+
+
+def _kyiv_day_bounds_utc(trade_day: date) -> tuple[datetime, datetime]:
+    start_kyiv = datetime.combine(trade_day, time.min, tzinfo=KYIV)
+    end_kyiv = start_kyiv + timedelta(days=1)
+    return start_kyiv.astimezone(timezone.utc), end_kyiv.astimezone(timezone.utc)
+
+
+async def _device_sns_with_hourly_day(
+    session: AsyncSession,
+    device_sns: list[str],
+    trade_day: date,
+) -> set[str]:
+    sns = sorted({(s or "").strip() for s in device_sns if (s or "").strip()})
+    if not sns:
+        return set()
+    start_utc, end_utc = _kyiv_day_bounds_utc(trade_day)
+    result = await session.execute(
+        select(DeyeHourlyEnergy.device_sn)
+        .where(
+            DeyeHourlyEnergy.device_sn.in_(sns),
+            DeyeHourlyEnergy.hour_start >= start_utc,
+            DeyeHourlyEnergy.hour_start < end_utc,
+        )
+        .distinct()
+    )
+    return {str(row[0]) for row in result.all() if row[0]}
+
+
 def _kyiv_hour_start_utc(trade_day: date, hour: int) -> datetime:
     local = datetime.combine(trade_day, time(hour=hour, minute=0), tzinfo=KYIV)
     return local.astimezone(timezone.utc)
@@ -418,4 +452,56 @@ async def backfill_device_period(
         "daysTotal": days_total,
         "daysDone": days_done,
         "rowsWritten": rows_written,
+    }
+
+
+async def backfill_device_days(
+    session: AsyncSession,
+    device_sns: list[str],
+    days: list[date],
+    *,
+    only_missing: bool,
+    today: Optional[date] = None,
+) -> dict[str, Any]:
+    """
+    Pull completed Kyiv days from Deye Cloud into ``deye_hourly_energy``.
+
+    The current Kyiv day is skipped: realtime charts stay on 5-min samples.
+    When ``only_missing`` is set, a device/day that already has a row is left as-is.
+    One device failure does not abort the rest. Commits after each successful device-day.
+    """
+    if not deye_configured():
+        raise RuntimeError("Deye API credentials not configured")
+    current = today if today is not None else datetime.now(KYIV).date()
+    sns = sorted({(s or "").strip() for s in device_sns if (s or "").strip()})
+    pending = [d for d in days if d < current]
+    rows_written = 0
+    device_days = 0
+    failed = 0
+    sem = asyncio.Semaphore(_DEYE_CONCURRENCY)
+    for trade_day in pending:
+        targets = sns
+        if only_missing:
+            have = await _device_sns_with_hourly_day(session, sns, trade_day)
+            targets = [sn for sn in sns if sn not in have]
+        for sn in targets:
+            device_days += 1
+            try:
+                n = await _backfill_one_device_day(session, sn, trade_day, sem)
+                await session.commit()
+                rows_written += n
+            except Exception:
+                failed += 1
+                logger.exception(
+                    "deye daily energy backfill failed sn=%s day=%s",
+                    sn,
+                    trade_day.isoformat(),
+                )
+                await session.rollback()
+    return {
+        "days": [d.isoformat() for d in pending],
+        "devices": len(sns),
+        "deviceDays": device_days,
+        "rowsWritten": rows_written,
+        "failed": failed,
     }

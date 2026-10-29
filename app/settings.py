@@ -311,6 +311,11 @@ ENTSOE_CHART_DAY_LAZY_FETCH: bool = _env_bool("ENTSOE_CHART_DAY_LAZY_FETCH", Tru
 # Persist Deye SoC to DB on a fixed interval (all inverters from listWithDevice; UTC 5-min buckets).
 DEYE_SOC_SNAPSHOT_ENABLED: bool = _env_bool("DEYE_SOC_SNAPSHOT_ENABLED", True)
 DEYE_SOC_SNAPSHOT_INTERVAL_SEC: int = _env_int("DEYE_SOC_SNAPSHOT_INTERVAL_SEC", 300, 60, 3600)
+# Completed Kyiv days: pull hourly kWh from Deye Cloud. The current day stays on 5-min samples.
+DEYE_HOURLY_ENERGY_SYNC_ENABLED: bool = _env_bool("DEYE_HOURLY_ENERGY_SYNC_ENABLED", True)
+DEYE_HOURLY_ENERGY_SYNC_HOUR_KYIV: int = _env_int("DEYE_HOURLY_ENERGY_SYNC_HOUR_KYIV", 2, 0, 23)
+# On startup, backfill this many completed days when a device has no hourly row yet.
+DEYE_HOURLY_ENERGY_CATCHUP_DAYS: int = _env_int("DEYE_HOURLY_ENERGY_CATCHUP_DAYS", 2, 0, 31)
 # Cache TTL for Deye inverter listWithDevice rows (0 disables cache; UI still sends no-store).
 DEYE_INVERTER_LIST_CACHE_TTL_SEC: int = _env_int("DEYE_INVERTER_LIST_CACHE_TTL_SEC", 300, 0, 3600)
 
