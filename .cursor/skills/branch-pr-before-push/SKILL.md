@@ -1,20 +1,24 @@
 ---
 name: branch-pr-before-push
 description: >-
-  Open EMS git workflow: feature branch, production build before commit, commit,
-  push, GitHub PR, checkout main. Use only in the open-ems repository when the
-  user asks to push, commit and push, ship changes, open a PR, or publish
-  open-ems work. Do not apply in the parent activecharge monorepo or other
-  projects. Runs check-before-push (API lifespan + UI build) before commit.
+  Open EMS git workflow: always push to develop. Use only in the open-ems
+  repository when the user asks to push, commit and push, ship changes, open a
+  PR, or publish open-ems work. Do not apply in the parent activecharge
+  monorepo or other projects. Runs check-before-push (API lifespan + UI build)
+  before commit. A GitHub Action opens the develop → master pull request.
 ---
 
-# Branch and PR Before Push (Open EMS)
+# Always push to develop (Open EMS)
 
 **Scope:** `open-ems/` only (`git rev-parse --show-toplevel` must be the open-ems repo root).
 
-Remote: `origin` → `220-organization/open-ems`. Default base branch: **`main`**.
+Remote: `origin` → `220-organization/open-ems`.
 
-Never push directly to `main`. Correct order: **branch → checks → commit → push → PR → `main`**.
+**always push to develop**
+
+Never push `main` or `master`. Production updates land when the develop → master pull request is merged. GitHub Actions (`.github/workflows/create-pr-develop-to-master.yml`) opens that PR after every push to `develop`. Do not create it with `gh pr create`.
+
+Correct order: **develop → checks → commit → push develop**.
 
 ## When to apply
 
@@ -25,11 +29,7 @@ Never push directly to `main`. Correct order: **branch → checks → commit →
 **Do not apply** when:
 
 - Working outside `open-ems/` (e.g. `activecharge/` root, `admin-portal/`, `src-js/`)
-- User explicitly asks to push to `main` or force-push (warn; follow their rule only if they insist)
-
-Correct order: **branch → checks → commit → push → PR → `main`**.
-
-Never push directly to `main` unless the user explicitly overrides.
+- User explicitly asks to push to `main` or `master` or to force-push (warn; follow their rule only if they insist)
 
 ## Preconditions
 
@@ -40,38 +40,35 @@ cd open-ems   # or path ending in /open-ems
 git rev-parse --show-toplevel
 ```
 
-2. Fetch latest `main`:
+2. Be on `develop` and update it:
 
 ```bash
-git fetch origin main
+git fetch origin develop
+git checkout develop
+git pull --ff-only origin develop
 ```
+
+If the checkout is a different local branch that the user asked to rename, rename it to `develop` instead of creating a feature branch.
 
 ## Workflow
 
 Copy and track:
 
 ```
-- [ ] On feature branch (not main)
+- [ ] On develop
 - [ ] check-before-push passed (API startup if app/ touched; UI build if ui/ touched) — BEFORE commit
 - [ ] Changes committed (if user asked)
-- [ ] Branch pushed with -u
-- [ ] PR created (gh pr create)
-- [ ] Checked out main
+- [ ] develop pushed with -u
 ```
 
-### 1. Create feature branch
+### 1. Stay on develop
 
-If on `main` or branch is wrong, create a new branch from `origin/main`:
+Do not create a feature branch. Do not check out `main` after the push.
 
 ```bash
-git checkout main
-git pull --ff-only origin main
-git checkout -b <branch-name>
+git checkout develop
+git pull --ff-only origin develop
 ```
-
-**Branch naming:** short kebab-case, topic-based — e.g. `kiosk-solar-forecast`, `fix-dam-chart-tooltip`. Avoid generic names like `fix` or `updates`.
-
-If already on a suitable feature branch with unpushed work, keep it.
 
 ### 2. Pre-push checks before commit
 
@@ -99,75 +96,44 @@ git commit -m "..."
 
 Follow repo commit style (imperative summary). Do not commit unless the user asked.
 
-### 4. Push branch and open PR
-
-Run in parallel first to draft the PR:
+### 4. Push develop
 
 ```bash
-git status
-git diff
-git log origin/main..HEAD --oneline
-git branch -vv
+git push -u origin develop
 ```
 
-Then sequentially:
+The Action creates or reuses the open pull request `develop` → `master`. After a successful push, give the user that PR URL when it exists, otherwise:
 
-```bash
-git push -u origin HEAD
+```text
+https://github.com/220-organization/open-ems/compare/master...develop?expand=1
 ```
 
-```bash
-gh pr create --base main --title "<title>" --body "$(cat <<'EOF'
-## Summary
-- <bullet 1>
-- <bullet 2>
-
-## Test plan
-- [ ] <how to verify>
-
-EOF
-)"
-```
-
-Return the PR URL to the user.
-
-### 5. Checkout main after push
-
-Always return the local workspace to `main`:
-
-```bash
-git checkout main
-git pull --ff-only origin main
-```
-
-Leave the feature branch on the remote; local branch may stay or be deleted only if the user asks.
+Stay on `develop`.
 
 ## Rules
 
 | Rule | Detail |
 |------|--------|
+| always push to develop | `git push -u origin develop` is the only normal push |
 | Build before commit | Run `./scripts/check-before-push.sh` before `git commit` when `app/` or `ui/` changed |
-| Never push `main` | `git push origin main` is forbidden unless user explicitly overrides |
-| Never force-push `main` | Warn if requested |
+| Never push `main` or `master` | Forbidden unless the user explicitly overrides |
+| Never force-push | Warn if requested |
 | Never `git config` changes | Do not modify git config |
-| No `--no-verify` | Unless user explicitly requests |
-| PR before “done” | Treat push without PR as incomplete for this workflow |
+| No `--no-verify` | Unless the user explicitly requests |
+| Do not open the PR by hand | `.github/workflows/create-pr-develop-to-master.yml` does it with the Actions token (`pull-requests: write`). Optional secret `GH_PAT` overrides that token |
 | Scope | Only `open-ems/` — ignore this skill for other repos in the monorepo |
 
 ## Quick reference
 
 ```bash
 cd open-ems
-git fetch origin main
-git checkout main && git pull --ff-only origin main
-git checkout -b my-feature
+git fetch origin develop
+git checkout develop && git pull --ff-only origin develop
 # ... edit files ...
 ./scripts/check-before-push.sh   # BEFORE commit (API startup + UI build as needed)
 git add ...
 git commit -m "..."
-git push -u origin HEAD
-gh pr create --base main --title "..." --body "..."
-git checkout main && git pull --ff-only origin main
+git push -u origin develop
 ```
 
 ## Related skill

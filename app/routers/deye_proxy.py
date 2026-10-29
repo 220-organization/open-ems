@@ -97,6 +97,7 @@ from app.deye_soc_service import (
     hourly_inverter_history_for_kyiv_day,
     hourly_inverter_history_for_kyiv_day_cluster,
     kyiv_day_has_energy_backfill,
+    prefer_hourly_energy_for_day,
 )
 from app.solar_clear_sky import kyiv_day_hourly_clear_sky_weights
 from app.solar_forecast_open_meteo import (
@@ -624,7 +625,11 @@ async def get_soc_history_day(
             hourly_soc, hourly_grid_w, hourly_grid_hz, hourly_pv_kwh, hourly_load_kwh, _ = (
                 await hourly_inverter_history_for_kyiv_day(db, deviceSn, trade_day)
             )
-        energy_backfilled = await kyiv_day_has_energy_backfill(db, cluster or [deviceSn.strip()], trade_day)
+        energy_backfilled = False
+        if prefer_hourly_energy_for_day(trade_day):
+            energy_backfilled = await kyiv_day_has_energy_backfill(
+                db, cluster or [deviceSn.strip()], trade_day
+            )
         return JSONResponse(
             content={
                 "ok": True,
@@ -743,12 +748,16 @@ async def get_soc_history_totals(
         except Exception:
             logger.exception("GET /api/deye/soc-history-totals — Deye Cloud station/history failed")
             deye_cloud_error = True
-        # Exact Open EMS kWh only when every day in the period has a Cloud backfill row.
+        # Exact kWh when every completed day in the period has a Cloud backfill row.
+        # The current Kyiv day is realtime 5-min samples, so a period that includes today is not exact.
+        today_kyiv = datetime.now(_KYIV_TZ).date()
+        completed_days = [day for day in period_days if prefer_hourly_energy_for_day(day, today=today_kyiv)]
+        includes_today = any(day >= today_kyiv for day in period_days)
         energy_backfilled = False
-        if period_days:
+        if completed_days and not includes_today:
             checks = [
                 await kyiv_day_has_energy_backfill(db, cluster or [deviceSn.strip()], day)
-                for day in period_days
+                for day in completed_days
             ]
             energy_backfilled = bool(checks) and all(checks)
         return JSONResponse(

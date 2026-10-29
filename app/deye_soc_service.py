@@ -248,6 +248,12 @@ def _effective_pv_watts_for_sample(
     return float(effective_pv_generation_watts(device_sn, float(pv_w)))
 
 
+def prefer_hourly_energy_for_day(trade_day: date, *, today: Optional[date] = None) -> bool:
+    """Completed Kyiv days use ``deye_hourly_energy``. The current day stays on 5-min samples."""
+    current = today if today is not None else datetime.now(KYIV).date()
+    return trade_day < current
+
+
 async def kyiv_day_has_energy_backfill(
     session: AsyncSession,
     device_sns: list[str],
@@ -381,7 +387,8 @@ async def hourly_inverter_history_for_kyiv_day(
     - grid import energy (kWh) when a ``deye_hourly_energy`` override exists for that hour
       (otherwise None — callers fall back to positive grid W / 1000)
 
-    Backfilled ``deye_hourly_energy`` rows override load/PV/grid for those hours.
+    Completed Kyiv days prefer backfilled ``deye_hourly_energy`` for load/PV/grid.
+    The current Kyiv day is realtime: 5-min samples only, even if hourly rows exist.
     """
     sn = (device_sn or "").strip()
     if not sn:
@@ -471,11 +478,8 @@ async def hourly_inverter_history_for_kyiv_day(
         pv_kwh_out = [None] * 24
         load_kwh_out = [None] * 24
 
-    ovr_cons, ovr_gen, ovr_imp, ovr_exp = await _hourly_energy_overrides(
-        session, [sn], start_utc, end_utc
-    )
-    import_kwh_out = _apply_hourly_energy_overrides(
-        grid_out, pv_kwh_out, load_kwh_out, ovr_cons, ovr_gen, ovr_imp, ovr_exp
+    import_kwh_out = await _hourly_energy_or_samples(
+        session, [sn], trade_day, start_utc, end_utc, grid_out, pv_kwh_out, load_kwh_out
     )
 
     return soc_out, grid_out, freq_out, pv_kwh_out, load_kwh_out, import_kwh_out
@@ -637,10 +641,28 @@ async def hourly_inverter_history_for_kyiv_day_cluster(
     pv_kwh_out = [_mean_power_w_to_kwh_hour(_mean_or_none(pv_w_buckets[i])) for i in range(24)]
     load_kwh_out = [_mean_power_w_to_kwh_hour(_mean_or_none(load_w_buckets[i])) for i in range(24)]
 
-    ovr_cons, ovr_gen, ovr_imp, ovr_exp = await _hourly_energy_overrides(
-        session, sns, start_utc, end_utc
-    )
-    import_kwh_out = _apply_hourly_energy_overrides(
-        grid_out, pv_kwh_out, load_kwh_out, ovr_cons, ovr_gen, ovr_imp, ovr_exp
+    import_kwh_out = await _hourly_energy_or_samples(
+        session, sns, trade_day, start_utc, end_utc, grid_out, pv_kwh_out, load_kwh_out
     )
     return soc_out, grid_out, freq_out, pv_kwh_out, load_kwh_out, import_kwh_out
+
+
+async def _hourly_energy_or_samples(
+    session: AsyncSession,
+    device_sns: list[str],
+    trade_day: date,
+    start_utc: datetime,
+    end_utc: datetime,
+    grid_out: list[Optional[float]],
+    pv_kwh_out: list[Optional[float]],
+    load_kwh_out: list[Optional[float]],
+) -> list[Optional[float]]:
+    """Apply Deye hourly kWh on completed days. Today keeps the 5-min sample series."""
+    if not prefer_hourly_energy_for_day(trade_day):
+        return [None] * 24
+    ovr_cons, ovr_gen, ovr_imp, ovr_exp = await _hourly_energy_overrides(
+        session, device_sns, start_utc, end_utc
+    )
+    return _apply_hourly_energy_overrides(
+        grid_out, pv_kwh_out, load_kwh_out, ovr_cons, ovr_gen, ovr_imp, ovr_exp
+    )
