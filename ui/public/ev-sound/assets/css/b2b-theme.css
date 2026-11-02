@@ -1,5 +1,5 @@
 /*
- * Z-Audio theme: Tesla Tron instrument cluster.
+ * 220 Audio theme: Tesla Tron instrument cluster.
  * Colors are the B2B Gamma tokens from
  * activecharge/src-js/react/src/pages/b2bPage/b2bPage.css.
  * The charging blink blue is the second neon, used on the needle.
@@ -96,6 +96,10 @@ body.home-intro::before {
   text-shadow: 0 0 16px rgba(249, 76, 175, 0.45);
 }
 
+.car {
+  display: flow-root;
+}
+
 .car > a.button {
   display: flex;
   align-items: center;
@@ -106,6 +110,10 @@ body.home-intro::before {
   min-height: 52px;
   margin: 16px auto 0;
   padding: 0 1.2em;
+}
+
+.car > a.button:last-child {
+  margin-bottom: 36px;
 }
 
 #content label {
@@ -415,8 +423,8 @@ svg.pedal {
 
 .pointer {
   transform-origin: 246.4px 178px !important;
-  -webkit-transform: rotate(-42.6deg) scale(0.85) !important;
-  transform: rotate(-42.6deg) scale(0.85) !important;
+  -webkit-transform: rotate(-40.6deg) scale(0.78) !important;
+  transform: rotate(-40.6deg) scale(0.78) !important;
 }
 
 .menu-burger {
