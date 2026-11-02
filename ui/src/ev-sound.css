@@ -1,8 +1,12 @@
 .ev-sound-page {
   display: flex;
   flex-direction: column;
-  height: calc(100dvh - var(--open-ems-site-header-h, 72px));
-  min-height: 480px;
+  /* Stay above the iPhone home indicator. viewport-fit=cover makes 100dvh
+     include that strip, so the iframe would otherwise end underneath it. */
+  height: calc(
+    100dvh - var(--open-ems-site-header-h, 72px) - env(safe-area-inset-bottom, 0px)
+  );
+  min-height: 0;
   background: #110c17;
 }
 
