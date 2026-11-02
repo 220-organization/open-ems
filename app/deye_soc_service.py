@@ -9,7 +9,12 @@ from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.deye_api import deye_configured, list_inverter_devices, refresh_device_latest_batches
+from app.deye_api import (
+    deye_configured,
+    get_device_off_grid,
+    list_inverter_devices,
+    refresh_device_latest_batches,
+)
 from app.deye_flow_balance import (
     FLOW_BALANCE_DEVICE_SNS,
     FLOW_BALANCE_PV_FACTOR,
@@ -20,6 +25,7 @@ from app.oree_dam_service import KYIV
 
 # Cached True once columns exist. Before that, re-probe each call (migration may run without restart).
 _balance_input_columns_ready: bool = False
+_off_grid_column_ready: bool = False
 
 
 async def deye_soc_balance_input_columns_ready(session: AsyncSession) -> bool:
@@ -42,6 +48,44 @@ async def deye_soc_balance_input_columns_ready(session: AsyncSession) -> bool:
     if ok:
         _balance_input_columns_ready = True
     return ok
+
+
+async def deye_soc_off_grid_column_ready(session: AsyncSession) -> bool:
+    """True when ``deye_soc_sample.off_grid`` exists (migration applied)."""
+    global _off_grid_column_ready
+    if _off_grid_column_ready:
+        return True
+    r = await session.execute(
+        text(
+            "SELECT COUNT(*)::int FROM information_schema.columns "
+            "WHERE table_name = 'deye_soc_sample' AND column_name = 'off_grid'"
+        )
+    )
+    ok = int(r.scalar_one() or 0) >= 1
+    if ok:
+        _off_grid_column_ready = True
+    return ok
+
+
+def classify_hour_off_grid(
+    off_flags: list[Optional[bool]],
+    freq_hz: list[Optional[float]],
+) -> Optional[bool]:
+    """Whether one Kyiv hour was off-grid.
+
+    A stored ``off_grid`` sample wins. Older rows have no flag: grid frequency was
+    stored only for 40–70 Hz, so an hour of samples with no frequency is the
+    historical off-grid signal (Deye reports 0 Hz when the utility is absent).
+    """
+    if any(flag is True for flag in off_flags):
+        return True
+    if any(flag is False for flag in off_flags):
+        return False
+    if not freq_hz:
+        return None
+    if all(hz is None for hz in freq_hz):
+        return True
+    return False
 
 
 def floor_to_5min_utc(when: datetime) -> datetime:
@@ -71,6 +115,7 @@ async def upsert_deye_sample(
     pv_power_w: Optional[float] = None,
     pv_generation_w: Optional[float] = None,
     battery_power_w: Optional[float] = None,
+    off_grid: Optional[bool] = None,
 ) -> None:
     if (
         soc_percent is None
@@ -83,8 +128,10 @@ async def upsert_deye_sample(
     ):
         return
     extras = await deye_soc_balance_input_columns_ready(session)
+    store_off_grid = await deye_soc_off_grid_column_ready(session)
+    off_grid_value = off_grid if store_off_grid else None
     if extras:
-        stmt = pg_insert(DeyeSocSample).values(
+        values = dict(
             device_sn=device_sn,
             bucket_start=bucket_start,
             soc_percent=soc_percent,
@@ -95,43 +142,49 @@ async def upsert_deye_sample(
             pv_generation_w=pv_generation_w,
             battery_power_w=battery_power_w,
         )
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["device_sn", "bucket_start"],
-            set_={
-                "soc_percent": func.coalesce(stmt.excluded.soc_percent, DeyeSocSample.soc_percent),
-                "grid_power_w": func.coalesce(stmt.excluded.grid_power_w, DeyeSocSample.grid_power_w),
-                "grid_frequency_hz": func.coalesce(
-                    stmt.excluded.grid_frequency_hz,
-                    DeyeSocSample.grid_frequency_hz,
-                ),
-                "load_power_w": func.coalesce(stmt.excluded.load_power_w, DeyeSocSample.load_power_w),
-                "pv_power_w": func.coalesce(stmt.excluded.pv_power_w, DeyeSocSample.pv_power_w),
-                "pv_generation_w": func.coalesce(stmt.excluded.pv_generation_w, DeyeSocSample.pv_generation_w),
-                "battery_power_w": func.coalesce(
-                    stmt.excluded.battery_power_w,
-                    DeyeSocSample.battery_power_w,
-                ),
-            },
-        )
+        if store_off_grid:
+            values["off_grid"] = off_grid_value
+        stmt = pg_insert(DeyeSocSample).values(**values)
+        updates = {
+            "soc_percent": func.coalesce(stmt.excluded.soc_percent, DeyeSocSample.soc_percent),
+            "grid_power_w": func.coalesce(stmt.excluded.grid_power_w, DeyeSocSample.grid_power_w),
+            "grid_frequency_hz": func.coalesce(
+                stmt.excluded.grid_frequency_hz,
+                DeyeSocSample.grid_frequency_hz,
+            ),
+            "load_power_w": func.coalesce(stmt.excluded.load_power_w, DeyeSocSample.load_power_w),
+            "pv_power_w": func.coalesce(stmt.excluded.pv_power_w, DeyeSocSample.pv_power_w),
+            "pv_generation_w": func.coalesce(stmt.excluded.pv_generation_w, DeyeSocSample.pv_generation_w),
+            "battery_power_w": func.coalesce(
+                stmt.excluded.battery_power_w,
+                DeyeSocSample.battery_power_w,
+            ),
+        }
+        if store_off_grid:
+            updates["off_grid"] = func.coalesce(stmt.excluded.off_grid, DeyeSocSample.off_grid)
+        stmt = stmt.on_conflict_do_update(index_elements=["device_sn", "bucket_start"], set_=updates)
     else:
-        stmt = pg_insert(DeyeSocSample).values(
+        values = dict(
             device_sn=device_sn,
             bucket_start=bucket_start,
             soc_percent=soc_percent,
             grid_power_w=grid_power_w,
             grid_frequency_hz=grid_frequency_hz,
         )
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["device_sn", "bucket_start"],
-            set_={
-                "soc_percent": func.coalesce(stmt.excluded.soc_percent, DeyeSocSample.soc_percent),
-                "grid_power_w": func.coalesce(stmt.excluded.grid_power_w, DeyeSocSample.grid_power_w),
-                "grid_frequency_hz": func.coalesce(
-                    stmt.excluded.grid_frequency_hz,
-                    DeyeSocSample.grid_frequency_hz,
-                ),
-            },
-        )
+        if store_off_grid:
+            values["off_grid"] = off_grid_value
+        stmt = pg_insert(DeyeSocSample).values(**values)
+        updates = {
+            "soc_percent": func.coalesce(stmt.excluded.soc_percent, DeyeSocSample.soc_percent),
+            "grid_power_w": func.coalesce(stmt.excluded.grid_power_w, DeyeSocSample.grid_power_w),
+            "grid_frequency_hz": func.coalesce(
+                stmt.excluded.grid_frequency_hz,
+                DeyeSocSample.grid_frequency_hz,
+            ),
+        }
+        if store_off_grid:
+            updates["off_grid"] = func.coalesce(stmt.excluded.off_grid, DeyeSocSample.off_grid)
+        stmt = stmt.on_conflict_do_update(index_elements=["device_sn", "bucket_start"], set_=updates)
     await session.execute(stmt)
 
 
@@ -218,6 +271,7 @@ async def run_deye_soc_snapshot(session: AsyncSession) -> int:
             pv_val,
             pv_gen_val,
             bat_val,
+            off_grid=await get_device_off_grid(sn),
         )
         n += 1
     return n
@@ -483,6 +537,43 @@ async def hourly_inverter_history_for_kyiv_day(
     )
 
     return soc_out, grid_out, freq_out, pv_kwh_out, load_kwh_out, import_kwh_out
+
+
+async def hourly_off_grid_for_kyiv_day(
+    session: AsyncSession,
+    device_sns: list[str],
+    trade_day: date,
+) -> list[Optional[bool]]:
+    """24 flags (Kyiv hours 0..23). True when that hour was off the utility grid."""
+    sns = sorted({(s or "").strip() for s in device_sns if (s or "").strip()})
+    empty: list[Optional[bool]] = [None] * 24
+    if not sns:
+        return empty
+    start_kyiv, end_kyiv = _kyiv_day_bounds(trade_day)
+    start_utc = start_kyiv.astimezone(timezone.utc)
+    end_utc = end_kyiv.astimezone(timezone.utc)
+    store_off_grid = await deye_soc_off_grid_column_ready(session)
+    columns = [DeyeSocSample.bucket_start, DeyeSocSample.grid_frequency_hz]
+    if store_off_grid:
+        columns.append(DeyeSocSample.off_grid)
+    result = await session.execute(
+        select(*columns).where(
+            DeyeSocSample.device_sn.in_(sns),
+            DeyeSocSample.bucket_start >= start_utc,
+            DeyeSocSample.bucket_start < end_utc,
+        )
+    )
+    flags: list[list[Optional[bool]]] = [[] for _ in range(24)]
+    freqs: list[list[Optional[float]]] = [[] for _ in range(24)]
+    for row in result.all():
+        local = row[0].astimezone(KYIV)
+        hour = int(local.hour)
+        if not 0 <= hour <= 23:
+            continue
+        freqs[hour].append(None if row[1] is None else float(row[1]))
+        if store_off_grid:
+            flags[hour].append(row[2] if isinstance(row[2], bool) else None)
+    return [classify_hour_off_grid(flags[i], freqs[i]) for i in range(24)]
 
 
 def _round_for_dedup(value: Optional[float]) -> Optional[float]:

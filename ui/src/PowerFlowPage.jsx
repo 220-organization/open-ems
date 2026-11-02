@@ -1692,6 +1692,18 @@ function LandingExportMetricCounter({
   );
 }
 
+/** Client-side gate: GridLab rows stay out of the source list until this password is entered. */
+const GRIDLAB_LIST_PASSWORD = '1';
+const GRIDLAB_LIST_UNLOCK_KEY = 'pf-gridlab-list-unlocked';
+
+function readGridlabListUnlocked() {
+  try {
+    return sessionStorage.getItem(GRIDLAB_LIST_UNLOCK_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 export default function PowerFlowPage({
   t,
   getBcp47Locale,
@@ -2248,6 +2260,11 @@ export default function PowerFlowPage({
     return m;
   }, [deyeCombinedItems]);
 
+  const [gridlabListUnlocked, setGridlabListUnlocked] = useState(readGridlabListUnlocked);
+  const [gridlabListPassword, setGridlabListPassword] = useState('');
+  const [gridlabListPasswordWrong, setGridlabListPasswordWrong] = useState(false);
+  const [gridlabPasswordPrompt, setGridlabPasswordPrompt] = useState(false);
+
   useEffect(() => {
     if (inverterRows.loading || huaweiRows.loading || ubetterRows.loading || gridlabRows.loading) return;
     let want = '';
@@ -2273,14 +2290,27 @@ export default function PowerFlowPage({
       if (ubetterRows.items.some(r => r.sn === parsed.id)) {
         setInverterValue(want);
       }
-    } else if (parsed.provider === 'gridlab' && gridlabRows.configured && !gridlabRows.error) {
+    } else if (
+      parsed.provider === 'gridlab' &&
+      gridlabListUnlocked &&
+      gridlabRows.configured &&
+      !gridlabRows.error
+    ) {
       if (gridlabRows.items.some(r => String(r.deviceId) === String(parsed.id))) {
         setInverterValue(want);
       }
     } else if (parsed.provider === 'dc-ev' || parsed.provider === 'ac-ev') {
       setInverterValue(`${parsed.provider === 'ac-ev' ? ESS_PREFIX_AC_EV : ESS_PREFIX_DC_EV}${parsed.id || 'all'}`);
     }
-  }, [inverterRows, huaweiRows, ubetterRows, gridlabRows, deyeCombinedItems, deyeSnToRepresentative]);
+  }, [
+    inverterRows,
+    huaweiRows,
+    ubetterRows,
+    gridlabRows,
+    deyeCombinedItems,
+    deyeSnToRepresentative,
+    gridlabListUnlocked,
+  ]);
 
   const onInverterChange = useCallback(e => {
     const v = normalizeEssSelectionValue(e.target.value);
@@ -2558,6 +2588,31 @@ export default function PowerFlowPage({
   const [collectionBySn, setCollectionBySn] = useState({});
   const [inverterMenuOpen, setInverterMenuOpen] = useState(false);
   const [inverterMenuBox, setInverterMenuBox] = useState(null);
+
+  const onGridlabListUnlock = useCallback(
+    event => {
+      event.preventDefault();
+      if (gridlabListPassword.trim() !== GRIDLAB_LIST_PASSWORD) {
+        setGridlabListPasswordWrong(true);
+        return;
+      }
+      try {
+        sessionStorage.setItem(GRIDLAB_LIST_UNLOCK_KEY, '1');
+      } catch {
+        /* ignore */
+      }
+      setGridlabListPassword('');
+      setGridlabListPasswordWrong(false);
+      setGridlabListUnlocked(true);
+      setGridlabPasswordPrompt(false);
+      const row = gridlabRows.items[0];
+      if (row?.deviceId != null && String(row.deviceId).trim()) {
+        onInverterChange({ target: { value: `${ESS_PREFIX_GRIDLAB}${row.deviceId}` } });
+      }
+      setInverterMenuOpen(false);
+    },
+    [gridlabListPassword, gridlabRows.items, onInverterChange]
+  );
   const inverterPickerRef = useRef(null);
   const inverterMenuRef = useRef(null);
   const [socListLoading, setSocListLoading] = useState(false);
@@ -5559,6 +5614,10 @@ export default function PowerFlowPage({
           : deyeLiveLoading;
 
   useEffect(() => {
+    if (!inverterMenuOpen) setGridlabPasswordPrompt(false);
+  }, [inverterMenuOpen]);
+
+  useEffect(() => {
     if (!inverterMenuOpen) return undefined;
     const place = () => {
       const button = inverterPickerRef.current?.querySelector('button');
@@ -5604,6 +5663,7 @@ export default function PowerFlowPage({
     label,
     disabled: Boolean(extra.disabled),
     offline: Boolean(extra.offline),
+    askPassword: Boolean(extra.askPassword),
   });
   if (noEssListYet) {
     inverterMenuGroups.push({ label: null, items: [menuItem('', '…', { disabled: true })] });
@@ -5628,23 +5688,20 @@ export default function PowerFlowPage({
     });
     if (gridlabRows.configured && !gridlabRows.loading && !gridlabRows.error && gridlabRows.authFailed) {
       inverterMenuGroups.push({
+        key: 'gridlab',
         label: t('essGridLab'),
         items: [menuItem('', t('gridlabAuthFailedHint'), { disabled: true })],
       });
     } else if (gridlabListReady && gridlabRows.items.length > 0) {
+      const row = gridlabRows.items[0];
       inverterMenuGroups.push({
-        label: t('essGridLab'),
-        items: gridlabRows.items.map(row => {
-          const id = String(row.deviceId);
-          const shortLabel = inverterSelectShortLabel(row.name, id);
-          const offline = row.isOnline === false;
-          const soc =
-            row.socPercent != null && Number.isFinite(Number(row.socPercent))
-              ? ` · ${inverterSocFmt.format(Number(row.socPercent))}%`
-              : '';
-          const onlineSuffix = offline ? ` · ${t('gridlabOffline')}` : '';
-          return menuItem(`${ESS_PREFIX_GRIDLAB}${id}`, shortLabel + soc + onlineSuffix, { offline });
-        }),
+        key: 'gridlab',
+        label: null,
+        items: [
+          menuItem(`${ESS_PREFIX_GRIDLAB}${row.deviceId}`, t('essGridLab'), {
+            askPassword: !gridlabListUnlocked,
+          }),
+        ],
       });
     }
     if (ubetterRows.configured && !ubetterRows.loading && !ubetterRows.error && ubetterRows.authFailed) {
@@ -5782,24 +5839,54 @@ export default function PowerFlowPage({
                             }}
                           >
                             {inverterMenuGroups.map(group => (
-                              <div key={group.label || 'sources'} className="pf-inverter-menu__group">
+                              <div key={group.key || group.label || 'sources'} className="pf-inverter-menu__group">
                                 {group.label ? <div className="pf-inverter-menu__label">{group.label}</div> : null}
                                 {group.items.map(item => (
-                                  <button
-                                    key={`${group.label || 'sources'}:${item.value}:${item.label}`}
-                                    type="button"
-                                    role="option"
-                                    className={`pf-inverter-menu__option${item.offline ? ' pf-inverter-menu__option--offline' : ''}`}
-                                    aria-selected={!item.disabled && item.value === inverterValue}
-                                    disabled={item.disabled}
-                                    onClick={() => {
-                                      if (item.disabled) return;
-                                      onInverterChange({ target: { value: item.value } });
-                                      setInverterMenuOpen(false);
-                                    }}
-                                  >
-                                    {item.label}
-                                  </button>
+                                  <div key={`${group.key || group.label || 'sources'}:${item.value}:${item.label}`}>
+                                    <button
+                                      type="button"
+                                      role="option"
+                                      className={`pf-inverter-menu__option${item.offline ? ' pf-inverter-menu__option--offline' : ''}`}
+                                      aria-selected={!item.disabled && item.value === inverterValue}
+                                      disabled={item.disabled}
+                                      onClick={() => {
+                                        if (item.disabled) return;
+                                        if (item.askPassword) {
+                                          setGridlabPasswordPrompt(true);
+                                          return;
+                                        }
+                                        onInverterChange({ target: { value: item.value } });
+                                        setInverterMenuOpen(false);
+                                      }}
+                                    >
+                                      {item.label}
+                                    </button>
+                                    {item.askPassword && gridlabPasswordPrompt ? (
+                                      <form className="pf-inverter-menu__unlock" onSubmit={onGridlabListUnlock}>
+                                        <input
+                                          type="password"
+                                          className="pf-inverter-menu__unlock-input"
+                                          value={gridlabListPassword}
+                                          autoFocus
+                                          onChange={event => {
+                                            setGridlabListPassword(event.target.value);
+                                            if (gridlabListPasswordWrong) setGridlabListPasswordWrong(false);
+                                          }}
+                                          placeholder={t('gridlabListPasswordPlaceholder')}
+                                          aria-label={t('gridlabListPasswordPlaceholder')}
+                                          autoComplete="off"
+                                        />
+                                        <button type="submit" className="pf-inverter-menu__unlock-submit">
+                                          {t('gridlabListPasswordSubmit')}
+                                        </button>
+                                        {gridlabListPasswordWrong ? (
+                                          <p className="pf-inverter-menu__unlock-error">
+                                            {t('gridlabListPasswordWrong')}
+                                          </p>
+                                        ) : null}
+                                      </form>
+                                    ) : null}
+                                  </div>
                                 ))}
                               </div>
                             ))}

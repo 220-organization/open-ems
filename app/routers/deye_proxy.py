@@ -96,6 +96,7 @@ from app.deye_roi_service import (
 from app.deye_soc_service import (
     hourly_inverter_history_for_kyiv_day,
     hourly_inverter_history_for_kyiv_day_cluster,
+    hourly_off_grid_for_kyiv_day,
     kyiv_day_has_energy_backfill,
     prefer_hourly_energy_for_day,
 )
@@ -608,6 +609,7 @@ async def get_soc_history_day(
                 "hourlyGridFrequencyHz": [None] * 24,
                 "hourlyPvKwh": [None] * 24,
                 "hourlyLoadKwh": [None] * 24,
+                "hourlyOffGrid": [None] * 24,
             },
             headers=_NO_STORE_CACHE,
         )
@@ -625,6 +627,7 @@ async def get_soc_history_day(
             hourly_soc, hourly_grid_w, hourly_grid_hz, hourly_pv_kwh, hourly_load_kwh, _ = (
                 await hourly_inverter_history_for_kyiv_day(db, deviceSn, trade_day)
             )
+        hourly_off_grid = await hourly_off_grid_for_kyiv_day(db, cluster or [deviceSn.strip()], trade_day)
         energy_backfilled = False
         if prefer_hourly_energy_for_day(trade_day):
             energy_backfilled = await kyiv_day_has_energy_backfill(
@@ -642,6 +645,7 @@ async def get_soc_history_day(
                 "hourlyGridFrequencyHz": hourly_grid_hz,
                 "hourlyPvKwh": hourly_pv_kwh,
                 "hourlyLoadKwh": hourly_load_kwh,
+                "hourlyOffGrid": hourly_off_grid,
                 "energyBackfilled": energy_backfilled,
             },
             headers=_NO_STORE_CACHE,
