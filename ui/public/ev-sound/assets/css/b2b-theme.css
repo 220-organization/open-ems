@@ -1,30 +1,32 @@
 /*
  * Z-Audio theme: Tesla Tron instrument cluster.
- * Black void, cyan HUD lines, and an orange light-wall accent on the needle
- * and the running Stop hub.
+ * Colors are the B2B Gamma tokens from
+ * activecharge/src-js/react/src/pages/b2bPage/b2bPage.css.
+ * The charging blink blue is the second neon, used on the needle.
  */
 :root {
-  --b2b-accent: #7af3ff;
-  --b2b-accent-dim: #b8fbff;
-  --b2b-accent-gradient: linear-gradient(90deg, #7af3ff 0%, #2f9bff 100%);
-  --b2b-logo-stop-1: #7af3ff;
-  --b2b-logo-stop-2: #2f9bff;
-  --b2b-logo-stop-3: #ff7a1a;
-  --b2b-toggle-glow:
-    0 0 18px rgba(122, 243, 255, 0.55), inset 0 0 18px rgba(122, 243, 255, 0.18);
-  --b2b-bg: #000000;
-  --b2b-card-surface: #041018;
-  --b2b-card-surface-muted: #02080e;
-  --b2b-body: #d7f7ff;
-  --b2b-card-border: rgba(122, 243, 255, 0.45);
-  --b2b-button-radius: 999px;
-  --b2b-button-fill: transparent;
-  --b2b-button-text: #f3feff;
+  --b2b-accent: #f94caf;
+  --b2b-accent-dim: #ff65c8;
+  --b2b-accent-gradient: linear-gradient(90deg, #ff6680 0%, #ff4da9 45%, #cd42d7 100%);
+  --b2b-logo-stop-1: #ff6680;
+  --b2b-logo-stop-2: #ff4da9;
+  --b2b-logo-stop-3: #cd42d7;
+  --b2b-toggle-glow: 0 0 20px rgba(249, 76, 175, 0.45), 0 0 40px rgba(128, 0, 255, 0.2);
+  --b2b-bg: #110c17;
+  --b2b-card-surface: #31233e;
+  --b2b-card-surface-muted: #241631;
+  --b2b-body: #dad1e6;
+  --b2b-success: #6ee7a0;
+  --b2b-card-border: rgba(249, 76, 175, 0.32);
+  --b2b-charging-blink-color: #5eb8ff;
+  --b2b-charging-blink-glow: 0 0 10px rgba(94, 184, 255, 0.55);
+  --b2b-button-radius: 20px;
+  --b2b-button-fill: linear-gradient(135deg, #ff726d 0%, #ff4da9 50%, #cd42d7 100%);
+  --b2b-button-text: #fff;
   --b2b-button-font-family: Audiowide, "Fira Sans", system-ui, sans-serif;
-  --history-button-shadow:
-    0 0 16px rgba(122, 243, 255, 0.28), inset 0 0 12px rgba(122, 243, 255, 0.12);
-  --tron-cyan: #7af3ff;
-  --tron-orange: #ff7a1a;
+  --history-button-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+  --tron-cyan: var(--b2b-accent);
+  --tron-orange: var(--b2b-charging-blink-color);
 }
 
 html,
@@ -41,7 +43,7 @@ body.home-intro .intro {
 }
 
 body.home-intro {
-  background: #000;
+  background: var(--b2b-bg);
 }
 
 /* Fixed grid stays put while the instrument scrolls. */
@@ -52,9 +54,9 @@ body.home-intro::before {
   z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(ellipse 70% 45% at 50% 38%, rgba(47, 155, 255, 0.16), transparent 68%),
-    linear-gradient(rgba(122, 243, 255, 0.07) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(122, 243, 255, 0.07) 1px, transparent 1px);
+    radial-gradient(ellipse 70% 45% at 50% 38%, rgba(249, 76, 175, 0.22), transparent 68%),
+    linear-gradient(rgba(249, 76, 175, 0.09) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(128, 0, 255, 0.08) 1px, transparent 1px);
   background-size: auto, 46px 46px, 46px 46px;
 }
 
@@ -73,7 +75,7 @@ body.home-intro::before {
   font-weight: 400;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  text-shadow: 0 0 22px rgba(122, 243, 255, 0.55);
+  text-shadow: 0 0 22px rgba(249, 76, 175, 0.55);
 }
 
 .intro-title strong {
@@ -81,7 +83,7 @@ body.home-intro::before {
 }
 
 .intro-subtitle {
-  color: #9ad7e6;
+  color: var(--b2b-body);
   letter-spacing: 0.04em;
 }
 
@@ -90,12 +92,24 @@ body.home-intro::before {
   font-weight: 400;
   letter-spacing: 0.28em;
   text-transform: uppercase;
-  color: #f3feff;
-  text-shadow: 0 0 16px rgba(122, 243, 255, 0.4);
+  color: var(--b2b-button-text);
+  text-shadow: 0 0 16px rgba(249, 76, 175, 0.45);
+}
+
+.car > a.button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 320px;
+  max-width: 92%;
+  min-height: 52px;
+  margin: 16px auto 0;
+  padding: 0 1.2em;
 }
 
 #content label {
-  color: #8ec9d6;
+  color: var(--b2b-body);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   font-size: 12px;
@@ -128,7 +142,7 @@ input[type="reset"],
 input[type="submit"],
 .button {
   background: transparent;
-  border: 1px solid rgba(122, 243, 255, 0.72);
+  border: 1px solid var(--b2b-card-border);
   border-radius: var(--b2b-button-radius);
   box-shadow: var(--history-button-shadow);
   color: var(--b2b-button-text);
@@ -167,94 +181,129 @@ button:disabled:hover,
   opacity: 0.55;
 }
 
-button.start-stop-button {
-  border: 1px solid rgba(122, 243, 255, 0.95);
+.car button.start-stop-button {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  padding: 0 !important;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  border: 1px solid var(--b2b-accent);
   background:
     radial-gradient(
       circle,
-      rgba(2, 8, 14, 0.88) 0 62%,
-      rgba(122, 243, 255, 0.2) 68%,
-      #7af3ff 73%,
+      rgba(17, 12, 23, 0.55) 0 62%,
+      rgba(249, 76, 175, 0.28) 68%,
+      var(--b2b-accent) 73%,
       transparent 76%
     );
-  box-shadow:
-    0 0 28px rgba(122, 243, 255, 0.45),
-    inset 0 0 40px rgba(122, 243, 255, 0.12);
-  color: #f6feff;
-  text-shadow: 0 0 14px rgba(122, 243, 255, 0.95);
+  box-shadow: var(--b2b-toggle-glow);
+  color: var(--b2b-button-text);
+  text-shadow: 0 0 14px rgba(249, 76, 175, 0.85);
   touch-action: manipulation;
+}
+
+/* While one car is running, the others get a solid disc instead of a see-through Start. */
+body:has(button.start-stop-button[style*="80px"])
+  .car:not(:has(button.start-stop-button[style*="80px"]))
+  button.start-stop-button {
+  background: var(--b2b-bg);
+  opacity: 1;
+}
+
+/* Pedal drawing sits above the dial center. Drop it onto that center while Start is full size. */
+.controls:has(> button.start-stop-button:not([style*="80px"])) svg.pedal {
+  position: relative;
+  top: 28px;
+  left: 8px;
 }
 
 /* Running state: the bundle shrinks the hub with an inline 80px size. */
 button.start-stop-button[style*="80px"] {
-  border-color: var(--tron-orange);
-  background: radial-gradient(circle, #ffb067 0%, #ff7a1a 42%, #9a3412 100%);
-  box-shadow:
-    0 0 18px rgba(255, 122, 26, 0.85),
-    inset 0 0 10px rgba(255, 255, 255, 0.35);
-  color: #1a0a00;
+  left: 50% !important;
+  transform: translateX(-50%);
+  border-color: transparent;
+  background: var(--b2b-button-fill);
+  box-shadow: var(--b2b-toggle-glow);
+  color: var(--b2b-button-text);
   text-shadow: none;
   letter-spacing: 0.04em;
   font-size: 14px !important;
 }
 
+.volume-input-name,
+.volume-input-range {
+  left: 50% !important;
+  margin-left: 0 !important;
+  transform: translateX(-50%);
+}
+
+.volume-input-name {
+  width: max-content;
+  text-align: center;
+}
+
+.volume-input-range {
+  width: 148px !important;
+}
+
 svg.speedo .edge {
-  fill: rgba(2, 10, 16, 0.88) !important;
-  stroke: var(--tron-cyan) !important;
-  filter: drop-shadow(0 0 8px rgba(122, 243, 255, 0.75));
+  fill: rgba(17, 12, 23, 0.88) !important;
+  stroke: var(--b2b-accent) !important;
+  filter: drop-shadow(0 0 8px rgba(249, 76, 175, 0.75));
 }
 
 svg.speedo .edge-in {
-  fill: rgba(8, 28, 40, 0.35) !important;
-  stroke: rgba(122, 243, 255, 0.4) !important;
+  fill: rgba(36, 22, 49, 0.55) !important;
+  stroke: rgba(249, 76, 175, 0.4) !important;
 }
 
 .speed-figure div {
-  color: #d8fbff !important;
-  text-shadow: 0 0 8px rgba(122, 243, 255, 0.85);
+  color: var(--b2b-accent-dim) !important;
+  text-shadow: 0 0 8px rgba(249, 76, 175, 0.75);
 }
 
 .pointer {
-  fill: #ff7a1a !important;
-  stroke: #ffe0c2 !important;
-  filter: drop-shadow(0 0 5px #ff7a1a);
+  fill: var(--b2b-charging-blink-color) !important;
+  stroke: #d7ecff !important;
+  filter: drop-shadow(0 0 5px rgba(94, 184, 255, 0.9));
 }
 
 /* The dial artwork is inline SVG with fixed gray fills, not the .edge classes. */
 .car > svg circle {
-  fill: #07141c !important;
-  stroke: #7af3ff !important;
+  fill: var(--b2b-bg) !important;
+  stroke: var(--b2b-accent) !important;
   stroke-width: 3px;
-  filter: drop-shadow(0 0 8px rgba(122, 243, 255, 0.65));
+  filter: drop-shadow(0 0 8px rgba(249, 76, 175, 0.65));
 }
 
 .car > svg path[fill="#6D6E71"] {
-  fill: #102430 !important;
-  stroke: rgba(122, 243, 255, 0.35) !important;
+  fill: var(--b2b-card-surface-muted) !important;
+  stroke: rgba(249, 76, 175, 0.35) !important;
 }
 
 .car > svg path[fill="#BCBEC0"],
 .car > svg path[fill="#58595B"] {
-  fill: #c8fbff !important;
+  fill: var(--b2b-accent-dim) !important;
   stroke: none !important;
 }
 
 .car > svg [fill="#cd42d7"],
 .car > svg [fill="#f94caf"] {
-  fill: #ff7a1a !important;
+  fill: var(--b2b-charging-blink-color) !important;
 }
 
 svg.pedal {
   filter:
     sepia(1)
     saturate(6)
-    hue-rotate(150deg)
+    hue-rotate(280deg)
     brightness(1.05)
-    drop-shadow(0 0 10px rgba(122, 243, 255, 0.75));
+    drop-shadow(0 0 10px rgba(249, 76, 175, 0.75));
 }
 
 .volume-input-name {
-  color: #9ad7e6;
+  color: var(--b2b-body);
   letter-spacing: 0.2em;
   text-transform: uppercase;
   font-family: Audiowide, sans-serif;
@@ -265,12 +314,12 @@ svg.pedal {
   -webkit-appearance: none;
   appearance: none;
   background: transparent;
-  accent-color: var(--tron-cyan);
+  accent-color: var(--b2b-accent);
 }
 
 .volume-input-range::-webkit-slider-runnable-track {
   height: 2px;
-  background: linear-gradient(90deg, var(--tron-orange), var(--tron-cyan));
+  background: var(--b2b-accent-gradient);
   border-radius: 999px;
 }
 
@@ -280,14 +329,14 @@ svg.pedal {
   height: 14px;
   margin-top: -6px;
   border-radius: 50%;
-  background: #041018;
-  border: 2px solid var(--tron-cyan);
-  box-shadow: 0 0 8px var(--tron-cyan);
+  background: var(--b2b-card-surface-muted);
+  border: 2px solid var(--b2b-accent);
+  box-shadow: 0 0 8px rgba(249, 76, 175, 0.65);
 }
 
 .volume-input-range::-moz-range-track {
   height: 2px;
-  background: linear-gradient(90deg, var(--tron-orange), var(--tron-cyan));
+  background: var(--b2b-accent-gradient);
   border: 0;
 }
 
@@ -295,8 +344,8 @@ svg.pedal {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: #041018;
-  border: 2px solid var(--tron-cyan);
+  background: var(--b2b-card-surface-muted);
+  border: 2px solid var(--b2b-accent);
 }
 
 /*
@@ -358,26 +407,32 @@ svg.pedal {
   }
 }
 
-/* Needle tip stays on the tick radius while the gauge rotates. */
+/* React rotates this box around the wrong point, so the tip leaves the ticks.
+   The speed angle stays in the inline style; mobile-audio.js places the tip. */
+.center-origin {
+  transform: none !important;
+}
+
 .pointer {
-  -webkit-transform: translate(100.1px, 173.6px) rotate(72deg) !important;
-  transform: translate(100.1px, 173.6px) rotate(72deg) !important;
+  transform-origin: 246.4px 178px !important;
+  -webkit-transform: rotate(-42.6deg) scale(0.85) !important;
+  transform: rotate(-42.6deg) scale(0.85) !important;
 }
 
 .menu-burger {
-  background: rgba(0, 0, 0, 0.45);
-  border: 1px solid rgba(122, 243, 255, 0.8);
-  box-shadow: 0 0 16px rgba(122, 243, 255, 0.4);
+  background: rgba(17, 12, 23, 0.55);
+  border: 1px solid var(--b2b-accent);
+  box-shadow: var(--b2b-toggle-glow);
 }
 
 .menu-burger .nav-icon,
 .menu-burger .nav-icon::before,
 .menu-burger .nav-icon::after {
-  background-color: var(--tron-cyan);
+  background-color: var(--b2b-accent);
 }
 
 .menu-burger circle {
-  stroke: var(--tron-cyan);
+  stroke: var(--b2b-accent);
 }
 
 .navbar {
@@ -389,12 +444,12 @@ svg.pedal {
 }
 
 select {
-  background: #041018;
-  color: #f3feff;
-  border: 1px solid rgba(122, 243, 255, 0.55);
+  background: var(--b2b-card-surface);
+  color: var(--b2b-button-text);
+  border: 1px solid var(--b2b-card-border);
   border-radius: 999px;
   padding: 6px 12px;
-  box-shadow: 0 0 12px rgba(122, 243, 255, 0.2);
+  box-shadow: var(--b2b-toggle-glow);
   font-family: var(--b2b-button-font-family);
 }
 

@@ -205,4 +205,29 @@
     },
     true
   );
+
+  // Rest pose puts the tip on the 0 tick, inside the ring. Added to the speed
+  // angle React writes on .center-origin (positive degrees climb the left side).
+  var NEEDLE_ZERO_DEG = -42.6;
+
+  function placeNeedles() {
+    var hubs = document.querySelectorAll(".center-origin");
+    for (var i = 0; i < hubs.length; i++) {
+      var hub = hubs[i];
+      var pointer = hub.querySelector(".pointer");
+      if (!pointer) continue;
+      var match = /rotate\(([-+\d.eE]+)deg\)/.exec(hub.style.transform || "");
+      var speedDeg = match ? parseFloat(match[1]) : 0;
+      if (!isFinite(speedDeg)) speedDeg = 0;
+      pointer.style.setProperty("transform-origin", "246.4px 178px", "important");
+      pointer.style.setProperty(
+        "transform",
+        "rotate(" + (NEEDLE_ZERO_DEG + speedDeg).toFixed(3) + "deg) scale(0.85)",
+        "important"
+      );
+    }
+    requestAnimationFrame(placeNeedles);
+  }
+
+  requestAnimationFrame(placeNeedles);
 })();
