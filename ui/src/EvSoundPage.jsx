@@ -15,6 +15,7 @@ export default function EvSoundPage({ t, locale }) {
         className="ev-sound-page__frame"
         title={t("evSoundNavLabel")}
         src={PLAYER_SRC}
+        allow="autoplay"
       />
     </div>
   );
