@@ -125,6 +125,25 @@ button:disabled:hover,
 button.start-stop-button {
   border: 0;
   box-shadow: var(--b2b-toggle-glow);
+  touch-action: manipulation;
+}
+
+/* The gauge is a fixed 400px stage. Scale it so Start and the pedal stay on screen. */
+@media (max-width: 560px) {
+  .intro {
+    overflow: visible;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .intro-in {
+    padding: 1.2em 0 2em;
+    max-width: 100%;
+  }
+
+  .car {
+    zoom: 0.82;
+  }
 }
 
 /* Needle tip stays on the tick radius while the gauge rotates. */
