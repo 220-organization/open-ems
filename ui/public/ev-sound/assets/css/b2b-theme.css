@@ -1,38 +1,30 @@
 /*
- * Z-Audio (jetaudio) theme override.
- * Tokens are copied from activecharge/src-js/react/src/pages/b2bPage/b2bPage.css
- * so this page uses the B2B palette instead of the original green theme.
+ * Z-Audio theme: Tesla Tron instrument cluster.
+ * Black void, cyan HUD lines, and an orange light-wall accent on the needle
+ * and the running Stop hub.
  */
 :root {
-  --b2b-accent: #f94caf;
-  --b2b-accent-dim: #ff65c8;
-  --b2b-accent-gradient: linear-gradient(
-    90deg,
-    #ff6680 0%,
-    #ff4da9 45%,
-    #cd42d7 100%
-  );
-  --b2b-logo-stop-1: #ff6680;
-  --b2b-logo-stop-2: #ff4da9;
-  --b2b-logo-stop-3: #cd42d7;
+  --b2b-accent: #7af3ff;
+  --b2b-accent-dim: #b8fbff;
+  --b2b-accent-gradient: linear-gradient(90deg, #7af3ff 0%, #2f9bff 100%);
+  --b2b-logo-stop-1: #7af3ff;
+  --b2b-logo-stop-2: #2f9bff;
+  --b2b-logo-stop-3: #ff7a1a;
   --b2b-toggle-glow:
-    0 0 20px rgba(249, 76, 175, 0.45), 0 0 40px rgba(128, 0, 255, 0.2);
-  --b2b-bg: #110c17;
-  --b2b-card-surface: #31233e;
-  --b2b-card-surface-muted: #241631;
-  --b2b-body: #dad1e6;
-  --b2b-card-border: rgba(249, 76, 175, 0.32);
-  --b2b-button-radius: 20px;
-  --b2b-button-fill: linear-gradient(
-    135deg,
-    #ff726d 0%,
-    #ff4da9 50%,
-    #cd42d7 100%
-  );
-  --b2b-button-text: #fff;
-  --b2b-button-font-family:
-    "Fira Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --history-button-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+    0 0 18px rgba(122, 243, 255, 0.55), inset 0 0 18px rgba(122, 243, 255, 0.18);
+  --b2b-bg: #000000;
+  --b2b-card-surface: #041018;
+  --b2b-card-surface-muted: #02080e;
+  --b2b-body: #d7f7ff;
+  --b2b-card-border: rgba(122, 243, 255, 0.45);
+  --b2b-button-radius: 999px;
+  --b2b-button-fill: transparent;
+  --b2b-button-text: #f3feff;
+  --b2b-button-font-family: Audiowide, "Fira Sans", system-ui, sans-serif;
+  --history-button-shadow:
+    0 0 16px rgba(122, 243, 255, 0.28), inset 0 0 12px rgba(122, 243, 255, 0.12);
+  --tron-cyan: #7af3ff;
+  --tron-orange: #ff7a1a;
 }
 
 html,
@@ -48,15 +40,65 @@ body.home-intro .intro {
   width: 100%;
 }
 
+body.home-intro {
+  background: #000;
+}
+
+/* Fixed grid stays put while the instrument scrolls. */
+body.home-intro::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 70% 45% at 50% 38%, rgba(47, 155, 255, 0.16), transparent 68%),
+    linear-gradient(rgba(122, 243, 255, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(122, 243, 255, 0.07) 1px, transparent 1px);
+  background-size: auto, 46px 46px, 46px 46px;
+}
+
+.wrapper {
+  position: relative;
+  z-index: 1;
+}
+
 .intro {
   color: var(--b2b-body);
-  background:
-    radial-gradient(
-      900px 420px at 50% -8%,
-      rgba(249, 76, 175, 0.32),
-      transparent 58%
-    ),
-    var(--b2b-bg);
+  background: transparent;
+}
+
+.intro-title {
+  font-family: Audiowide, sans-serif;
+  font-weight: 400;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  text-shadow: 0 0 22px rgba(122, 243, 255, 0.55);
+}
+
+.intro-title strong {
+  color: var(--tron-cyan);
+}
+
+.intro-subtitle {
+  color: #9ad7e6;
+  letter-spacing: 0.04em;
+}
+
+.car h1 {
+  font-family: Audiowide, sans-serif;
+  font-weight: 400;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: #f3feff;
+  text-shadow: 0 0 16px rgba(122, 243, 255, 0.4);
+}
+
+#content label {
+  color: #8ec9d6;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 12px;
 }
 
 .intro-title,
@@ -85,12 +127,15 @@ input[type="button"],
 input[type="reset"],
 input[type="submit"],
 .button {
-  background: var(--b2b-button-fill);
-  background-color: transparent;
+  background: transparent;
+  border: 1px solid rgba(122, 243, 255, 0.72);
   border-radius: var(--b2b-button-radius);
   box-shadow: var(--history-button-shadow);
   color: var(--b2b-button-text);
   font-family: var(--b2b-button-font-family);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
 }
 
 button:hover,
@@ -123,26 +168,193 @@ button:disabled:hover,
 }
 
 button.start-stop-button {
-  border: 0;
-  box-shadow: var(--b2b-toggle-glow);
+  border: 1px solid rgba(122, 243, 255, 0.95);
+  background:
+    radial-gradient(
+      circle,
+      rgba(2, 8, 14, 0.88) 0 62%,
+      rgba(122, 243, 255, 0.2) 68%,
+      #7af3ff 73%,
+      transparent 76%
+    );
+  box-shadow:
+    0 0 28px rgba(122, 243, 255, 0.45),
+    inset 0 0 40px rgba(122, 243, 255, 0.12);
+  color: #f6feff;
+  text-shadow: 0 0 14px rgba(122, 243, 255, 0.95);
   touch-action: manipulation;
 }
 
-/* The gauge is a fixed 400px stage. Scale it so Start and the pedal stay on screen. */
+/* Running state: the bundle shrinks the hub with an inline 80px size. */
+button.start-stop-button[style*="80px"] {
+  border-color: var(--tron-orange);
+  background: radial-gradient(circle, #ffb067 0%, #ff7a1a 42%, #9a3412 100%);
+  box-shadow:
+    0 0 18px rgba(255, 122, 26, 0.85),
+    inset 0 0 10px rgba(255, 255, 255, 0.35);
+  color: #1a0a00;
+  text-shadow: none;
+  letter-spacing: 0.04em;
+  font-size: 14px !important;
+}
+
+svg.speedo .edge {
+  fill: rgba(2, 10, 16, 0.88) !important;
+  stroke: var(--tron-cyan) !important;
+  filter: drop-shadow(0 0 8px rgba(122, 243, 255, 0.75));
+}
+
+svg.speedo .edge-in {
+  fill: rgba(8, 28, 40, 0.35) !important;
+  stroke: rgba(122, 243, 255, 0.4) !important;
+}
+
+.speed-figure div {
+  color: #d8fbff !important;
+  text-shadow: 0 0 8px rgba(122, 243, 255, 0.85);
+}
+
+.pointer {
+  fill: #ff7a1a !important;
+  stroke: #ffe0c2 !important;
+  filter: drop-shadow(0 0 5px #ff7a1a);
+}
+
+/* The dial artwork is inline SVG with fixed gray fills, not the .edge classes. */
+.car > svg circle {
+  fill: #07141c !important;
+  stroke: #7af3ff !important;
+  stroke-width: 3px;
+  filter: drop-shadow(0 0 8px rgba(122, 243, 255, 0.65));
+}
+
+.car > svg path[fill="#6D6E71"] {
+  fill: #102430 !important;
+  stroke: rgba(122, 243, 255, 0.35) !important;
+}
+
+.car > svg path[fill="#BCBEC0"],
+.car > svg path[fill="#58595B"] {
+  fill: #c8fbff !important;
+  stroke: none !important;
+}
+
+.car > svg [fill="#cd42d7"],
+.car > svg [fill="#f94caf"] {
+  fill: #ff7a1a !important;
+}
+
+svg.pedal {
+  filter:
+    sepia(1)
+    saturate(6)
+    hue-rotate(150deg)
+    brightness(1.05)
+    drop-shadow(0 0 10px rgba(122, 243, 255, 0.75));
+}
+
+.volume-input-name {
+  color: #9ad7e6;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  font-family: Audiowide, sans-serif;
+  font-size: 10px;
+}
+
+.volume-input-range {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  accent-color: var(--tron-cyan);
+}
+
+.volume-input-range::-webkit-slider-runnable-track {
+  height: 2px;
+  background: linear-gradient(90deg, var(--tron-orange), var(--tron-cyan));
+  border-radius: 999px;
+}
+
+.volume-input-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: #041018;
+  border: 2px solid var(--tron-cyan);
+  box-shadow: 0 0 8px var(--tron-cyan);
+}
+
+.volume-input-range::-moz-range-track {
+  height: 2px;
+  background: linear-gradient(90deg, var(--tron-orange), var(--tron-cyan));
+  border: 0;
+}
+
+.volume-input-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #041018;
+  border: 2px solid var(--tron-cyan);
+}
+
+/*
+ * The gauge is a fixed 400px stage. On a phone the site header already uses
+ * the top of the screen, and iOS draws the home indicator over the bottom.
+ * Shrink the stage and let the document scroll so Start and the links sit
+ * in the visible area instead of under that indicator.
+ */
 @media (max-width: 560px) {
+  html,
+  body {
+    height: auto;
+    min-height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
   .intro {
     overflow: visible;
-    padding-left: 0;
-    padding-right: 0;
+    padding: 0 12px;
+    min-height: 0;
   }
 
   .intro-in {
-    padding: 1.2em 0 2em;
+    display: block;
+    width: 100%;
     max-width: 100%;
+    padding: 8px 0 calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .intro-title {
+    font-size: 2rem;
+    margin-bottom: 6px;
+  }
+
+  .intro-subtitle {
+    margin-bottom: 0.35em;
+    font-size: 1.05rem;
+  }
+
+  .menu-burger {
+    top: 8px;
+    right: 8px;
+  }
+
+  #content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
   }
 
   .car {
-    zoom: 0.82;
+    zoom: 0.74;
+  }
+
+  .car br {
+    display: none;
   }
 }
 
@@ -153,8 +365,19 @@ button.start-stop-button {
 }
 
 .menu-burger {
-  background: var(--b2b-button-fill);
-  background-color: transparent;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(122, 243, 255, 0.8);
+  box-shadow: 0 0 16px rgba(122, 243, 255, 0.4);
+}
+
+.menu-burger .nav-icon,
+.menu-burger .nav-icon::before,
+.menu-burger .nav-icon::after {
+  background-color: var(--tron-cyan);
+}
+
+.menu-burger circle {
+  stroke: var(--tron-cyan);
 }
 
 .navbar {
@@ -166,11 +389,13 @@ button.start-stop-button {
 }
 
 select {
-  background: var(--b2b-card-surface);
-  color: var(--b2b-body);
-  border: 1px solid var(--b2b-card-border);
-  border-radius: 8px;
-  padding: 4px 8px;
+  background: #041018;
+  color: #f3feff;
+  border: 1px solid rgba(122, 243, 255, 0.55);
+  border-radius: 999px;
+  padding: 6px 12px;
+  box-shadow: 0 0 12px rgba(122, 243, 255, 0.2);
+  font-family: var(--b2b-button-font-family);
 }
 
 .post-content {
