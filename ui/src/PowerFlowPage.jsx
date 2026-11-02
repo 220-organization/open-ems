@@ -1692,6 +1692,18 @@ function LandingExportMetricCounter({
   );
 }
 
+/** Client-side gate: GridLab rows stay out of the source list until this password is entered. */
+const GRIDLAB_LIST_PASSWORD = '1';
+const GRIDLAB_LIST_UNLOCK_KEY = 'pf-gridlab-list-unlocked';
+
+function readGridlabListUnlocked() {
+  try {
+    return sessionStorage.getItem(GRIDLAB_LIST_UNLOCK_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 export default function PowerFlowPage({
   t,
   getBcp47Locale,
@@ -2248,6 +2260,10 @@ export default function PowerFlowPage({
     return m;
   }, [deyeCombinedItems]);
 
+  const [gridlabListUnlocked, setGridlabListUnlocked] = useState(readGridlabListUnlocked);
+  const [gridlabListPassword, setGridlabListPassword] = useState('');
+  const [gridlabListPasswordWrong, setGridlabListPasswordWrong] = useState(false);
+
   useEffect(() => {
     if (inverterRows.loading || huaweiRows.loading || ubetterRows.loading || gridlabRows.loading) return;
     let want = '';
@@ -2273,14 +2289,46 @@ export default function PowerFlowPage({
       if (ubetterRows.items.some(r => r.sn === parsed.id)) {
         setInverterValue(want);
       }
-    } else if (parsed.provider === 'gridlab' && gridlabRows.configured && !gridlabRows.error) {
+    } else if (
+      parsed.provider === 'gridlab' &&
+      gridlabListUnlocked &&
+      gridlabRows.configured &&
+      !gridlabRows.error
+    ) {
       if (gridlabRows.items.some(r => String(r.deviceId) === String(parsed.id))) {
         setInverterValue(want);
       }
     } else if (parsed.provider === 'dc-ev' || parsed.provider === 'ac-ev') {
       setInverterValue(`${parsed.provider === 'ac-ev' ? ESS_PREFIX_AC_EV : ESS_PREFIX_DC_EV}${parsed.id || 'all'}`);
     }
-  }, [inverterRows, huaweiRows, ubetterRows, gridlabRows, deyeCombinedItems, deyeSnToRepresentative]);
+  }, [
+    inverterRows,
+    huaweiRows,
+    ubetterRows,
+    gridlabRows,
+    deyeCombinedItems,
+    deyeSnToRepresentative,
+    gridlabListUnlocked,
+  ]);
+
+  const onGridlabListUnlock = useCallback(
+    event => {
+      event.preventDefault();
+      if (gridlabListPassword.trim() !== GRIDLAB_LIST_PASSWORD) {
+        setGridlabListPasswordWrong(true);
+        return;
+      }
+      try {
+        sessionStorage.setItem(GRIDLAB_LIST_UNLOCK_KEY, '1');
+      } catch {
+        /* ignore */
+      }
+      setGridlabListPassword('');
+      setGridlabListPasswordWrong(false);
+      setGridlabListUnlocked(true);
+    },
+    [gridlabListPassword]
+  );
 
   const onInverterChange = useCallback(e => {
     const v = normalizeEssSelectionValue(e.target.value);
@@ -5626,7 +5674,16 @@ export default function PowerFlowPage({
       label: null,
       items: [menuItem('', t('inverterSelectLabel'))],
     });
-    if (gridlabRows.configured && !gridlabRows.loading && !gridlabRows.error && gridlabRows.authFailed) {
+    const gridlabHasListContent =
+      (gridlabRows.configured && !gridlabRows.loading && !gridlabRows.error && gridlabRows.authFailed) ||
+      (gridlabListReady && gridlabRows.items.length > 0);
+    if (gridlabHasListContent && !gridlabListUnlocked) {
+      inverterMenuGroups.push({
+        label: t('essGridLab'),
+        unlock: true,
+        items: [],
+      });
+    } else if (gridlabRows.configured && !gridlabRows.loading && !gridlabRows.error && gridlabRows.authFailed) {
       inverterMenuGroups.push({
         label: t('essGridLab'),
         items: [menuItem('', t('gridlabAuthFailedHint'), { disabled: true })],
@@ -5784,6 +5841,28 @@ export default function PowerFlowPage({
                             {inverterMenuGroups.map(group => (
                               <div key={group.label || 'sources'} className="pf-inverter-menu__group">
                                 {group.label ? <div className="pf-inverter-menu__label">{group.label}</div> : null}
+                                {group.unlock ? (
+                                  <form className="pf-inverter-menu__unlock" onSubmit={onGridlabListUnlock}>
+                                    <input
+                                      type="password"
+                                      className="pf-inverter-menu__unlock-input"
+                                      value={gridlabListPassword}
+                                      onChange={event => {
+                                        setGridlabListPassword(event.target.value);
+                                        if (gridlabListPasswordWrong) setGridlabListPasswordWrong(false);
+                                      }}
+                                      placeholder={t('gridlabListPasswordPlaceholder')}
+                                      aria-label={t('gridlabListPasswordPlaceholder')}
+                                      autoComplete="off"
+                                    />
+                                    <button type="submit" className="pf-inverter-menu__unlock-submit">
+                                      {t('gridlabListPasswordSubmit')}
+                                    </button>
+                                    {gridlabListPasswordWrong ? (
+                                      <p className="pf-inverter-menu__unlock-error">{t('gridlabListPasswordWrong')}</p>
+                                    ) : null}
+                                  </form>
+                                ) : null}
                                 {group.items.map(item => (
                                   <button
                                     key={`${group.label || 'sources'}:${item.value}:${item.label}`}

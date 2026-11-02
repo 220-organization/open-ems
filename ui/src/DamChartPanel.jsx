@@ -240,6 +240,14 @@ function formatDamBarTooltipClockHour(hour) {
   return `${String(clamped).padStart(2, '0')}:00`;
 }
 
+const GRID_OFFGRID_BAR = '#e53935';
+
+function gridEnergyBarFill(row) {
+  if (row?.gridKw == null || !Number.isFinite(row.gridKw)) return 'rgba(90, 90, 110, 0.2)';
+  if (row.gridOffGrid) return GRID_OFFGRID_BAR;
+  return row.gridKw >= 0 ? '#f59e0b' : '#38bdf8';
+}
+
 function getHourlyDamPerKwhFromPayload(p) {
   if (!p?.ok) return null;
   if (Array.isArray(p.hourlyPriceDamEurPerKwh) && p.hourlyPriceDamEurPerKwh.length) {
@@ -804,6 +812,7 @@ export default function DamChartPanel({
   const energyIsApproximate = isApproximate && !energyBackfilled;
   /** Live grid power (W, Deye signed); used when hourly DB aggregates are missing. */
   const [liveGridPowerW, setLiveGridPowerW] = useState(null);
+  const [liveOffGrid, setLiveOffGrid] = useState(null);
   const [liveLoadPowerW, setLiveLoadPowerW] = useState(null);
   const [livePvPowerW, setLivePvPowerW] = useState(null);
   const [liveBatteryPowerW, setLiveBatteryPowerW] = useState(null);
@@ -1331,6 +1340,7 @@ export default function DamChartPanel({
   useEffect(() => {
     if (!effectiveInverterSn || effectiveHuaweiStation) {
       setLiveGridPowerW(null);
+      setLiveOffGrid(null);
       setLiveLoadPowerW(null);
       setLivePvPowerW(null);
       setLiveBatteryPowerW(null);
@@ -1346,6 +1356,7 @@ export default function DamChartPanel({
         if (cancelled || !d?.ok || d?.configured === false) {
           if (!cancelled) {
             setLiveGridPowerW(null);
+            setLiveOffGrid(null);
             setLiveLoadPowerW(null);
             setLivePvPowerW(null);
             setLiveBatteryPowerW(null);
@@ -1358,6 +1369,7 @@ export default function DamChartPanel({
         const bat = d.batteryPowerW;
         if (!cancelled) {
           setLiveGridPowerW(g != null && Number.isFinite(Number(g)) ? Number(g) : null);
+          setLiveOffGrid(d.offGrid === true ? true : d.offGrid === false ? false : null);
           setLiveLoadPowerW(l != null && Number.isFinite(Number(l)) ? Number(l) : null);
           setLivePvPowerW(pv != null && Number.isFinite(Number(pv)) ? Number(pv) : null);
           setLiveBatteryPowerW(bat != null && Number.isFinite(Number(bat)) ? Number(bat) : null);
@@ -1365,6 +1377,7 @@ export default function DamChartPanel({
       } catch {
         if (!cancelled) {
           setLiveGridPowerW(null);
+          setLiveOffGrid(null);
           setLiveLoadPowerW(null);
           setLivePvPowerW(null);
           setLiveBatteryPowerW(null);
@@ -1501,6 +1514,10 @@ export default function DamChartPanel({
       socPayload?.ok && socPayload?.configured && Array.isArray(socPayload.hourlyGridFrequencyHz)
         ? socPayload.hourlyGridFrequencyHz
         : null;
+    const offGridArr =
+      socPayload?.ok && socPayload?.configured && Array.isArray(socPayload.hourlyOffGrid)
+        ? socPayload.hourlyOffGrid
+        : null;
     const pvKwhArr =
       socPayload?.ok && socPayload?.configured && Array.isArray(socPayload.hourlyPvKwh) ? socPayload.hourlyPvKwh : null;
     const loadKwhArr =
@@ -1580,6 +1597,7 @@ export default function DamChartPanel({
         socPercent,
         gridKw,
         gridFreqHz,
+        gridOffGrid: offGridArr?.[i] === true,
         gridKwLive: false,
         gridKwFromLoad: false,
         pvKwh,
@@ -1726,6 +1744,15 @@ export default function DamChartPanel({
     const liveSocHour = kyivHourIndexNowForDate(tradeDay);
     if (
       liveSocHour != null &&
+      liveOffGrid === true &&
+      out[liveSocHour] &&
+      out[liveSocHour].gridKw != null &&
+      Number.isFinite(out[liveSocHour].gridKw)
+    ) {
+      out[liveSocHour] = { ...out[liveSocHour], gridOffGrid: true };
+    }
+    if (
+      liveSocHour != null &&
       liveSocPercent != null &&
       Number.isFinite(Number(liveSocPercent)) &&
       out[liveSocHour]
@@ -1756,6 +1783,7 @@ export default function DamChartPanel({
     evPortsHourly,
     liveEvPortsPowerW,
     liveSocPercent,
+    liveOffGrid,
     eurUahRate,
   ]);
 
@@ -2808,6 +2836,14 @@ export default function DamChartPanel({
                         >
                           {valueLine}
                         </p>
+                        {payload[0]?.payload?.gridOffGrid ? (
+                          <p
+                            className="recharts-tooltip-item"
+                            style={{ color: GRID_OFFGRID_BAR, margin: '4px 0 0', fontWeight: 600 }}
+                          >
+                            offgrid
+                          </p>
+                        ) : null}
                       </div>
                     );
                   }}
@@ -2820,16 +2856,7 @@ export default function DamChartPanel({
                   isAnimationActive={false}
                 >
                   {rows.map((e, i) => (
-                    <Cell
-                      key={`grid-${i}`}
-                      fill={
-                        e.gridKw == null || !Number.isFinite(e.gridKw)
-                          ? 'rgba(90, 90, 110, 0.2)'
-                          : e.gridKw >= 0
-                            ? '#f59e0b'
-                            : '#38bdf8'
-                      }
-                    />
+                    <Cell key={`grid-${i}`} fill={gridEnergyBarFill(e)} />
                   ))}
                 </Bar>
                 <Scatter
@@ -2841,7 +2868,7 @@ export default function DamChartPanel({
                     const { cx, cy, payload } = dotProps;
                     const v = payload?.gridKw;
                     if (v == null || !Number.isFinite(v) || cx == null || cy == null) return null;
-                    const fill = v >= 0 ? '#f59e0b' : '#38bdf8';
+                    const fill = gridEnergyBarFill(payload);
                     return (
                       <circle cx={cx} cy={cy} r={5.5} fill={fill} stroke={CHART.circleBorder} strokeWidth={1.2} />
                     );

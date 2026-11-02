@@ -49,6 +49,8 @@ class DeyeSocSample(Base):
     soc_percent: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
     grid_power_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
     grid_frequency_hz: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    # True when utility voltage was absent at this sample. NULL = not recorded yet.
+    off_grid: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
     load_power_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
     pv_power_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
     pv_generation_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
