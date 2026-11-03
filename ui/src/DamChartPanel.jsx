@@ -30,6 +30,9 @@ function apiUrl(path) {
   return `${base}${path}`;
 }
 
+// Panel revision tag (correlates with ui/src/emsModuleRev.js).
+const _DAM_CHART_PANEL_REV = '78ff467a71c2';
+
 const DAM_XLSX_AMOUNT_UAH = 5000;
 const DAM_XLSX_PAID_KEY = 'damXlsxPaidPaymentId';
 const DAM_XLSX_DRAFT_KEY = 'damXlsxPayDraft';
@@ -2195,7 +2198,7 @@ export default function DamChartPanel({
   const logoSrc = VYRIY_EMS_LOGO_SRC;
 
   return (
-    <>
+    <div className="dam-chart-panel-root" data-ems-rev={_DAM_CHART_PANEL_REV}>
       {variant === 'fullpage' ? (
         <div
           className={`dam-page-loader${loading ? ' dam-page-loader--visible' : ''}`}
@@ -3111,6 +3114,6 @@ export default function DamChartPanel({
           />
         ) : null}
       </div>
-    </>
+    </div>
   );
 }

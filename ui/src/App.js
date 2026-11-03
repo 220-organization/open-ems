@@ -23,6 +23,7 @@ import {
 import { useAutoHideChrome } from "./useAutoHideChrome";
 import { useI18n } from "./useI18n";
 import { useTheme } from "./useTheme";
+import { publishEmsModuleRev } from "./emsModuleRev";
 
 function readCurrentPage() {
   redirectLegacyDamChartPath();
@@ -46,6 +47,7 @@ export default function App() {
 
   useEffect(() => {
     window.__OPEN_EMS_APP_MOUNTED = true;
+    publishEmsModuleRev(window);
     document.getElementById("slow-net-notice")?.remove();
     document.documentElement.classList.remove("slow-net-light");
   }, []);
