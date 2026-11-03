@@ -57,6 +57,9 @@ import './dam-chart.css';
 import './openEmsKiosk.css';
 import { useOpenEmsSeo } from './useOpenEmsSeo';
 
+// Page revision tag (correlates with ui/src/emsModuleRev.js).
+const _POWER_FLOW_PAGE_REV = '41293f67a2a4';
+
 function formatGenPortDeyeFeedback(data) {
   if (!data?.deye) return '';
   try {
@@ -5801,7 +5804,10 @@ export default function PowerFlowPage({
 
   return (
     <KwhCalibrationProvider inverterSn={selInverterSn} t={t}>
-      <div className={`pf-body${kioskMode ? ' pf-body--kiosk' : ''}`}>
+      <div
+        className={`pf-body${kioskMode ? ' pf-body--kiosk' : ''}`}
+        data-ems-rev={_POWER_FLOW_PAGE_REV}
+      >
         {kioskMode ? (
           <button type="button" className="open-ems-kiosk-close" onClick={exitKiosk}>
             ← {t('openEmsKioskClose')}
