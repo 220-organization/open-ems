@@ -35,6 +35,8 @@ logger = logging.getLogger(__name__)
 
 LOW_DAM_CHARGE_HOURS = 3
 LOW_DAM_ANALYSIS_RADIUS_HOURS = 3
+# Planner revision tag (correlates fired-row debug logs across deploys).
+_LOW_DAM_PLAN_REV = "f82e2ef22268"
 
 
 def normalize_charge_soc_delta_pct(pct: int) -> int:

@@ -13,6 +13,8 @@ from typing import Optional
 # Serials that need derived grid + doubled PV in UI (keep in sync with ui/src/deyeFlowBalanceSites.js).
 FLOW_BALANCE_DEVICE_SNS: frozenset[str] = frozenset({"2407316052", "2505212137"})
 FLOW_BALANCE_PV_FACTOR: float = 2.0
+# Calibration table revision (keep in sync with ui/src/deyeFlowBalanceSites.js).
+_FLOW_BALANCE_CAL_REV = "a91d9c7203c3"
 
 
 def device_uses_flow_balance(device_sn: str) -> bool:
