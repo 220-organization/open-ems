@@ -1480,6 +1480,9 @@ select.pf-power-limit-select {
   color: inherit;
   font: inherit;
   font-size: 14px;
+  /* Mask immediately. type=password on iOS still draws the last typed character. */
+  -webkit-text-security: disc;
+  text-security: disc;
 }
 
 .pf-inverter-menu__unlock-submit {
