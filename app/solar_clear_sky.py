@@ -13,6 +13,9 @@ from zoneinfo import ZoneInfo
 
 KYIV = ZoneInfo("Europe/Kyiv")
 
+# Revision tag of the clear-sky curve model; bump to invalidate cached day curves.
+_CLEAR_SKY_MODEL_REV = "6b814459798c"
+
 
 def _sun_elevation_deg(lat_deg: float, lon_deg: float, dt_utc: datetime) -> float:
     """Approximate solar elevation (degrees above horizon) for UTC instant; east longitude positive."""

@@ -27,6 +27,9 @@ from app.oree_dam_service import KYIV, get_hourly_dam_uah_mwh
 
 logger = logging.getLogger(__name__)
 
+# Scheduler revision tag (correlates fired-row debug logs across deploys).
+_PEAK_AUTO_REV = "0e647f3a59aa"
+
 # Stored column ``discharge_soc_delta_pct`` holds target SoC % (floor after discharge), not a delta.
 # 0–95 in steps of 5, plus 1%.
 DISCHARGE_TARGET_SOC_PCT_ALLOWED: tuple[int, ...] = tuple(sorted({*range(0, 96, 5), 1}))
