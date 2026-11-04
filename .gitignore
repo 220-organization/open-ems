@@ -23,9 +23,15 @@ ui/build/
 
 # Capacitor mobile wrapper (app-mobile/)
 app-mobile/node_modules/
+app-mobile/ios/App/private_keys/
+app-mobile/ios/private_keys/
 app-mobile/build/
 app-mobile/android/.gradle/
 app-mobile/android/app/build/
 app-mobile/android/local.properties
 dist-apk/
+dist-aab/
+app-mobile/android/key.properties
+app-mobile/android/release.keystore
+app-mobile/android/*.jks
 

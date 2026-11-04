@@ -92,9 +92,11 @@ cd app-mobile && npm install
 ./run-ios.sh              # iOS simulator → https://220-km.com:9220
 ./run-android.sh          # Android emulator (prod flavor)
 ./run-build-apk-prod.sh   # → dist-apk/open-ems.apk
+./run-build-aab-prod.sh   # Play AAB → dist-aab/open-ems.aab
+./run-deploy-ios.sh       # macOS: archive and upload to TestFlight
 ```
 
-See [app-mobile/README.md](app-mobile/README.md) for preprod, localhost, and signing.
+See [app-mobile/README.md](app-mobile/README.md) for preprod, localhost, signing, and how to publish a new version from a new laptop (`open-ems-publishing-keys.zip`).
 
 ### Option 4 — Ubuntu server deploy
 
