@@ -67,7 +67,7 @@ def _build_submission_message(row) -> str:
         lines.append(f"Орендна плата за одне паркомісце: {int(row.monthly_price_parking)} ₴/міс")
     if getattr(row, "min_rent_years", None):
         rent_label = _MIN_RENT_LABELS.get(str(row.min_rent_years), str(row.min_rent_years))
-        lines.append(f"Мінімальний строк оренди: {html.escape(rent_label)}")
+        lines.append(f"Строк оренди: {html.escape(rent_label)}")
     if getattr(row, "restroom_coffee_nearby", None) is not None:
         lines.append(f"Вбиральня і кава поруч: {_format_contract(row.restroom_coffee_nearby)}")
     if getattr(row, "more_stations_possible", None) is not None:

@@ -538,6 +538,11 @@ function MarketplaceDetailsBody({
             {formatLandlordLegalForm(item.landlord_legal_form, t)}
           </span>
         ) : null}
+        {item.comment ? (
+          <span className={`${styles.distanceBadge} ${styles.commentBadge}`}>
+            {t("marketplaceLeadFormCommentLabel")}: {item.comment}
+          </span>
+        ) : null}
       </div>
 
       {publicationRelative ? (

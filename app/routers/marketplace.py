@@ -222,6 +222,7 @@ def _row_to_public(row) -> MarketplaceLocationPublic:
         id=row.id,
         request_type=row.request_type,
         kw_available=row.kw_available,
+        comment=getattr(row, "comment", None),
         distribution_contract=row.distribution_contract,
         locations=row.locations or [],
         parking_photos=_filter_existing_photo_urls(row.parking_photos),
