@@ -6197,6 +6197,10 @@ export default function PowerFlowPage({
                       </div>
                       <div className="pf-graph-refresh-wrap" data-pos="top-center">
                         <InverterUpdatedAgo collectionTimeSec={flowUpdatedAtSec} t={t} />
+                        <span className="pf-graph-refresh-brand">
+                          <img src={VYRIY_EMS_LOGO_SRC} alt="" width={36} height={36} decoding="async" />
+                          <span>VYRIY EMS</span>
+                        </span>
                         <button
                           type="button"
                           className="pf-graph-refresh"
