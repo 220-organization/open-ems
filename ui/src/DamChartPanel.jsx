@@ -22,7 +22,7 @@ import GridLabTotalsPanel from './GridLabTotalsPanel';
 import DeyeTotalsPanel from './DeyeTotalsPanel';
 import { useKwhCalibration } from './KwhCalibrationContext';
 import { useTheme } from './useTheme';
-import { VYRIY_EMS_LOGO_SRC } from './vyriyEmsLogo';
+import { VYRII_EMS_LOGO_SRC } from './vyriiEmsLogo';
 
 function apiUrl(path) {
   const base = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
@@ -2195,7 +2195,7 @@ export default function DamChartPanel({
     </div>
   );
 
-  const logoSrc = VYRIY_EMS_LOGO_SRC;
+  const logoSrc = VYRII_EMS_LOGO_SRC;
 
   return (
     <div className="dam-chart-panel-root" data-ems-rev={_DAM_CHART_PANEL_REV}>

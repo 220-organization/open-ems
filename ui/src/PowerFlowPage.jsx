@@ -27,7 +27,7 @@ import GridBalancingChartModal from './GridBalancingChartModal';
 import SolarNodePopupContent from './SolarNodePopupContent';
 import RoiStackStatistics from './RoiStackStatistics';
 import { KwhCalibrationProvider, useKwhCalibration } from './KwhCalibrationContext';
-import { VYRIY_EMS_LOGO_SRC } from './vyriyEmsLogo';
+import { VYRII_EMS_LOGO_SRC } from './vyriiEmsLogo';
 import PartnerHubLogo from './PartnerHubLogo';
 import { DEYE_FLOW_BALANCE_PV_FACTOR, usesDeyeFlowBalance } from './deyeFlowBalanceSites';
 import { inverterSelectShortLabel, evPortStationNumbersForInverter } from './deyeInverterDisplay';
@@ -6197,10 +6197,6 @@ export default function PowerFlowPage({
                       </div>
                       <div className="pf-graph-refresh-wrap" data-pos="top-center">
                         <InverterUpdatedAgo collectionTimeSec={flowUpdatedAtSec} t={t} />
-                        <span className="pf-graph-refresh-brand">
-                          <img src={VYRIY_EMS_LOGO_SRC} alt="" width={36} height={36} decoding="async" />
-                          <span>VYRIY EMS</span>
-                        </span>
                         <button
                           type="button"
                           className="pf-graph-refresh"
@@ -7732,7 +7728,7 @@ export default function PowerFlowPage({
                     <div className="pf-modal-loading" aria-live="polite">
                       <img
                         className="pf-modal-loader-logo"
-                        src={VYRIY_EMS_LOGO_SRC}
+                        src={VYRII_EMS_LOGO_SRC}
                         alt=""
                         width={38}
                         height={38}

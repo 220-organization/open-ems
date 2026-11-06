@@ -1,4 +1,4 @@
-import { VYRIY_EMS_LOGO_SRC } from './vyriyEmsLogo';
+import { VYRII_EMS_LOGO_SRC } from './vyriiEmsLogo';
 import { notifyOpenEmsSearchChange } from './sharePageQr';
 
 const staticBase = `${process.env.PUBLIC_URL || ''}/static/partners`;
@@ -6,11 +6,12 @@ const staticBase = `${process.env.PUBLIC_URL || ''}/static/partners`;
 /** Hub carousel: simple Open EMS logo by default; partners rotate after click (3 s per slide). */
 export const HUB_PARTNER_PROMOTIONS = [
   {
-    id: 'vyriy',
+    id: 'vyrii',
     name: 'Open EMS',
     url: 'https://220-km.com',
-    logoSrc: VYRIY_EMS_LOGO_SRC,
-    hubLabelKey: 'hubLabel',
+    logoSrc: VYRII_EMS_LOGO_SRC,
+    hubLabelText: 'VYRII EMS',
+    logoBare: true,
   },
   {
     id: 'dtek-kem',

@@ -164,7 +164,7 @@ function createPage() {
 function drawFooter(ctx, pageIndex, pageCount) {
   ctx.fillStyle = '#6b7280';
   ctx.font = '18px "Segoe UI", "Helvetica Neue", Arial, sans-serif';
-  ctx.fillText('Вирій ЕМС · 220-km.com · sales@220-km.com', MARGIN, PAGE_H - 44);
+  ctx.fillText('Вирій EMS · 220-km.com · sales@220-km.com', MARGIN, PAGE_H - 44);
   const label = `${pageIndex + 1} / ${pageCount}`;
   const w = ctx.measureText(label).width;
   ctx.fillText(label, PAGE_W - MARGIN - w, PAGE_H - 44);
@@ -225,7 +225,7 @@ async function renderOrderBessOfferCanvases(offer) {
   page.y += 36;
 
   const meta = [
-    ['Постачальник', 'Вирій ЕМС • 220-km.com'],
+    ['Постачальник', 'Вирій EMS • 220-km.com'],
     ['Контакт', 'sales@220-km.com'],
     ['Дата', todayUk()],
     ['Номер', num],

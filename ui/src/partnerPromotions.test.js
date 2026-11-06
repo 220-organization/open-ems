@@ -10,7 +10,7 @@ describe('hub logo URL pin', () => {
     expect(hubPartnerIndexById('ecu')).toBeGreaterThan(0);
     expect(hubPartnerIndexById('atmosfera')).toBeGreaterThan(0);
     expect(hubPartnerIndexById('gridlab')).toBeGreaterThan(0);
-    expect(hubPartnerIndexById('vyriy')).toBe(0);
+    expect(hubPartnerIndexById('vyrii')).toBe(0);
     expect(HUB_PARTNER_PROMOTIONS.find(p => p.id === 'gridlab')?.logoDarkPad).toBe(true);
   });
 
@@ -29,6 +29,6 @@ describe('hub logo URL pin', () => {
 
   it('defaults to 220-km when logo is absent', () => {
     expect(readPinnedHubLogoIndexFromUrl('?market=oree&zone=ES')).toBe(-1);
-    expect(hubPartnerIndexById('vyriy')).toBe(0);
+    expect(hubPartnerIndexById('vyrii')).toBe(0);
   });
 });

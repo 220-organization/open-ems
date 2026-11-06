@@ -62,12 +62,6 @@
   text-transform: uppercase;
 }
 
-.landing-header__brand--ems-vpp {
-  flex-direction: column;
-  gap: 6px;
-  align-items: center;
-}
-
 .landing-header__brand--ems-vpp .landing-header__name,
 html.open-ems-tron .pf-hub-label {
   font-family: Audiowide, sans-serif;
@@ -80,9 +74,8 @@ html.open-ems-tron .pf-hub-label {
   opacity: 1;
 }
 
-/* Spain DAM (`?market=oree&zone=ES`): Tesla Tron skin from ev-sound b2b-theme.css. */
-html.open-ems-tron,
-html.open-ems-tron[data-theme='light'] {
+/* Spain DAM (`?market=oree&zone=ES`): Tron skin on the dark theme only. Light theme stays the default. */
+html.open-ems-tron[data-theme='dark'] {
   --pf-body-bg: #110c17;
   --pf-page-bg: #110c17;
   --pf-surface: rgba(49, 35, 62, 0.86);
@@ -111,7 +104,7 @@ html.open-ems-tron[data-theme='light'] {
   --oe-nav-link-hover-bg: rgba(249, 76, 175, 0.16);
 }
 
-html.open-ems-tron body {
+html.open-ems-tron[data-theme='dark'] body {
   background-color: #110c17;
   background-image:
     radial-gradient(ellipse 70% 45% at 50% 18%, rgba(249, 76, 175, 0.22), transparent 68%),
@@ -121,41 +114,33 @@ html.open-ems-tron body {
   background-attachment: fixed;
 }
 
-html.open-ems-tron .landing-header,
-html.open-ems-tron .open-ems-header,
-html.open-ems-tron[data-theme='light'] .landing-header,
-html.open-ems-tron[data-theme='light'] .open-ems-header,
-html.open-ems-tron[data-theme='light'] .pf-top-bar {
+html.open-ems-tron[data-theme='dark'] .landing-header,
+html.open-ems-tron[data-theme='dark'] .open-ems-header,
+html.open-ems-tron[data-theme='dark'] .pf-top-bar {
   background: rgba(17, 12, 23, 0.88);
   border-bottom-color: rgba(249, 76, 175, 0.22);
   color: #dad1e6;
 }
 
-html.open-ems-tron[data-theme='light'] .landing-header__brand {
-  color: #dad1e6;
-}
-
-html.open-ems-tron .landing-nav__link {
+html.open-ems-tron[data-theme='dark'] .landing-nav__link {
   color: rgba(218, 209, 230, 0.78);
 }
 
-html.open-ems-tron .pf-graph .pf-node,
-html.open-ems-tron .pf-graph .pf-node[data-active='true'],
-html.open-ems-tron[data-theme='light'] .pf-graph .pf-node,
-html.open-ems-tron[data-theme='light'] .pf-graph .pf-node[data-active='true'] {
+html.open-ems-tron[data-theme='dark'] .pf-graph .pf-node,
+html.open-ems-tron[data-theme='dark'] .pf-graph .pf-node[data-active='true'] {
   background: #31233e;
   border-color: rgba(249, 76, 175, 0.32);
   color: #dad1e6;
   box-shadow: 0 0 20px rgba(249, 76, 175, 0.12);
 }
 
-html.open-ems-tron .pf-graph .pf-node-label,
-html.open-ems-tron[data-theme='light'] .pf-graph .pf-node-value,
-html.open-ems-tron[data-theme='light'] .pf-graph #pf-node-solar[data-active='true'] .pf-node-value,
-html.open-ems-tron[data-theme='light'] .pf-graph .pf-node-meta,
-html.open-ems-tron[data-theme='light'] .pf-graph .pf-node-sub,
-html.open-ems-tron[data-theme='light'] .pf-graph .pf-solar-today-near-icon,
-html.open-ems-tron[data-theme='light'] .pf-graph .pf-node-solar-forecast {
+html.open-ems-tron[data-theme='dark'] .pf-graph .pf-node-label,
+html.open-ems-tron[data-theme='dark'] .pf-graph .pf-node-value,
+html.open-ems-tron[data-theme='dark'] .pf-graph #pf-node-solar[data-active='true'] .pf-node-value,
+html.open-ems-tron[data-theme='dark'] .pf-graph .pf-node-meta,
+html.open-ems-tron[data-theme='dark'] .pf-graph .pf-node-sub,
+html.open-ems-tron[data-theme='dark'] .pf-graph .pf-solar-today-near-icon,
+html.open-ems-tron[data-theme='dark'] .pf-graph .pf-node-solar-forecast {
   color: #dad1e6;
   text-shadow: none;
 }
