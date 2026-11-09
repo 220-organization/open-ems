@@ -206,23 +206,48 @@
     true
   );
 
-  // Rest pose puts the tip on the 0 tick. React writes rotate(0.89 * km/h deg)
-  // on .center-origin, around the wrong point. Re-apply it around the needle base
-  // after shifting that base onto the dial center.
+  // React writes rotate(0.89 * km/h deg) on .center-origin. The drawn km/h
+  // labels sit on the inner ring; highlight the nearest one. Do not add digits.
   var SPEED_DEG_PER_KMH = 0.89;
-  var NEEDLE_REST_DEG = -98;
-  var NEEDLE_ORIGIN = "55px 79.4px";
-  var NEEDLE_SHIFT = "translate(133px, 105px)";
+  var KM_H_LABELS = [
+    { angle: -117, kmh: 0 },
+    { angle: -89, kmh: 20 },
+    { angle: -53, kmh: 60 },
+    { angle: -17, kmh: 100 },
+    { angle: 18, kmh: 140 },
+    { angle: 53, kmh: 180 },
+    { angle: 89, kmh: 220 },
+    { angle: 107, kmh: 240 }
+  ];
 
-  function ensureReadout(car) {
-    var el = car.querySelector(".digital-speed");
-    if (el) return el;
-    el = document.createElement("div");
-    el.className = "digital-speed";
-    el.setAttribute("aria-live", "polite");
-    el.innerHTML = '<span class="digital-speed__value">0</span><small>KM/H</small>';
-    car.appendChild(el);
-    return el;
+  function tagKmHDigits(svg) {
+    if (svg.getAttribute("data-kmh-tagged")) return;
+    var box = svg.getBoundingClientRect();
+    var cx = box.left + box.width * (187.671 / 374);
+    var cy = box.top + box.height * (186.084 / 374);
+    var groups = svg.querySelectorAll("g");
+    for (var i = 0; i < groups.length; i++) {
+      var b = groups[i].getBoundingClientRect();
+      if (b.width < 8 || b.width > 80 || b.height < 8 || b.height > 40) continue;
+      var x = b.left + b.width / 2;
+      var y = b.top + b.height / 2;
+      var r = Math.hypot(x - cx, y - cy);
+      if (r < 110 || r > 140) continue;
+      var ang = Math.atan2(x - cx, cy - y) * 180 / Math.PI;
+      var best = KM_H_LABELS[0];
+      var bestDist = 999;
+      for (var k = 0; k < KM_H_LABELS.length; k++) {
+        var d = Math.abs(ang - KM_H_LABELS[k].angle);
+        if (d < bestDist) {
+          bestDist = d;
+          best = KM_H_LABELS[k];
+        }
+      }
+      if (bestDist > 16) continue;
+      groups[i].setAttribute("data-kmh", String(best.kmh));
+      groups[i].classList.add("speed-digit");
+    }
+    svg.setAttribute("data-kmh-tagged", "1");
   }
 
   function placeSpeed() {
@@ -230,31 +255,36 @@
     for (var i = 0; i < hubs.length; i++) {
       var hub = hubs[i];
       var pointer = hub.querySelector(".pointer");
-      if (pointer) pointer.style.setProperty("display", "block", "important");
+      if (pointer) pointer.style.setProperty("display", "none", "important");
       var raw = hub.style.transform || "";
-      if (raw.indexOf(NEEDLE_SHIFT) === -1) {
+      var match = /rotate\(([-+\d.eE]+)deg\)/.exec(raw);
+      var speedDeg = match ? parseFloat(match[1]) : 0;
+      if (!isFinite(speedDeg) || raw.indexOf("translate(") !== -1) {
+        var saved = hub.getAttribute("data-speed-rotate");
+        match = saved ? /rotate\(([-+\d.eE]+)deg\)/.exec(saved) : null;
+        speedDeg = match ? parseFloat(match[1]) : 0;
+      } else {
         hub.setAttribute("data-speed-rotate", raw);
       }
-      var match = /rotate\(([-+\d.eE]+)deg\)/.exec(hub.getAttribute("data-speed-rotate") || "");
-      var speedDeg = match ? parseFloat(match[1]) : 0;
       if (!isFinite(speedDeg)) speedDeg = 0;
-      hub.style.setProperty("transform-origin", NEEDLE_ORIGIN, "important");
-      hub.style.setProperty(
-        "transform",
-        NEEDLE_SHIFT + " rotate(" + (NEEDLE_REST_DEG + speedDeg) + "deg)",
-        "important"
-      );
-      var kmh = Math.max(0, Math.round(speedDeg / SPEED_DEG_PER_KMH));
-      var car = hub.closest(".car") || document.querySelector(".car");
-      var gauge = hub.ownerSVGElement || (car && car.querySelector("svg"));
-      if (!car || !gauge) continue;
-      var readout = ensureReadout(car);
-      var value = readout.querySelector(".digital-speed__value");
-      if (value && value.textContent !== String(kmh)) value.textContent = String(kmh);
-      var gaugeBox = gauge.getBoundingClientRect();
-      var carBox = car.getBoundingClientRect();
-      readout.style.left = gaugeBox.left - carBox.left + gaugeBox.width / 2 + "px";
-      readout.style.top = gaugeBox.top - carBox.top + gaugeBox.height * 0.46 + "px";
+      var kmh = Math.max(0, speedDeg / SPEED_DEG_PER_KMH);
+      var svg = hub.ownerSVGElement;
+      if (!svg) continue;
+      tagKmHDigits(svg);
+      var labels = svg.querySelectorAll(".speed-digit");
+      var nearest = null;
+      var nearestDelta = 1e9;
+      for (var n = 0; n < labels.length; n++) {
+        var value = parseFloat(labels[n].getAttribute("data-kmh"));
+        var delta = Math.abs(value - kmh);
+        if (delta < nearestDelta) {
+          nearestDelta = delta;
+          nearest = labels[n];
+        }
+      }
+      for (var h = 0; h < labels.length; h++) {
+        labels[h].classList.toggle("speed-digit--hot", labels[h] === nearest);
+      }
     }
     requestAnimationFrame(placeSpeed);
   }

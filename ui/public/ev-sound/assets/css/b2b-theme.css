@@ -415,12 +415,16 @@ svg.pedal {
   }
 }
 
-/* React rotates .center-origin around the wrong point, so the tip leaves the ticks.
-   Rest pose (-40.6deg) puts the tip on the 0 tick; speed adds 0.89deg per km/h. */
 .pointer {
-  display: block !important;
-  transform-origin: 55px 79.4px !important;
-  transform: scale(3) !important;
+  display: none !important;
+}
+
+.car > svg .speed-digit--hot,
+.car > svg .speed-digit--hot path,
+.car > svg .speed-digit--hot polygon {
+  fill: #5eb8ff !important;
+  stroke: #d7ecff !important;
+  filter: drop-shadow(0 0 8px rgba(94, 184, 255, 0.95));
 }
 
 .car {
@@ -428,18 +432,7 @@ svg.pedal {
 }
 
 .digital-speed {
-  position: absolute;
-  left: 0;
-  top: 0;
-  z-index: 3;
-  transform: translate(-50%, -50%);
-  margin: 0;
-  color: var(--b2b-charging-blink-color);
-  font-family: Audiowide, sans-serif;
-  line-height: 1;
-  text-align: center;
-  text-shadow: 0 0 18px rgba(94, 184, 255, 0.75);
-  pointer-events: none;
+  display: none !important;
 }
 
 .digital-speed__value {
@@ -454,13 +447,6 @@ svg.pedal {
   font-size: 12px;
   letter-spacing: 0.22em;
   color: var(--b2b-accent);
-}
-
-/* Needle pivot is the polyline base (55px, 79px). Shift that point onto the
-   dial center, then let mobile-audio.js add the speed rotation. */
-.center-origin {
-  transform-origin: 55px 79.4px !important;
-  transform-box: fill-box;
 }
 
 .menu-burger {
