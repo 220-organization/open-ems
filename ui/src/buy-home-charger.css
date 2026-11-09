@@ -351,7 +351,19 @@
   margin: 0 0 6px;
 }
 
-/* Light theme — active chips must stay readable (no pale-on-pale pink) */
+/* Light theme — active chips/segments must stay readable (no pale-on-pale) */
+[data-theme="light"] .home-charger-seg__btn {
+  background: #f3f1ec;
+  border-color: var(--pf-border-strong, #d0cdc4);
+  color: var(--pf-text, #1a1c1e);
+}
+
+[data-theme="light"] .home-charger-seg__btn--active {
+  background: rgba(61, 139, 253, 0.14);
+  border-color: #2f6fd6;
+  color: #1a56b8;
+}
+
 [data-theme="light"] .home-charger-filters,
 [data-theme="light"] .home-charger-card {
   background: #ffffff;
@@ -547,6 +559,20 @@
 
 [data-theme="light"] .charger-buy-modal__success {
   color: #1a7f4b;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) .home-charger-seg__btn {
+    background: #f3f1ec;
+    border-color: rgba(20, 22, 28, 0.18);
+    color: rgba(16, 18, 22, 0.92);
+  }
+
+  :root:not([data-theme]) .home-charger-seg__btn--active {
+    background: rgba(61, 139, 253, 0.14);
+    border-color: #2f6fd6;
+    color: #1a56b8;
+  }
 }
 
 @media (max-width: 640px) {
