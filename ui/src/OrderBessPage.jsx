@@ -6,6 +6,7 @@ import {
   INVERTERS,
   BATTERY_MODELS,
   PRESETS,
+  SIGENERGY_PRESETS,
   allowedKwhOptions,
   buildCustomBom,
   computeBiomSavings,
@@ -24,7 +25,8 @@ const BESS_OFFER_HASHTAG = '#OrderBessOffer';
 const BESS_DISCOUNT_HASHTAG = '#OrderBessDiscount';
 
 const VALID_BIZ = new Set(BUSINESS_TYPES.map(b => b.id));
-const VALID_PRESETS = new Set([...PRESETS.map(p => p.id), CUSTOM_PRESET_ID]);
+const ALL_PRESETS = [...PRESETS, ...SIGENERGY_PRESETS];
+const VALID_PRESETS = new Set([...ALL_PRESETS.map(p => p.id), CUSTOM_PRESET_ID]);
 
 function apiUrl(path) {
   const base = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
@@ -83,7 +85,8 @@ function readOrderBessFromUrl() {
     const biz = (u.get('biz') || '').trim();
     if (VALID_BIZ.has(biz)) out.businessType = biz;
     const preset = (u.get('preset') || '').trim();
-    if (VALID_PRESETS.has(preset)) out.presetId = preset;
+    if (preset === 'sigen-50-60') out.presetId = 'sigen-biz-min';
+    else if (VALID_PRESETS.has(preset)) out.presetId = preset;
     const inv = (u.get('inv') || '').trim();
     if (INVERTERS[inv]) out.customInv = inv;
     const bat = findBatteryKey(u.get('bat') || '');
@@ -291,7 +294,7 @@ export default function OrderBessPage({ t }) {
     if (presetId === CUSTOM_PRESET_ID) {
       return buildCustomBom(customInv, customBat, customKwh);
     }
-    const p = PRESETS.find(x => x.id === presetId);
+    const p = ALL_PRESETS.find(x => x.id === presetId);
     if (!p) return { lines: [], kwh: 0, kw: 0, voltageClass: '' };
     return { lines: p.lines, kwh: p.kwh, kw: p.kw, voltageClass: p.group, meta: {} };
   }, [presetId, customInv, customBat, customKwh]);
@@ -602,6 +605,35 @@ export default function OrderBessPage({ t }) {
                     onClick={() => setPresetId(p.id)}
                   >
                     {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="order-bess-presets__group order-bess-presets__group--sigen">
+              <div className="order-bess-presets__label">{t('orderBessPresetSigen')}</div>
+              <div className="order-bess-presets__sublabel">{t('orderBessPresetSigenHome')}</div>
+              <div className="order-bess-chips">
+                {SIGENERGY_PRESETS.filter(p => p.group === 'sigen-home').map(p => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className={`order-bess-chip${presetId === p.id ? ' order-bess-chip--active' : ''}`}
+                    onClick={() => setPresetId(p.id)}
+                  >
+                    {t(`orderBessTier_${p.tier}`)} · {p.label}
+                  </button>
+                ))}
+              </div>
+              <div className="order-bess-presets__sublabel">{t('orderBessPresetSigenBiz')}</div>
+              <div className="order-bess-chips">
+                {SIGENERGY_PRESETS.filter(p => p.group === 'sigen-biz').map(p => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className={`order-bess-chip${presetId === p.id ? ' order-bess-chip--active' : ''}`}
+                    onClick={() => setPresetId(p.id)}
+                  >
+                    {t(`orderBessTier_${p.tier}`)} · {p.label}
                   </button>
                 ))}
               </div>

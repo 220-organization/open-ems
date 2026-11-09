@@ -99,6 +99,39 @@ _CANONICAL_ARTICLES = (
     "MB-HV-1",
     "MB-HV-3",
     "PC-HV-3-3.2m",
+    "SigenStor EC 3.0 SP",
+    "SigenStor EC 10.0 TP",
+    "SigenStor EC 30.0 TP",
+    "SigenStor BAT 6.0",
+    "SigenStor BAT 10.0",
+    "Sigen Gateway Home SP 12K",
+    "Sigen Gateway Home TP 30K",
+    "Sigen PV 50M1-HYB",
+    "Sigen PV 80M1-HYB",
+    "Sigen PV 125M1-HYB",
+    "SigenStack BAT 12.0",
+    "SigenStack BC M2-1C-BST",
+    "SigenStack Base MAIN-1C",
+    "SigenStack Base SUB-1C",
+)
+# Sigenergy price list 28.10.2026 (USD). Cash/FOP = without VAT, VAT = with 20%.
+# Lead time for every Sigenergy line: 10 days.
+_SIGENERGY_AVAIL = "10 днів"
+_SIGENERGY_CATALOG: tuple[dict[str, Any], ...] = (
+    {"article": "SigenStor EC 3.0 SP", "name": "SigenStor EC 3.0 SP, 3 кВт", "exVat": 1354.60, "incVat": 1625.52},
+    {"article": "SigenStor EC 10.0 TP", "name": "SigenStor EC 10.0 TP, 10 кВт", "exVat": 2515.50, "incVat": 3018.60},
+    {"article": "SigenStor EC 30.0 TP", "name": "SigenStor EC 30.0 TP, 30 кВт", "exVat": 4703.40, "incVat": 5644.08},
+    {"article": "SigenStor BAT 6.0", "name": "SigenStor BAT 6.0, 6 кВт·год", "exVat": 1846.00, "incVat": 2215.20},
+    {"article": "SigenStor BAT 10.0", "name": "SigenStor BAT 10.0, 10 кВт·год", "exVat": 2470.00, "incVat": 2964.00},
+    {"article": "Sigen Gateway Home SP 12K", "name": "Sigen Gateway Home SP 12K", "exVat": 505.70, "incVat": 606.84},
+    {"article": "Sigen Gateway Home TP 30K", "name": "Sigen Gateway Home TP 30K", "exVat": 579.80, "incVat": 695.76},
+    {"article": "Sigen PV 50M1-HYB", "name": "Sigen PV 50M1-HYB, 50 кВт, гібрид бекап", "exVat": 4633.20, "incVat": 5559.84},
+    {"article": "Sigen PV 80M1-HYB", "name": "Sigen PV 80M1-HYB, 80 кВт, гібрид бекап", "exVat": 5250.96, "incVat": 6301.15},
+    {"article": "Sigen PV 125M1-HYB", "name": "Sigen PV 125M1-HYB, 125 кВт, гібрид бекап", "exVat": 5250.96, "incVat": 6301.15},
+    {"article": "SigenStack BAT 12.0", "name": "SigenStack BAT 12.0, 12 кВт·год", "exVat": 1853.28, "incVat": 2223.94},
+    {"article": "SigenStack BC M2-1C-BST", "name": "SigenStack BC M2-1C-BST", "exVat": 6486.48, "incVat": 7783.78},
+    {"article": "SigenStack Base MAIN-1C", "name": "SigenStack Base MAIN-1C", "exVat": 926.64, "incVat": 1111.97},
+    {"article": "SigenStack Base SUB-1C", "name": "SigenStack Base SUB-1C", "exVat": 926.64, "incVat": 1111.97},
 )
 # sku_key → canonical article (ETU / BIOM spelling variants).
 _ARTICLE_ALIASES = {
@@ -779,6 +812,27 @@ def _parse_sheet_csv(text: str, *, kind: str) -> tuple[float, dict[str, dict[str
     return fx, items
 
 
+def _merge_sigenergy_catalog(by_article: dict[str, dict[str, Any]]) -> None:
+    """Overlay the Sigenergy 50 kW / 60 kWh kit. PDF prices win over sheet rows."""
+    for row in _SIGENERGY_CATALOG:
+        art = row["article"]
+        art_key = art.upper().replace(" ", "")
+        by_article[art_key] = {
+            "code": "",
+            "article": art,
+            "name": row["name"],
+            "brand": "sigenergy",
+            "promoUsd": None,
+            "promoVatUsd": None,
+            "installerUsd": row["exVat"],
+            "installerCheapestUsd": row["exVat"],
+            "retailUsd": row["exVat"],
+            "retailVatUsd": row["incVat"],
+            "availability": _SIGENERGY_AVAIL,
+            "availabilityInstaller": _SIGENERGY_AVAIL,
+            "priceSourceCash": "sigenergy",
+            "priceSourceRetail": "sigenergy",
+        }
 
 
 async def _load_price_list(*, force: bool = False) -> dict[str, Any]:
@@ -905,6 +959,7 @@ async def _load_price_list(*, force: bool = False) -> dict[str, Any]:
     _fill_missing_vat(by_article)
     if etu_items:
         _merge_etu_items(by_article, etu_items, fx)
+    _merge_sigenergy_catalog(by_article)
 
     payload = {
         "fxRate": fx,
