@@ -3,9 +3,21 @@ import SharePageModal from './SharePageModal';
 import { buildSharePageModalPayload } from './sharePageQr';
 import { navigateOpenEmsHomeResetSource } from './essSelection';
 import { OPEN_EMS_SITE_URL } from './seoContent';
-import { VYRIY_EMS_LOGO_SRC } from './vyriyEmsLogo';
+import { VYRII_EMS_LOGO_SRC } from './vyriiEmsLogo';
 import './power-flow.css';
 import './landing.css';
+
+/** Spain DAM view uses the VYRII EMS lockup instead of the locale brand name. */
+function isEmsVppBrandUrl() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const market = (params.get('market') || '').trim().toLowerCase();
+    const zone = (params.get('zone') || '').trim().toUpperCase();
+    return market === 'oree' && zone === 'ES';
+  } catch {
+    return false;
+  }
+}
 
 function themeToggleLabels(theme) {
   if (theme === 'dark') {
@@ -103,7 +115,8 @@ export default function OpenEmsHeader({
   cycleTheme,
   chromeHidden = false,
 }) {
-  const logoSrc = VYRIY_EMS_LOGO_SRC;
+  const logoSrc = VYRII_EMS_LOGO_SRC;
+  const [spainDam, setSpainDam] = useState(isEmsVppBrandUrl);
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [shareModalUrl, setShareModalUrl] = useState('');
   const [shareModalCopied, setShareModalCopied] = useState(false);
@@ -131,6 +144,20 @@ export default function OpenEmsHeader({
   }, []);
 
   const shellRef = useRef(null);
+
+  useEffect(() => {
+    const syncBrand = () => setSpainDam(isEmsVppBrandUrl());
+    syncBrand();
+    window.addEventListener('popstate', syncBrand);
+    return () => window.removeEventListener('popstate', syncBrand);
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('open-ems-tron', spainDam);
+    return () => {
+      document.documentElement.classList.remove('open-ems-tron');
+    };
+  }, [spainDam]);
 
   useEffect(() => {
     const el = shellRef.current;
@@ -161,9 +188,13 @@ export default function OpenEmsHeader({
     <>
       <div ref={shellRef} className="open-ems-header-shell">
         <header className="landing-header open-ems-header">
-          <a className="landing-header__brand" href={`${OPEN_EMS_SITE_URL}/`} onClick={handleBrandClick}>
+          <a
+            className="landing-header__brand landing-header__brand--ems-vpp"
+            href={`${OPEN_EMS_SITE_URL}/`}
+            onClick={handleBrandClick}
+          >
             <img className="landing-header__logo" src={logoSrc} alt="" width={36} height={36} decoding="async" />
-            <span className="landing-header__name">{t('appBrandName')}</span>
+            <span className="landing-header__name">VYRII EMS</span>
           </a>
           <nav className="landing-nav" aria-label={t('landingNavAria')}>
             <a className={navLinkClass('power')} href="/">

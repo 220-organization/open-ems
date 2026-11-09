@@ -8,7 +8,7 @@ import {
 import './dam-chart.css';
 
 const MIN_AMOUNT_UAH = 200;
-const MAX_AMOUNT_UAH = 20_000;
+const MAX_AMOUNT_UAH = 200_000;
 const AMOUNT_STEP_UAH = 100;
 const DEFAULT_AMOUNT_UAH = 2200;
 const DRAFT_STORAGE_KEY = 'rdnConsultPayDraft';
@@ -208,6 +208,14 @@ function isLocalhostDev() {
   if (typeof window === 'undefined') return false;
   const { hostname } = window.location;
   return hostname === 'localhost' || hostname === '127.0.0.1';
+}
+
+function formatAmountLabel(amount) {
+  try {
+    return new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 0 }).format(amount);
+  } catch {
+    return String(amount);
+  }
 }
 
 function parseAmountUah(raw) {
@@ -610,7 +618,10 @@ export default function RdnConsultationCallback({
       setHighlightContact(false);
       setHighlightDescription(false);
       setSlotHighlight(false);
-      setFormHint(t('rdnCallbackAmountInvalidHint', { min: MIN_AMOUNT_UAH, max: MAX_AMOUNT_UAH }));
+      setFormHint(t('rdnCallbackAmountInvalidHint', {
+        min: formatAmountLabel(MIN_AMOUNT_UAH),
+        max: formatAmountLabel(MAX_AMOUNT_UAH),
+      }));
       setPayError('');
       window.requestAnimationFrame(() => amountInputRef.current?.focus());
       return;
@@ -683,7 +694,10 @@ export default function RdnConsultationCallback({
       setHighlightContact(false);
       setHighlightDescription(false);
       setSlotHighlight(false);
-      setFormHint(t('rdnCallbackAmountInvalidHint', { min: MIN_AMOUNT_UAH, max: MAX_AMOUNT_UAH }));
+      setFormHint(t('rdnCallbackAmountInvalidHint', {
+        min: formatAmountLabel(MIN_AMOUNT_UAH),
+        max: formatAmountLabel(MAX_AMOUNT_UAH),
+      }));
       window.requestAnimationFrame(() => amountInputRef.current?.focus());
       return;
     }
@@ -956,8 +970,8 @@ export default function RdnConsultationCallback({
             </label>
             <label className="rdn-callback-card__amount-slider-label" htmlFor={`${amountId}-slider`}>
               <span className="rdn-callback-card__amount-slider-range" aria-hidden="true">
-                <span>{MIN_AMOUNT_UAH}</span>
-                <span>{MAX_AMOUNT_UAH}</span>
+                <span>{formatAmountLabel(MIN_AMOUNT_UAH)}</span>
+                <span>{formatAmountLabel(MAX_AMOUNT_UAH)}</span>
               </span>
               <input
                 id={`${amountId}-slider`}
@@ -971,9 +985,9 @@ export default function RdnConsultationCallback({
                 aria-valuemax={MAX_AMOUNT_UAH}
                 aria-valuenow={sliderValue}
                 aria-label={t('rdnCallbackAmountSliderAria', {
-                  amount: sliderValue,
-                  min: MIN_AMOUNT_UAH,
-                  max: MAX_AMOUNT_UAH,
+                  amount: formatAmountLabel(sliderValue),
+                  min: formatAmountLabel(MIN_AMOUNT_UAH),
+                  max: formatAmountLabel(MAX_AMOUNT_UAH),
                 })}
                 onChange={(e) => {
                   setAmountFromUi(e.target.value);

@@ -173,6 +173,24 @@ def test_propose_location_rejects_future_spaces_below_current():
         )
 
 
+def test_public_location_includes_comment():
+    from uuid import uuid4
+    from datetime import datetime, timezone
+
+    from app.marketplace_schemas import MarketplaceLocationPublic
+
+    item = MarketplaceLocationPublic(
+        id=uuid4(),
+        request_type=MarketplaceRequestType.PROPOSE,
+        kw_available="200",
+        comment="Монтаж лінії та земельні роботи за рахунок власника",
+        locations=[LocationPoint(label="Site", lat=50.45, lng=30.52)],
+        created_on=datetime.now(timezone.utc),
+        published_on=datetime.now(timezone.utc),
+    )
+    assert item.comment == "Монтаж лінії та земельні роботи за рахунок власника"
+
+
 def test_marketplace_location_create_ok():
     payload = MarketplaceLocationCreate(
         request_type=MarketplaceRequestType.LOOKING,

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerate favicon / PWA / Android / iOS icons from ui/public/static/vyriy-ems-logo.svg."""
+"""Regenerate favicon / PWA / Android / iOS icons from ui/public/static/vyrii-ems-logo.svg."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from pathlib import Path
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
-SVG = ROOT / 'ui/public/static/vyriy-ems-logo.svg'
+SVG = ROOT / 'ui/public/static/vyrii-ems-logo.svg'
 STATIC = ROOT / 'ui/public/static'
 PWA_DIR = STATIC / 'pwa'
 ANDROID_RES = ROOT / 'app-mobile/android/app/src/main/res'
@@ -173,7 +173,7 @@ def main() -> None:
 
     save_png(composite_icon(logo, 1024, pwa_any_scale), IOS_ICON)
 
-    print('Vyriy EMS brand icons regenerated from', SVG)
+    print('Vyrii EMS brand icons regenerated from', SVG)
     print('PWA icons:', PWA_DIR)
 
 

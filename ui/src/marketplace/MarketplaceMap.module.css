@@ -340,6 +340,11 @@
   border-color: rgba(249, 76, 175, 0.28);
 }
 
+.commentBadge {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .contractBadgeYes {
   border-color: rgba(110, 231, 160, 0.35);
   color: var(--b2b-success, #6ee7a0);

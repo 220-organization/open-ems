@@ -118,6 +118,7 @@ class MarketplaceLocationPublic(BaseModel):
     id: UUID
     request_type: MarketplaceRequestType
     kw_available: str
+    comment: Optional[str] = None
     distribution_contract: Optional[bool] = None
     locations: List[LocationPoint]
     parking_photos: List[str] = Field(default_factory=list)

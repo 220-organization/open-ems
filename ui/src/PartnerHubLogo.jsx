@@ -18,9 +18,11 @@ export default function PartnerHubLogo({ t, flowEndsHere = false }) {
   const clickTimerRef = useRef(null);
 
   const partner = HUB_PARTNER_PROMOTIONS[index] ?? HUB_PARTNER_PROMOTIONS[0];
-  const hubLabel = partner.hubLabelKey ? t(partner.hubLabelKey) : partner.name;
+  const hubLabel = partner.hubLabelText
+    || (partner.hubLabelKey ? t(partner.hubLabelKey) : partner.name);
   const logoWide = Boolean(partner.logoWide);
   const logoDarkPad = Boolean(partner.logoDarkPad);
+  const logoBare = Boolean(partner.logoBare);
 
   const applyLogoFromUrl = useCallback(() => {
     const pinned = readPinnedHubLogoIndexFromUrl();
@@ -111,7 +113,7 @@ export default function PartnerHubLogo({ t, flowEndsHere = false }) {
         aria-live="polite"
       >
         <span
-          className={`pf-hub-logo-stage${logoWide ? ' pf-hub-logo-stage--wide' : ''}${logoDarkPad ? ' pf-hub-logo-stage--dark' : ''}`}
+          className={`pf-hub-logo-stage${logoWide ? ' pf-hub-logo-stage--wide' : ''}${logoDarkPad ? ' pf-hub-logo-stage--dark' : ''}${logoBare ? ' pf-hub-logo-stage--bare' : ''}`}
           aria-hidden="true"
         >
           <img

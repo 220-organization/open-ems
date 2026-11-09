@@ -27,7 +27,7 @@ import GridBalancingChartModal from './GridBalancingChartModal';
 import SolarNodePopupContent from './SolarNodePopupContent';
 import RoiStackStatistics from './RoiStackStatistics';
 import { KwhCalibrationProvider, useKwhCalibration } from './KwhCalibrationContext';
-import { VYRIY_EMS_LOGO_SRC } from './vyriyEmsLogo';
+import { VYRII_EMS_LOGO_SRC } from './vyriiEmsLogo';
 import PartnerHubLogo from './PartnerHubLogo';
 import { DEYE_FLOW_BALANCE_PV_FACTOR, usesDeyeFlowBalance } from './deyeFlowBalanceSites';
 import { inverterSelectShortLabel, evPortStationNumbersForInverter } from './deyeInverterDisplay';
@@ -1698,6 +1698,31 @@ function LandingExportMetricCounter({
 /** Client-side gate: GridLab rows stay out of the source list until this password is entered. */
 const GRIDLAB_LIST_PASSWORD = '1';
 const GRIDLAB_LIST_UNLOCK_KEY = 'pf-gridlab-list-unlocked';
+/** Shown in the field instead of the typed password (iOS reveals the last password character). */
+const GRIDLAB_PASSWORD_MASK = '\u2022';
+
+/**
+ * The gate input only ever displays mask bullets. Newly typed or pasted characters
+ * sit in the edit; map that edit back onto the real password.
+ */
+function gridlabPasswordFromMaskedEdit(secret, displayed) {
+  const previous = GRIDLAB_PASSWORD_MASK.repeat(secret.length);
+  let start = 0;
+  while (start < previous.length && start < displayed.length && previous[start] === displayed[start]) {
+    start += 1;
+  }
+  let endPrev = previous.length;
+  let endNext = displayed.length;
+  while (endPrev > start && endNext > start && previous[endPrev - 1] === displayed[endNext - 1]) {
+    endPrev -= 1;
+    endNext -= 1;
+  }
+  const inserted = displayed.slice(start, endNext).split(GRIDLAB_PASSWORD_MASK).join('');
+  return {
+    secret: secret.slice(0, start) + inserted + secret.slice(endPrev),
+    caret: start + inserted.length,
+  };
+}
 
 function readGridlabListUnlocked() {
   try {
@@ -2267,6 +2292,17 @@ export default function PowerFlowPage({
   const [gridlabListPassword, setGridlabListPassword] = useState('');
   const [gridlabListPasswordWrong, setGridlabListPasswordWrong] = useState(false);
   const [gridlabPasswordPrompt, setGridlabPasswordPrompt] = useState(false);
+  const gridlabPasswordInputRef = useRef(null);
+  const gridlabPasswordCaretRef = useRef(null);
+  const gridlabListPasswordRef = useRef('');
+  useLayoutEffect(() => {
+    const input = gridlabPasswordInputRef.current;
+    const caret = gridlabPasswordCaretRef.current;
+    if (!input || caret == null) return;
+    const pos = Math.max(0, Math.min(caret, input.value.length));
+    input.setSelectionRange(pos, pos);
+    gridlabPasswordCaretRef.current = null;
+  }, [gridlabListPassword]);
 
   useEffect(() => {
     if (inverterRows.loading || huaweiRows.loading || ubetterRows.loading || gridlabRows.loading) return;
@@ -2592,10 +2628,24 @@ export default function PowerFlowPage({
   const [inverterMenuOpen, setInverterMenuOpen] = useState(false);
   const [inverterMenuBox, setInverterMenuBox] = useState(null);
 
+  const onGridlabPasswordChange = useCallback(
+    event => {
+      const input = event.target;
+      const { secret, caret } = gridlabPasswordFromMaskedEdit(gridlabListPasswordRef.current, input.value);
+      const masked = GRIDLAB_PASSWORD_MASK.repeat(secret.length);
+      if (input.value !== masked) input.value = masked;
+      gridlabPasswordCaretRef.current = caret;
+      gridlabListPasswordRef.current = secret;
+      setGridlabListPassword(secret);
+      if (gridlabListPasswordWrong) setGridlabListPasswordWrong(false);
+    },
+    [gridlabListPasswordWrong]
+  );
+
   const onGridlabListUnlock = useCallback(
     event => {
       event.preventDefault();
-      if (gridlabListPassword.trim() !== GRIDLAB_LIST_PASSWORD) {
+      if (gridlabListPasswordRef.current.trim() !== GRIDLAB_LIST_PASSWORD) {
         setGridlabListPasswordWrong(true);
         return;
       }
@@ -2604,6 +2654,7 @@ export default function PowerFlowPage({
       } catch {
         /* ignore */
       }
+      gridlabListPasswordRef.current = '';
       setGridlabListPassword('');
       setGridlabListPasswordWrong(false);
       setGridlabListUnlocked(true);
@@ -2614,7 +2665,7 @@ export default function PowerFlowPage({
       }
       setInverterMenuOpen(false);
     },
-    [gridlabListPassword, gridlabRows.items, onInverterChange]
+    [gridlabRows.items, onInverterChange]
   );
   const inverterPickerRef = useRef(null);
   const inverterMenuRef = useRef(null);
@@ -5868,19 +5919,30 @@ export default function PowerFlowPage({
                                       {item.label}
                                     </button>
                                     {item.askPassword && gridlabPasswordPrompt ? (
-                                      <form className="pf-inverter-menu__unlock" onSubmit={onGridlabListUnlock}>
+                                      <form
+                                        className="pf-inverter-menu__unlock"
+                                        autoComplete="off"
+                                        onSubmit={onGridlabListUnlock}
+                                      >
                                         <input
-                                          type="password"
+                                          ref={gridlabPasswordInputRef}
+                                          type="text"
                                           className="pf-inverter-menu__unlock-input"
-                                          value={gridlabListPassword}
+                                          value={GRIDLAB_PASSWORD_MASK.repeat(gridlabListPassword.length)}
                                           autoFocus
-                                          onChange={event => {
-                                            setGridlabListPassword(event.target.value);
-                                            if (gridlabListPasswordWrong) setGridlabListPasswordWrong(false);
+                                          onChange={onGridlabPasswordChange}
+                                          onKeyDown={event => {
+                                            if (event.key !== 'Enter') return;
+                                            event.preventDefault();
+                                            onGridlabListUnlock(event);
                                           }}
                                           placeholder={t('gridlabListPasswordPlaceholder')}
                                           aria-label={t('gridlabListPasswordPlaceholder')}
                                           autoComplete="off"
+                                          autoCorrect="off"
+                                          autoCapitalize="off"
+                                          spellCheck={false}
+                                          name="pf-gridlab-list-gate"
                                         />
                                         <button type="submit" className="pf-inverter-menu__unlock-submit">
                                           {t('gridlabListPasswordSubmit')}
@@ -7666,7 +7728,7 @@ export default function PowerFlowPage({
                     <div className="pf-modal-loading" aria-live="polite">
                       <img
                         className="pf-modal-loader-logo"
-                        src={VYRIY_EMS_LOGO_SRC}
+                        src={VYRII_EMS_LOGO_SRC}
                         alt=""
                         width={38}
                         height={38}

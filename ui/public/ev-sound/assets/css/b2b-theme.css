@@ -415,16 +415,38 @@ svg.pedal {
   }
 }
 
-/* React rotates this box around the wrong point, so the tip leaves the ticks.
-   The speed angle stays in the inline style; mobile-audio.js places the tip. */
-.center-origin {
-  transform: none !important;
+.pointer {
+  display: none !important;
 }
 
-.pointer {
-  transform-origin: 246.4px 178px !important;
-  -webkit-transform: rotate(-40.6deg) scale(0.78) !important;
-  transform: rotate(-40.6deg) scale(0.78) !important;
+.car > svg .speed-digit--hot,
+.car > svg .speed-digit--hot path,
+.car > svg .speed-digit--hot polygon {
+  fill: #5eb8ff !important;
+  stroke: #d7ecff !important;
+  filter: drop-shadow(0 0 8px rgba(94, 184, 255, 0.95));
+}
+
+.car {
+  position: relative;
+}
+
+.digital-speed {
+  display: none !important;
+}
+
+.digital-speed__value {
+  display: block;
+  font-size: 54px;
+  letter-spacing: 0.04em;
+}
+
+.digital-speed small {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  color: var(--b2b-accent);
 }
 
 .menu-burger {

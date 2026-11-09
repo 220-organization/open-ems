@@ -385,6 +385,95 @@ export const PRESETS = [
   },
 ];
 
+/** Sigenergy block: home (SigenStor) and business (SigenStack), min / avg / max. */
+export const SIGENERGY_PRESETS = [
+  {
+    id: 'sigen-home-min',
+    group: 'sigen-home',
+    tier: 'min',
+    label: '3 кВт + 6 кВт·год',
+    kw: 3,
+    kwh: 6,
+    lines: [
+      line('SigenStor EC 3.0 SP', 1),
+      line('SigenStor BAT 6.0', 1),
+      line('Sigen Gateway Home SP 12K', 1),
+      line('SigenStor Installation Kit for Ground-mounted', 1),
+    ],
+  },
+  {
+    id: 'sigen-home-avg',
+    group: 'sigen-home',
+    tier: 'avg',
+    label: '10 кВт + 20 кВт·год',
+    kw: 10,
+    kwh: 20,
+    lines: [
+      line('SigenStor EC 10.0 TP', 1),
+      line('SigenStor BAT 10.0', 2, '2×10 кВт·год'),
+      line('Sigen Gateway Home TP 30K', 1),
+      line('SigenStor Installation Kit for Ground-mounted', 1),
+    ],
+  },
+  {
+    id: 'sigen-home-max',
+    group: 'sigen-home',
+    tier: 'max',
+    label: '30 кВт + 60 кВт·год',
+    kw: 30,
+    kwh: 60,
+    lines: [
+      line('SigenStor EC 30.0 TP', 1),
+      line('SigenStor BAT 10.0', 6, '6×10 кВт·год'),
+      line('Sigen Gateway Home TP 30K', 1),
+      line('SigenStor Installation Kit for Ground-mounted', 1),
+    ],
+  },
+  {
+    id: 'sigen-biz-min',
+    group: 'sigen-biz',
+    tier: 'min',
+    label: '50 кВт + 60 кВт·год',
+    kw: 50,
+    kwh: 60,
+    lines: [
+      line('Sigen PV 50M1-HYB', 1, 'гібрид, бекап / острів'),
+      line('SigenStack BAT 12.0', 5, '5×12 кВт·год'),
+      line('SigenStack BC M2-1C-BST', 1, 'контролер 1C'),
+      line('SigenStack Base MAIN-1C', 1),
+    ],
+  },
+  {
+    id: 'sigen-biz-avg',
+    group: 'sigen-biz',
+    tier: 'avg',
+    label: '80 кВт + 96 кВт·год',
+    kw: 80,
+    kwh: 96,
+    lines: [
+      line('Sigen PV 80M1-HYB', 1, 'гібрид, бекап / острів'),
+      line('SigenStack BAT 12.0', 8, '8×12 кВт·год'),
+      line('SigenStack BC M2-1C-BST', 1, 'контролер 1C'),
+      line('SigenStack Base MAIN-1C', 1),
+    ],
+  },
+  {
+    id: 'sigen-biz-max',
+    group: 'sigen-biz',
+    tier: 'max',
+    label: '125 кВт + 144 кВт·год',
+    kw: 125,
+    kwh: 144,
+    lines: [
+      line('Sigen PV 125M1-HYB', 1, 'гібрид, бекап / острів'),
+      line('SigenStack BAT 12.0', 12, '12×12 кВт·год'),
+      line('SigenStack BC M2-1C-BST', 1, 'контролер 1C'),
+      line('SigenStack Base MAIN-1C', 1),
+      line('SigenStack Base SUB-1C', 1),
+    ],
+  },
+];
+
 export const CUSTOM_PRESET_ID = 'custom';
 
 export const BUSINESS_TYPES = [

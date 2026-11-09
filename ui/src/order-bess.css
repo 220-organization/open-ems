@@ -96,6 +96,18 @@
   letter-spacing: 0.04em;
 }
 
+.order-bess-presets__sublabel {
+  font-size: 0.75rem;
+  color: var(--pf-text-muted, var(--pf-muted, #9aa0a6));
+  margin: 8px 0 6px;
+}
+
+.order-bess-presets__group--sigen {
+  padding: 10px 12px;
+  border: 1px solid var(--pf-border-strong, var(--pf-border, #2a3140));
+  border-radius: 10px;
+}
+
 .order-bess-chips {
   display: flex;
   flex-wrap: wrap;
