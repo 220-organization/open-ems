@@ -7,6 +7,7 @@ import {
 } from "./buyHomeChargerUrl";
 import { notifyOpenEmsSearchChange } from "./sharePageQr";
 import { useOpenEmsSeo } from "./useOpenEmsSeo";
+import ChargerCatalogSegmentBar from "./ChargerCatalogSegmentBar";
 import "./buy-home-charger.css";
 
 const USD_UAH_FALLBACK = 42;
@@ -152,6 +153,12 @@ function powerBucketLabel(bucket, t) {
   if (bucket === "11") return t("homeChargerPower11");
   if (bucket === "22plus") return t("homeChargerPower22");
   return bucket;
+}
+
+function homeLeadTimeLabel(id, t) {
+  if (id === "now") return t("homeChargerLeadTimeNow");
+  if (id === "2m") return t("homeChargerLeadTime2m");
+  return id;
 }
 
 function Chip({ active, onClick, children }) {
@@ -383,6 +390,7 @@ export default function BuyHomeChargerPage({ t, locale }) {
   return (
     <div className="home-charger-page">
       <div className="home-charger-page__inner">
+        <ChargerCatalogSegmentBar t={t} active="home" />
         <header className="home-charger-hero">
           <h1 className="home-charger-hero__title">
             {t("homeChargerPageTitle")}
@@ -609,6 +617,12 @@ export default function BuyHomeChargerPage({ t, locale }) {
                   {p.brand ? (
                     <li>
                       {t("homeChargerMetaBrand")}: <strong>{p.brand}</strong>
+                    </li>
+                  ) : null}
+                  {p.lead_time ? (
+                    <li>
+                      {t("homeChargerMetaLeadTime")}:{" "}
+                      <strong>{homeLeadTimeLabel(p.lead_time, t)}</strong>
                     </li>
                   ) : null}
                 </ul>

@@ -1,0 +1,18 @@
+sku,title,brand,kind,connector,power_kw,phases,cable,price_uah,image,form,ports,mount,ocpp
+EPG-EVE040C2-S2-Wall-CCS2-GBT,EPG навісна DC 40 кВт CCS2+GB/T,EPG,dc,CCS2+GB/T,40.0,,,255000.0,/static/chargers/eport/epg-commercial_wall.png,single,2dc,Wall,1
+EPG-EVE060C2-S2-Wall-CCS2-GBT,EPG навісна DC 60 кВт CCS2+GB/T,EPG,dc,CCS2+GB/T,60.0,,,320000.0,/static/chargers/eport/epg-commercial_wall.png,single,2dc,Wall,1
+EPG-EVE080C2-S2-Wall-CCS2-GBT,EPG навісна DC 80 кВт CCS2+GB/T,EPG,dc,CCS2+GB/T,80.0,,,380000.0,/static/chargers/eport/epg-commercial_wall.png,single,2dc,Wall,1
+EPG-EVE080C2-D12-Street-CCS2-GBT,EPG вулична DC 80 кВт CCS2+GB/T,EPG,dc,CCS2+GB/T,80.0,,,462000.0,/static/chargers/eport/epg-commercial_street.png,single,2dc,Street,1
+EPG-EVE0120C2-D12-Street-CCS2-GBT,EPG вулична DC 120 кВт CCS2+GB/T,EPG,dc,CCS2+GB/T,120.0,,,561500.0,/static/chargers/eport/epg-commercial_street.png,single,2dc,Street,1
+EPG-EVE0160C2-D12-Street-CCS2-GBT,EPG вулична DC 160 кВт CCS2+GB/T,EPG,dc,CCS2+GB/T,160.0,,,610000.0,/static/chargers/eport/epg-commercial_street.png,single,2dc,Street,1
+EPG-EVE0240C2-D12-Street-CCS2-GBT,EPG вулична DC 240 кВт CCS2+GB/T,EPG,dc,CCS2+GB/T,240.0,,,690000.0,/static/chargers/eport/epg-commercial_street.png,single,2dc,Street,1
+EPG-EVE-SC360D-GN3-Street,EPG силовий блок 360 кВт (спліт),EPG,dc,,360.0,,,1026850.0,/static/chargers/eport/epg-split.png,split,,Street,1
+EPG-EVE-SC480D-GN3-Street,EPG силовий блок 480 кВт (спліт),EPG,dc,,480.0,,,1335678.08,/static/chargers/eport/epg-split.png,split,,Street,1
+EPG-EVE-SC640D-GN3-Street,EPG силовий блок 640 кВт (спліт),EPG,dc,,640.0,,,1618000.0,/static/chargers/eport/epg-split.png,split,,Street,1
+EPG-EVE-SC9600D-GN3-Street,EPG силовий блок 960 кВт (спліт),EPG,dc,,960.0,,,2555000.0,/static/chargers/eport/epg-split.png,split,,Street,1
+EPG-EVE300kwCCS2+GBT-Street-CCS2-GBT,EPG диспенсер 300 кВт CCS2+GB/T,EPG,dc,CCS2+GB/T,300.0,,,278000.0,/static/chargers/eport/epg-dispenser.png,dispenser,2dc,Street,1
+EPG-EVE300kwNACS+CHAdeMO-Street-NACS-CHAdeMO,EPG диспенсер 300 кВт NACS+CHAdeMO,EPG,dc,NACS+CHAdeMO,300.0,,,322500.0,/static/chargers/eport/epg-dispenser.png,dispenser,2dc,Street,1
+EPG-EVE300kwCCS2+CCS2-Street-CCS2-CCS2,EPG диспенсер 300 кВт CCS2+CCS2,EPG,dc,CCS2+CCS2,300.0,,,290500.0,/static/chargers/eport/epg-dispenser.png,dispenser,2dc,Street,1
+EPG-EVE300kwGBT+GBT-Street-GBT-GBT,EPG диспенсер 300 кВт GB/T+GB/T,EPG,dc,GB/T+GB/T,300.0,,,234500.0,/static/chargers/eport/epg-dispenser.png,dispenser,2dc,Street,1
+EPG-EVE300kwNACS+CCS2-Street-NACS-CCS2,EPG диспенсер 300 кВт NACS+CCS2,EPG,dc,NACS+CCS2,300.0,,,304500.0,/static/chargers/eport/epg-dispenser.png,dispenser,2dc,Street,1
+EPG-EVE600kwCCS2+GBT-Street-CCS2-GBT,EPG диспенсер 600 кВт CCS2+GB/T,EPG,dc,CCS2+GB/T,600.0,,,508000.0,/static/chargers/eport/epg-dispenser.png,dispenser,2dc,Street,1

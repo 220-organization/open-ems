@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BUSINESS_TYPES,
   CUSTOM_PRESET_ID,
@@ -7,61 +7,162 @@ import {
   BATTERY_MODELS,
   PRESETS,
   SIGENERGY_PRESETS,
+  SIGEN_INVERTERS,
+  SIGEN_BATTERIES,
   allowedKwhOptions,
   buildCustomBom,
+  buildSigenBom,
+  sigenKwhOptions,
   computeBiomSavings,
   kwhRangeLabel,
   unitPriceUsd,
   hasNoArrivalDates,
   isEtuVendor,
-} from './orderBess/presets';
-import { downloadOrderBessOfferPng } from './orderBess/offerPdf';
-import { buildB2bTelegramUrl, buildB2bWhatsAppUrl } from './messengerContactUrls';
-import SharePageModal from './SharePageModal';
-import { buildSharePageModalPayload } from './sharePageQr';
-import './order-bess.css';
+  presetSegment,
+  presetBrand,
+} from "./orderBess/presets";
+import { downloadOrderBessOfferPng } from "./orderBess/offerPdf";
+import SharePageModal from "./SharePageModal";
+import { buildSharePageModalPayload } from "./sharePageQr";
+import "./order-bess.css";
 
-const BESS_OFFER_HASHTAG = '#OrderBessOffer';
-const BESS_DISCOUNT_HASHTAG = '#OrderBessDiscount';
-
-const VALID_BIZ = new Set(BUSINESS_TYPES.map(b => b.id));
+const VALID_BIZ = new Set(BUSINESS_TYPES.map((b) => b.id));
 const ALL_PRESETS = [...PRESETS, ...SIGENERGY_PRESETS];
-const VALID_PRESETS = new Set([...ALL_PRESETS.map(p => p.id), CUSTOM_PRESET_ID]);
+const VALID_PRESETS = new Set([
+  ...ALL_PRESETS.map((p) => p.id),
+  CUSTOM_PRESET_ID,
+]);
 
 function apiUrl(path) {
-  const base = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
+  const base = (process.env.REACT_APP_API_BASE_URL || "").replace(/\/$/, "");
   return base ? `${base}${path}` : path;
 }
 
 function fmtUsd(n) {
-  if (n == null || Number.isNaN(n)) return '—';
-  return n.toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (n == null || Number.isNaN(n)) return "—";
+  return n.toLocaleString("uk-UA", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
 function fmtUah(n) {
-  if (n == null || Number.isNaN(n)) return '—';
-  return n.toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (n == null || Number.isNaN(n)) return "—";
+  return n.toLocaleString("uk-UA", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
 function skuKey(a) {
-  return String(a || '')
+  return String(a || "")
     .toUpperCase()
-    .replace(/[\s\-_]+/g, '')
-    .replace(/[^A-Z0-9.]/g, '');
+    .replace(/[\s\-_]+/g, "")
+    .replace(/[^A-Z0-9.]/g, "");
+}
+
+/** Google Images search for a catalog name (udm=2 is the image results tab). */
+function googleImagesUrl(name) {
+  const params = new URLSearchParams({
+    udm: "2",
+    q: name,
+  });
+  return `https://www.google.com/search?${params.toString()}`;
+}
+
+const productThumbCache = new Map();
+
+function ProductThumb({ name, article }) {
+  const [src, setSrc] = useState(() => productThumbCache.get(name) || "");
+  const [failed, setFailed] = useState(false);
+  const [zoom, setZoom] = useState(null);
+
+  useEffect(() => {
+    if (!name || productThumbCache.has(name)) {
+      setSrc(productThumbCache.get(name) || "");
+      return undefined;
+    }
+    let cancelled = false;
+    const params = new URLSearchParams({ q: name });
+    fetch(apiUrl(`/api/bess-order/image-preview?${params}`))
+      .then((res) => (res.ok ? res.json() : { images: [] }))
+      .then((data) => {
+        const url = (data.images && data.images[0]) || "";
+        productThumbCache.set(name, url);
+        if (!cancelled) setSrc(url);
+      })
+      .catch(() => {
+        productThumbCache.set(name, "");
+        if (!cancelled) setSrc("");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [name]);
+
+  const showZoom = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const size = 240;
+    let left = rect.right + 12;
+    let top = rect.top + rect.height / 2 - size / 2;
+    if (left + size > window.innerWidth - 8) left = rect.left - size - 12;
+    if (top < 8) top = 8;
+    if (top + size > window.innerHeight - 8)
+      top = window.innerHeight - size - 8;
+    setZoom({ top, left, size });
+  };
+
+  if (!src || failed) {
+    return <span className="order-bess-mono">{article}</span>;
+  }
+  return (
+    <>
+      <a
+        className="order-bess-thumb"
+        href={googleImagesUrl(name)}
+        target="_blank"
+        rel="noreferrer"
+        aria-label={article}
+        onMouseEnter={showZoom}
+        onMouseLeave={() => setZoom(null)}
+        onFocus={showZoom}
+        onBlur={() => setZoom(null)}
+      >
+        <img src={src} alt={name} onError={() => setFailed(true)} />
+      </a>
+      {zoom ? (
+        <span
+          className="order-bess-thumb-zoom"
+          style={{
+            top: zoom.top,
+            left: zoom.left,
+            width: zoom.size,
+            height: zoom.size,
+          }}
+          aria-hidden="true"
+        >
+          <img src={src} alt="" />
+        </span>
+      ) : null}
+    </>
+  );
 }
 
 function findItem(items, article) {
   const key = skuKey(article);
   if (!key) return null;
   const list = items || [];
-  const exact = list.find(it => skuKey(it.article) === key);
+  const exact = list.find((it) => skuKey(it.article) === key);
   if (exact) return exact;
   let best = null;
   let bestLen = 0;
   for (const it of list) {
     const ik = skuKey(it.article);
     if (!ik) continue;
-    if ((key.startsWith(ik) || ik.startsWith(key)) && Math.min(key.length, ik.length) >= 8) {
+    if (
+      (key.startsWith(ik) || ik.startsWith(key)) &&
+      Math.min(key.length, ik.length) >= 8
+    ) {
       const n = Math.min(key.length, ik.length);
       if (n > bestLen) {
         best = it;
@@ -74,30 +175,54 @@ function findItem(items, article) {
 
 function findBatteryKey(raw) {
   const key = skuKey(raw);
-  return Object.keys(BATTERY_MODELS).find(a => skuKey(a) === key) || null;
+  return Object.keys(BATTERY_MODELS).find((a) => skuKey(a) === key) || null;
 }
 
 function readOrderBessFromUrl() {
-  if (typeof window === 'undefined') return {};
+  if (typeof window === "undefined") return {};
   try {
     const u = new URLSearchParams(window.location.search);
     const out = {};
-    const biz = (u.get('biz') || '').trim();
+    const biz = (u.get("biz") || "").trim();
     if (VALID_BIZ.has(biz)) out.businessType = biz;
-    const preset = (u.get('preset') || '').trim();
-    if (preset === 'sigen-50-60') out.presetId = 'sigen-biz-min';
+    const preset = (u.get("preset") || "").trim();
+    if (preset === "sigen-50-60") out.presetId = "sigen-biz-min";
     else if (VALID_PRESETS.has(preset)) out.presetId = preset;
-    const inv = (u.get('inv') || '').trim();
+    const brand = (u.get("brand") || "").trim();
+    if (brand === "deye" || brand === "sigen") out.customBrand = brand;
+    const inv = (u.get("inv") || "").trim();
     if (INVERTERS[inv]) out.customInv = inv;
-    const bat = findBatteryKey(u.get('bat') || '');
+    const bat = findBatteryKey(u.get("bat") || "");
     if (bat) out.customBat = bat;
-    const kwhRaw = u.get('kwh');
-    if (kwhRaw != null && kwhRaw !== '') {
+    const kwhRaw = u.get("kwh");
+    if (kwhRaw != null && kwhRaw !== "") {
       const kwh = Number(kwhRaw);
       if (Number.isFinite(kwh) && kwh > 0) out.customKwh = kwh;
     }
-    const unitsRaw = u.get('units');
-    if (unitsRaw != null && unitsRaw !== '') {
+    const sinv = (u.get("sinv") || "").trim();
+    if (SIGEN_INVERTERS[sinv]) out.sigenInv = sinv;
+    const sbat = (u.get("sbat") || "").trim();
+    if (SIGEN_BATTERIES[sbat]) out.sigenBat = sbat;
+    const skwhRaw = u.get("skwh");
+    if (skwhRaw != null && skwhRaw !== "") {
+      const skwh = Number(skwhRaw);
+      if (Number.isFinite(skwh) && skwh > 0) out.sigenKwh = skwh;
+    }
+    // Legacy share links used a fixed Sigenergy preset id.
+    const legacySigen = (u.get("sigen") || "").trim();
+    if (legacySigen && SIGENERGY_PRESETS.some((p) => p.id === legacySigen)) {
+      out.customBrand = "sigen";
+      const preset = SIGENERGY_PRESETS.find((p) => p.id === legacySigen);
+      if (preset) {
+        const invLine = preset.lines.find((l) => SIGEN_INVERTERS[l.article]);
+        const batLine = preset.lines.find((l) => SIGEN_BATTERIES[l.article]);
+        if (invLine) out.sigenInv = invLine.article;
+        if (batLine) out.sigenBat = batLine.article;
+        out.sigenKwh = preset.kwh;
+      }
+    }
+    const unitsRaw = u.get("units");
+    if (unitsRaw != null && unitsRaw !== "") {
       const units = Number.parseInt(unitsRaw, 10);
       if (DISCOUNT_UNITS.includes(units)) out.discountUnits = units;
     }
@@ -108,24 +233,42 @@ function readOrderBessFromUrl() {
 }
 
 function writeOrderBessToUrl(state) {
-  if (typeof window === 'undefined') return;
+  if (typeof window === "undefined") return;
   try {
     const u = new URL(window.location.href);
-    u.searchParams.set('biz', state.businessType);
-    u.searchParams.set('preset', state.presetId);
+    u.searchParams.set("biz", state.businessType);
+    u.searchParams.set("preset", state.presetId);
+    u.searchParams.delete("sigen");
     if (state.presetId === CUSTOM_PRESET_ID) {
-      u.searchParams.set('inv', state.customInv);
-      u.searchParams.set('bat', state.customBat);
-      u.searchParams.set('kwh', String(state.customKwh));
+      u.searchParams.set("brand", state.customBrand || "deye");
+      if (state.customBrand === "sigen") {
+        u.searchParams.set("sinv", state.sigenInv);
+        u.searchParams.set("sbat", state.sigenBat);
+        u.searchParams.set("skwh", String(state.sigenKwh));
+        u.searchParams.delete("inv");
+        u.searchParams.delete("bat");
+        u.searchParams.delete("kwh");
+      } else {
+        u.searchParams.delete("sinv");
+        u.searchParams.delete("sbat");
+        u.searchParams.delete("skwh");
+        u.searchParams.set("inv", state.customInv);
+        u.searchParams.set("bat", state.customBat);
+        u.searchParams.set("kwh", String(state.customKwh));
+      }
     } else {
-      u.searchParams.delete('inv');
-      u.searchParams.delete('bat');
-      u.searchParams.delete('kwh');
+      u.searchParams.delete("brand");
+      u.searchParams.delete("sinv");
+      u.searchParams.delete("sbat");
+      u.searchParams.delete("skwh");
+      u.searchParams.delete("inv");
+      u.searchParams.delete("bat");
+      u.searchParams.delete("kwh");
     }
-    u.searchParams.set('units', String(state.discountUnits));
+    u.searchParams.set("units", String(state.discountUnits));
     const next = `${u.pathname}${u.search}${u.hash}`;
     const cur = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-    if (next !== cur) window.history.replaceState({}, '', next);
+    if (next !== cur) window.history.replaceState({}, "", next);
   } catch {
     /* ignore */
   }
@@ -157,40 +300,57 @@ function ShareIcon({ className }) {
 export default function OrderBessPage({ t }) {
   const initialUrl = useMemo(() => readOrderBessFromUrl(), []);
 
-  const [businessType, setBusinessType] = useState(initialUrl.businessType || 'cash');
-  const [presetId, setPresetId] = useState(initialUrl.presetId || 'hv-50-60');
+  const [businessType, setBusinessType] = useState(
+    initialUrl.businessType || "cash",
+  );
+  const [presetId, setPresetId] = useState(initialUrl.presetId || "hv-50-60");
   const [priceList, setPriceList] = useState(null);
-  const [loadError, setLoadError] = useState('');
+  const [loadError, setLoadError] = useState("");
   const [loading, setLoading] = useState(true);
 
   // Custom builder state
-  const [customInv, setCustomInv] = useState(initialUrl.customInv || 'SUN-50K-SG01HP3-EU-BM4');
-  const [customBat, setCustomBat] = useState(initialUrl.customBat || 'BAHV-100512-LFP');
+  const [customInv, setCustomInv] = useState(
+    initialUrl.customInv || "SUN-50K-SG01HP3-EU-BM4",
+  );
+  const [customBat, setCustomBat] = useState(
+    initialUrl.customBat || "BAHV-100512-LFP",
+  );
   const [customKwh, setCustomKwh] = useState(
-    initialUrl.customKwh != null ? initialUrl.customKwh : 61.44
+    initialUrl.customKwh != null ? initialUrl.customKwh : 61.44,
+  );
+  const [customBrand, setCustomBrand] = useState(
+    initialUrl.customBrand || "deye",
+  );
+  const [sigenInv, setSigenInv] = useState(
+    initialUrl.sigenInv || "SigenStor EC 10.0 TP",
+  );
+  const [sigenBat, setSigenBat] = useState(
+    initialUrl.sigenBat || "SigenStor BAT 10.0",
+  );
+  const [sigenKwh, setSigenKwh] = useState(
+    initialUrl.sigenKwh != null ? initialUrl.sigenKwh : 20,
   );
 
-  const [discountUnits, setDiscountUnits] = useState(initialUrl.discountUnits || 2);
-  const [contactName, setContactName] = useState('');
-  const [contactPhone, setContactPhone] = useState('');
-  const [contactFormError, setContactFormError] = useState('');
-  const [discountStatus, setDiscountStatus] = useState(''); // '', 'ok', 'err'
-  const [discountBusy, setDiscountBusy] = useState(false);
+  const [discountUnits] = useState(initialUrl.discountUnits || 2);
+  const [contactName, setContactName] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [contactFormError, setContactFormError] = useState("");
   const [pdfBusy, setPdfBusy] = useState(false);
-  const [contactBusy, setContactBusy] = useState(''); // '' | 'offer:telegram' | …
   const [buyBusy, setBuyBusy] = useState(false);
   const [buySent, setBuySent] = useState(false);
   const [shareModalOpen, setShareModalOpen] = useState(false);
-  const [shareModalUrl, setShareModalUrl] = useState('');
+  const [shareModalUrl, setShareModalUrl] = useState("");
   const [shareModalCopied, setShareModalCopied] = useState(false);
   const [shareModalCopyFailed, setShareModalCopyFailed] = useState(false);
 
   const loadPrices = useCallback(async (refresh = false) => {
     setLoading(true);
-    setLoadError('');
+    setLoadError("");
     try {
-      const q = refresh ? '?refresh=true' : '';
-      const res = await fetch(apiUrl(`/api/bess-order/price-list${q}`), { cache: 'no-store' });
+      const q = refresh ? "?refresh=true" : "";
+      const res = await fetch(apiUrl(`/api/bess-order/price-list${q}`), {
+        cache: "no-store",
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setPriceList(data);
@@ -209,20 +369,39 @@ export default function OrderBessPage({ t }) {
     writeOrderBessToUrl({
       businessType,
       presetId,
+      customBrand,
       customInv,
       customBat,
       customKwh,
+      sigenInv,
+      sigenBat,
+      sigenKwh,
       discountUnits,
     });
-  }, [businessType, presetId, customInv, customBat, customKwh, discountUnits]);
+  }, [
+    businessType,
+    presetId,
+    customBrand,
+    customInv,
+    customBat,
+    customKwh,
+    sigenInv,
+    sigenBat,
+    sigenKwh,
+    discountUnits,
+  ]);
 
   const handleShare = useCallback(async () => {
     writeOrderBessToUrl({
       businessType,
       presetId,
+      customBrand,
       customInv,
       customBat,
       customKwh,
+      sigenInv,
+      sigenBat,
+      sigenKwh,
       discountUnits,
     });
     const payload = await buildSharePageModalPayload();
@@ -231,16 +410,27 @@ export default function OrderBessPage({ t }) {
     setShareModalCopied(payload.copied);
     setShareModalCopyFailed(payload.copyFailed);
     setShareModalOpen(true);
-  }, [businessType, presetId, customInv, customBat, customKwh, discountUnits]);
+  }, [
+    businessType,
+    presetId,
+    customBrand,
+    customInv,
+    customBat,
+    customKwh,
+    sigenInv,
+    sigenBat,
+    sigenKwh,
+    discountUnits,
+  ]);
 
   const invMeta = INVERTERS[customInv];
-  const voltageClass = invMeta?.voltage === 'hv' ? 'hv' : 'lv';
+  const voltageClass = invMeta?.voltage === "hv" ? "hv" : "lv";
 
   const batteryChoices = useMemo(() => {
     return Object.entries(BATTERY_MODELS)
       .filter(([, m]) => {
-        if (voltageClass === 'lv') return m.voltage === 'lv';
-        return m.voltage === 'hv1' || m.voltage === 'hv3';
+        if (voltageClass === "lv") return m.voltage === "lv";
+        return m.voltage === "hv1" || m.voltage === "hv3";
       })
       .map(([article, m]) => ({
         article,
@@ -260,17 +450,17 @@ export default function OrderBessPage({ t }) {
   useEffect(() => {
     // Keep battery model compatible when inverter voltage class changes;
     // skip SKUs with no inbound/arrival dates («дані про приходи відсутні»).
-    const selectable = batteryChoices.filter(b => !b.noArrival);
+    const selectable = batteryChoices.filter((b) => !b.noArrival);
     const pool = selectable.length ? selectable : batteryChoices;
-    if (!pool.some(b => b.article === customBat)) {
-      setCustomBat(pool[0]?.article || '');
+    if (!pool.some((b) => b.article === customBat)) {
+      setCustomBat(pool[0]?.article || "");
     }
   }, [batteryChoices, customBat]);
 
   useEffect(() => {
-    const selectable = inverterChoices.filter(i => !i.noArrival);
+    const selectable = inverterChoices.filter((i) => !i.noArrival);
     const pool = selectable.length ? selectable : inverterChoices;
-    if (!pool.some(i => i.article === customInv)) {
+    if (!pool.some((i) => i.article === customInv)) {
       setCustomInv(pool[0]?.article || customInv);
     }
   }, [inverterChoices, customInv]);
@@ -282,41 +472,106 @@ export default function OrderBessPage({ t }) {
 
   useEffect(() => {
     if (!kwhOptions.length) return;
-    if (!kwhOptions.some(o => Math.abs(o.kwh - customKwh) < 0.01)) {
+    if (!kwhOptions.some((o) => Math.abs(o.kwh - customKwh) < 0.01)) {
       const closest = kwhOptions.reduce((best, o) =>
-        !best || Math.abs(o.kwh - customKwh) < Math.abs(best.kwh - customKwh) ? o : best
+        !best || Math.abs(o.kwh - customKwh) < Math.abs(best.kwh - customKwh)
+          ? o
+          : best,
       );
       setCustomKwh(closest.kwh);
     }
   }, [kwhOptions, customKwh]);
 
+  const sigenInvMeta = SIGEN_INVERTERS[sigenInv];
+  const sigenLine = sigenInvMeta?.line || "home";
+
+  const sigenInverterChoices = useMemo(
+    () =>
+      Object.entries(SIGEN_INVERTERS).map(([article, meta]) => ({
+        article,
+        ...meta,
+      })),
+    [],
+  );
+
+  const sigenBatteryChoices = useMemo(
+    () =>
+      Object.entries(SIGEN_BATTERIES)
+        .filter(([, m]) => m.line === sigenLine)
+        .map(([article, m]) => ({ article, ...m })),
+    [sigenLine],
+  );
+
+  useEffect(() => {
+    if (!sigenBatteryChoices.some((b) => b.article === sigenBat)) {
+      setSigenBat(sigenBatteryChoices[0]?.article || "");
+    }
+  }, [sigenBatteryChoices, sigenBat]);
+
+  const sigenKwhOpts = useMemo(() => {
+    if (!sigenInv || !sigenBat) return [];
+    return sigenKwhOptions(sigenInv, sigenBat);
+  }, [sigenInv, sigenBat]);
+
+  useEffect(() => {
+    if (!sigenKwhOpts.length) return;
+    if (!sigenKwhOpts.some((o) => Math.abs(o.kwh - sigenKwh) < 0.01)) {
+      const closest = sigenKwhOpts.reduce((best, o) =>
+        !best || Math.abs(o.kwh - sigenKwh) < Math.abs(best.kwh - sigenKwh)
+          ? o
+          : best,
+      );
+      setSigenKwh(closest.kwh);
+    }
+  }, [sigenKwhOpts, sigenKwh]);
+
   const activeBom = useMemo(() => {
+    if (presetId === CUSTOM_PRESET_ID && customBrand === "sigen") {
+      return buildSigenBom(sigenInv, sigenBat, sigenKwh);
+    }
     if (presetId === CUSTOM_PRESET_ID) {
       return buildCustomBom(customInv, customBat, customKwh);
     }
-    const p = ALL_PRESETS.find(x => x.id === presetId);
-    if (!p) return { lines: [], kwh: 0, kw: 0, voltageClass: '' };
-    return { lines: p.lines, kwh: p.kwh, kw: p.kw, voltageClass: p.group, meta: {} };
-  }, [presetId, customInv, customBat, customKwh]);
+    const p = ALL_PRESETS.find((x) => x.id === presetId);
+    if (!p) return { lines: [], kwh: 0, kw: 0, voltageClass: "" };
+    return {
+      lines: p.lines,
+      kwh: p.kwh,
+      kw: p.kw,
+      voltageClass: p.group,
+      meta: {},
+    };
+  }, [
+    presetId,
+    customBrand,
+    customInv,
+    customBat,
+    customKwh,
+    sigenInv,
+    sigenBat,
+    sigenKwh,
+  ]);
 
   const pricedLines = useMemo(() => {
     const items = priceList?.items || [];
-    return (activeBom.lines || []).map(l => {
+    return (activeBom.lines || []).map((l) => {
       const item = findItem(items, l.article);
       const unit = unitPriceUsd(item, businessType);
-      const lineTotal = unit == null ? null : Math.round(unit * l.qty * 100) / 100;
+      const lineTotal =
+        unit == null ? null : Math.round(unit * l.qty * 100) / 100;
       const availability =
-        item?.availabilityInstaller || item?.availability || '';
+        item?.availabilityInstaller || item?.availability || "";
       const priceSource = isEtuVendor(item)
-        ? 'etu'
-        : businessType === 'cash'
-          ? item?.priceSourceCash || ''
-          : item?.priceSourceRetail || '';
+        ? "etu"
+        : businessType === "cash"
+          ? item?.priceSourceCash || ""
+          : item?.priceSourceRetail || "";
       return {
         ...l,
         name: item?.name || l.article,
-        brand: item?.brand || '',
-        code: item?.code || '',
+        imageUrl: item?.imageUrl || "",
+        brand: item?.brand || "",
+        code: item?.code || "",
         unit,
         lineTotal,
         availability,
@@ -327,24 +582,51 @@ export default function OrderBessPage({ t }) {
   }, [activeBom, priceList, businessType]);
 
   const totalUsd = useMemo(() => {
-    if (pricedLines.some(l => l.lineTotal == null)) return null;
-    return Math.round(pricedLines.reduce((s, l) => s + (l.lineTotal || 0), 0) * 100) / 100;
+    if (pricedLines.some((l) => l.lineTotal == null)) return null;
+    return (
+      Math.round(
+        pricedLines.reduce((s, l) => s + (l.lineTotal || 0), 0) * 100,
+      ) / 100
+    );
   }, [pricedLines]);
 
   const fx = priceList?.fxRate || 45.3;
-  const totalUah = totalUsd == null ? null : Math.round(totalUsd * fx * 100) / 100;
+  const totalUah =
+    totalUsd == null ? null : Math.round(totalUsd * fx * 100) / 100;
 
-  const bizMeta = BUSINESS_TYPES.find(b => b.id === businessType);
-  const priceColLabel = t(bizMeta?.priceLabelKey || 'orderBessPriceUsd');
+  const bizMeta = BUSINESS_TYPES.find((b) => b.id === businessType);
+  const priceColLabel = t(bizMeta?.priceLabelKey || "orderBessPriceUsd");
 
   const offerTitle = useMemo(() => {
     const kw = activeBom.kw || 0;
     const kwh = activeBom.kwh || 0;
-    return t('orderBessOfferTitle', { kw, kwh: Math.round(kwh) });
-  }, [activeBom, t]);
+    const price = totalUsd == null ? "—" : `$${fmtUsd(totalUsd)}`;
+    const brand =
+      presetId === CUSTOM_PRESET_ID
+        ? customBrand === "sigen"
+          ? "Sigenergy"
+          : "Deye"
+        : presetBrand(ALL_PRESETS.find((x) => x.id === presetId));
+    return t("orderBessOfferTitle", { brand, kw, kwh: Math.round(kwh), price });
+  }, [activeBom, presetId, customBrand, totalUsd, t]);
+
+  const homePresets = useMemo(
+    () =>
+      ALL_PRESETS.filter((p) => presetSegment(p) === "home").sort(
+        (a, b) => a.kw - b.kw || a.kwh - b.kwh,
+      ),
+    [],
+  );
+  const bizPresets = useMemo(
+    () =>
+      ALL_PRESETS.filter((p) => presetSegment(p) === "biz").sort(
+        (a, b) => a.kw - b.kw || a.kwh - b.kwh,
+      ),
+    [],
+  );
 
   const biomSavings = useMemo(() => {
-    if (presetId !== CUSTOM_PRESET_ID) return null;
+    if (presetId !== CUSTOM_PRESET_ID || customBrand === "sigen") return null;
     return computeBiomSavings({
       inverterArticle: customInv,
       batteryArticle: customBat,
@@ -353,72 +635,80 @@ export default function OrderBessPage({ t }) {
       priceItems: priceList?.items || [],
       findItemFn: findItem,
     });
-  }, [presetId, customInv, customBat, customKwh, businessType, priceList]);
+  }, [
+    presetId,
+    customBrand,
+    customInv,
+    customBat,
+    customKwh,
+    businessType,
+    priceList,
+  ]);
 
   const kitPayload = useMemo(
     () => ({
       kw: activeBom.kw,
       kwh: activeBom.kwh,
       ...(presetId === CUSTOM_PRESET_ID
-        ? { inv: customInv, bat: customBat, inverter: customInv, battery: customBat }
+        ? customBrand === "sigen"
+          ? {
+              brand: "sigen",
+              inv: sigenInv,
+              bat: sigenBat,
+              inverter: sigenInv,
+              battery: sigenBat,
+            }
+          : {
+              brand: "deye",
+              inv: customInv,
+              bat: customBat,
+              inverter: customInv,
+              battery: customBat,
+            }
         : {}),
-      lines: pricedLines.map(l => ({
+      lines: pricedLines.map((l) => ({
         article: l.article,
         qty: l.qty,
         unit: l.unit,
         lineTotal: l.lineTotal,
       })),
     }),
-    [activeBom, pricedLines, presetId, customInv, customBat]
+    [
+      activeBom,
+      pricedLines,
+      presetId,
+      customBrand,
+      customInv,
+      customBat,
+      sigenInv,
+      sigenBat,
+    ],
   );
 
   const orderBessPageUrl = useMemo(() => {
-    if (typeof window === 'undefined') return '';
+    if (typeof window === "undefined") return "";
     try {
       return window.location.href;
     } catch {
-      return '';
+      return "";
     }
   }, []);
 
   const trimmedName = contactName.trim();
   const trimmedPhone = contactPhone.trim();
-  const canContact = trimmedName.length >= 1 && trimmedPhone.length >= 5;
-
-  const buildContactMessage = intent => {
-    const isDiscount = intent === 'discount';
-    const pageLink =
-      typeof window !== 'undefined' ? window.location.href : orderBessPageUrl;
-    const lines = [
-      t(isDiscount ? 'orderBessContactMessageDiscountIntro' : 'orderBessContactMessageOfferIntro'),
-      `${t('orderBessContactName')}: ${trimmedName}`,
-      `${t('orderBessContactPhone')}: ${trimmedPhone}`,
-      `${t('orderBessSummaryKit')}: ${activeBom.kw} кВт + ${activeBom.kwh} кВт·год`,
-      totalUsd == null
-        ? null
-        : isDiscount
-          ? `${t('orderBessSummaryTotal')}: $${fmtUsd(totalUsd)} × ${discountUnits} = $${fmtUsd(totalUsd * discountUnits)} (${priceColLabel})`
-          : `${t('orderBessSummaryTotal')}: $${fmtUsd(totalUsd)} (${priceColLabel})`,
-      isDiscount ? `${t('orderBessDiscountUnits')}: ${discountUnits}` : null,
-      pageLink || null,
-      '',
-      isDiscount ? BESS_DISCOUNT_HASHTAG : BESS_OFFER_HASHTAG,
-    ].filter(Boolean);
-    return lines.join('\n');
-  };
 
   const submitBuyRequest = async () => {
     if (buyBusy || buySent) return;
     if (trimmedPhone.length < 5) {
-      setContactFormError(t('orderBessContactNeedPhone'));
+      setContactFormError(t("orderBessContactNeedPhone"));
       return;
     }
-    setContactFormError('');
+    setContactFormError("");
     setBuyBusy(true);
     try {
-      const res = await fetch(apiUrl('/api/bess-order/buy-request'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch(apiUrl("/api/bess-order/buy-request"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           preset_id: presetId,
           business_type: businessType,
@@ -426,87 +716,18 @@ export default function OrderBessPage({ t }) {
           name: trimmedName || null,
           phone: trimmedPhone,
           kit: kitPayload,
-          page_url: typeof window !== 'undefined' ? window.location.href : orderBessPageUrl,
+          page_url:
+            typeof window !== "undefined"
+              ? window.location.href
+              : orderBessPageUrl,
         }),
       });
       if (!res.ok) throw new Error(`buy request ${res.status}`);
       setBuySent(true);
     } catch {
-      setContactFormError(t('orderBessBuyFailed'));
+      setContactFormError(t("orderBessBuyFailed"));
     } finally {
       setBuyBusy(false);
-    }
-  };
-
-  const openContact = async (channel, intent = 'offer') => {
-    if (contactBusy) return;
-    if (!canContact) {
-      setContactFormError(t('orderBessContactNeedNamePhone'));
-      return;
-    }
-    setContactFormError('');
-    setContactBusy(`${intent}:${channel}`);
-    try {
-      // Notify support chat first (best-effort), then open messenger for the user
-      try {
-        await fetch(apiUrl('/api/bess-order/contact'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            channel,
-            intent,
-            preset_id: presetId,
-            business_type: businessType,
-            units: intent === 'discount' ? discountUnits : null,
-            total_usd: totalUsd,
-            name: trimmedName,
-            phone: trimmedPhone,
-            contact: `${trimmedName} / ${trimmedPhone}`,
-            kit: kitPayload,
-            page_url: typeof window !== 'undefined' ? window.location.href : orderBessPageUrl,
-          }),
-        });
-      } catch {
-        /* ignore — still open messenger */
-      }
-      const msg = buildContactMessage(intent);
-      const url = channel === 'telegram' ? buildB2bTelegramUrl(msg) : buildB2bWhatsAppUrl(msg);
-      window.open(url, '_blank', 'noopener,noreferrer');
-    } finally {
-      setContactBusy('');
-    }
-  };
-
-  const submitDiscount = async () => {
-    if (!canContact) {
-      setContactFormError(t('orderBessContactNeedNamePhone'));
-      return;
-    }
-    setContactFormError('');
-    setDiscountBusy(true);
-    setDiscountStatus('');
-    try {
-      const res = await fetch(apiUrl('/api/bess-order/discount-request'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          preset_id: presetId,
-          business_type: businessType,
-          units: discountUnits,
-          total_usd: totalUsd,
-          name: trimmedName,
-          phone: trimmedPhone,
-          contact: `${trimmedName} / ${trimmedPhone}`,
-          kit: kitPayload,
-          page_url: typeof window !== 'undefined' ? window.location.href : orderBessPageUrl,
-        }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setDiscountStatus('ok');
-    } catch {
-      setDiscountStatus('err');
-    } finally {
-      setDiscountBusy(false);
     }
   };
 
@@ -525,7 +746,7 @@ export default function OrderBessPage({ t }) {
       });
     } catch (e) {
       // eslint-disable-next-line no-console
-      console.error('Order BESS PNG failed', e);
+      console.error("Order BESS PNG failed", e);
     } finally {
       setPdfBusy(false);
     }
@@ -535,22 +756,26 @@ export default function OrderBessPage({ t }) {
     <div className="order-bess-page">
       <div className="order-bess-page__inner">
         <header className="order-bess-hero">
-          <h1 className="order-bess-hero__title">{t('orderBessPageTitle')}</h1>
-          <p className="order-bess-hero__sub">{t('orderBessPageSubtitle')}</p>
+          <h1 className="order-bess-hero__title">{t("orderBessPageTitle")}</h1>
+          <p className="order-bess-hero__sub">{t("orderBessPageSubtitle")}</p>
         </header>
 
         <section className="order-bess-card" aria-labelledby="order-bess-biz">
           <h2 id="order-bess-biz" className="order-bess-card__title">
-            {t('orderBessBusinessType')}
+            {t("orderBessBusinessType")}
           </h2>
-          <div className="order-bess-seg" role="radiogroup" aria-label={t('orderBessBusinessType')}>
-            {BUSINESS_TYPES.map(b => (
+          <div
+            className="order-bess-seg"
+            role="radiogroup"
+            aria-label={t("orderBessBusinessType")}
+          >
+            {BUSINESS_TYPES.map((b) => (
               <button
                 key={b.id}
                 type="button"
                 role="radio"
                 aria-checked={businessType === b.id}
-                className={`order-bess-seg__btn${businessType === b.id ? ' order-bess-seg__btn--active' : ''}`}
+                className={`order-bess-seg__btn${businessType === b.id ? " order-bess-seg__btn--active" : ""}`}
                 onClick={() => setBusinessType(b.id)}
               >
                 {t(b.labelKey)}
@@ -559,93 +784,58 @@ export default function OrderBessPage({ t }) {
           </div>
         </section>
 
-        <section className="order-bess-card" aria-labelledby="order-bess-preset">
+        <section
+          className="order-bess-card"
+          aria-labelledby="order-bess-preset"
+        >
           <h2 id="order-bess-preset" className="order-bess-card__title">
-            {t('orderBessPreset')}
+            {t("orderBessPreset")}
           </h2>
           <div className="order-bess-presets">
             <div className="order-bess-presets__group">
-              <div className="order-bess-presets__label">{t('orderBessPresetLv')}</div>
+              <div className="order-bess-presets__label">
+                {t("orderBessPresetSigenHome")}
+              </div>
               <div className="order-bess-chips">
-                {PRESETS.filter(p => p.group === 'lv').map(p => (
+                {homePresets.map((p) => (
                   <button
                     key={p.id}
                     type="button"
-                    className={`order-bess-chip${presetId === p.id ? ' order-bess-chip--active' : ''}`}
+                    className={`order-bess-chip${presetId === p.id ? " order-bess-chip--active" : ""}`}
                     onClick={() => setPresetId(p.id)}
                   >
-                    {p.label}
+                    {presetBrand(p)} · {p.label}
                   </button>
                 ))}
               </div>
             </div>
             <div className="order-bess-presets__group">
-              <div className="order-bess-presets__label">{t('orderBessPresetHv')}</div>
+              <div className="order-bess-presets__label">
+                {t("orderBessPresetSigenBiz")}
+              </div>
               <div className="order-bess-chips">
-                {PRESETS.filter(p => p.group === 'hv').map(p => (
+                {bizPresets.map((p) => (
                   <button
                     key={p.id}
                     type="button"
-                    className={`order-bess-chip${presetId === p.id ? ' order-bess-chip--active' : ''}`}
+                    className={`order-bess-chip${presetId === p.id ? " order-bess-chip--active" : ""}`}
                     onClick={() => setPresetId(p.id)}
                   >
-                    {p.label}
+                    {presetBrand(p)} · {p.label}
                   </button>
                 ))}
               </div>
             </div>
             <div className="order-bess-presets__group">
-              <div className="order-bess-presets__label">{t('orderBessPresetCabinet')}</div>
-              <div className="order-bess-chips">
-                {PRESETS.filter(p => p.group === 'cabinet').map(p => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    className={`order-bess-chip${presetId === p.id ? ' order-bess-chip--active' : ''}`}
-                    onClick={() => setPresetId(p.id)}
-                  >
-                    {p.label}
-                  </button>
-                ))}
+              <div className="order-bess-presets__label">
+                {t("orderBessPresetCustom")}
               </div>
-            </div>
-            <div className="order-bess-presets__group order-bess-presets__group--sigen">
-              <div className="order-bess-presets__label">{t('orderBessPresetSigen')}</div>
-              <div className="order-bess-presets__sublabel">{t('orderBessPresetSigenHome')}</div>
-              <div className="order-bess-chips">
-                {SIGENERGY_PRESETS.filter(p => p.group === 'sigen-home').map(p => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    className={`order-bess-chip${presetId === p.id ? ' order-bess-chip--active' : ''}`}
-                    onClick={() => setPresetId(p.id)}
-                  >
-                    {t(`orderBessTier_${p.tier}`)} · {p.label}
-                  </button>
-                ))}
-              </div>
-              <div className="order-bess-presets__sublabel">{t('orderBessPresetSigenBiz')}</div>
-              <div className="order-bess-chips">
-                {SIGENERGY_PRESETS.filter(p => p.group === 'sigen-biz').map(p => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    className={`order-bess-chip${presetId === p.id ? ' order-bess-chip--active' : ''}`}
-                    onClick={() => setPresetId(p.id)}
-                  >
-                    {t(`orderBessTier_${p.tier}`)} · {p.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="order-bess-presets__group">
-              <div className="order-bess-presets__label">{t('orderBessPresetCustom')}</div>
               <button
                 type="button"
-                className={`order-bess-chip${presetId === CUSTOM_PRESET_ID ? ' order-bess-chip--active' : ''}`}
+                className={`order-bess-chip${presetId === CUSTOM_PRESET_ID ? " order-bess-chip--active" : ""}`}
                 onClick={() => setPresetId(CUSTOM_PRESET_ID)}
               >
-                {t('orderBessCustomBtn')}
+                {t("orderBessCustomBtn")}
               </button>
             </div>
           </div>
@@ -653,63 +843,165 @@ export default function OrderBessPage({ t }) {
           {presetId === CUSTOM_PRESET_ID ? (
             <div className="order-bess-custom">
               <label className="order-bess-field">
-                <span>{t('orderBessSelectKw')}</span>
+                <span>{t("orderBessSelectBrand")}</span>
                 <select
-                  value={customInv}
-                  onChange={e => {
-                    const next = inverterChoices.find(i => i.article === e.target.value);
-                    if (next?.noArrival) return;
-                    setCustomInv(e.target.value);
-                  }}
+                  value={customBrand}
+                  onChange={(e) => setCustomBrand(e.target.value)}
                 >
-                  {inverterChoices.map(inv => (
-                    <option key={inv.article} value={inv.article} disabled={inv.noArrival}>
-                      {inv.kw} кВт ({inv.voltage.toUpperCase()}) — {inv.article}
-                      {inv.noArrival ? ` — ${t('orderBessNoArrivalDates')}` : ''}
-                    </option>
-                  ))}
+                  <option value="deye">Deye</option>
+                  <option value="sigen">Sigenergy</option>
                 </select>
               </label>
-              <label className="order-bess-field">
-                <span>{t('orderBessSelectBattery')}</span>
-                <select
-                  value={customBat}
-                  onChange={e => {
-                    const next = batteryChoices.find(b => b.article === e.target.value);
-                    if (next?.noArrival) return;
-                    setCustomBat(e.target.value);
-                  }}
-                >
-                  {batteryChoices.map(b => (
-                    <option key={b.article} value={b.article} disabled={b.noArrival}>
-                      {b.label}
-                      {b.noArrival ? ` — ${t('orderBessNoArrivalDates')}` : ''}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="order-bess-range-hint">
-                {t('orderBessAllowedKwh')}: <strong>{kwhRangeLabel(kwhOptions)}</strong>
-                {voltageClass === 'hv' ? (
-                  <span className="order-bess-range-hint__note"> {t('orderBessHvVoltageNote')}</span>
-                ) : null}
-              </div>
-              <label className="order-bess-field">
-                <span>{t('orderBessSelectKwh')}</span>
-                <select
-                  value={String(customKwh)}
-                  onChange={e => setCustomKwh(Number(e.target.value))}
-                >
-                  {kwhOptions.map(o => (
-                    <option key={`${o.kwh}-${o.modules}`} value={o.kwh}>
-                      {o.kwh} кВт·год
-                      {o.voltageV != null
-                        ? ` (${o.strings}×${o.modulesPerString} @ ${o.voltageV} V)`
-                        : ` (${o.modules} шт.)`}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {customBrand === "sigen" ? (
+                <>
+                  <label className="order-bess-field">
+                    <span>{t("orderBessSelectKw")}</span>
+                    <select
+                      value={sigenInv}
+                      onChange={(e) => setSigenInv(e.target.value)}
+                    >
+                      <optgroup label={t("orderBessPresetSigenHome")}>
+                        {sigenInverterChoices
+                          .filter((inv) => inv.line === "home")
+                          .map((inv) => (
+                            <option key={inv.article} value={inv.article}>
+                              {inv.kw} кВт — {inv.article}
+                            </option>
+                          ))}
+                      </optgroup>
+                      <optgroup label={t("orderBessPresetSigenBiz")}>
+                        {sigenInverterChoices
+                          .filter((inv) => inv.line === "biz")
+                          .map((inv) => (
+                            <option key={inv.article} value={inv.article}>
+                              {inv.kw} кВт — {inv.article}
+                            </option>
+                          ))}
+                      </optgroup>
+                    </select>
+                  </label>
+                  <label className="order-bess-field">
+                    <span>{t("orderBessSelectBattery")}</span>
+                    <select
+                      value={sigenBat}
+                      onChange={(e) => setSigenBat(e.target.value)}
+                    >
+                      {sigenBatteryChoices.map((b) => (
+                        <option key={b.article} value={b.article}>
+                          {b.article} ({b.kwh} кВт·год)
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="order-bess-range-hint">
+                    {t("orderBessAllowedKwh")}:{" "}
+                    <strong>{kwhRangeLabel(sigenKwhOpts)}</strong>
+                    {activeBom?.meta?.modules ? (
+                      <span className="order-bess-range-hint__note">
+                        {" "}
+                        {t("orderBessSigenModulesNote", {
+                          count: activeBom.meta.modules,
+                        })}
+                      </span>
+                    ) : null}
+                  </div>
+                  <label className="order-bess-field">
+                    <span>{t("orderBessSelectKwh")}</span>
+                    <select
+                      value={String(sigenKwh)}
+                      onChange={(e) => setSigenKwh(Number(e.target.value))}
+                    >
+                      {sigenKwhOpts.map((o) => (
+                        <option key={`${o.kwh}-${o.modules}`} value={o.kwh}>
+                          {o.kwh} кВт·год ({o.modules} шт.)
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </>
+              ) : (
+                <>
+                  <label className="order-bess-field">
+                    <span>{t("orderBessSelectKw")}</span>
+                    <select
+                      value={customInv}
+                      onChange={(e) => {
+                        const next = inverterChoices.find(
+                          (i) => i.article === e.target.value,
+                        );
+                        if (next?.noArrival) return;
+                        setCustomInv(e.target.value);
+                      }}
+                    >
+                      {inverterChoices.map((inv) => (
+                        <option
+                          key={inv.article}
+                          value={inv.article}
+                          disabled={inv.noArrival}
+                        >
+                          {inv.kw} кВт ({inv.voltage.toUpperCase()}) —{" "}
+                          {inv.article}
+                          {inv.noArrival
+                            ? ` — ${t("orderBessNoArrivalDates")}`
+                            : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="order-bess-field">
+                    <span>{t("orderBessSelectBattery")}</span>
+                    <select
+                      value={customBat}
+                      onChange={(e) => {
+                        const next = batteryChoices.find(
+                          (b) => b.article === e.target.value,
+                        );
+                        if (next?.noArrival) return;
+                        setCustomBat(e.target.value);
+                      }}
+                    >
+                      {batteryChoices.map((b) => (
+                        <option
+                          key={b.article}
+                          value={b.article}
+                          disabled={b.noArrival}
+                        >
+                          {b.label}
+                          {b.noArrival
+                            ? ` — ${t("orderBessNoArrivalDates")}`
+                            : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="order-bess-range-hint">
+                    {t("orderBessAllowedKwh")}:{" "}
+                    <strong>{kwhRangeLabel(kwhOptions)}</strong>
+                    {voltageClass === "hv" ? (
+                      <span className="order-bess-range-hint__note">
+                        {" "}
+                        {t("orderBessHvVoltageNote")}
+                      </span>
+                    ) : null}
+                  </div>
+                  <label className="order-bess-field">
+                    <span>{t("orderBessSelectKwh")}</span>
+                    <select
+                      value={String(customKwh)}
+                      onChange={(e) => setCustomKwh(Number(e.target.value))}
+                    >
+                      {kwhOptions.map((o) => (
+                        <option key={`${o.kwh}-${o.modules}`} value={o.kwh}>
+                          {o.kwh} кВт·год
+                          {o.voltageV != null
+                            ? ` (${o.strings}×${o.modulesPerString} @ ${o.voltageV} V)`
+                            : ` (${o.modules} шт.)`}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </>
+              )}
             </div>
           ) : null}
         </section>
@@ -719,69 +1011,92 @@ export default function OrderBessPage({ t }) {
             <h2 id="order-bess-bom" className="order-bess-card__title">
               {offerTitle}
             </h2>
-            <button type="button" className="order-bess-refresh" onClick={() => void loadPrices(true)} disabled={loading}>
-              {t('orderBessRefreshPrices')}
+            <button
+              type="button"
+              className="order-bess-refresh"
+              onClick={() => void loadPrices(true)}
+              disabled={loading}
+            >
+              {t("orderBessRefreshPrices")}
             </button>
           </div>
           {priceList?.sources?.etu ? (
-            <p className="order-bess-muted order-bess-etu-hint">{t('orderBessEtuHint')}</p>
+            <p className="order-bess-muted order-bess-etu-hint">
+              {t("orderBessEtuHint")}
+            </p>
           ) : null}
-          {loading && !priceList ? <p className="order-bess-muted">{t('orderBessLoading')}</p> : null}
+          {loading && !priceList ? (
+            <p className="order-bess-muted">{t("orderBessLoading")}</p>
+          ) : null}
           {loadError ? <p className="order-bess-error">{loadError}</p> : null}
 
           <div className="order-bess-table-wrap">
             <table className="order-bess-table">
               <thead>
                 <tr>
-                  <th>{t('orderBessColItem')}</th>
-                  <th>{t('orderBessColArticle')}</th>
-                  <th>{t('orderBessColQty')}</th>
+                  <th>{t("orderBessColItem")}</th>
+                  <th>{t("orderBessColArticle")}</th>
+                  <th>{t("orderBessColQty")}</th>
                   <th>{priceColLabel}</th>
-                  <th>{t('orderBessColSum')}</th>
-                  <th>{t('orderBessColAvail')}</th>
+                  <th>{t("orderBessColSum")}</th>
+                  <th>{t("orderBessColAvail")}</th>
                 </tr>
               </thead>
               <tbody>
-                {pricedLines.map(l => (
+                {pricedLines.map((l) => (
                   <tr key={`${l.article}-${l.qty}-${l.note}`}>
                     <td>
-                      <div className="order-bess-item-name">{l.name}</div>
-                      {l.note ? <div className="order-bess-item-note">{l.note}</div> : null}
-                      {l.priceSource === 'etu' ? (
-                        <div className="order-bess-item-note">{t('orderBessEtuPriceNote')}</div>
+                      <div className="order-bess-item-name">
+                        <a
+                          href={googleImagesUrl(l.name)}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {l.name}
+                        </a>
+                      </div>
+                      {l.note ? (
+                        <div className="order-bess-item-note">{l.note}</div>
+                      ) : null}
+                      {l.priceSource === "etu" ? (
+                        <div className="order-bess-item-note">
+                          {t("orderBessEtuPriceNote")}
+                        </div>
                       ) : null}
                       {biomSavings &&
                       biomSavings.savingsUsd > 0 &&
                       skuKey(l.article) === skuKey(customBat) ? (
                         <div className="order-bess-biom-cheaper">
-                          {t('orderBessBiomCheaper', {
+                          {t("orderBessBiomCheaper", {
                             usd: fmtUsd(biomSavings.savingsUsd),
                             model: biomSavings.biomArticle,
                           })}
                         </div>
                       ) : null}
                     </td>
-                    <td className="order-bess-mono">{l.article}</td>
+                    <td>
+                      <ProductThumb name={l.name} article={l.article} />
+                    </td>
                     <td className="order-bess-num">{l.qty}</td>
                     <td className="order-bess-num">
-                      {l.unit == null ? '—' : `$${fmtUsd(l.unit)}`}
+                      {l.unit == null ? "—" : `$${fmtUsd(l.unit)}`}
                     </td>
                     <td className="order-bess-num">
-                      {l.lineTotal == null ? '—' : `$${fmtUsd(l.lineTotal)}`}
+                      {l.lineTotal == null ? "—" : `$${fmtUsd(l.lineTotal)}`}
                     </td>
                     <td>
                       {l.availability ? (
                         <span
                           className={
                             /в\s*наявност/i.test(l.availability)
-                              ? 'order-bess-avail order-bess-avail--in-stock'
-                              : 'order-bess-avail'
+                              ? "order-bess-avail order-bess-avail--in-stock"
+                              : "order-bess-avail"
                           }
                         >
                           {l.availability}
                         </span>
                       ) : (
-                        '—'
+                        "—"
                       )}
                     </td>
                   </tr>
@@ -790,31 +1105,39 @@ export default function OrderBessPage({ t }) {
               <tfoot>
                 <tr>
                   <td colSpan={4}>
-                    <strong>{t('orderBessTotal')}</strong>
+                    <strong>{t("orderBessTotal")}</strong>
                     <span className="order-bess-muted"> · {priceColLabel}</span>
                   </td>
                   <td className="order-bess-num">
-                    <strong>{totalUsd == null ? '—' : `$${fmtUsd(totalUsd)}`}</strong>
+                    <strong>
+                      {totalUsd == null ? "—" : `$${fmtUsd(totalUsd)}`}
+                    </strong>
                   </td>
                   <td />
                 </tr>
                 <tr>
-                  <td colSpan={4}>{t('orderBessTotalUah', { rate: fx })}</td>
-                  <td className="order-bess-num">{totalUah == null ? '—' : `${fmtUah(totalUah)} грн`}</td>
+                  <td colSpan={4}>{t("orderBessTotalUah", { rate: fx })}</td>
+                  <td className="order-bess-num">
+                    {totalUah == null ? "—" : `${fmtUah(totalUah)} грн`}
+                  </td>
                   <td />
                 </tr>
               </tfoot>
             </table>
           </div>
           <p className="order-bess-kwh">
-            {t('orderBessCapacity')}: <strong>{activeBom.kwh} кВт·год</strong> · {activeBom.kw} кВт
+            {t("orderBessCapacity")}: <strong>{activeBom.kwh} кВт·год</strong> ·{" "}
+            {activeBom.kw} кВт
           </p>
         </section>
 
-        <section className="order-bess-card" aria-labelledby="order-bess-summary">
+        <section
+          className="order-bess-card"
+          aria-labelledby="order-bess-summary"
+        >
           <div className="order-bess-card__head">
             <h2 id="order-bess-summary" className="order-bess-card__title">
-              {t('orderBessSummary')}
+              {t("orderBessSummary")}
             </h2>
             <div className="order-bess-summary-actions">
               <button
@@ -823,57 +1146,64 @@ export default function OrderBessPage({ t }) {
                 disabled={pdfBusy || totalUsd == null}
                 onClick={() => void downloadPng()}
               >
-                {pdfBusy ? t('orderBessPngBusy') : t('orderBessDownloadPng')}
+                {pdfBusy ? t("orderBessPngBusy") : t("orderBessDownloadPng")}
               </button>
             </div>
           </div>
           <ul className="order-bess-summary-list">
             <li>
-              {t('orderBessSummaryKit')}: {activeBom.kw} кВт + {activeBom.kwh} кВт·год
+              {t("orderBessSummaryKit")}: {activeBom.kw} кВт + {activeBom.kwh}{" "}
+              кВт·год
             </li>
             <li>
-              {t('orderBessSummaryTotal')}: {totalUsd == null ? '—' : `$${fmtUsd(totalUsd)}`} ({priceColLabel})
+              {t("orderBessSummaryTotal")}:{" "}
+              {totalUsd == null ? "—" : `$${fmtUsd(totalUsd)}`} ({priceColLabel}
+              )
             </li>
             <li>
-              {t('orderBessSummaryItems')}: {pricedLines.length}
+              {t("orderBessSummaryItems")}: {pricedLines.length}
             </li>
           </ul>
 
           <div className="order-bess-contact">
-            <p className="order-bess-contact__label">{t('orderBessWantOffer')}</p>
+            <p className="order-bess-contact__label">
+              {t("orderBessWantOffer")}
+            </p>
             <div className="order-bess-contact-fields">
               <label className="order-bess-field order-bess-field--grow">
-                <span>{t('orderBessContactName')}</span>
+                <span>{t("orderBessContactName")}</span>
                 <input
                   type="text"
                   autoComplete="name"
                   value={contactName}
-                  onChange={e => {
+                  onChange={(e) => {
                     setContactName(e.target.value);
-                    if (contactFormError) setContactFormError('');
+                    if (contactFormError) setContactFormError("");
                   }}
-                  placeholder={t('orderBessContactNamePh')}
+                  placeholder={t("orderBessContactNamePh")}
                 />
               </label>
               <label className="order-bess-field order-bess-field--grow">
-                <span>{t('orderBessContactPhone')}</span>
+                <span>{t("orderBessContactPhone")}</span>
                 <input
                   type="tel"
                   autoComplete="tel"
                   value={contactPhone}
-                  onChange={e => {
+                  onChange={(e) => {
                     setContactPhone(e.target.value);
-                    if (contactFormError) setContactFormError('');
+                    if (contactFormError) setContactFormError("");
                     if (buySent) setBuySent(false);
                   }}
-                  placeholder={t('orderBessContactPhonePh')}
+                  placeholder={t("orderBessContactPhonePh")}
                 />
               </label>
             </div>
-            {contactFormError ? <p className="order-bess-error">{contactFormError}</p> : null}
+            {contactFormError ? (
+              <p className="order-bess-error">{contactFormError}</p>
+            ) : null}
             {buySent ? (
               <p className="order-bess-ok" role="status">
-                {t('orderBessBuyOk')}
+                {t("orderBessBuyOk")}
               </p>
             ) : (
               <div className="order-bess-contact__btns">
@@ -883,103 +1213,29 @@ export default function OrderBessPage({ t }) {
                   disabled={buyBusy}
                   onClick={() => void submitBuyRequest()}
                 >
-                  {buyBusy ? t('orderBessContactBusy') : t('orderBessBuyBtn')}
+                  {buyBusy ? t("orderBessContactBusy") : t("orderBessBuyBtn")}
                 </button>
               </div>
             )}
           </div>
         </section>
 
-        <section className="order-bess-card" aria-labelledby="order-bess-discount">
-          <h2 id="order-bess-discount" className="order-bess-card__title">
-            {t('orderBessDiscountTitle')}
-          </h2>
-          <p className="order-bess-muted">{t('orderBessDiscountHint')}</p>
-          <div className="order-bess-discount">
-            <label className="order-bess-field">
-              <span>{t('orderBessDiscountUnits')}</span>
-              <select value={discountUnits} onChange={e => setDiscountUnits(Number(e.target.value))}>
-                {DISCOUNT_UNITS.map(u => (
-                  <option key={u} value={u}>
-                    {u}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="order-bess-field order-bess-field--grow">
-              <span>{t('orderBessContactName')}</span>
-              <input
-                type="text"
-                autoComplete="name"
-                value={contactName}
-                onChange={e => {
-                  setContactName(e.target.value);
-                  if (contactFormError) setContactFormError('');
-                }}
-                placeholder={t('orderBessContactNamePh')}
-              />
-            </label>
-            <label className="order-bess-field order-bess-field--grow">
-              <span>{t('orderBessContactPhone')}</span>
-              <input
-                type="tel"
-                autoComplete="tel"
-                value={contactPhone}
-                onChange={e => {
-                  setContactPhone(e.target.value);
-                  if (contactFormError) setContactFormError('');
-                }}
-                placeholder={t('orderBessContactPhonePh')}
-              />
-            </label>
-            <button
-              type="button"
-              className="order-bess-primary"
-              disabled={discountBusy || totalUsd == null}
-              onClick={() => void submitDiscount()}
-            >
-              {t('orderBessDiscountSubmit')}
-            </button>
-          </div>
-          {contactFormError ? <p className="order-bess-error">{contactFormError}</p> : null}
-          <div className="order-bess-contact order-bess-contact--inline">
-            <p className="order-bess-contact__label">{t('orderBessWantDiscount')}</p>
-            <div className="order-bess-contact__btns">
-              <button
-                type="button"
-                className="order-bess-msg-btn order-bess-msg-btn--telegram"
-                disabled={!!contactBusy}
-                onClick={() => void openContact('telegram', 'discount')}
-              >
-                {contactBusy === 'discount:telegram' ? t('orderBessContactBusy') : t('orderBessContactTelegram')}
-              </button>
-              <button
-                type="button"
-                className="order-bess-msg-btn order-bess-msg-btn--whatsapp"
-                disabled={!!contactBusy}
-                onClick={() => void openContact('whatsapp', 'discount')}
-              >
-                {contactBusy === 'discount:whatsapp' ? t('orderBessContactBusy') : t('orderBessContactWhatsApp')}
-              </button>
-            </div>
-          </div>
-          {discountStatus === 'ok' ? <p className="order-bess-ok">{t('orderBessDiscountOk')}</p> : null}
-          {discountStatus === 'err' ? <p className="order-bess-error">{t('orderBessDiscountErr')}</p> : null}
-        </section>
-
-        <section className="order-bess-card order-bess-share-card" aria-labelledby="order-bess-share">
+        <section
+          className="order-bess-card order-bess-share-card"
+          aria-labelledby="order-bess-share"
+        >
           <h2 id="order-bess-share" className="order-bess-card__title">
-            {t('orderBessShareTitle')}
+            {t("orderBessShareTitle")}
           </h2>
-          <p className="order-bess-muted">{t('orderBessShareHint')}</p>
+          <p className="order-bess-muted">{t("orderBessShareHint")}</p>
           <button
             type="button"
             className="order-bess-share-btn"
             onClick={() => void handleShare()}
-            aria-label={t('orderBessShareBtn')}
+            aria-label={t("orderBessShareBtn")}
           >
             <ShareIcon className="order-bess-share-btn__icon" />
-            <span>{t('orderBessShareBtn')}</span>
+            <span>{t("orderBessShareBtn")}</span>
           </button>
         </section>
       </div>

@@ -28,6 +28,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/bess-order", tags=["bess-order"])
 
 _CACHE: dict[str, Any] = {"ts": 0.0, "payload": None}
+_IMAGE_CACHE: dict[str, tuple[float, str]] = {}
+_IMAGE_TTL_SEC = 6 * 60 * 60
 _MEMORY_LEADS: list[dict[str, Any]] = []
 
 ALLOWED_UNITS_MIN = 2
@@ -119,7 +121,19 @@ _CANONICAL_ARTICLES = (
 # Lead time for every Sigenergy line: 10 days.
 _SIGENERGY_AVAIL = "10 днів"
 _SIGENERGY_CATALOG: tuple[dict[str, Any], ...] = (
-    {"article": "SigenStor EC 3.0 SP", "name": "SigenStor EC 3.0 SP, 3 кВт", "exVat": 1354.60, "incVat": 1625.52},
+    {
+        "article": "SigenStor EC 3.0 SP",
+        "name": "SigenStor EC 3.0 SP, 3 кВт",
+        "exVat": 1354.60,
+        "incVat": 1625.52,
+        "imageUrl": (
+            "https://www.google.com/search?num=10&sca_esv=dfe2b0fb5aadc6a7"
+            "&sxsrf=AKL5yDhvcdt2gPTwJeAj2N2AFqxGsVJUDQ:1794237363012&udm=2"
+            "&fbs=ACAhTvxHM53nx_0OLHZ1FTf0apsbBdIiuZzNqanB1SKz49V7NT7lWo3HN1R0wNca7m7v3442vDCvoFLNE5VTNg1-QiwjP9jkLE6u8ixRkGAfvzghN7Ag7frS18XqT4jC2SiNXg-pvgUfLZ5hgu3gqRQyjVUm5iVLC3Ye_h6kvENR43N_86Dmxc1sA5fHD-FoR9qwb4FfK35JSvzowUQisUfzGzsCzkApm9PDpU-N1DH_weGC3yUrJEORoorr50DbdxUcYGazGbbUnhIrJBiJDCwq6lpKtgwgQA"
+            "&q=SigenStor+EC+3.0+SP,+3+%D0%BA%D0%92%D1%82&sa=X"
+            "&ved=2ahUKEwi1xKiFl_uXAxW_QvEDHXt4MJwQtKgLegQIFxAB&biw=1920&bih=1049&dpr=1"
+        ),
+    },
     {"article": "SigenStor EC 10.0 TP", "name": "SigenStor EC 10.0 TP, 10 кВт", "exVat": 2515.50, "incVat": 3018.60},
     {"article": "SigenStor EC 30.0 TP", "name": "SigenStor EC 30.0 TP, 30 кВт", "exVat": 4703.40, "incVat": 5644.08},
     {"article": "SigenStor BAT 6.0", "name": "SigenStor BAT 6.0, 6 кВт·год", "exVat": 1846.00, "incVat": 2215.20},
@@ -839,6 +853,7 @@ def _merge_sigenergy_catalog(by_article: dict[str, dict[str, Any]]) -> None:
             "availabilityInstaller": _SIGENERGY_AVAIL,
             "priceSourceCash": "sigenergy",
             "priceSourceRetail": "sigenergy",
+            "imageUrl": row.get("imageUrl") or "",
         }
 
 
@@ -986,6 +1001,45 @@ async def _load_price_list(*, force: bool = False) -> dict[str, Any]:
 @router.get("/price-list")
 async def get_price_list(refresh: bool = False) -> dict[str, Any]:
     return await _load_price_list(force=refresh)
+
+
+async def _first_search_thumbnail(query: str) -> str:
+    """First image-search thumbnail for a product name. Cached so the table does not refetch."""
+    now = time.time()
+    cached = _IMAGE_CACHE.get(query)
+    if cached and now - cached[0] < _IMAGE_TTL_SEC:
+        return cached[1]
+    headers = {"User-Agent": "Mozilla/5.0"}
+    url = ""
+    async with httpx.AsyncClient(follow_redirects=True, timeout=12.0, headers=headers) as client:
+        home = await client.get("https://duckduckgo.com/", params={"q": query})
+        match = re.search(r'vqd="([^"]+)"', home.text) or re.search(r"vqd=([\d-]+)", home.text)
+        if match:
+            images = await client.get(
+                "https://duckduckgo.com/i.js",
+                params={"l": "ua-uk", "o": "json", "q": query, "vqd": match.group(1), "f": ",,,", "p": "1"},
+                headers={"Referer": "https://duckduckgo.com/"},
+            )
+            for row in images.json().get("results") or []:
+                url = str(row.get("thumbnail") or row.get("image") or "")
+                if url.startswith("https://"):
+                    break
+                url = ""
+    _IMAGE_CACHE[query] = (now, url)
+    return url
+
+
+@router.get("/image-preview")
+async def image_preview(q: str = "") -> dict[str, Any]:
+    query = " ".join((q or "").split())[:180]
+    if len(query) < 2:
+        return {"images": []}
+    try:
+        url = await _first_search_thumbnail(query)
+    except Exception:
+        logger.exception("BESS image preview failed for %s", query)
+        return {"images": []}
+    return {"images": [url] if url else []}
 
 
 class DiscountRequestBody(BaseModel):

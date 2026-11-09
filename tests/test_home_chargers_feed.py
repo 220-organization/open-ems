@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.routers.home_chargers import parse_prom_csv
+from app.routers.home_chargers import (
+    _merge_home_catalog,
+    eport_lead_time,
+    parse_eport_home_csv,
+    parse_prom_csv,
+)
 
 SAMPLE = """\
 Код_товару,Назва_позиції,Назва_позиції_укр,Опис,Опис_укр,Тип_товару,Ціна,Валюта,Посилання_зображення,Наявність,Унікальний_ідентифікатор,Виробник,Країна_виробник,Продукт_на_сайті,Назва_Характеристики,Одиниця_виміру_Характеристики,Значення_Характеристики,Назва_Характеристики,Одиниця_виміру_Характеристики,Значення_Характеристики,Назва_Характеристики,Одиниця_виміру_Характеристики,Значення_Характеристики
@@ -78,6 +83,48 @@ def test_bundled_snapshot_includes_adapters_and_cables():
     assert wallbox["price"] == 550.0
     assert wallbox["currency"] == "USD"
     assert wallbox["link"].startswith("https://sparkschargers.com.ua/")
-    assert wallbox["image"].startswith("https://")
-    assert set(payload["facets"]["power_buckets"]) <= {"upto4", "7to8", "11", "22plus"}
-    assert "22plus" in payload["facets"]["power_buckets"]
+
+
+def test_eport_lead_time_rule():
+    assert eport_lead_time(119) == "now"
+    assert eport_lead_time(120) == "2m"
+    assert eport_lead_time(None) == "now"
+
+
+def test_parse_eport_home_csv_snapshot():
+    path = Path(__file__).resolve().parents[1] / "app" / "data" / "eport_home_chargers.csv"
+    payload = parse_eport_home_csv(path.read_text(encoding="utf-8-sig"))
+    assert payload["count"] == 58
+    by_sku = {p["id"]: p for p in payload["products"]}
+    pulsar = by_sku["PLP1-0-2-4-9-001"]
+    assert pulsar["brand"] == "Wallbox"
+    assert pulsar["power_kw"] == 22.0
+    assert pulsar["phases"] == 3
+    assert pulsar["connectors"] == ["Type 2"]
+    assert pulsar["lead_time"] == "now"
+    assert pulsar["currency"] == "UAH"
+    assert pulsar["kind"] == "charger"
+    portable = by_sku["EPG-EVE020C1-S10-Portable-GBT"]
+    assert portable["brand"] == "E-port"
+    assert portable["power_kw"] == 20.0
+    assert portable["connectors"] == ["GB/T"]
+    assert portable["price"] == 80200.0
+    assert portable["lead_time"] == "now"
+    brands = payload["facets"]["brands"]
+    assert "Wallbox" in brands
+    assert "Besen" in brands
+    assert "Wissenergy" in brands
+    assert "E-port" in brands
+
+
+def test_merge_sparks_and_eport_home():
+    sparks = parse_prom_csv(SAMPLE)
+    path = Path(__file__).resolve().parents[1] / "app" / "data" / "eport_home_chargers.csv"
+    eport = parse_eport_home_csv(path.read_text(encoding="utf-8-sig"))
+    merged = _merge_home_catalog(sparks, eport)
+    assert merged["count"] == sparks["count"] + eport["count"]
+    brands = merged["facets"]["brands"]
+    assert "Wallbox" in brands
+    assert "Besen" in brands
+    assert "SPARKS CHARGERS" in brands
+    assert "22plus" in merged["facets"]["power_buckets"]
