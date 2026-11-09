@@ -1,35 +1,37 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from "react";
 import {
   OPEN_EMS_ROUTES,
   isRdnConsultationPath,
   rdnConsultationAmountFromPath,
   rdnConsultationPathForAmount,
-} from './openEmsRoutes';
-import './dam-chart.css';
+} from "./openEmsRoutes";
+import "./dam-chart.css";
 
 const MIN_AMOUNT_UAH = 200;
-const MAX_AMOUNT_UAH = 200_000;
+const MAX_AMOUNT_UAH = 20_000;
 const AMOUNT_STEP_UAH = 100;
-const DEFAULT_AMOUNT_UAH = 2200;
-const DRAFT_STORAGE_KEY = 'rdnConsultPayDraft';
-const PAYMENT_QUERY_KEY = 'rdnConsultPayment';
+/** Default consultation package: $100, converted to UAH via NBU USD rate. */
+const DEFAULT_AMOUNT_USD = 100;
+const USD_UAH_FALLBACK = 44;
+const DRAFT_STORAGE_KEY = "rdnConsultPayDraft";
+const PAYMENT_QUERY_KEY = "rdnConsultPayment";
 
 function apiUrl(path) {
-  const base = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
+  const base = (process.env.REACT_APP_API_BASE_URL || "").replace(/\/$/, "");
   if (!base) return path;
   return `${base}${path}`;
 }
 
 function formatPaymentTime(date = new Date()) {
   try {
-    return new Intl.DateTimeFormat('uk-UA', {
-      timeZone: 'Europe/Kyiv',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
+    return new Intl.DateTimeFormat("uk-UA", {
+      timeZone: "Europe/Kyiv",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
       hour12: false,
     }).format(date);
   } catch {
@@ -42,7 +44,7 @@ function readDraft() {
     const raw = sessionStorage.getItem(DRAFT_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return null;
+    if (!parsed || typeof parsed !== "object") return null;
     return parsed;
   } catch {
     return null;
@@ -66,13 +68,13 @@ function clearDraft() {
 }
 
 function takePaymentIdFromUrl() {
-  if (typeof window === 'undefined') return null;
+  if (typeof window === "undefined") return null;
   const url = new URL(window.location.href);
-  const paymentId = (url.searchParams.get(PAYMENT_QUERY_KEY) || '').trim();
+  const paymentId = (url.searchParams.get(PAYMENT_QUERY_KEY) || "").trim();
   if (!paymentId) return null;
   url.searchParams.delete(PAYMENT_QUERY_KEY);
   const next = `${url.pathname}${url.search}${url.hash}`;
-  window.history.replaceState({}, '', next);
+  window.history.replaceState({}, "", next);
   return paymentId;
 }
 
@@ -83,16 +85,35 @@ function buildRedirectUrl() {
   return new URL(path, window.location.origin).toString();
 }
 
-function initialPayAmount(payOnly) {
-  if (payOnly) {
-    const fromPath = rdnConsultationAmountFromPath(window.location.pathname);
-    if (isValidAmountUah(fromPath)) return fromPath;
-    if (fromPath != null) {
-      const snapped = snapAmountUah(fromPath);
-      if (isValidAmountUah(snapped)) return snapped;
-    }
+function todayKyivIso() {
+  try {
+    return new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Kyiv" });
+  } catch {
+    return new Date().toISOString().slice(0, 10);
   }
-  return DEFAULT_AMOUNT_UAH;
+}
+
+function defaultAmountUah(usdUah) {
+  const rate = Number(usdUah);
+  const useRate = Number.isFinite(rate) && rate > 0 ? rate : USD_UAH_FALLBACK;
+  return (
+    snapAmountUah(Math.round(DEFAULT_AMOUNT_USD * useRate)) ?? MIN_AMOUNT_UAH
+  );
+}
+
+function amountFromPath(payOnly) {
+  if (!payOnly) return null;
+  const fromPath = rdnConsultationAmountFromPath(window.location.pathname);
+  if (isValidAmountUah(fromPath)) return fromPath;
+  if (fromPath != null) {
+    const snapped = snapAmountUah(fromPath);
+    if (isValidAmountUah(snapped)) return snapped;
+  }
+  return null;
+}
+
+function initialPayAmount(payOnly) {
+  return amountFromPath(payOnly) ?? defaultAmountUah(USD_UAH_FALLBACK);
 }
 
 function writeConsultationAmountPath(amount) {
@@ -103,47 +124,54 @@ function writeConsultationAmountPath(amount) {
   if (current === nextPath) return;
   const url = new URL(window.location.href);
   url.pathname = nextPath;
-  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  window.history.replaceState(
+    {},
+    "",
+    `${url.pathname}${url.search}${url.hash}`,
+  );
 }
 
 const TOV_REQUISITES_EXAMPLE = [
-  'ТОВ «Н-***»',
-  'Код 41****62',
-  '46006 м. Тернопіль, вул. Подільська, буд. ** А, офіс ***',
-  'р/р 2600********45 в ТФ КБ «Приватбанк» МФО 33****',
-  'Платник ПДВ – інд. податковий номер 4137****9185',
-  'На загальній системі оподаткування',
-  'Директор – С**** І. М.',
-].join('\n');
+  "ТОВ «Н-***»",
+  "Код 41****62",
+  "46006 м. Тернопіль, вул. Подільська, буд. ** А, офіс ***",
+  "р/р 2600********45 в ТФ КБ «Приватбанк» МФО 33****",
+  "Платник ПДВ – інд. податковий номер 4137****9185",
+  "На загальній системі оподаткування",
+  "Директор – С**** І. М.",
+].join("\n");
 
 function TovInvoiceForm({ t, amountUah, amountOk }) {
   const requisitesId = useId();
-  const [requisites, setRequisites] = useState('');
+  const [requisites, setRequisites] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
 
   const lines = requisites
-    .split('\n')
-    .map(line => line.trim())
+    .split("\n")
+    .map((line) => line.trim())
     .filter(Boolean);
-  const requisitesOk = lines.length >= 2 && lines[0].length >= 2 && lines.slice(1).join('\n').length >= 5;
+  const requisitesOk =
+    lines.length >= 2 &&
+    lines[0].length >= 2 &&
+    lines.slice(1).join("\n").length >= 5;
 
   const downloadInvoice = async () => {
     if (busy) return;
     if (!amountOk) {
-      setError(t('rdnTovInvoiceAmountRequired'));
+      setError(t("rdnTovInvoiceAmountRequired"));
       return;
     }
     if (!requisitesOk) {
-      setError(t('rdnTovInvoiceFillHint'));
+      setError(t("rdnTovInvoiceFillHint"));
       return;
     }
     setBusy(true);
-    setError('');
+    setError("");
     try {
-      const res = await fetch(apiUrl('/api/rdn-consultation/tov-invoice'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch(apiUrl("/api/rdn-consultation/tov-invoice"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           amount_uah: amountUah,
           requisites: requisites.trim(),
@@ -151,9 +179,9 @@ function TovInvoiceForm({ t, amountUah, amountOk }) {
       });
       if (!res.ok) throw new Error(`tov-invoice ${res.status}`);
       const blob = await res.blob();
-      const edrpou = (requisites.match(/\d{8}/) || ['tov'])[0];
+      const edrpou = (requisites.match(/\d{8}/) || ["tov"])[0];
       const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
+      const link = document.createElement("a");
       link.href = url;
       link.download = `rahunok-tov-${edrpou}.xlsx`;
       document.body.appendChild(link);
@@ -161,7 +189,7 @@ function TovInvoiceForm({ t, amountUah, amountOk }) {
       link.remove();
       URL.revokeObjectURL(url);
     } catch {
-      setError(t('rdnTovInvoiceFailed'));
+      setError(t("rdnTovInvoiceFailed"));
     } finally {
       setBusy(false);
     }
@@ -169,57 +197,61 @@ function TovInvoiceForm({ t, amountUah, amountOk }) {
 
   return (
     <details className="rdn-tov-invoice">
-      <summary className="rdn-tov-invoice__title">{t('rdnTovInvoiceTitle')}</summary>
+      <summary className="rdn-tov-invoice__title">
+        {t("rdnTovInvoiceTitle")}
+      </summary>
       <div className="rdn-tov-invoice__body">
-      <label className="rdn-callback-card__label" htmlFor={requisitesId}>
-        {t('rdnTovInvoiceLead')}
-        <textarea
-          id={requisitesId}
-          className="rdn-callback-card__input rdn-tov-invoice__text"
-          rows={8}
-          value={requisites}
-          placeholder={TOV_REQUISITES_EXAMPLE}
-          autoComplete="off"
-          onChange={e => {
-            setRequisites(e.target.value);
-            if (error) setError('');
-          }}
-        />
-      </label>
-      {error ? (
-        <p className="rdn-callback-card__form-hint" role="alert">
-          {error}
-        </p>
-      ) : null}
-      <button
-        type="button"
-        className="rdn-callback-card__btn rdn-callback-card__btn--pay-test"
-        disabled={busy}
-        onClick={downloadInvoice}
-      >
-        {busy ? t('rdnTovInvoiceBusy') : t('rdnTovInvoiceCreate')}
-      </button>
+        <label className="rdn-callback-card__label" htmlFor={requisitesId}>
+          {t("rdnTovInvoiceLead")}
+          <textarea
+            id={requisitesId}
+            className="rdn-callback-card__input rdn-tov-invoice__text"
+            rows={8}
+            value={requisites}
+            placeholder={TOV_REQUISITES_EXAMPLE}
+            autoComplete="off"
+            onChange={(e) => {
+              setRequisites(e.target.value);
+              if (error) setError("");
+            }}
+          />
+        </label>
+        {error ? (
+          <p className="rdn-callback-card__form-hint" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <button
+          type="button"
+          className="rdn-callback-card__btn rdn-callback-card__btn--pay-test"
+          disabled={busy}
+          onClick={downloadInvoice}
+        >
+          {busy ? t("rdnTovInvoiceBusy") : t("rdnTovInvoiceCreate")}
+        </button>
       </div>
     </details>
   );
 }
 
 function isLocalhostDev() {
-  if (typeof window === 'undefined') return false;
+  if (typeof window === "undefined") return false;
   const { hostname } = window.location;
-  return hostname === 'localhost' || hostname === '127.0.0.1';
+  return hostname === "localhost" || hostname === "127.0.0.1";
 }
 
 function formatAmountLabel(amount) {
   try {
-    return new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 0 }).format(amount);
+    return new Intl.NumberFormat("uk-UA", { maximumFractionDigits: 0 }).format(
+      amount,
+    );
   } catch {
     return String(amount);
   }
 }
 
 function parseAmountUah(raw) {
-  const n = Number.parseInt(String(raw ?? '').trim(), 10);
+  const n = Number.parseInt(String(raw ?? "").trim(), 10);
   if (!Number.isFinite(n)) return null;
   return n;
 }
@@ -240,26 +272,20 @@ function isValidAmountUah(amount) {
 }
 
 function addDaysIso(iso, n) {
-  const [y, m, d] = String(iso)
-    .split('-')
-    .map(Number);
+  const [y, m, d] = String(iso).split("-").map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d + n));
   return dt.toISOString().slice(0, 10);
 }
 
 function mondayOnOrBefore(iso) {
-  const [y, m, d] = String(iso)
-    .split('-')
-    .map(Number);
+  const [y, m, d] = String(iso).split("-").map(Number);
   const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
   const back = dow === 0 ? 6 : dow - 1;
   return addDaysIso(iso, -back);
 }
 
 function sundayOnOrAfter(iso) {
-  const [y, m, d] = String(iso)
-    .split('-')
-    .map(Number);
+  const [y, m, d] = String(iso).split("-").map(Number);
   const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
   const fwd = dow === 0 ? 0 : 7 - dow;
   return addDaysIso(iso, fwd);
@@ -267,7 +293,7 @@ function sundayOnOrAfter(iso) {
 
 function buildSlotWeeks(days) {
   if (!Array.isArray(days) || days.length === 0) return [];
-  const byDate = Object.fromEntries(days.map(row => [row.date, row]));
+  const byDate = Object.fromEntries(days.map((row) => [row.date, row]));
   let cursor = mondayOnOrBefore(days[0].date);
   const last = sundayOnOrAfter(days[days.length - 1].date);
   const weeks = [];
@@ -283,13 +309,21 @@ function buildSlotWeeks(days) {
 }
 
 function weekdayLabels(locale) {
-  const fmt = new Intl.DateTimeFormat(locale || 'uk-UA', { weekday: 'short', timeZone: 'UTC' });
-  return Array.from({ length: 7 }, (_, i) => fmt.format(new Date(Date.UTC(2026, 0, 5 + i))));
+  const fmt = new Intl.DateTimeFormat(locale || "uk-UA", {
+    weekday: "short",
+    timeZone: "UTC",
+  });
+  return Array.from({ length: 7 }, (_, i) =>
+    fmt.format(new Date(Date.UTC(2026, 0, 5 + i))),
+  );
 }
 
 function monthHeading(days, locale) {
-  if (!Array.isArray(days) || days.length === 0) return '';
-  const fmtM = new Intl.DateTimeFormat(locale || 'uk-UA', { month: 'long', timeZone: 'UTC' });
+  if (!Array.isArray(days) || days.length === 0) return "";
+  const fmtM = new Intl.DateTimeFormat(locale || "uk-UA", {
+    month: "long",
+    timeZone: "UTC",
+  });
   const first = days[0].date;
   const last = days[days.length - 1].date;
   const m1 = fmtM.format(new Date(`${first}T00:00:00Z`));
@@ -302,44 +336,48 @@ function monthHeading(days, locale) {
 }
 
 function dayNumber(iso) {
-  const parts = String(iso).split('-');
+  const parts = String(iso).split("-");
   return parts.length === 3 ? String(Number(parts[2])) : iso;
 }
 
 function slotLabelFromId(slotId) {
-  const [day, hm] = String(slotId).split('T');
+  const [day, hm] = String(slotId).split("T");
   if (!day || !hm) return slotId;
-  const [y, m, d] = day.split('-');
+  const [y, m, d] = day.split("-");
   return `${d}.${m}.${y}, ${hm}`;
 }
 
 export default function RdnConsultationCallback({
   t,
-  htmlIdPrefix = '',
-  rootClassName = '',
+  htmlIdPrefix = "",
+  rootClassName = "",
   payOnly = false,
   getBcp47Locale,
 }) {
-  const bcp47 = typeof getBcp47Locale === 'function' ? getBcp47Locale() : 'uk-UA';
-  const [mode, setMode] = useState('pay'); // 'callback' | 'pay'
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [description, setDescription] = useState('');
-  const [amountText, setAmountText] = useState(() => String(initialPayAmount(payOnly)));
+  const bcp47 =
+    typeof getBcp47Locale === "function" ? getBcp47Locale() : "uk-UA";
+  const [mode, setMode] = useState("pay"); // 'callback' | 'pay'
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [description, setDescription] = useState("");
+  const [amountText, setAmountText] = useState(() =>
+    String(initialPayAmount(payOnly)),
+  );
+  const amountLockedRef = useRef(amountFromPath(payOnly) != null);
   const [paidAmountUah, setPaidAmountUah] = useState(null);
-  const [paymentTime, setPaymentTime] = useState('');
+  const [paymentTime, setPaymentTime] = useState("");
   const [payBusy, setPayBusy] = useState(false);
-  const [payError, setPayError] = useState('');
-  const [formHint, setFormHint] = useState('');
-  const [statusNote, setStatusNote] = useState('');
+  const [payError, setPayError] = useState("");
+  const [formHint, setFormHint] = useState("");
+  const [statusNote, setStatusNote] = useState("");
   const [highlightContact, setHighlightContact] = useState(false);
   const [highlightDescription, setHighlightDescription] = useState(false);
   const [callbackSent, setCallbackSent] = useState(false);
   const [callbackBusy, setCallbackBusy] = useState(false);
   const [slotDays, setSlotDays] = useState([]);
-  const [selectedDate, setSelectedDate] = useState('');
-  const [selectedSlotId, setSelectedSlotId] = useState('');
-  const [bookedSlotLabel, setBookedSlotLabel] = useState('');
+  const [selectedDate, setSelectedDate] = useState("");
+  const [selectedSlotId, setSelectedSlotId] = useState("");
+  const [bookedSlotLabel, setBookedSlotLabel] = useState("");
   const [slotHighlight, setSlotHighlight] = useState(false);
   const nameInputRef = useRef(null);
   const phoneInputRef = useRef(null);
@@ -350,8 +388,10 @@ export default function RdnConsultationCallback({
   const phoneId = `${htmlIdPrefix}rdn-callback-phone`;
   const descriptionId = `${htmlIdPrefix}rdn-callback-description`;
   const amountId = `${htmlIdPrefix}rdn-callback-amount`;
-  const rootClass = ['rdn-callback-card', rootClassName].filter(Boolean).join(' ');
-  const effectiveMode = payOnly ? 'pay' : mode;
+  const rootClass = ["rdn-callback-card", rootClassName]
+    .filter(Boolean)
+    .join(" ");
+  const effectiveMode = payOnly ? "pay" : mode;
 
   const trimmedName = name.trim();
   const trimmedPhone = phone.trim();
@@ -363,10 +403,11 @@ export default function RdnConsultationCallback({
   const isPaid = paidAmountUah != null && paymentTime;
   const amountUah = parseAmountUah(amountText);
   const amountOk = isValidAmountUah(amountUah);
-  const sliderValue = snapAmountUah(amountUah) ?? DEFAULT_AMOUNT_UAH;
+  const sliderValue =
+    snapAmountUah(amountUah) ?? defaultAmountUah(USD_UAH_FALLBACK);
   const slotOk = Boolean(selectedSlotId);
   const slotWeeks = buildSlotWeeks(slotDays);
-  const selectedDay = slotDays.find(d => d.date === selectedDate) || null;
+  const selectedDay = slotDays.find((d) => d.date === selectedDate) || null;
   const weekdayNames = weekdayLabels(bcp47);
   const slotMonthTitle = monthHeading(slotDays, bcp47);
 
@@ -375,10 +416,40 @@ export default function RdnConsultationCallback({
     writeConsultationAmountPath(amountUah);
   }, [payOnly, amountOk, amountUah]);
 
+  useEffect(() => {
+    if (amountLockedRef.current) return undefined;
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if ((url.searchParams.get(PAYMENT_QUERY_KEY) || "").trim())
+        return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const day = todayKyivIso();
+        const res = await fetch(
+          apiUrl(`/api/fx/usd-uah?date=${encodeURIComponent(day)}`),
+          { cache: "no-store" },
+        );
+        const data = await res.json();
+        if (cancelled || amountLockedRef.current) return;
+        const rate = data?.ok ? Number(data.rate) : NaN;
+        if (!Number.isFinite(rate) || rate <= 0) return;
+        setAmountText(String(defaultAmountUah(rate)));
+      } catch {
+        /* keep fallback $100 × USD_UAH_FALLBACK */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const setAmountFromUi = (raw) => {
+    amountLockedRef.current = true;
     const parsed = parseAmountUah(raw);
     if (parsed == null) {
-      setAmountText(typeof raw === 'string' ? raw : '');
+      setAmountText(typeof raw === "string" ? raw : "");
       return;
     }
     const snapped = snapAmountUah(parsed);
@@ -388,8 +459,8 @@ export default function RdnConsultationCallback({
   const focusFieldsToFill = () => {
     setHighlightContact(true);
     setHighlightDescription(false);
-    setFormHint(t('rdnCallbackFillNamePhoneHint'));
-    setPayError('');
+    setFormHint(t("rdnCallbackFillNamePhoneHint"));
+    setPayError("");
     window.requestAnimationFrame(() => {
       if (!nameOk) {
         nameInputRef.current?.focus();
@@ -405,35 +476,39 @@ export default function RdnConsultationCallback({
     setHighlightContact(false);
     setHighlightDescription(true);
     setSlotHighlight(false);
-    setFormHint(t('rdnCallbackDescriptionRequired'));
-    setPayError('');
+    setFormHint(t("rdnCallbackDescriptionRequired"));
+    setPayError("");
     window.requestAnimationFrame(() => descriptionInputRef.current?.focus());
   };
 
   const focusSlotToFill = () => {
     setHighlightDescription(false);
     setSlotHighlight(true);
-    setFormHint(t('rdnCallbackSlotRequired'));
-    setPayError('');
+    setFormHint(t("rdnCallbackSlotRequired"));
+    setPayError("");
   };
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(apiUrl('/api/rdn-consultation/slots'), { cache: 'no-store' });
+        const res = await fetch(apiUrl("/api/rdn-consultation/slots"), {
+          cache: "no-store",
+        });
         const data = await res.json();
         if (cancelled) return;
         const days = Array.isArray(data?.days) ? data.days : [];
         setSlotDays(days);
         const draft = readDraft();
-        const draftSlot = (draft?.slotId || '').trim();
-        const draftSlotDay = days.find(d => (d.windows || []).some(w => w.id === draftSlot && w.available));
+        const draftSlot = (draft?.slotId || "").trim();
+        const draftSlotDay = days.find((d) =>
+          (d.windows || []).some((w) => w.id === draftSlot && w.available),
+        );
         if (draftSlotDay) {
           setSelectedSlotId(draftSlot);
           setSelectedDate(draftSlotDay.date);
         } else {
-          const firstDay = days.find(d => d.hasAvailable);
+          const firstDay = days.find((d) => d.hasAvailable);
           if (firstDay?.date) setSelectedDate(firstDay.date);
         }
       } catch {
@@ -447,9 +522,11 @@ export default function RdnConsultationCallback({
 
   useEffect(() => {
     if (!selectedSlotId || slotDays.length === 0) return;
-    const window = slotDays.flatMap(d => d.windows || []).find(w => w.id === selectedSlotId);
+    const window = slotDays
+      .flatMap((d) => d.windows || [])
+      .find((w) => w.id === selectedSlotId);
     if (!window || !window.available) {
-      setSelectedSlotId('');
+      setSelectedSlotId("");
     }
   }, [slotDays, selectedSlotId]);
 
@@ -463,15 +540,15 @@ export default function RdnConsultationCallback({
       focusSlotToFill();
       return;
     }
-    setFormHint('');
+    setFormHint("");
     setHighlightContact(false);
     setSlotHighlight(false);
-    setPayError('');
+    setPayError("");
     setCallbackBusy(true);
     try {
-      const res = await fetch(apiUrl('/api/rdn-consultation/callback'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch(apiUrl("/api/rdn-consultation/callback"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: trimmedName,
           phone: trimmedPhone,
@@ -484,7 +561,7 @@ export default function RdnConsultationCallback({
       setCallbackSent(true);
       if (selectedSlotId) setBookedSlotLabel(slotLabelFromId(selectedSlotId));
     } catch {
-      setPayError(t('rdnCallbackSubmitFailed'));
+      setPayError(t("rdnCallbackSubmitFailed"));
     } finally {
       setCallbackBusy(false);
     }
@@ -500,12 +577,13 @@ export default function RdnConsultationCallback({
     if (draft?.description) setDescription(String(draft.description));
     if (draft?.slotId) setSelectedSlotId(String(draft.slotId));
     if (draft?.amountUah != null && isValidAmountUah(Number(draft.amountUah))) {
+      amountLockedRef.current = true;
       setAmountText(String(Number(draft.amountUah)));
     }
-    setMode('pay');
-    setStatusNote(t('rdnCallbackPayChecking'));
-    setPayError('');
-    setFormHint('');
+    setMode("pay");
+    setStatusNote(t("rdnCallbackPayChecking"));
+    setPayError("");
+    setFormHint("");
 
     let cancelled = false;
     let attempts = 0;
@@ -517,7 +595,7 @@ export default function RdnConsultationCallback({
       if (nameValue) setName(nameValue);
       if (phoneValue) setPhone(phoneValue);
       if (slotLabelValue) setBookedSlotLabel(String(slotLabelValue));
-      setStatusNote('');
+      setStatusNote("");
       clearDraft();
     };
 
@@ -525,58 +603,66 @@ export default function RdnConsultationCallback({
       attempts += 1;
       try {
         let data = null;
-        const res = await fetch(apiUrl(`/api/rdn-consultation/payments/${encodeURIComponent(paymentId)}`), {
-          cache: 'no-store',
-        });
+        const res = await fetch(
+          apiUrl(
+            `/api/rdn-consultation/payments/${encodeURIComponent(paymentId)}`,
+          ),
+          {
+            cache: "no-store",
+          },
+        );
         if (res.ok) {
           data = await res.json();
         } else if (draft?.invoiceId && draft?.amountUah) {
-          const fallback = await fetch(apiUrl('/api/rdn-consultation/invoice-status'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              invoice_id: draft.invoiceId,
-              amount_uah: Number(draft.amountUah),
-              name: draft.name || null,
-              phone: draft.phone || null,
-              slot_id: draft.slotId || null,
-              description: draft.description || null,
-            }),
-          });
+          const fallback = await fetch(
+            apiUrl("/api/rdn-consultation/invoice-status"),
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                invoice_id: draft.invoiceId,
+                amount_uah: Number(draft.amountUah),
+                name: draft.name || null,
+                phone: draft.phone || null,
+                slot_id: draft.slotId || null,
+                description: draft.description || null,
+              }),
+            },
+          );
           if (!fallback.ok) throw new Error(`status ${fallback.status}`);
           data = await fallback.json();
         } else {
           throw new Error(`status ${res.status}`);
         }
         if (cancelled) return;
-        const status = String(data.status || '').toUpperCase();
-        if (status === 'SUCCESS') {
+        const status = String(data.status || "").toUpperCase();
+        if (status === "SUCCESS") {
           finishSuccess(
             Number(data.amount_uah) || Number(draft?.amountUah) || amountUah,
             data.name || draft?.name,
             data.phone || draft?.phone,
-            data.slot_label || '',
+            data.slot_label || "",
           );
           return;
         }
-        if (['FAILURE', 'EXPIRED', 'REVERSED'].includes(status)) {
-          setPayError(t('rdnCallbackPayFailed'));
-          setStatusNote('');
+        if (["FAILURE", "EXPIRED", "REVERSED"].includes(status)) {
+          setPayError(t("rdnCallbackPayFailed"));
+          setStatusNote("");
           return;
         }
       } catch {
         if (cancelled) return;
         if (attempts >= 8) {
-          setPayError(t('rdnCallbackPayFailed'));
-          setStatusNote('');
+          setPayError(t("rdnCallbackPayFailed"));
+          setStatusNote("");
           return;
         }
       }
       if (!cancelled && attempts < 12) {
         window.setTimeout(poll, 2000);
       } else if (!cancelled) {
-        setPayError(t('rdnCallbackPayProcessing'));
-        setStatusNote('');
+        setPayError(t("rdnCallbackPayProcessing"));
+        setStatusNote("");
       }
     };
 
@@ -589,14 +675,14 @@ export default function RdnConsultationCallback({
 
   const applyPaidSuccess = (amount, nameValue, phoneValue, slotLabelValue) => {
     const paidAt = formatPaymentTime();
-    const finalName = (nameValue || trimmedName || '').trim();
-    const finalPhone = (phoneValue || trimmedPhone || '').trim();
+    const finalName = (nameValue || trimmedName || "").trim();
+    const finalPhone = (phoneValue || trimmedPhone || "").trim();
     setPaidAmountUah(amount);
     setPaymentTime(paidAt);
     if (finalName) setName(finalName);
     if (finalPhone) setPhone(finalPhone);
     if (slotLabelValue) setBookedSlotLabel(String(slotLabelValue));
-    setStatusNote('');
+    setStatusNote("");
     clearDraft();
   };
 
@@ -618,21 +704,23 @@ export default function RdnConsultationCallback({
       setHighlightContact(false);
       setHighlightDescription(false);
       setSlotHighlight(false);
-      setFormHint(t('rdnCallbackAmountInvalidHint', {
-        min: formatAmountLabel(MIN_AMOUNT_UAH),
-        max: formatAmountLabel(MAX_AMOUNT_UAH),
-      }));
-      setPayError('');
+      setFormHint(
+        t("rdnCallbackAmountInvalidHint", {
+          min: formatAmountLabel(MIN_AMOUNT_UAH),
+          max: formatAmountLabel(MAX_AMOUNT_UAH),
+        }),
+      );
+      setPayError("");
       window.requestAnimationFrame(() => amountInputRef.current?.focus());
       return;
     }
-    setFormHint('');
+    setFormHint("");
     setHighlightContact(false);
     setHighlightDescription(false);
     setSlotHighlight(false);
     setPayBusy(true);
-    setPayError('');
-    setStatusNote('');
+    setPayError("");
+    setStatusNote("");
     writeDraft({
       name: trimmedName,
       phone: trimmedPhone,
@@ -641,9 +729,9 @@ export default function RdnConsultationCallback({
       slotId: selectedSlotId,
     });
     try {
-      const res = await fetch(apiUrl('/api/rdn-consultation/pay'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch(apiUrl("/api/rdn-consultation/pay"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           amount_uah: amountUah,
           redirect_url: buildRedirectUrl(),
@@ -658,7 +746,7 @@ export default function RdnConsultationCallback({
       }
       const data = await res.json();
       if (!data?.page_url) {
-        throw new Error('missing page_url');
+        throw new Error("missing page_url");
       }
       writeDraft({
         name: trimmedName,
@@ -671,7 +759,7 @@ export default function RdnConsultationCallback({
       });
       window.location.assign(data.page_url);
     } catch {
-      setPayError(t('rdnCallbackPayFailed'));
+      setPayError(t("rdnCallbackPayFailed"));
       setPayBusy(false);
     }
   };
@@ -694,24 +782,26 @@ export default function RdnConsultationCallback({
       setHighlightContact(false);
       setHighlightDescription(false);
       setSlotHighlight(false);
-      setFormHint(t('rdnCallbackAmountInvalidHint', {
-        min: formatAmountLabel(MIN_AMOUNT_UAH),
-        max: formatAmountLabel(MAX_AMOUNT_UAH),
-      }));
+      setFormHint(
+        t("rdnCallbackAmountInvalidHint", {
+          min: formatAmountLabel(MIN_AMOUNT_UAH),
+          max: formatAmountLabel(MAX_AMOUNT_UAH),
+        }),
+      );
       window.requestAnimationFrame(() => amountInputRef.current?.focus());
       return;
     }
-    setFormHint('');
+    setFormHint("");
     setHighlightContact(false);
     setHighlightDescription(false);
     setSlotHighlight(false);
     setPayBusy(true);
-    setPayError('');
-    setStatusNote(t('rdnCallbackPayChecking'));
+    setPayError("");
+    setStatusNote(t("rdnCallbackPayChecking"));
     try {
-      const res = await fetch(apiUrl('/api/rdn-consultation/pay-test'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch(apiUrl("/api/rdn-consultation/pay-test"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           amount_uah: amountUah,
           name: trimmedName,
@@ -724,71 +814,80 @@ export default function RdnConsultationCallback({
         throw new Error(`pay-test ${res.status}`);
       }
       const data = await res.json();
-      if (String(data.status || '').toUpperCase() !== 'SUCCESS') {
-        throw new Error('pay-test not success');
+      if (String(data.status || "").toUpperCase() !== "SUCCESS") {
+        throw new Error("pay-test not success");
       }
       applyPaidSuccess(
         Number(data.amount_uah) || amountUah,
         data.name || trimmedName,
         data.phone || trimmedPhone,
-        data.slot_label || '',
+        data.slot_label || "",
       );
     } catch {
-      setPayError(t('rdnCallbackPayFailed'));
-      setStatusNote('');
+      setPayError(t("rdnCallbackPayFailed"));
+      setStatusNote("");
     } finally {
       setPayBusy(false);
     }
   };
 
-  const showLocalTestSkip = isLocalhostDev() && effectiveMode === 'pay' && !isPaid;
+  const showLocalTestSkip =
+    isLocalhostDev() && effectiveMode === "pay" && !isPaid;
 
   return (
     <div className={rootClass}>
       <h3 className="rdn-callback-card__title">
-        {payOnly ? t('rdnCallbackPageLead').replace(/\.$/, '') : t('rdnCallbackFormTitle')}
+        {payOnly
+          ? t("rdnCallbackPageLead").replace(/\.$/, "")
+          : t("rdnCallbackFormTitle")}
       </h3>
 
       {payOnly ? null : (
-        <div className="rdn-callback-card__mode" role="group" aria-label={t('rdnCallbackModeAria')}>
+        <div
+          className="rdn-callback-card__mode"
+          role="group"
+          aria-label={t("rdnCallbackModeAria")}
+        >
           <button
             type="button"
-            className={`rdn-callback-card__mode-btn${mode === 'callback' ? ' is-active' : ''}`}
-            aria-pressed={mode === 'callback'}
+            className={`rdn-callback-card__mode-btn${mode === "callback" ? " is-active" : ""}`}
+            aria-pressed={mode === "callback"}
             onClick={() => {
-              setMode('callback');
-              setPayError('');
-              setStatusNote('');
-              setFormHint('');
+              setMode("callback");
+              setPayError("");
+              setStatusNote("");
+              setFormHint("");
               setHighlightContact(false);
             }}
           >
-            {t('rdnCallbackModeCallback')}
+            {t("rdnCallbackModeCallback")}
           </button>
           <button
             type="button"
-            className={`rdn-callback-card__mode-btn${mode === 'pay' ? ' is-active' : ''}`}
-            aria-pressed={mode === 'pay'}
+            className={`rdn-callback-card__mode-btn${mode === "pay" ? " is-active" : ""}`}
+            aria-pressed={mode === "pay"}
             onClick={() => {
-              setMode('pay');
-              setPayError('');
-              setFormHint('');
+              setMode("pay");
+              setPayError("");
+              setFormHint("");
               setHighlightContact(false);
             }}
           >
-            {t('rdnCallbackModePay')}
+            {t("rdnCallbackModePay")}
           </button>
         </div>
       )}
 
       <div className="rdn-callback-card__fields">
         <label className="rdn-callback-card__label" htmlFor={nameId}>
-          {t('rdnCallbackNameLabel')}
+          {t("rdnCallbackNameLabel")}
           <input
             ref={nameInputRef}
             id={nameId}
             className={`rdn-callback-card__input${
-              highlightContact && !nameOk ? ' rdn-callback-card__input--needs-fill' : ''
+              highlightContact && !nameOk
+                ? " rdn-callback-card__input--needs-fill"
+                : ""
             }`}
             type="text"
             name="name"
@@ -796,22 +895,28 @@ export default function RdnConsultationCallback({
             value={name}
             onChange={(e) => {
               setName(e.target.value);
-              if (formHint) setFormHint('');
-              if (highlightContact && e.target.value.trim().length >= 1 && phoneOk) {
+              if (formHint) setFormHint("");
+              if (
+                highlightContact &&
+                e.target.value.trim().length >= 1 &&
+                phoneOk
+              ) {
                 setHighlightContact(false);
               }
             }}
-            placeholder={t('rdnCallbackNamePlaceholder')}
+            placeholder={t("rdnCallbackNamePlaceholder")}
             aria-invalid={highlightContact && !nameOk}
           />
         </label>
         <label className="rdn-callback-card__label" htmlFor={phoneId}>
-          {t('rdnCallbackPhoneLabel')}
+          {t("rdnCallbackPhoneLabel")}
           <input
             ref={phoneInputRef}
             id={phoneId}
             className={`rdn-callback-card__input${
-              highlightContact && !phoneOk ? ' rdn-callback-card__input--needs-fill' : ''
+              highlightContact && !phoneOk
+                ? " rdn-callback-card__input--needs-fill"
+                : ""
             }`}
             type="tel"
             name="phone"
@@ -820,23 +925,29 @@ export default function RdnConsultationCallback({
             value={phone}
             onChange={(e) => {
               setPhone(e.target.value);
-              if (formHint) setFormHint('');
-              if (highlightContact && nameOk && e.target.value.trim().length >= 5) {
+              if (formHint) setFormHint("");
+              if (
+                highlightContact &&
+                nameOk &&
+                e.target.value.trim().length >= 5
+              ) {
                 setHighlightContact(false);
               }
             }}
-            placeholder={t('rdnCallbackPhonePlaceholder')}
+            placeholder={t("rdnCallbackPhonePlaceholder")}
             aria-invalid={highlightContact && !phoneOk}
           />
         </label>
-        {effectiveMode === 'pay' ? (
+        {effectiveMode === "pay" ? (
           <label className="rdn-callback-card__label" htmlFor={descriptionId}>
-            {t('rdnCallbackDescriptionLabel')}
+            {t("rdnCallbackDescriptionLabel")}
             <textarea
               ref={descriptionInputRef}
               id={descriptionId}
               className={`rdn-callback-card__input rdn-callback-card__textarea${
-                highlightDescription && !descriptionOk ? ' rdn-callback-card__input--needs-fill' : ''
+                highlightDescription && !descriptionOk
+                  ? " rdn-callback-card__input--needs-fill"
+                  : ""
               }`}
               name="description"
               rows={4}
@@ -844,25 +955,35 @@ export default function RdnConsultationCallback({
               value={description}
               onChange={(e) => {
                 setDescription(e.target.value);
-                if (formHint) setFormHint('');
+                if (formHint) setFormHint("");
                 if (highlightDescription && e.target.value.trim().length >= 1) {
                   setHighlightDescription(false);
                 }
               }}
-              placeholder={t('rdnCallbackDescriptionPlaceholder')}
+              placeholder={t("rdnCallbackDescriptionPlaceholder")}
               aria-invalid={highlightDescription && !descriptionOk}
               aria-required="true"
             />
           </label>
         ) : null}
 
-        {!isPaid && !(callbackSent && effectiveMode === 'callback') && slotWeeks.length > 0 ? (
+        {!isPaid &&
+        !(callbackSent && effectiveMode === "callback") &&
+        slotWeeks.length > 0 ? (
           <div
-            className={`rdn-callback-card__schedule${slotHighlight && !slotOk ? ' rdn-callback-card__schedule--needs-fill' : ''}`}
+            className={`rdn-callback-card__schedule${slotHighlight && !slotOk ? " rdn-callback-card__schedule--needs-fill" : ""}`}
           >
-            <span className="rdn-callback-card__label">{t('rdnCallbackSlotLabel')}</span>
-            <p className="rdn-callback-card__schedule-month">{slotMonthTitle}</p>
-            <div className="rdn-slot-cal" role="group" aria-label={t('rdnCallbackSlotAria')}>
+            <span className="rdn-callback-card__label">
+              {t("rdnCallbackSlotLabel")}
+            </span>
+            <p className="rdn-callback-card__schedule-month">
+              {slotMonthTitle}
+            </p>
+            <div
+              className="rdn-slot-cal"
+              role="group"
+              aria-label={t("rdnCallbackSlotAria")}
+            >
               <div className="rdn-slot-cal__weekdays" aria-hidden="true">
                 {weekdayNames.map((name, idx) => (
                   <span key={`${name}-${idx}`} className="rdn-slot-cal__wd">
@@ -870,9 +991,9 @@ export default function RdnConsultationCallback({
                   </span>
                 ))}
               </div>
-              {slotWeeks.map(week => (
+              {slotWeeks.map((week) => (
                 <div key={week[0].iso} className="rdn-slot-cal__week">
-                  {week.map(cell => {
+                  {week.map((cell) => {
                     const inRange = Boolean(cell.day);
                     const available = Boolean(cell.day?.hasAvailable);
                     const isSelected = cell.iso === selectedDate;
@@ -880,8 +1001,8 @@ export default function RdnConsultationCallback({
                       <button
                         key={cell.iso}
                         type="button"
-                        className={`rdn-slot-cal__day${isSelected ? ' is-selected' : ''}${
-                          available ? '' : ' is-muted'
+                        className={`rdn-slot-cal__day${isSelected ? " is-selected" : ""}${
+                          available ? "" : " is-muted"
                         }`}
                         disabled={!inRange || !available}
                         aria-pressed={isSelected}
@@ -889,11 +1010,11 @@ export default function RdnConsultationCallback({
                           if (!cell.day?.hasAvailable) return;
                           setSelectedDate(cell.iso);
                           setSlotHighlight(false);
-                          if (formHint) setFormHint('');
+                          if (formHint) setFormHint("");
                           const stillOk = (cell.day.windows || []).some(
-                            w => w.id === selectedSlotId && w.available
+                            (w) => w.id === selectedSlotId && w.available,
                           );
-                          if (!stillOk) setSelectedSlotId('');
+                          if (!stillOk) setSelectedSlotId("");
                         }}
                       >
                         {dayNumber(cell.iso)}
@@ -904,16 +1025,20 @@ export default function RdnConsultationCallback({
               ))}
             </div>
             {selectedDay ? (
-              <div className="rdn-slot-windows" role="group" aria-label={t('rdnCallbackSlotWindowsAria')}>
-                {(selectedDay.windows || []).map(window => {
+              <div
+                className="rdn-slot-windows"
+                role="group"
+                aria-label={t("rdnCallbackSlotWindowsAria")}
+              >
+                {(selectedDay.windows || []).map((window) => {
                   const bookable = Boolean(window.available);
                   const isOn = window.id === selectedSlotId;
                   return (
                     <button
                       key={window.id}
                       type="button"
-                      className={`rdn-slot-windows__btn${isOn ? ' is-selected' : ''}${
-                        bookable ? '' : ' is-busy'
+                      className={`rdn-slot-windows__btn${isOn ? " is-selected" : ""}${
+                        bookable ? "" : " is-busy"
                       }`}
                       disabled={!bookable}
                       aria-pressed={isOn}
@@ -921,13 +1046,15 @@ export default function RdnConsultationCallback({
                         if (!bookable) return;
                         setSelectedSlotId(window.id);
                         setSlotHighlight(false);
-                        if (formHint) setFormHint('');
+                        if (formHint) setFormHint("");
                       }}
                     >
                       <span>{window.label}</span>
                       {bookable ? null : (
                         <span className="rdn-slot-windows__busy">
-                          {window.past ? t('rdnCallbackSlotPast') : t('rdnCallbackSlotBusy')}
+                          {window.past
+                            ? t("rdnCallbackSlotPast")
+                            : t("rdnCallbackSlotBusy")}
                         </span>
                       )}
                     </button>
@@ -938,15 +1065,17 @@ export default function RdnConsultationCallback({
           </div>
         ) : null}
 
-        {effectiveMode === 'pay' && !isPaid ? (
+        {effectiveMode === "pay" && !isPaid ? (
           <div className="rdn-callback-card__amount-block">
             <label className="rdn-callback-card__label" htmlFor={amountId}>
-              {t('rdnCallbackCustomAmountLabel')}
+              {t("rdnCallbackCustomAmountLabel")}
               <input
                 ref={amountInputRef}
                 id={amountId}
                 className={`rdn-callback-card__input${
-                  formHint && !amountOk && !highlightContact ? ' rdn-callback-card__input--needs-fill' : ''
+                  formHint && !amountOk && !highlightContact
+                    ? " rdn-callback-card__input--needs-fill"
+                    : ""
                 }`}
                 type="number"
                 name="amountUah"
@@ -957,19 +1086,27 @@ export default function RdnConsultationCallback({
                 value={amountText}
                 onChange={(e) => {
                   setAmountText(e.target.value);
-                  if (formHint) setFormHint('');
+                  if (formHint) setFormHint("");
                 }}
                 onBlur={() => {
-                  if (amountText.trim() === '') return;
+                  if (amountText.trim() === "") return;
                   const snapped = snapAmountUah(parseAmountUah(amountText));
                   if (snapped != null) setAmountText(String(snapped));
                 }}
-                placeholder={t('rdnCallbackCustomAmountPlaceholder')}
-                aria-invalid={Boolean(formHint) && !amountOk && !highlightContact}
+                placeholder={t("rdnCallbackCustomAmountPlaceholder")}
+                aria-invalid={
+                  Boolean(formHint) && !amountOk && !highlightContact
+                }
               />
             </label>
-            <label className="rdn-callback-card__amount-slider-label" htmlFor={`${amountId}-slider`}>
-              <span className="rdn-callback-card__amount-slider-range" aria-hidden="true">
+            <label
+              className="rdn-callback-card__amount-slider-label"
+              htmlFor={`${amountId}-slider`}
+            >
+              <span
+                className="rdn-callback-card__amount-slider-range"
+                aria-hidden="true"
+              >
                 <span>{formatAmountLabel(MIN_AMOUNT_UAH)}</span>
                 <span>{formatAmountLabel(MAX_AMOUNT_UAH)}</span>
               </span>
@@ -984,14 +1121,14 @@ export default function RdnConsultationCallback({
                 aria-valuemin={MIN_AMOUNT_UAH}
                 aria-valuemax={MAX_AMOUNT_UAH}
                 aria-valuenow={sliderValue}
-                aria-label={t('rdnCallbackAmountSliderAria', {
+                aria-label={t("rdnCallbackAmountSliderAria", {
                   amount: formatAmountLabel(sliderValue),
                   min: formatAmountLabel(MIN_AMOUNT_UAH),
                   max: formatAmountLabel(MAX_AMOUNT_UAH),
                 })}
                 onChange={(e) => {
                   setAmountFromUi(e.target.value);
-                  if (formHint) setFormHint('');
+                  if (formHint) setFormHint("");
                 }}
               />
             </label>
@@ -1000,34 +1137,36 @@ export default function RdnConsultationCallback({
 
         {isPaid ? (
           <p className="rdn-callback-card__paid-summary" role="status">
-            {t('rdnCallbackPaidSummary')}
+            {t("rdnCallbackPaidSummary")}
             {bookedSlotLabel ? (
               <>
                 <br />
-                {t('rdnCallbackSlotBooked', { slot: bookedSlotLabel })}
+                {t("rdnCallbackSlotBooked", { slot: bookedSlotLabel })}
               </>
             ) : null}
           </p>
         ) : null}
-        {callbackSent && effectiveMode === 'callback' && !isPaid ? (
+        {callbackSent && effectiveMode === "callback" && !isPaid ? (
           <p className="rdn-callback-card__paid-summary" role="status">
-            {t('rdnCallbackSubmitSuccess')}
+            {t("rdnCallbackSubmitSuccess")}
             {bookedSlotLabel ? (
               <>
                 <br />
-                {t('rdnCallbackSlotBooked', { slot: bookedSlotLabel })}
+                {t("rdnCallbackSlotBooked", { slot: bookedSlotLabel })}
               </>
             ) : null}
           </p>
         ) : null}
       </div>
 
-      {isPaid ? null : effectiveMode === 'callback' ? (
+      {isPaid ? null : effectiveMode === "callback" ? (
         callbackSent ? null : (
-          <p className="rdn-callback-card__hint">{t('rdnCallbackSubmitHint')}</p>
+          <p className="rdn-callback-card__hint">
+            {t("rdnCallbackSubmitHint")}
+          </p>
         )
       ) : (
-        <p className="rdn-callback-card__hint">{t('rdnCallbackPayHint')}</p>
+        <p className="rdn-callback-card__hint">{t("rdnCallbackPayHint")}</p>
       )}
 
       {formHint ? (
@@ -1046,7 +1185,7 @@ export default function RdnConsultationCallback({
         </p>
       ) : null}
 
-      {isPaid ? null : effectiveMode === 'pay' ? (
+      {isPaid ? null : effectiveMode === "pay" ? (
         <div className="rdn-callback-card__actions rdn-callback-card__actions--pay">
           <button
             type="button"
@@ -1054,16 +1193,16 @@ export default function RdnConsultationCallback({
             disabled={payBusy}
             aria-label={
               amountOk
-                ? t('rdnCallbackPayAria', { amount: amountUah })
-                : t('rdnCallbackModePay')
+                ? t("rdnCallbackPayAria", { amount: amountUah })
+                : t("rdnCallbackModePay")
             }
             onClick={startPayment}
           >
             {payBusy
-              ? t('rdnCallbackPayBusy')
+              ? t("rdnCallbackPayBusy")
               : amountOk
-                ? t('rdnCallbackPayBtn', { amount: amountUah })
-                : t('rdnCallbackPayBtnEmpty')}
+                ? t("rdnCallbackPayBtn", { amount: amountUah })
+                : t("rdnCallbackPayBtnEmpty")}
           </button>
           {showLocalTestSkip ? (
             <button
@@ -1072,25 +1211,27 @@ export default function RdnConsultationCallback({
               disabled={payBusy}
               onClick={skipPaymentTest}
             >
-              {t('rdnCallbackPayTestSkip')}
+              {t("rdnCallbackPayTestSkip")}
             </button>
           ) : null}
         </div>
-      ) : effectiveMode === 'callback' && !callbackSent ? (
+      ) : effectiveMode === "callback" && !callbackSent ? (
         <div className="rdn-callback-card__actions rdn-callback-card__actions--pay">
           <button
             type="button"
             className="rdn-callback-card__btn rdn-callback-card__btn--pay"
             disabled={callbackBusy}
-            aria-label={t('rdnCallbackSubmitAria')}
+            aria-label={t("rdnCallbackSubmitAria")}
             onClick={submitCallback}
           >
-            {callbackBusy ? t('rdnCallbackSubmitBusy') : t('rdnCallbackSubmitBtn')}
+            {callbackBusy
+              ? t("rdnCallbackSubmitBusy")
+              : t("rdnCallbackSubmitBtn")}
           </button>
         </div>
       ) : null}
 
-      {effectiveMode === 'pay' && !isPaid ? (
+      {effectiveMode === "pay" && !isPaid ? (
         <TovInvoiceForm t={t} amountUah={amountUah} amountOk={amountOk} />
       ) : null}
     </div>

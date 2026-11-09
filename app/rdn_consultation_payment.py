@@ -25,7 +25,7 @@ DEFAULT_PAYMENT_TOKEN = "m3T8ApHvapXSmUL1yLZHYlw"
 
 # Amount must be an integer multiple of 100 within [MIN, MAX].
 MIN_AMOUNT_UAH = 200
-MAX_AMOUNT_UAH = 200_000
+MAX_AMOUNT_UAH = 20_000
 AMOUNT_STEP_UAH = 100
 
 PAYMENT_DESCRIPTION = "Консультація з налаштування Open EMS (Вирій ЕМС)"

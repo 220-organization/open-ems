@@ -530,7 +530,7 @@ class CallbackResponse(BaseModel):
 
 @router.get("/slots")
 async def get_consultation_slots() -> dict[str, Any]:
-    """Next 14 Kyiv days × 3 windows; ~20% of future slots are emulated busy."""
+    """From next Kyiv week × 3 windows/day; ~20% of future slots are emulated busy."""
     days = list_consultation_days()
     return {"ok": True, "days": days}
 

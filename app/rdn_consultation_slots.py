@@ -1,4 +1,4 @@
-"""Emulated RDN consultation calendar: 3 windows/day for the next 2 weeks, ~20% busy."""
+"""Emulated RDN consultation calendar: 3 windows/day from next week, ~20% busy."""
 
 from __future__ import annotations
 
@@ -22,6 +22,12 @@ def _kyiv_now(now: Optional[datetime] = None) -> datetime:
     return now.astimezone(KYIV)
 
 
+def next_week_monday(today: date) -> date:
+    """First Monday strictly after the current ISO week (book from next week only)."""
+    # weekday(): Mon=0 … Sun=6 → days until next Monday is always 7 - weekday.
+    return today + timedelta(days=7 - today.weekday())
+
+
 def slot_id_for(day: date, window: time) -> str:
     return f"{day.isoformat()}T{window.strftime('%H:%M')}"
 
@@ -36,11 +42,11 @@ def slot_label_uk(slot_id: str) -> str:
         return slot_id
 
 
-def _schedule_closed(day: date, today: date) -> bool:
-    """No bookings on the next Kyiv day, or on Saturday and Sunday."""
+def _schedule_closed(day: date, book_from: date) -> bool:
+    """No bookings before next week, or on Saturday and Sunday."""
     if day.weekday() >= 5:
         return True
-    return day == today + timedelta(days=1)
+    return day < book_from
 
 
 def _busy_ids(candidate_ids: list[str]) -> set[str]:
@@ -56,14 +62,15 @@ def _busy_ids(candidate_ids: list[str]) -> set[str]:
 
 
 def list_consultation_days(now: Optional[datetime] = None) -> list[dict[str, Any]]:
-    """Next ``SLOT_DAYS`` Kyiv days, each with 3 windows. Past windows are not bookable."""
+    """``SLOT_DAYS`` starting next Monday only (current week omitted); weekends closed."""
     now_k = _kyiv_now(now)
     today = now_k.date()
+    book_from = next_week_monday(today)
     future_ids: list[str] = []
     skeleton: list[dict[str, Any]] = []
     for offset in range(SLOT_DAYS):
-        day = today + timedelta(days=offset)
-        closed = _schedule_closed(day, today)
+        day = book_from + timedelta(days=offset)
+        closed = _schedule_closed(day, book_from)
         windows: list[dict[str, Any]] = []
         for window in WINDOWS:
             start = datetime.combine(day, window, tzinfo=KYIV)
