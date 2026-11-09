@@ -10,10 +10,16 @@ const USD_UAH_FALLBACK = 42;
 const CURRENCY_STORAGE_KEY = "commercial-charger-currency";
 const DEFAULT_SORT = "price-asc";
 const CATALOG_PATH = "/buy-commercial-charger";
-const PORT_IDS = ["2dc", "2dc_ac", "2dc_2ac", "3dc", "4dc"];
+const PORT_IDS = ["1dc", "2dc", "2dc_ac", "2dc_2ac", "3dc", "4dc"];
 const WARRANTY_YEARS = ["1", "2", "3"];
 const DOWNTIME_IDS = ["48h", "5d", "10d"];
 const MANAGER_IDS = ["yes", "no"];
+const BRAND_IDS = ["eds", "ugv", "eport"];
+const BRAND_LABEL = {
+  eds: "EDS Chargers",
+  ugv: "UGV Chargers",
+  eport: "E-port",
+};
 
 function apiUrl(path) {
   const base = (process.env.REACT_APP_API_BASE_URL || "").replace(/\/$/, "");
@@ -74,11 +80,29 @@ function toDisplayAmount(price, srcCurrency, displayCurrency, eurUah, usdUah) {
   const dest = (displayCurrency || "EUR").toUpperCase();
   const amount = Number(price);
   if (src === dest) return amount;
-  if (!(eurUah > 0)) return amount;
-  if (src === "EUR" && dest === "UAH") return amount * eurUah;
+  if (src === "EUR" && dest === "UAH") {
+    if (!(eurUah > 0)) return amount;
+    return amount * eurUah;
+  }
   if (src === "EUR" && dest === "USD") {
-    if (!(usdUah > 0)) return amount;
+    if (!(eurUah > 0) || !(usdUah > 0)) return amount;
     return (amount * eurUah) / usdUah;
+  }
+  if (src === "UAH" && dest === "EUR") {
+    if (!(eurUah > 0)) return amount;
+    return amount / eurUah;
+  }
+  if (src === "UAH" && dest === "USD") {
+    if (!(usdUah > 0)) return amount;
+    return amount / usdUah;
+  }
+  if (src === "USD" && dest === "UAH") {
+    if (!(usdUah > 0)) return amount;
+    return amount * usdUah;
+  }
+  if (src === "USD" && dest === "EUR") {
+    if (!(eurUah > 0) || !(usdUah > 0)) return amount;
+    return (amount * usdUah) / eurUah;
   }
   return amount;
 }
@@ -98,6 +122,7 @@ function seriesLabel(series, t) {
 }
 
 function portsLabel(ports, t) {
+  if (ports === "1dc") return t("commercialChargerPorts1dc");
   if (ports === "2dc") return t("commercialChargerPorts2dc");
   if (ports === "2dc_ac") return t("commercialChargerPorts2dcAc");
   if (ports === "2dc_2ac") return t("commercialChargerPorts2dc2ac");
@@ -127,6 +152,8 @@ function downtimeLabel(id, t) {
 }
 
 function leadTimeLabel(id, t) {
+  if (id === "now") return t("commercialChargerLeadTimeNow");
+  if (id === "2m") return t("commercialChargerLeadTime2m");
   // Catalog is built to order; fall back to the EDS default when the feed omits it.
   if (!id || id === "2to3m") return t("commercialChargerLeadTime2to3m");
   return id;
@@ -144,6 +171,18 @@ function managerFilterValue(item) {
   return "";
 }
 
+function brandFilterValue(item) {
+  const b = (item?.brand || "").toLowerCase();
+  if (b.includes("ugv")) return "ugv";
+  if (b.includes("e-port") || b.includes("eport")) return "eport";
+  if (b.includes("eds")) return "eds";
+  return "";
+}
+
+function brandLabel(id) {
+  return BRAND_LABEL[id] || id;
+}
+
 function readCatalogFromUrl() {
   if (typeof window === "undefined") return {};
   try {
@@ -151,6 +190,8 @@ function readCatalogFromUrl() {
     const out = {};
     const sku = (u.get("sku") || "").trim();
     if (sku) out.sku = sku;
+    const brand = (u.get("brand") || "").trim().toLowerCase();
+    if (BRAND_IDS.includes(brand)) out.brand = brand;
     const power = (u.get("power") || "").trim();
     if (power) out.power = power;
     const ports = (u.get("ports") || "").trim();
@@ -181,6 +222,7 @@ function writeCatalogToUrl(state) {
       else u.searchParams.delete(key);
     };
     setOrDel("sku", state.sku);
+    setOrDel("brand", state.brand);
     u.searchParams.delete("series");
     setOrDel("power", state.power);
     setOrDel("ports", state.ports);
@@ -208,6 +250,8 @@ function productQuotePageUrl(p) {
   const lang = new URLSearchParams(window.location.search).get("lang");
   if (lang) u.searchParams.set("lang", lang);
   if (p.sku) u.searchParams.set("sku", p.sku);
+  const brand = brandFilterValue(p);
+  if (brand) u.searchParams.set("brand", brand);
   if (p.power_bucket) u.searchParams.set("power", p.power_bucket);
   if (p.ports) u.searchParams.set("ports", p.ports);
   if (p.cooling) u.searchParams.set("cooling", p.cooling);
@@ -258,6 +302,7 @@ export default function BuyCommercialChargerPage({ t, locale }) {
 
   const initialUrl = useMemo(() => readCatalogFromUrl(), []);
   const [sku, setSku] = useState(initialUrl.sku || "");
+  const [brand, setBrand] = useState(initialUrl.brand || "");
   const [power, setPower] = useState(initialUrl.power || "");
   const [ports, setPorts] = useState(initialUrl.ports || "");
   const [cooling, setCooling] = useState(initialUrl.cooling || "");
@@ -340,6 +385,7 @@ export default function BuyCommercialChargerPage({ t, locale }) {
   useEffect(() => {
     writeCatalogToUrl({
       sku,
+      brand,
       power,
       ports,
       cooling,
@@ -348,20 +394,31 @@ export default function BuyCommercialChargerPage({ t, locale }) {
       manager,
       sort,
     });
-  }, [sku, power, ports, cooling, warranty, downtime, manager, sort]);
+  }, [sku, brand, power, ports, cooling, warranty, downtime, manager, sort]);
 
   useEffect(() => {
     if (skuHydrated.current || !sku || !products.length) return;
     const p = products.find((x) => x.sku === sku);
     if (!p) return;
     skuHydrated.current = true;
+    if (!brand && brandFilterValue(p)) setBrand(brandFilterValue(p));
     if (!power && p.power_bucket) setPower(p.power_bucket);
     if (!ports && p.ports) setPorts(p.ports);
     if (!cooling && p.cooling) setCooling(p.cooling);
     if (!warranty && p.warranty_years) setWarranty(String(p.warranty_years));
     if (!downtime && p.warranty_downtime) setDowntime(p.warranty_downtime);
     if (!manager && managerFilterValue(p)) setManager(managerFilterValue(p));
-  }, [products, sku, power, ports, cooling, warranty, downtime, manager]);
+  }, [
+    products,
+    sku,
+    brand,
+    power,
+    ports,
+    cooling,
+    warranty,
+    downtime,
+    manager,
+  ]);
 
   useEffect(() => {
     if (!sku || !products.length) return;
@@ -370,16 +427,28 @@ export default function BuyCommercialChargerPage({ t, locale }) {
       setSku("");
       return;
     }
-    if (power && p.power_bucket !== power) setSku("");
+    if (brand && brandFilterValue(p) !== brand) setSku("");
+    else if (power && p.power_bucket !== power) setSku("");
     else if (cooling && p.cooling !== cooling) setSku("");
     else if (ports && p.ports !== ports) setSku("");
     else if (warranty && String(p.warranty_years) !== warranty) setSku("");
     else if (downtime && p.warranty_downtime !== downtime) setSku("");
     else if (manager && managerFilterValue(p) !== manager) setSku("");
-  }, [sku, power, ports, cooling, warranty, downtime, manager, products]);
+  }, [
+    sku,
+    brand,
+    power,
+    ports,
+    cooling,
+    warranty,
+    downtime,
+    manager,
+    products,
+  ]);
 
   const filtered = useMemo(() => {
     let list = products.slice();
+    if (brand) list = list.filter((p) => brandFilterValue(p) === brand);
     if (power) list = list.filter((p) => p.power_bucket === power);
     if (ports) list = list.filter((p) => p.ports === ports);
     if (cooling) list = list.filter((p) => p.cooling === cooling);
@@ -416,6 +485,7 @@ export default function BuyCommercialChargerPage({ t, locale }) {
     return list;
   }, [
     products,
+    brand,
     power,
     ports,
     cooling,
@@ -438,6 +508,7 @@ export default function BuyCommercialChargerPage({ t, locale }) {
 
   const clearFilters = () => {
     setSku("");
+    setBrand("");
     setPower("");
     setPorts("");
     setCooling("");
@@ -447,7 +518,14 @@ export default function BuyCommercialChargerPage({ t, locale }) {
   };
 
   const hasFilters = Boolean(
-    sku || power || ports || cooling || warranty || downtime || manager,
+    sku ||
+    brand ||
+    power ||
+    ports ||
+    cooling ||
+    warranty ||
+    downtime ||
+    manager,
   );
 
   const openBuyRequest = (p) => {
@@ -456,7 +534,7 @@ export default function BuyCommercialChargerPage({ t, locale }) {
       catalog: "commercial",
       title: p.title,
       sku: p.sku,
-      price: fmtMoney(p.price, "EUR", locale),
+      price: fmtMoney(p.price, p.currency || "EUR", locale),
       pageUrl: productQuotePageUrl(p),
       productUrl: p.link,
     });
@@ -488,6 +566,37 @@ export default function BuyCommercialChargerPage({ t, locale }) {
             >
               {t("commercialChargerClearFilters")}
             </button>
+          </div>
+          <div className="home-charger-filters__row">
+            <span className="home-charger-filters__label">
+              {t("commercialChargerFilterBrand")}
+            </span>
+            <div className="home-charger-chips">
+              <Chip active={!brand} onClick={() => setBrand("")}>
+                {t("commercialChargerFilterAny")}
+              </Chip>
+              {Array.from(
+                new Set(
+                  facets?.brands?.length
+                    ? facets.brands.map((label) => {
+                        const low = label.toLowerCase();
+                        if (low.includes("ugv")) return "ugv";
+                        if (low.includes("e-port") || low.includes("eport"))
+                          return "eport";
+                        return "eds";
+                      })
+                    : BRAND_IDS,
+                ),
+              ).map((id) => (
+                <Chip
+                  key={id}
+                  active={brand === id}
+                  onClick={() => setBrand(brand === id ? "" : id)}
+                >
+                  {brandLabel(id)}
+                </Chip>
+              ))}
+            </div>
           </div>
           <div className="home-charger-filters__row">
             <span className="home-charger-filters__label">
@@ -698,13 +807,19 @@ export default function BuyCommercialChargerPage({ t, locale }) {
               <div className="home-charger-card__body">
                 <h2 className="home-charger-card__title">{p.title}</h2>
                 <ul className="home-charger-card__meta">
+                  {p.brand ? (
+                    <li>
+                      {t("commercialChargerMetaBrand")}:{" "}
+                      <strong>{p.brand}</strong>
+                    </li>
+                  ) : null}
                   {p.power_kw != null ? (
                     <li>
                       {t("commercialChargerMetaPower")}:{" "}
                       <strong>{p.power_kw} kW</strong>
                     </li>
                   ) : null}
-                  {p.series ? (
+                  {p.series && p.series !== "UGV" ? (
                     <li>
                       {t("commercialChargerMetaSeries")}:{" "}
                       <strong>{seriesLabel(p.series, t)}</strong>

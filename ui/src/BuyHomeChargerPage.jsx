@@ -155,6 +155,12 @@ function powerBucketLabel(bucket, t) {
   return bucket;
 }
 
+function homeLeadTimeLabel(id, t) {
+  if (id === "now") return t("homeChargerLeadTimeNow");
+  if (id === "2m") return t("homeChargerLeadTime2m");
+  return id;
+}
+
 function Chip({ active, onClick, children }) {
   return (
     <button
@@ -611,6 +617,12 @@ export default function BuyHomeChargerPage({ t, locale }) {
                   {p.brand ? (
                     <li>
                       {t("homeChargerMetaBrand")}: <strong>{p.brand}</strong>
+                    </li>
+                  ) : null}
+                  {p.lead_time ? (
+                    <li>
+                      {t("homeChargerMetaLeadTime")}:{" "}
+                      <strong>{homeLeadTimeLabel(p.lead_time, t)}</strong>
                     </li>
                   ) : null}
                 </ul>

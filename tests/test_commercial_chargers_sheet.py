@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.routers.commercial_chargers import parse_eds_price_csv
+from app.routers.commercial_chargers import (
+    _build_facets,
+    _merge_catalog,
+    eport_lead_time,
+    eport_prices_to_usd,
+    parse_eds_price_csv,
+    parse_eport_dc_csv,
+    parse_ugv_csv,
+)
 
 SAMPLE = """\
 "EDS CHARGERS — роздрібні ціни","Модель (SKU)","Серія","кВт","Конфігурація","Артикул для завантаження в CRM","Ціна з ПДВ, €"
@@ -109,3 +117,106 @@ def test_bundled_snapshot_parses_full_catalog():
     assert type2["ports"] == "3dc"
     split_hub = next(p for p in payload["products"] if p["sku"] == "EDS-SPLIT360-до 500А")
     assert split_hub["ports"] is None
+    assert "EDS Chargers" in payload["facets"]["brands"]
+
+
+def test_parse_ugv_csv_snapshot():
+    path = Path(__file__).resolve().parents[1] / "app" / "data" / "ugv_commercial_chargers.csv"
+    payload = parse_ugv_csv(path.read_text(encoding="utf-8-sig"))
+    assert payload["count"] == 27
+    by_sku = {p["sku"]: p for p in payload["products"]}
+
+    dual_ccs = by_sku["UGV-A320DG-С320C320-D-RMH"]
+    assert dual_ccs["brand"] == "UGV Chargers"
+    assert dual_ccs["power_kw"] == 320.0
+    assert dual_ccs["ports"] == "2dc"
+    assert dual_ccs["connectors"] == ["CCS2"]
+    assert dual_ccs["price"] == 66300.0
+    assert dual_ccs["warranty_years"] == 2
+    assert dual_ccs["warranty_downtime"] == "48h"
+    assert dual_ccs["dedicated_manager"] is True
+    assert dual_ccs["lead_time"] == "2to3m"
+    assert dual_ccs["image"] == "/static/commercial-chargers/ugv-front.png"
+    assert dual_ccs["link"] == "https://ugv.ua"
+
+    four = by_sku["UGV-A240DG-H50С240C240G240-D-RMH"]
+    assert four["ports"] == "4dc"
+    assert four["connectors"] == ["CHAdeMO", "CCS2", "GB/T"]
+    assert four["price"] == 68800.0
+
+    assert payload["facets"]["brands"] == ["UGV Chargers"]
+    assert payload["facets"]["warranty_years"] == [1, 2, 3]
+
+
+def test_build_facets_mixed_brands():
+    eds = parse_eds_price_csv(SAMPLE)
+    ugv_path = Path(__file__).resolve().parents[1] / "app" / "data" / "ugv_commercial_chargers.csv"
+    ugv = parse_ugv_csv(ugv_path.read_text(encoding="utf-8-sig"))
+    eport_path = Path(__file__).resolve().parents[1] / "app" / "data" / "eport_commercial_chargers.csv"
+    eport = parse_eport_dc_csv(eport_path.read_text(encoding="utf-8-sig"))
+    merged = _merge_catalog(eds, ugv, eport)
+    facets = _build_facets(merged["products"])
+    assert facets["brands"] == ["EDS Chargers", "UGV Chargers", "E-port"]
+    assert facets["warranty_years"] == [1, 2, 3]
+    assert "2dc" in facets["ports"]
+    assert merged["count"] == eds["count"] + ugv["count"] + eport["count"]
+    assert any(p["brand"] == "UGV Chargers" for p in merged["products"])
+    assert any(p["brand"] == "EDS Chargers" for p in merged["products"])
+    assert any(p["brand"] == "E-port" for p in merged["products"])
+
+
+def test_eport_commercial_lead_time_rule():
+    assert eport_lead_time(119) == "now"
+    assert eport_lead_time(120) == "2m"
+    assert eport_lead_time(None) == "now"
+
+
+def test_parse_eport_dc_csv_snapshot():
+    path = Path(__file__).resolve().parents[1] / "app" / "data" / "eport_commercial_chargers.csv"
+    payload = parse_eport_dc_csv(path.read_text(encoding="utf-8-sig"))
+    assert payload["count"] == 17
+    by_sku = {p["sku"]: p for p in payload["products"]}
+    # <40 kW without OCPP belong on the home catalog
+    assert "EPG-EVE020C1-S10-Portable-GBT" not in by_sku
+    assert "EPG-EVE020C1-S10-Wall-CCS2" not in by_sku
+
+    dual = by_sku["EPG-EVE080C2-S2-Wall-CCS2-GBT"]
+    assert dual["ports"] == "2dc"
+    assert dual["connectors"] == ["CCS2", "GB/T"]
+    assert dual["lead_time"] == "now"
+    assert dual["currency"] == "UAH"
+    assert dual["price"] == 380000.0
+
+    wall40 = by_sku["EPG-EVE040C2-S2-Wall-CCS2-GBT"]
+    assert wall40["power_kw"] == 40.0
+    assert wall40["lead_time"] == "now"
+
+    street120 = by_sku["EPG-EVE0120C2-D12-Street-CCS2-GBT"]
+    assert street120["power_kw"] == 120.0
+    assert street120["lead_time"] == "2m"
+
+    split = by_sku["EPG-EVE-SC360D-GN3-Street"]
+    assert split["form"] == "split"
+    assert split["ports"] is None
+    assert split["lead_time"] == "2m"
+
+    disp = by_sku["EPG-EVE300kwCCS2+GBT-Street-CCS2-GBT"]
+    assert disp["form"] == "dispenser"
+    assert disp["ports"] == "2dc"
+    assert disp["lead_time"] == "2m"
+
+
+def test_eport_prices_to_usd_uses_nbu_rate():
+    path = Path(__file__).resolve().parents[1] / "app" / "data" / "eport_commercial_chargers.csv"
+    raw = parse_eport_dc_csv(path.read_text(encoding="utf-8-sig"))
+    converted = eport_prices_to_usd(raw, 45.0)
+    by_sku = {p["sku"]: p for p in converted["products"]}
+    wall40 = by_sku["EPG-EVE040C2-S2-Wall-CCS2-GBT"]
+    assert wall40["currency"] == "USD"
+    assert wall40["price_uah"] == 255000.0
+    assert wall40["price"] == round(255000.0 / 45.0, 2)
+    assert wall40["fx_usd_uah"] == 45.0
+    assert converted["fx_usd_uah"] == 45.0
+    # Without a rate, leave UAH as-is.
+    same = eport_prices_to_usd(raw, None)
+    assert same["products"][0]["currency"] == "UAH"

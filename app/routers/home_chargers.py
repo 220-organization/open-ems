@@ -23,6 +23,7 @@ router = APIRouter(prefix="/api/home-chargers", tags=["home-chargers"])
 
 _CACHE: dict[str, Any] = {"ts": 0.0, "payload": None}
 _FALLBACK_CSV = Path(__file__).resolve().parents[1] / "data" / "sparks_home_chargers.csv"
+_EPORT_CSV = Path(__file__).resolve().parents[1] / "data" / "eport_home_chargers.csv"
 _SHEET_ID_RE = re.compile(r"/spreadsheets/d/([a-zA-Z0-9-_]+)")
 
 _PRICE_RE = re.compile(r"([\d]+(?:[.,]\d+)?)\s*([A-Za-z]{3})?", re.I)
@@ -299,6 +300,41 @@ def _availability(raw: str) -> str:
     return s or "unknown"
 
 
+def eport_lead_time(kw: Optional[float]) -> str:
+    """E-port SLA: in stock below 120 kW, 2 months at 120 kW+."""
+    if kw is not None and kw >= 120:
+        return "2m"
+    return "now"
+
+
+def _build_facets(products: list[dict[str, Any]]) -> dict[str, Any]:
+    brands = sorted({p["brand"] for p in products if p.get("brand")})
+    connectors = sorted({c for p in products for c in (p.get("connectors") or [])})
+    phases = sorted({p["phases"] for p in products if p.get("phases") in (1, 3)})
+    kinds = sorted(
+        {p["kind"] for p in products if p.get("kind")},
+        key=lambda k: _KIND_ORDER.get(k, 9),
+    )
+    power_buckets = sorted(
+        {
+            p["power_bucket"]
+            for p in products
+            if p.get("kind") == "charger" and p.get("power_bucket")
+        },
+        key=lambda b: _POWER_BUCKET_ORDER.get(b, 9),
+    )
+    prices = [p["price"] for p in products if p.get("price") is not None]
+    return {
+        "brands": brands,
+        "connectors": connectors,
+        "phases": phases,
+        "kinds": kinds,
+        "power_buckets": power_buckets,
+        "price_min": min(prices) if prices else None,
+        "price_max": max(prices) if prices else None,
+    }
+
+
 def parse_prom_csv(csv_text: str) -> dict[str, Any]:
     """Parse Sparks PROM export CSV into EV home-charger products + filter facets."""
     reader = csv.reader(io.StringIO(csv_text or ""))
@@ -356,41 +392,69 @@ def parse_prom_csv(csv_text: str) -> dict[str, Any]:
                 "country": details.get("Країна виробник") or _cell(row, idx, "Країна_виробник") or None,
                 "cable_cm": details.get("Довжина кабелю"),
                 "product_type": _cell(row, idx, "Назва_групи") or "home-charger",
+                "source": "sparkschargers.com.ua",
             }
         )
 
     products.sort(key=lambda p: (p["price"] is None, p["price"] or 0.0, p["title"]))
-
-    brands = sorted({p["brand"] for p in products if p.get("brand")})
-    connectors = sorted({c for p in products for c in (p.get("connectors") or [])})
-    phases = sorted({p["phases"] for p in products if p.get("phases") in (1, 3)})
-    kinds = sorted(
-        {p["kind"] for p in products if p.get("kind")},
-        key=lambda k: _KIND_ORDER.get(k, 9),
-    )
-    power_buckets = sorted(
-        {
-            p["power_bucket"]
-            for p in products
-            if p.get("kind") == "charger" and p.get("power_bucket")
-        },
-        key=lambda b: _POWER_BUCKET_ORDER.get(b, 9),
-    )
-    prices = [p["price"] for p in products if p.get("price") is not None]
-
     return {
         "source": "sparkschargers.com.ua",
         "count": len(products),
         "products": products,
-        "facets": {
-            "brands": brands,
-            "connectors": connectors,
-            "phases": phases,
-            "kinds": kinds,
-            "power_buckets": power_buckets,
-            "price_min": min(prices) if prices else None,
-            "price_max": max(prices) if prices else None,
-        },
+        "facets": _build_facets(products),
+    }
+
+
+def parse_eport_home_csv(csv_text: str) -> dict[str, Any]:
+    """Parse the static E-port AC charger snapshot into home-catalog products."""
+    reader = csv.DictReader(io.StringIO(csv_text or ""))
+    products: list[dict[str, Any]] = []
+    for row in reader:
+        sku = (row.get("sku") or "").strip()
+        title = (row.get("title") or "").strip()
+        if not sku or not title:
+            continue
+        power_kw = _parse_number(row.get("power_kw"))
+        price = _parse_number(row.get("price_uah"))
+        if price is None:
+            continue
+        phases_raw = _parse_number(row.get("phases"))
+        phases = int(phases_raw) if phases_raw in (1, 3) or phases_raw in (1.0, 3.0) else None
+        connector = (row.get("connector") or "").strip()
+        connectors = [connector] if connector else []
+        brand = (row.get("brand") or "").strip() or "E-port"
+        cable = (row.get("cable") or "").strip() or None
+        image = (row.get("image") or "").strip()
+        products.append(
+            {
+                "id": sku,
+                "title": title,
+                "description": "",
+                "link": "https://e-port.energy",
+                "image": image,
+                "availability": "in stock",
+                "brand": brand,
+                "price": price,
+                "currency": "UAH",
+                "kind": "charger",
+                "power_kw": power_kw,
+                "power_bucket": _power_bucket(power_kw),
+                "current_a": None,
+                "phases": phases,
+                "connectors": connectors,
+                "country": None,
+                "cable_cm": cable,
+                "product_type": "home-charger",
+                "lead_time": eport_lead_time(power_kw),
+                "source": "e-port.energy",
+            }
+        )
+    products.sort(key=lambda p: (p["price"] is None, p["price"] or 0.0, p["title"]))
+    return {
+        "source": "e-port.energy",
+        "count": len(products),
+        "products": products,
+        "facets": _build_facets(products),
     }
 
 
@@ -400,9 +464,27 @@ def _load_fallback_csv() -> str:
     return _FALLBACK_CSV.read_text(encoding="utf-8-sig")
 
 
+def _load_eport_csv() -> str:
+    if not _EPORT_CSV.is_file():
+        raise FileNotFoundError(str(_EPORT_CSV))
+    return _EPORT_CSV.read_text(encoding="utf-8-sig")
+
+
+def _merge_home_catalog(sparks: dict[str, Any], eport: dict[str, Any]) -> dict[str, Any]:
+    products = list(sparks.get("products") or []) + list(eport.get("products") or [])
+    products.sort(key=lambda p: (p["price"] is None, p["price"] or 0.0, p["title"]))
+    sources = [s for s in (sparks.get("source"), eport.get("source")) if s]
+    return {
+        "source": "+".join(sources) if sources else "home-chargers",
+        "count": len(products),
+        "products": products,
+        "facets": _build_facets(products),
+    }
+
+
 @router.get("")
 async def list_home_chargers(refresh: bool = False) -> dict[str, Any]:
-    """Return EV home chargers from the Sparks PROM Google Sheet (cached)."""
+    """Return EV home chargers from Sparks PROM + E-port snapshot (cached)."""
     ttl = max(60, int(settings.HOME_CHARGERS_CACHE_TTL_SEC))
     now = time.time()
     if (
@@ -430,18 +512,25 @@ async def list_home_chargers(refresh: bool = False) -> dict[str, Any]:
             raise HTTPException(status_code=503, detail="Home chargers feed is not configured") from exc
 
     try:
-        payload = parse_prom_csv(csv_text)
+        sparks_payload = parse_prom_csv(csv_text)
     except (csv.Error, ValueError) as exc:
         logger.warning("home chargers catalog parse failed: %s", exc)
         raise HTTPException(status_code=502, detail="Invalid charger catalog feed") from exc
 
-    if payload["count"] == 0 and source_kind == "sheet":
+    if sparks_payload["count"] == 0 and source_kind == "sheet":
         try:
-            payload = parse_prom_csv(_load_fallback_csv())
+            sparks_payload = parse_prom_csv(_load_fallback_csv())
             source_kind = "fallback"
         except OSError:
             pass
 
+    try:
+        eport_payload = parse_eport_home_csv(_load_eport_csv())
+    except (OSError, csv.Error, ValueError) as exc:
+        logger.warning("E-port home chargers snapshot missing/invalid: %s", exc)
+        eport_payload = {"source": "e-port.energy", "count": 0, "products": [], "facets": {}}
+
+    payload = _merge_home_catalog(sparks_payload, eport_payload)
     payload["cached"] = False
     payload["cache_ttl_sec"] = ttl
     payload["source_kind"] = source_kind
