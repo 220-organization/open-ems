@@ -102,6 +102,7 @@ _CANONICAL_ARTICLES = (
     "MB-HV-3",
     "PC-HV-3-3.2m",
     "SigenStor EC 3.0 SP",
+    "SigenStor EC 6.0 SP",
     "SigenStor EC 10.0 TP",
     "SigenStor EC 30.0 TP",
     "SigenStor BAT 6.0",
@@ -123,7 +124,7 @@ _SIGENERGY_AVAIL = "10 днів"
 _SIGENERGY_CATALOG: tuple[dict[str, Any], ...] = (
     {
         "article": "SigenStor EC 3.0 SP",
-        "name": "SigenStor EC 3.0 SP, 3 кВт",
+        "name": "SigenStor EC 3.0 SP, 3 кВт, 1 фаза",
         "exVat": 1354.60,
         "incVat": 1625.52,
         "imageUrl": (
@@ -134,8 +135,14 @@ _SIGENERGY_CATALOG: tuple[dict[str, Any], ...] = (
             "&ved=2ahUKEwi1xKiFl_uXAxW_QvEDHXt4MJwQtKgLegQIFxAB&biw=1920&bih=1049&dpr=1"
         ),
     },
-    {"article": "SigenStor EC 10.0 TP", "name": "SigenStor EC 10.0 TP, 10 кВт", "exVat": 2515.50, "incVat": 3018.60},
-    {"article": "SigenStor EC 30.0 TP", "name": "SigenStor EC 30.0 TP, 30 кВт", "exVat": 4703.40, "incVat": 5644.08},
+    {
+        "article": "SigenStor EC 6.0 SP",
+        "name": "SigenStor EC 6.0 SP, 6 кВт, 1 фаза",
+        "exVat": 1548.30,
+        "incVat": 1857.96,
+    },
+    {"article": "SigenStor EC 10.0 TP", "name": "SigenStor EC 10.0 TP, 10 кВт, 3 фази", "exVat": 2515.50, "incVat": 3018.60},
+    {"article": "SigenStor EC 30.0 TP", "name": "SigenStor EC 30.0 TP, 30 кВт, 3 фази", "exVat": 4703.40, "incVat": 5644.08},
     {"article": "SigenStor BAT 6.0", "name": "SigenStor BAT 6.0, 6 кВт·год", "exVat": 1846.00, "incVat": 2215.20},
     {"article": "SigenStor BAT 10.0", "name": "SigenStor BAT 10.0, 10 кВт·год", "exVat": 2470.00, "incVat": 2964.00},
     {"article": "Sigen Gateway Home SP 12K", "name": "Sigen Gateway Home SP 12K", "exVat": 505.70, "incVat": 606.84},

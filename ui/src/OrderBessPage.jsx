@@ -46,6 +46,12 @@ function fmtUsd(n) {
   });
 }
 
+function phaseLabel(phase, t) {
+  if (phase === "sp") return t("orderBessPhase1p");
+  if (phase === "tp") return t("orderBessPhase3p");
+  return "";
+}
+
 function fmtUah(n) {
   if (n == null || Number.isNaN(n)) return "—";
   return n.toLocaleString("uk-UA", {
@@ -485,6 +491,23 @@ export default function OrderBessPage({ t }) {
   const sigenInvMeta = SIGEN_INVERTERS[sigenInv];
   const sigenLine = sigenInvMeta?.line || "home";
 
+  const selectedPhase = useMemo(() => {
+    if (presetId === CUSTOM_PRESET_ID) {
+      if (customBrand === "sigen") return sigenInvMeta?.phase || "";
+      return invMeta?.phase || "";
+    }
+    const preset = ALL_PRESETS.find((p) => p.id === presetId);
+    const invLine = preset?.lines?.find(
+      (l) => SIGEN_INVERTERS[l.article] || INVERTERS[l.article],
+    );
+    if (!invLine) return "";
+    return (
+      SIGEN_INVERTERS[invLine.article]?.phase ||
+      INVERTERS[invLine.article]?.phase ||
+      ""
+    );
+  }, [presetId, customBrand, sigenInvMeta, invMeta]);
+
   const sigenInverterChoices = useMemo(
     () =>
       Object.entries(SIGEN_INVERTERS).map(([article, meta]) => ({
@@ -865,7 +888,8 @@ export default function OrderBessPage({ t }) {
                           .filter((inv) => inv.line === "home")
                           .map((inv) => (
                             <option key={inv.article} value={inv.article}>
-                              {inv.kw} кВт — {inv.article}
+                              {inv.kw} кВт · {phaseLabel(inv.phase, t)} —{" "}
+                              {inv.article}
                             </option>
                           ))}
                       </optgroup>
@@ -874,7 +898,8 @@ export default function OrderBessPage({ t }) {
                           .filter((inv) => inv.line === "biz")
                           .map((inv) => (
                             <option key={inv.article} value={inv.article}>
-                              {inv.kw} кВт — {inv.article}
+                              {inv.kw} кВт · {phaseLabel(inv.phase, t)} —{" "}
+                              {inv.article}
                             </option>
                           ))}
                       </optgroup>
@@ -939,8 +964,8 @@ export default function OrderBessPage({ t }) {
                           value={inv.article}
                           disabled={inv.noArrival}
                         >
-                          {inv.kw} кВт ({inv.voltage.toUpperCase()}) —{" "}
-                          {inv.article}
+                          {inv.kw} кВт · {phaseLabel(inv.phase, t)} (
+                          {inv.voltage.toUpperCase()}) — {inv.article}
                           {inv.noArrival
                             ? ` — ${t("orderBessNoArrivalDates")}`
                             : ""}
@@ -1128,6 +1153,7 @@ export default function OrderBessPage({ t }) {
           <p className="order-bess-kwh">
             {t("orderBessCapacity")}: <strong>{activeBom.kwh} кВт·год</strong> ·{" "}
             {activeBom.kw} кВт
+            {selectedPhase ? ` · ${phaseLabel(selectedPhase, t)}` : ""}
           </p>
         </section>
 
@@ -1154,6 +1180,7 @@ export default function OrderBessPage({ t }) {
             <li>
               {t("orderBessSummaryKit")}: {activeBom.kw} кВт + {activeBom.kwh}{" "}
               кВт·год
+              {selectedPhase ? ` · ${phaseLabel(selectedPhase, t)}` : ""}
             </li>
             <li>
               {t("orderBessSummaryTotal")}:{" "}

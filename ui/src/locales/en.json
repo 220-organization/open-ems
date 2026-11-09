@@ -932,6 +932,8 @@
   "orderBessCustomBtn": "Select manually",
   "orderBessSelectBrand": "Brand",
   "orderBessSelectKw": "Inverter power",
+  "orderBessPhase1p": "1-phase",
+  "orderBessPhase3p": "3-phase",
   "orderBessSigenModulesNote": "{{count}} battery modules",
   "orderBessSelectBattery": "Battery model",
   "orderBessNoArrivalDates": "no arrival dates",

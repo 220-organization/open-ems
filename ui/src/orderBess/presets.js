@@ -98,24 +98,24 @@ export const BATTERY_MODELS = {
   },
 };
 
-/** Inverter options for custom builder (article → meta). */
+/** Inverter options for custom builder (article → meta). LP1 = 1-phase, LP3/HP3 = 3-phase. */
 export const INVERTERS = {
-  "SUN-5K-SG05LP1-EU-AM2-P": { kw: 5, voltage: "lv" },
-  "SUN-6K-SG05LP1-EU": { kw: 6, voltage: "lv" },
-  "SUN-6K-SG05LP1-EU-AM2-P": { kw: 6, voltage: "lv" },
-  "SUN-8K-SG05LP1-EU": { kw: 8, voltage: "lv" },
-  "SUN-10K-SG02LP1-EU-AM3": { kw: 10, voltage: "lv" },
-  "SUN-12K-SG02LP1-EU": { kw: 12, voltage: "lv" },
-  "SUN-12K-SG05LP3-EU": { kw: 12, voltage: "lv" },
-  "SUN-15K-SG05LP3-EU": { kw: 15, voltage: "lv" },
-  "SUN-16K-SG02LP1-EU-AM3": { kw: 16, voltage: "lv" },
-  "SUN-20K-SG05LP3-EU": { kw: 20, voltage: "lv" },
-  "SUN-20K-SG01HP3-EU-AM2": { kw: 20, voltage: "hv" },
-  "SUN-25K-SG01HP3-EU-AM2": { kw: 25, voltage: "hv" },
-  "SUN-30K-SG02HP3-EU-AM3": { kw: 30, voltage: "hv" },
-  "SUN-50K-SG01HP3-EU-BM4": { kw: 50, voltage: "hv" },
-  "SUN-80K-SG02HP3-EU-EM6": { kw: 80, voltage: "hv" },
-  "SUN-125K-SG02HP3-EU-EM10": { kw: 125, voltage: "hv" },
+  "SUN-5K-SG05LP1-EU-AM2-P": { kw: 5, voltage: "lv", phase: "sp" },
+  "SUN-6K-SG05LP1-EU": { kw: 6, voltage: "lv", phase: "sp" },
+  "SUN-6K-SG05LP1-EU-AM2-P": { kw: 6, voltage: "lv", phase: "sp" },
+  "SUN-8K-SG05LP1-EU": { kw: 8, voltage: "lv", phase: "sp" },
+  "SUN-10K-SG02LP1-EU-AM3": { kw: 10, voltage: "lv", phase: "sp" },
+  "SUN-12K-SG02LP1-EU": { kw: 12, voltage: "lv", phase: "sp" },
+  "SUN-12K-SG05LP3-EU": { kw: 12, voltage: "lv", phase: "tp" },
+  "SUN-15K-SG05LP3-EU": { kw: 15, voltage: "lv", phase: "tp" },
+  "SUN-16K-SG02LP1-EU-AM3": { kw: 16, voltage: "lv", phase: "sp" },
+  "SUN-20K-SG05LP3-EU": { kw: 20, voltage: "lv", phase: "tp" },
+  "SUN-20K-SG01HP3-EU-AM2": { kw: 20, voltage: "hv", phase: "tp" },
+  "SUN-25K-SG01HP3-EU-AM2": { kw: 25, voltage: "hv", phase: "tp" },
+  "SUN-30K-SG02HP3-EU-AM3": { kw: 30, voltage: "hv", phase: "tp" },
+  "SUN-50K-SG01HP3-EU-BM4": { kw: 50, voltage: "hv", phase: "tp" },
+  "SUN-80K-SG02HP3-EU-EM6": { kw: 80, voltage: "hv", phase: "tp" },
+  "SUN-125K-SG02HP3-EU-EM10": { kw: 125, voltage: "hv", phase: "tp" },
 };
 
 export function stringVoltage(modulesPerString) {
@@ -461,6 +461,7 @@ export const SIGEN_BIZ_SUB_BASE_AFTER = 9;
 
 export const SIGEN_INVERTERS = {
   "SigenStor EC 3.0 SP": { kw: 3, line: "home", phase: "sp" },
+  "SigenStor EC 6.0 SP": { kw: 6, line: "home", phase: "sp" },
   "SigenStor EC 10.0 TP": { kw: 10, line: "home", phase: "tp" },
   "SigenStor EC 30.0 TP": { kw: 30, line: "home", phase: "tp" },
   "Sigen PV 50M1-HYB": { kw: 50, line: "biz", phase: "tp" },
