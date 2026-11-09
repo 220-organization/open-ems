@@ -398,6 +398,7 @@ export const SIGENERGY_PRESETS = [
       line('SigenStor EC 3.0 SP', 1),
       line('SigenStor BAT 6.0', 1),
       line('Sigen Gateway Home SP 12K', 1),
+      line('SigenStor Installation Kit for Ground-mounted', 1),
     ],
   },
   {
@@ -411,6 +412,7 @@ export const SIGENERGY_PRESETS = [
       line('SigenStor EC 10.0 TP', 1),
       line('SigenStor BAT 10.0', 2, '2×10 кВт·год'),
       line('Sigen Gateway Home TP 30K', 1),
+      line('SigenStor Installation Kit for Ground-mounted', 1),
     ],
   },
   {
@@ -424,6 +426,7 @@ export const SIGENERGY_PRESETS = [
       line('SigenStor EC 30.0 TP', 1),
       line('SigenStor BAT 10.0', 6, '6×10 кВт·год'),
       line('Sigen Gateway Home TP 30K', 1),
+      line('SigenStor Installation Kit for Ground-mounted', 1),
     ],
   },
   {
