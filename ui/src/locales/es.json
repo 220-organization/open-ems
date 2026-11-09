@@ -918,6 +918,8 @@
   "orderBessCustomBtn": "Seleccionar manualmente",
   "orderBessSelectBrand": "Marca",
   "orderBessSelectKw": "Potencia del inversor",
+  "orderBessPhase1p": "1 fase",
+  "orderBessPhase3p": "3 fases",
   "orderBessSigenModulesNote": "{{count}} módulos de batería",
   "orderBessSelectBattery": "Modelo de batería",
   "orderBessNoArrivalDates": "sin fechas de llegada",

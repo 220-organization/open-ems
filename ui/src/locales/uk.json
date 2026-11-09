@@ -933,6 +933,8 @@
   "orderBessCustomBtn": "Обрати в ручну",
   "orderBessSelectBrand": "Виробник",
   "orderBessSelectKw": "Потужність інвертора",
+  "orderBessPhase1p": "1 фаза",
+  "orderBessPhase3p": "3 фази",
   "orderBessSigenModulesNote": "{{count}} модулів АКБ",
   "orderBessSelectBattery": "Модель АКБ",
   "orderBessNoArrivalDates": "немає дат приходу",

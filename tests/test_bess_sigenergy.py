@@ -27,6 +27,15 @@ class TestSigenergyCatalog(unittest.TestCase):
         )
         self.assertAlmostEqual(total, 21312.72, places=2)
 
+    def test_sigenstor_ec_6_sp_single_phase_price(self) -> None:
+        items: dict = {}
+        _merge_sigenergy_catalog(items)
+        inv = items["SIGENSTOREC6.0SP"]
+        self.assertEqual(inv["installerCheapestUsd"], 1548.30)
+        self.assertEqual(inv["retailVatUsd"], 1857.96)
+        self.assertIn("1 фаза", inv["name"])
+        self.assertEqual(inv["availability"], _SIGENERGY_AVAIL)
+
 
 if __name__ == "__main__":
     unittest.main()
