@@ -17,6 +17,34 @@
   gap: 16px;
 }
 
+.home-charger-seg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.home-charger-seg__btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--pf-border-strong, var(--pf-border, #2a3140));
+  background: var(--pf-surface, rgba(0, 0, 0, 0.25));
+  color: var(--pf-text, inherit);
+  border-radius: 999px;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.home-charger-seg__btn--active {
+  border-color: #3d8bfd;
+  background: rgba(61, 139, 253, 0.18);
+  color: #cfe3ff;
+}
+
 .home-charger-hero__title {
   margin: 0 0 6px;
   font-size: 1.55rem;

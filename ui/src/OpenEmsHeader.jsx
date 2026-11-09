@@ -1,45 +1,45 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import SharePageModal from './SharePageModal';
-import { buildSharePageModalPayload } from './sharePageQr';
-import { navigateOpenEmsHomeResetSource } from './essSelection';
-import { OPEN_EMS_SITE_URL } from './seoContent';
-import { VYRII_EMS_LOGO_SRC } from './vyriiEmsLogo';
-import './power-flow.css';
-import './landing.css';
+import { useCallback, useEffect, useRef, useState } from "react";
+import SharePageModal from "./SharePageModal";
+import { buildSharePageModalPayload } from "./sharePageQr";
+import { navigateOpenEmsHomeResetSource } from "./essSelection";
+import { OPEN_EMS_SITE_URL } from "./seoContent";
+import { VYRII_EMS_LOGO_SRC } from "./vyriiEmsLogo";
+import "./power-flow.css";
+import "./landing.css";
 
 /** Spain DAM view uses the VYRII EMS lockup instead of the locale brand name. */
 function isEmsVppBrandUrl() {
   try {
     const params = new URLSearchParams(window.location.search);
-    const market = (params.get('market') || '').trim().toLowerCase();
-    const zone = (params.get('zone') || '').trim().toUpperCase();
-    return market === 'oree' && zone === 'ES';
+    const market = (params.get("market") || "").trim().toLowerCase();
+    const zone = (params.get("zone") || "").trim().toUpperCase();
+    return market === "oree" && zone === "ES";
   } catch {
     return false;
   }
 }
 
 function themeToggleLabels(theme) {
-  if (theme === 'dark') {
+  if (theme === "dark") {
     return {
-      aria: 'Switch to system theme',
-      title: 'Dark theme (click for system)',
+      aria: "Switch to system theme",
+      title: "Dark theme (click for system)",
     };
   }
-  if (theme === 'light') {
+  if (theme === "light") {
     return {
-      aria: 'Switch to dark theme',
-      title: 'Light theme (click for dark)',
+      aria: "Switch to dark theme",
+      title: "Light theme (click for dark)",
     };
   }
   return {
-    aria: 'Switch to light theme',
-    title: 'System theme (click for light)',
+    aria: "Switch to light theme",
+    title: "System theme (click for light)",
   };
 }
 
 function ThemeToggleIcon({ theme }) {
-  if (theme === 'dark') {
+  if (theme === "dark") {
     return (
       <svg
         width="16"
@@ -56,7 +56,7 @@ function ThemeToggleIcon({ theme }) {
       </svg>
     );
   }
-  if (theme === 'light') {
+  if (theme === "light") {
     return (
       <svg
         width="16"
@@ -118,11 +118,12 @@ export default function OpenEmsHeader({
   const logoSrc = VYRII_EMS_LOGO_SRC;
   const [spainDam, setSpainDam] = useState(isEmsVppBrandUrl);
   const [shareModalOpen, setShareModalOpen] = useState(false);
-  const [shareModalUrl, setShareModalUrl] = useState('');
+  const [shareModalUrl, setShareModalUrl] = useState("");
   const [shareModalCopied, setShareModalCopied] = useState(false);
   const [shareModalCopyFailed, setShareModalCopyFailed] = useState(false);
 
-  const navLinkClass = page => `landing-nav__link${activePage === page ? ' landing-nav__link--active' : ''}`;
+  const navLinkClass = (page) =>
+    `landing-nav__link${activePage === page ? " landing-nav__link--active" : ""}`;
   const themeLabels = themeToggleLabels(theme);
 
   const handleSharePage = useCallback(async () => {
@@ -138,7 +139,7 @@ export default function OpenEmsHeader({
     setShareModalOpen(false);
   }, []);
 
-  const handleBrandClick = useCallback(e => {
+  const handleBrandClick = useCallback((e) => {
     e.preventDefault();
     navigateOpenEmsHomeResetSource();
   }, []);
@@ -148,14 +149,14 @@ export default function OpenEmsHeader({
   useEffect(() => {
     const syncBrand = () => setSpainDam(isEmsVppBrandUrl());
     syncBrand();
-    window.addEventListener('popstate', syncBrand);
-    return () => window.removeEventListener('popstate', syncBrand);
+    window.addEventListener("popstate", syncBrand);
+    return () => window.removeEventListener("popstate", syncBrand);
   }, []);
 
   useEffect(() => {
-    document.documentElement.classList.toggle('open-ems-tron', spainDam);
+    document.documentElement.classList.toggle("open-ems-tron", spainDam);
     return () => {
-      document.documentElement.classList.remove('open-ems-tron');
+      document.documentElement.classList.remove("open-ems-tron");
     };
   }, [spainDam]);
 
@@ -164,23 +165,28 @@ export default function OpenEmsHeader({
     if (!el) return undefined;
 
     const syncHeaderOffset = () => {
-      const headerInner = el.querySelector('.landing-header');
-      const naturalH = headerInner ? Math.ceil(headerInner.getBoundingClientRect().height) : 0;
-      document.documentElement.style.setProperty('--open-ems-site-header-h', chromeHidden ? '0px' : `${naturalH}px`);
+      const headerInner = el.querySelector(".landing-header");
+      const naturalH = headerInner
+        ? Math.ceil(headerInner.getBoundingClientRect().height)
+        : 0;
+      document.documentElement.style.setProperty(
+        "--open-ems-site-header-h",
+        chromeHidden ? "0px" : `${naturalH}px`,
+      );
     };
 
-    const headerInner = el.querySelector('.landing-header');
+    const headerInner = el.querySelector(".landing-header");
 
     syncHeaderOffset();
     const ro = new ResizeObserver(syncHeaderOffset);
     ro.observe(el);
     if (headerInner) ro.observe(headerInner);
-    window.addEventListener('resize', syncHeaderOffset);
+    window.addEventListener("resize", syncHeaderOffset);
 
     return () => {
       ro.disconnect();
-      window.removeEventListener('resize', syncHeaderOffset);
-      document.documentElement.style.removeProperty('--open-ems-site-header-h');
+      window.removeEventListener("resize", syncHeaderOffset);
+      document.documentElement.style.removeProperty("--open-ems-site-header-h");
     };
   }, [locale, activePage, chromeHidden]);
 
@@ -193,39 +199,54 @@ export default function OpenEmsHeader({
             href={`${OPEN_EMS_SITE_URL}/`}
             onClick={handleBrandClick}
           >
-            <img className="landing-header__logo" src={logoSrc} alt="" width={36} height={36} decoding="async" />
+            <img
+              className="landing-header__logo"
+              src={logoSrc}
+              alt=""
+              width={36}
+              height={36}
+              decoding="async"
+            />
             <span className="landing-header__name">VYRII EMS</span>
           </a>
-          <nav className="landing-nav" aria-label={t('landingNavAria')}>
-            <a className={navLinkClass('power')} href="/">
-              {t('landingNavDemo')}
+          <nav className="landing-nav" aria-label={t("landingNavAria")}>
+            <a className={navLinkClass("power")} href="/">
+              {t("landingNavDemo")}
             </a>
-            <a className={navLinkClass('landing')} href="/about">
-              {t('landingNavHome')}
+            <a className={navLinkClass("landing")} href="/about">
+              {t("landingNavHome")}
             </a>
-            <a className={navLinkClass('marketplace')} href="/marketplace">
-              {t('marketplaceNavLabel')}
+            <a className={navLinkClass("marketplace")} href="/marketplace">
+              {t("marketplaceNavLabel")}
             </a>
-            <a className={navLinkClass('orderBess')} href="/order-bess">
-              {t('orderBessNavLabel')}
+            <a className={navLinkClass("orderBess")} href="/order-bess">
+              {t("orderBessNavLabel")}
             </a>
-            <a className={navLinkClass('buyHomeCharger')} href="/buy-home-charger">
-              {t('homeChargerNavLabel')}
+            <a
+              className={
+                activePage === "buyHomeCharger" ||
+                activePage === "buyCommercialCharger"
+                  ? "landing-nav__link landing-nav__link--active"
+                  : "landing-nav__link"
+              }
+              href="/buy-home-charger"
+            >
+              {t("chargerCatalogNavLabel")}
             </a>
-            <a className={navLinkClass('buyCommercialCharger')} href="/buy-commercial-charger">
-              {t('commercialChargerNavLabel')}
+            <a
+              className={navLinkClass("rdnConsultation")}
+              href="/rdn-consultation"
+            >
+              {t("rdnConsultationNavLabel")}
             </a>
-            <a className={navLinkClass('rdnConsultation')} href="/rdn-consultation">
-              {t('rdnConsultationNavLabel')}
+            <a className={navLinkClass("evTv")} href="/ev-tv">
+              {t("evTvNavLabel")}
             </a>
-            <a className={navLinkClass('evTv')} href="/ev-tv">
-              {t('evTvNavLabel')}
+            <a className={navLinkClass("evSound")} href="/ev-sound">
+              {t("evSoundNavLabel")}
             </a>
-            <a className={navLinkClass('evSound')} href="/ev-sound">
-              {t('evSoundNavLabel')}
-            </a>
-            <a className={navLinkClass('admin')} href="/admin">
-              {t('adminNavLabel')}
+            <a className={navLinkClass("admin")} href="/admin">
+              {t("adminNavLabel")}
             </a>
           </nav>
           <div className="landing-header__actions">
@@ -233,8 +254,8 @@ export default function OpenEmsHeader({
               type="button"
               className="pf-share-btn"
               onClick={() => void handleSharePage()}
-              aria-label={t('sharePageAria')}
-              title={t('sharePageAria')}
+              aria-label={t("sharePageAria")}
+              title={t("sharePageAria")}
             >
               <svg
                 className="pf-share-btn__icon"
@@ -261,11 +282,11 @@ export default function OpenEmsHeader({
             </button>
             <select
               className="pf-lang-select"
-              aria-label={t('langSelectAria')}
+              aria-label={t("langSelectAria")}
               value={locale}
               onChange={onLangSelectChange}
             >
-              {SUPPORTED.map(code => (
+              {SUPPORTED.map((code) => (
                 <option key={code} value={code}>
                   {LOCALE_NAMES[code] || code}
                 </option>

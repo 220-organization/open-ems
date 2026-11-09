@@ -7,6 +7,7 @@ import {
 } from "./buyHomeChargerUrl";
 import { notifyOpenEmsSearchChange } from "./sharePageQr";
 import { useOpenEmsSeo } from "./useOpenEmsSeo";
+import ChargerCatalogSegmentBar from "./ChargerCatalogSegmentBar";
 import "./buy-home-charger.css";
 
 const USD_UAH_FALLBACK = 42;
@@ -383,6 +384,7 @@ export default function BuyHomeChargerPage({ t, locale }) {
   return (
     <div className="home-charger-page">
       <div className="home-charger-page__inner">
+        <ChargerCatalogSegmentBar t={t} active="home" />
         <header className="home-charger-hero">
           <h1 className="home-charger-hero__title">
             {t("homeChargerPageTitle")}
