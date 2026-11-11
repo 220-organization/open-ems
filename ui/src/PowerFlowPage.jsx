@@ -5259,6 +5259,13 @@ export default function PowerFlowPage({
     ]
   );
 
+  const clearArbitrageModeChecks = useCallback(() => {
+    setPeakDamDischargeEnabled(false);
+    setSelfConsumptionEnabled(false);
+    setLowDamChargeEnabled(false);
+    setNightChargeEnabled(false);
+  }, []);
+
   const requestToolbarSubmit = useCallback(() => {
     if (!remoteWriteConfigured) {
       setRemoteWriteNeedsPinOpen(true);
@@ -6981,20 +6988,6 @@ export default function PowerFlowPage({
               </section>
 
               <div className="pf-post-charts-bar">
-                <div className="pf-roi-bar">
-                  <RoiStackStatistics
-                    t={t}
-                    bcp47={bcp47}
-                    selInverterSn={selInverterSn}
-                    inverterHeaderOk={inverterListReady}
-                    inverterListPending={inverterRows.loading && !inverterRows.error}
-                    pinRequired={remoteWriteConfigured}
-                    cachedPin={cachedWritePin}
-                    pinCacheBust={pinCacheBust}
-                    onPinRemembered={() => setPinCacheBust(x => x + 1)}
-                    onRoiCapexSaved={loadInverters}
-                  />
-                </div>
                 {showPowerFlowSections ? (
                   !inverterListReady && !selEvPortsAggregate ? (
                     <div className="pf-header-discharge-row pf-header-discharge-row--skeleton" aria-busy="true">
@@ -7114,9 +7107,10 @@ export default function PowerFlowPage({
                                       className={`pf-discharge-btn pf-discharge-go-btn${
                                         toolbarCommand === 'discharge' ? ' pf-discharge-go-btn--armed' : ''
                                       }`}
-                                      onClick={() =>
-                                        setToolbarCommand(prev => (prev === 'discharge' ? null : 'discharge'))
-                                      }
+                                      onClick={() => {
+                                        setToolbarCommand(prev => (prev === 'discharge' ? null : 'discharge'));
+                                        clearArbitrageModeChecks();
+                                      }}
                                       disabled={
                                         deyeWritesHardBlocked ||
                                         toolbarLockedByNightCharge ||
@@ -7177,7 +7171,10 @@ export default function PowerFlowPage({
                                     className={`pf-discharge-btn pf-discharge-go-btn pf-charge-go-btn${
                                       toolbarCommand === 'charge' ? ' pf-discharge-go-btn--armed' : ''
                                     }`}
-                                    onClick={() => setToolbarCommand(prev => (prev === 'charge' ? null : 'charge'))}
+                                    onClick={() => {
+                                      setToolbarCommand(prev => (prev === 'charge' ? null : 'charge'));
+                                      clearArbitrageModeChecks();
+                                    }}
                                     disabled={deyeWritesHardBlocked || toolbarLockedByNightCharge}
                                     title={t('chargeSoc2Hint')}
                                     aria-pressed={toolbarCommand === 'charge'}
@@ -7435,6 +7432,20 @@ export default function PowerFlowPage({
                     </div>
                   </details>
                 ) : null}
+                <div className="pf-roi-bar">
+                  <RoiStackStatistics
+                    t={t}
+                    bcp47={bcp47}
+                    selInverterSn={selInverterSn}
+                    inverterHeaderOk={inverterListReady}
+                    inverterListPending={inverterRows.loading && !inverterRows.error}
+                    pinRequired={remoteWriteConfigured}
+                    cachedPin={cachedWritePin}
+                    pinCacheBust={pinCacheBust}
+                    onPinRemembered={() => setPinCacheBust(x => x + 1)}
+                    onRoiCapexSaved={loadInverters}
+                  />
+                </div>
               </div>
 
               {dischargeFeedbackText ? (
