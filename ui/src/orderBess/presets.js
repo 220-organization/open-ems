@@ -683,6 +683,42 @@ function sigenPreset(id, group, tier, invArticle, batArticle, kwh) {
   };
 }
 
+/**
+ * Repeat one C&I stack across several inverters.
+ * Mirrors the Deye 3×80 kW plant: each inverter keeps its own 4–21 module stack.
+ */
+function sigenParallelPreset(
+  id,
+  group,
+  tier,
+  invArticle,
+  batArticle,
+  kwhEach,
+  inverters,
+) {
+  const one = buildSigenBom(invArticle, batArticle, kwhEach);
+  const lines = one.lines.map((item) => {
+    let note = item.note;
+    if (item.article === invArticle) note = `${inverters}×${one.kw} кВт`;
+    if (item.article === batArticle && note) note = `${inverters}×${note}`;
+    return line(item.article, item.qty * inverters, note);
+  });
+  const kwh = Math.round(one.kwh * inverters * 100) / 100;
+  const kw = one.kw * inverters;
+  const kwhLabel = Number.isInteger(kwh)
+    ? String(kwh)
+    : String(kwh).replace(".", ",");
+  return {
+    id,
+    group,
+    tier,
+    label: `${kw} кВт + ${kwhLabel} кВт·год`,
+    kw,
+    kwh,
+    lines,
+  };
+}
+
 /** Sigenergy block: home (SigenStor) and business (SigenStack), min / avg / max. */
 export const SIGENERGY_PRESETS = [
   sigenPreset(
@@ -732,6 +768,15 @@ export const SIGENERGY_PRESETS = [
     "Sigen PV 125M1-HYB",
     "SigenStack BAT 12.0",
     252,
+  ),
+  sigenParallelPreset(
+    "sigen-240-612",
+    "sigen-biz",
+    "parallel",
+    "Sigen PV 80M1-HYB",
+    "SigenStack BAT 12.0",
+    204,
+    3,
   ),
 ];
 

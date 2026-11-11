@@ -196,6 +196,10 @@ def _sigenergy_image(article: str) -> str:
     """Product photo cropped from the Sigenergy datasheets, served by the UI."""
     a = article.lower()
     if a.startswith("sigenstor ec "):
+        # SP and TP share a chassis, but the datasheet photo labeled
+        # "Трифазний" must not be used for a single-phase controller.
+        if a.endswith(" sp"):
+            return "/static/bess/sigen-stor-ec-sp.jpg"
         return "/static/bess/sigen-stor-ec.jpg"
     if a.startswith("sigen hybrid"):
         return "/static/bess/sigen-hybrid.jpg"

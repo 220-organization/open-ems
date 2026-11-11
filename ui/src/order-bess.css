@@ -1,47 +1,12 @@
-/* Order BESS page. Tron cluster from ev-sound/assets/css/b2b-theme.css. */
+/* Order BESS page */
 
 .order-bess-page {
-  --tron-cyan: #f94caf;
-  --tron-orange: #5eb8ff;
-  --b2b-accent: #f94caf;
-  --b2b-bg: #110c17;
-  --b2b-card-surface: #31233e;
-  --b2b-card-surface-muted: #241631;
-  --b2b-body: #dad1e6;
-  --b2b-card-border: rgba(249, 76, 175, 0.32);
-  --b2b-button-fill: linear-gradient(135deg, #ff726d 0%, #ff4da9 50%, #cd42d7 100%);
-  --b2b-toggle-glow: 0 0 20px rgba(249, 76, 175, 0.45), 0 0 40px rgba(128, 0, 255, 0.2);
-  --pf-page-bg: var(--b2b-bg);
-  --pf-text: #fafafa;
-  --pf-text-muted: rgba(218, 209, 230, 0.72);
-  --pf-muted: rgba(218, 209, 230, 0.72);
-  --pf-surface: var(--b2b-card-surface-muted);
-  --pf-surface-elev: var(--b2b-card-surface);
-  --pf-border: rgba(218, 209, 230, 0.14);
-  --pf-border-strong: var(--b2b-card-border);
-  --km220-input-bg: rgba(17, 12, 23, 0.72);
-  --km220-input-border: var(--b2b-card-border);
-  position: relative;
-  isolation: isolate;
   min-height: 100vh;
   min-height: 100dvh;
-  background: var(--b2b-bg);
-  color: var(--b2b-body);
-  font-family: "Fira Sans", system-ui, sans-serif;
+  background: var(--pf-page-bg, #0b0d10);
+  color: var(--pf-text, #e8eaed);
+  font-family: var(--pf-font-sans, system-ui, sans-serif);
   padding: 20px 16px 48px;
-}
-
-.order-bess-page::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background:
-    radial-gradient(ellipse 70% 45% at 50% 18%, rgba(249, 76, 175, 0.22), transparent 68%),
-    linear-gradient(rgba(249, 76, 175, 0.09) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(128, 0, 255, 0.08) 1px, transparent 1px);
-  background-size: auto, 46px 46px, 46px 46px;
 }
 
 .order-bess-page__inner {
@@ -54,18 +19,9 @@
 
 .order-bess-hero__title {
   margin: 0 0 6px;
-  font-family: Audiowide, sans-serif;
-  font-size: clamp(1.6rem, 4vw, 2.4rem);
-  font-weight: 400;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: #fafafa;
-  text-shadow: 0 0 22px rgba(249, 76, 175, 0.55);
-}
-
-.order-bess-hero__title strong {
-  color: var(--tron-cyan, #f94caf);
-  font-weight: 400;
+  font-size: 1.55rem;
+  font-weight: 700;
+  color: var(--pf-text, #e8eaed);
 }
 
 .order-bess-hero__sub {
@@ -75,9 +31,9 @@
 }
 
 .order-bess-card {
-  background: var(--b2b-card-surface, #31233e);
-  border: 1px solid var(--b2b-card-border, rgba(249, 76, 175, 0.32));
-  border-radius: 20px;
+  background: var(--pf-surface-elev, rgba(22, 26, 33, 0.92));
+  border: 1px solid var(--pf-border, #2a3140);
+  border-radius: 12px;
   padding: 16px 18px;
   color: var(--pf-text, #e8eaed);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
@@ -103,14 +59,13 @@
   margin: 0;
 }
 
-/* USD/kWh vs other kits, from activecharge b2bPage.css.
-   Cheap moves toward charging blue #5eb8ff, expensive toward violet #8000ff.
-   On a light page the blue end is darkened so the digits stay readable. */
+/* USD/kWh vs other kits. Alpha is how much solid #fc019b shows;
+   the rest is an opaque 220 tint so a cheap kit stays readable. */
 .order-bess-perkwh {
   color: color-mix(
     in srgb,
-    #8000ff calc(var(--perkwh-alpha, 1) * 100%),
-    #5eb8ff
+    #fc019b calc(var(--perkwh-alpha, 1) * 100%),
+    #ffd6ec
   );
   font-weight: 700;
 }
@@ -118,8 +73,8 @@
 [data-theme="light"] .order-bess-perkwh {
   color: color-mix(
     in srgb,
-    #8000ff calc(var(--perkwh-alpha, 1) * 100%),
-    color-mix(in srgb, #5eb8ff 62%, #072033)
+    #fc019b calc(var(--perkwh-alpha, 1) * 100%),
+    #6b103f
   );
 }
 
@@ -141,10 +96,9 @@
 }
 
 .order-bess-seg__btn--active {
-  border-color: var(--tron-cyan, #f94caf);
-  background: rgba(249, 76, 175, 0.18);
-  color: #fff;
-  box-shadow: var(--b2b-toggle-glow);
+  border-color: #3d8bfd;
+  background: rgba(61, 139, 253, 0.18);
+  color: #cfe3ff;
 }
 
 .order-bess-presets {
@@ -179,10 +133,9 @@
 }
 
 .order-bess-chip--active {
-  border-color: var(--tron-cyan, #f94caf);
-  background: rgba(249, 76, 175, 0.16);
-  color: #fff;
-  box-shadow: 0 0 12px rgba(249, 76, 175, 0.35);
+  border-color: #34c759;
+  background: rgba(52, 199, 89, 0.15);
+  color: var(--pf-text, inherit);
 }
 
 .order-bess-custom {
@@ -429,21 +382,17 @@
 .order-bess-primary,
 .order-bess-refresh {
   appearance: none;
-  border: 1px solid var(--b2b-card-border, rgba(249, 76, 175, 0.32));
-  border-radius: 20px;
+  border: none;
+  border-radius: 8px;
   padding: 10px 16px;
   cursor: pointer;
-  font-family: Audiowide, sans-serif;
-  font-weight: 400;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  font-size: 0.82rem;
+  font-weight: 600;
+  font-size: 0.9rem;
 }
 
 .order-bess-primary {
-  background: var(--b2b-button-fill);
+  background: #3d8bfd;
   color: #fff;
-  box-shadow: var(--b2b-toggle-glow);
 }
 
 .order-bess-primary:disabled {
@@ -526,18 +475,14 @@
 .order-bess-buy-btn {
   appearance: none;
   border: none;
-  border-radius: 20px;
+  border-radius: 8px;
   padding: 12px 22px;
   cursor: pointer;
-  font-family: Audiowide, sans-serif;
-  font-weight: 400;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  font-size: 0.9rem;
+  font-weight: 700;
+  font-size: 0.95rem;
   color: #fff;
   min-width: 180px;
-  background: var(--b2b-button-fill);
-  box-shadow: var(--b2b-toggle-glow);
+  background: linear-gradient(145deg, #ff6ec4 0%, #f94caf 55%, #d22e8c 100%);
 }
 
 .order-bess-buy-btn:disabled {
@@ -577,8 +522,8 @@
 }
 
 .order-bess-share-btn:hover {
-  border-color: var(--tron-cyan, #f94caf);
-  background: rgba(249, 76, 175, 0.12);
+  border-color: #3d8bfd;
+  background: rgba(61, 139, 253, 0.12);
 }
 
 .order-bess-share-btn:active {
@@ -591,54 +536,53 @@
 }
 
 [data-theme="light"] .order-bess-share-btn {
-  background: var(--b2b-card-surface, #31233e);
-  color: #fafafa;
-  border-color: var(--b2b-card-border, rgba(249, 76, 175, 0.32));
-  box-shadow: var(--b2b-toggle-glow);
+  background: #ffffff;
+  color: var(--pf-text);
+  border-color: var(--pf-border-strong);
+  box-shadow: 0 2px 12px rgba(20, 22, 28, 0.08);
 }
 
 [data-theme="light"] .order-bess-share-btn:hover {
-  background: rgba(249, 76, 175, 0.12);
-  border-color: var(--tron-cyan, #f94caf);
+  background: rgba(61, 139, 253, 0.1);
+  border-color: #2f6fd6;
 }
 
-/* Tron stays on this page in light theme too, matching ev-sound. */
+/* Light theme — readable cards/buttons on warm off-white page */
 [data-theme="light"] .order-bess-card {
-  background: var(--b2b-card-surface, #31233e);
-  border-color: var(--b2b-card-border, rgba(249, 76, 175, 0.32));
-  color: var(--b2b-body, #dad1e6);
-  box-shadow: none;
+  background: #ffffff;
+  border-color: var(--pf-border);
+  box-shadow: 0 2px 12px rgba(20, 22, 28, 0.06);
 }
 
 [data-theme="light"] .order-bess-seg__btn,
 [data-theme="light"] .order-bess-chip {
-  background: var(--b2b-card-surface-muted, #241631);
-  border-color: var(--b2b-card-border, rgba(249, 76, 175, 0.32));
-  color: #fafafa;
+  background: #f3f1ec;
+  border-color: var(--pf-border-strong);
+  color: var(--pf-text);
 }
 
 [data-theme="light"] .order-bess-seg__btn--active {
-  background: rgba(249, 76, 175, 0.18);
-  border-color: var(--tron-cyan, #f94caf);
-  color: #fff;
+  background: rgba(61, 139, 253, 0.14);
+  border-color: #2f6fd6;
+  color: #1a56b8;
 }
 
 [data-theme="light"] .order-bess-chip--active {
-  background: rgba(249, 76, 175, 0.16);
-  border-color: var(--tron-cyan, #f94caf);
-  color: #fff;
+  background: rgba(52, 199, 89, 0.14);
+  border-color: #2da44e;
+  color: #1a7f37;
 }
 
 [data-theme="light"] .order-bess-field select,
 [data-theme="light"] .order-bess-field input {
-  background: rgba(17, 12, 23, 0.72);
-  border-color: var(--b2b-card-border, rgba(249, 76, 175, 0.32));
-  color: #fafafa;
+  background: #ffffff;
+  border-color: var(--km220-input-border, var(--pf-border-strong));
+  color: var(--pf-text);
 }
 
 [data-theme="light"] .order-bess-refresh {
-  background: transparent;
-  color: #fafafa;
+  background: #f3f1ec;
+  color: var(--pf-text);
 }
 
 [data-theme="light"] .order-bess-error {
@@ -651,31 +595,47 @@
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme]) .order-bess-card {
-    background: #31233e;
-    border-color: rgba(249, 76, 175, 0.32);
-    color: #dad1e6;
-    box-shadow: none;
+    background: #ffffff;
+    border-color: rgba(20, 22, 28, 0.1);
+    box-shadow: 0 2px 12px rgba(20, 22, 28, 0.06);
   }
 
   :root:not([data-theme]) .order-bess-seg__btn,
   :root:not([data-theme]) .order-bess-chip {
-    background: #241631;
-    border-color: rgba(249, 76, 175, 0.32);
-    color: #fafafa;
+    background: #f3f1ec;
+    border-color: rgba(20, 22, 28, 0.18);
+    color: rgba(16, 18, 22, 0.92);
   }
 
-  :root:not([data-theme]) .order-bess-seg__btn--active,
+  :root:not([data-theme]) .order-bess-seg__btn--active {
+    background: rgba(61, 139, 253, 0.14);
+    border-color: #2f6fd6;
+    color: #1a56b8;
+  }
+
   :root:not([data-theme]) .order-bess-chip--active {
-    background: rgba(249, 76, 175, 0.18);
-    border-color: #f94caf;
-    color: #fff;
+    background: rgba(52, 199, 89, 0.14);
+    border-color: #2da44e;
+    color: #1a7f37;
+  }
+
+  :root:not([data-theme]) .order-bess-perkwh {
+    color: color-mix(
+      in srgb,
+      #fc019b calc(var(--perkwh-alpha, 1) * 100%),
+      #6b103f
+    );
   }
 
   :root:not([data-theme]) .order-bess-field select,
-  :root:not([data-theme]) .order-bess-field input,
+  :root:not([data-theme]) .order-bess-field input {
+    background: #ffffff;
+    border-color: rgba(20, 22, 28, 0.14);
+    color: rgba(16, 18, 22, 0.92);
+  }
+
   :root:not([data-theme]) .order-bess-refresh {
-    background: rgba(17, 12, 23, 0.72);
-    border-color: rgba(249, 76, 175, 0.32);
-    color: #fafafa;
+    background: #f3f1ec;
+    color: rgba(16, 18, 22, 0.92);
   }
 }

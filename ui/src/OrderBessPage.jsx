@@ -872,9 +872,7 @@ export default function OrderBessPage({ t }) {
     <div className="order-bess-page">
       <div className="order-bess-page__inner">
         <header className="order-bess-hero">
-          <h1 className="order-bess-hero__title">
-            <strong>220</strong> SPACE
-          </h1>
+          <h1 className="order-bess-hero__title">{t("orderBessPageTitle")}</h1>
           <p className="order-bess-hero__sub">{t("orderBessPageSubtitle")}</p>
         </header>
 

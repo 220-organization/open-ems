@@ -36,7 +36,7 @@ class TestSigenergyCatalog(unittest.TestCase):
         self.assertEqual(inv["installerCheapestUsd"], 1309)
         self.assertEqual(inv["retailUsd"], 1621)
         self.assertEqual(inv["retailVatUsd"], 1945)
-        self.assertEqual(inv["imageUrl"], "/static/bess/sigen-stor-ec.jpg")
+        self.assertEqual(inv["imageUrl"], "/static/bess/sigen-stor-ec-sp.jpg")
         self.assertIn("1 фаза", inv["name"])
         self.assertEqual(inv["availability"], _SIGENERGY_AVAIL)
 
