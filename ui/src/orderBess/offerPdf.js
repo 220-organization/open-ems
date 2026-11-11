@@ -193,6 +193,8 @@ async function renderOrderBessOfferCanvases(offer) {
     lines = [],
     totalUsd,
     totalUah,
+    usdPerKwh,
+    usdPerKwhAlpha,
     fxRate,
     priceLabel,
   } = offer;
@@ -318,6 +320,16 @@ async function renderOrderBessOfferCanvases(offer) {
   page.ctx.fillStyle = '#111827';
   page.ctx.fillText(`Разом: $${fmtMoney(totalUsd)} (${priceLabel || 'USD'})`, MARGIN, page.y);
   page.y += 32;
+  if (usdPerKwh != null) {
+    const alpha = usdPerKwhAlpha == null ? 1 : usdPerKwhAlpha;
+    const t = Math.min(1, Math.max(0, alpha));
+    const pink = [252, 1, 155];
+    const ink = [107, 16, 63];
+    const rgb = pink.map((c, i) => Math.round(c * t + ink[i] * (1 - t)));
+    page.ctx.fillStyle = `rgb(${rgb.join(', ')})`;
+    page.ctx.fillText(`USD/кВт·год: $${fmtMoney(usdPerKwh)}`, MARGIN, page.y);
+    page.y += 32;
+  }
   page.ctx.font = '20px "Segoe UI", "Helvetica Neue", Arial, sans-serif';
   page.ctx.fillStyle = '#374151';
   page.ctx.fillText(`Орієнтовно: ${fmtMoney(totalUah)} грн (курс ${fxRate})`, MARGIN, page.y);
@@ -385,6 +397,8 @@ function stitchCanvasesVertically(canvases) {
  * @param {Array<{name, article, code, qty, unit, lineTotal, note, availability}>} offer.lines
  * @param {number|null} offer.totalUsd
  * @param {number|null} offer.totalUah
+ * @param {number|null} [offer.usdPerKwh] — whole-kit USD per kWh
+ * @param {number|null} [offer.usdPerKwhAlpha] — 220-pink opacity vs other kits
  * @param {number} offer.fxRate
  * @param {string} offer.priceLabel — e.g. "USD з ПДВ"
  * @param {string} offer.businessType — fop|vat|cash

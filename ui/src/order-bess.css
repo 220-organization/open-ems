@@ -59,6 +59,25 @@
   margin: 0;
 }
 
+/* USD/kWh vs other kits. Alpha is how much solid #fc019b shows;
+   the rest is an opaque 220 tint so a cheap kit stays readable. */
+.order-bess-perkwh {
+  color: color-mix(
+    in srgb,
+    #fc019b calc(var(--perkwh-alpha, 1) * 100%),
+    #ffd6ec
+  );
+  font-weight: 700;
+}
+
+[data-theme="light"] .order-bess-perkwh {
+  color: color-mix(
+    in srgb,
+    #fc019b calc(var(--perkwh-alpha, 1) * 100%),
+    #6b103f
+  );
+}
+
 .order-bess-seg {
   display: flex;
   flex-wrap: wrap;
@@ -598,6 +617,14 @@
     background: rgba(52, 199, 89, 0.14);
     border-color: #2da44e;
     color: #1a7f37;
+  }
+
+  :root:not([data-theme]) .order-bess-perkwh {
+    color: color-mix(
+      in srgb,
+      #fc019b calc(var(--perkwh-alpha, 1) * 100%),
+      #6b103f
+    );
   }
 
   :root:not([data-theme]) .order-bess-field select,
