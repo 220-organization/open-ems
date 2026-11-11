@@ -12,6 +12,7 @@ import {
   allowedKwhOptions,
   buildCustomBom,
   buildSigenBom,
+  sigenCompatibleBatteryFamily,
   sigenKwhOptions,
   computeBiomSavings,
   kwhRangeLabel,
@@ -78,12 +79,21 @@ function googleImagesUrl(name) {
 
 const productThumbCache = new Map();
 
-function ProductThumb({ name, article }) {
-  const [src, setSrc] = useState(() => productThumbCache.get(name) || "");
+function ProductThumb({ name, article, imageUrl }) {
+  const local =
+    typeof imageUrl === "string" && imageUrl.startsWith("/") ? imageUrl : "";
+  const cacheKey = local || name;
+  const [src, setSrc] = useState(() => productThumbCache.get(cacheKey) || "");
   const [failed, setFailed] = useState(false);
   const [zoom, setZoom] = useState(null);
 
   useEffect(() => {
+    if (local) {
+      productThumbCache.set(cacheKey, local);
+      setSrc(local);
+      setFailed(false);
+      return undefined;
+    }
     if (!name || productThumbCache.has(name)) {
       setSrc(productThumbCache.get(name) || "");
       return undefined;
@@ -104,7 +114,7 @@ function ProductThumb({ name, article }) {
     return () => {
       cancelled = true;
     };
-  }, [name]);
+  }, [name, local, cacheKey]);
 
   const showZoom = (e) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -154,6 +164,41 @@ function ProductThumb({ name, article }) {
   );
 }
 
+/** Whole-kit USD. Null when any line has no price for this business type. */
+function bomTotalUsd(lines, items, businessType) {
+  if (!lines?.length) return null;
+  let sum = 0;
+  for (const line of lines) {
+    const unit = unitPriceUsd(findItem(items, line.article), businessType);
+    if (unit == null) return null;
+    sum += unit * (Number(line.qty) || 0);
+  }
+  return Math.round(sum * 100) / 100;
+}
+
+/** Whole-kit USD per kWh. Null when any line has no price. */
+function bomUsdPerKwh(lines, kwh, items, businessType) {
+  const cap = Number(kwh) || 0;
+  const total = bomTotalUsd(lines, items, businessType);
+  if (total == null || cap <= 0) return null;
+  return Math.round((total / cap) * 100) / 100;
+}
+
+/**
+ * Price strength from a comparison with the other kits.
+ * 0.16 is the cheapest (b2b blue), 1 is the dearest (b2b violet).
+ */
+function vyriiPriceAlpha(value, samples) {
+  const rates = samples.filter((n) => typeof n === "number" && n > 0);
+  if (value == null || rates.length < 2) return null;
+  const min = Math.min(...rates);
+  const max = Math.max(...rates);
+  if (!(max > min)) return 1;
+  const t = Math.min(1, Math.max(0, (value - min) / (max - min)));
+  const floor = 0.16;
+  return Math.round((floor + t * (1 - floor)) * 1000) / 1000;
+}
+
 function findItem(items, article) {
   const key = skuKey(article);
   if (!key) return null;
@@ -177,6 +222,14 @@ function findItem(items, article) {
     }
   }
   return best;
+}
+
+/** Hide a preset when any line has no inbound date in the price list. */
+function presetHasNoArrival(preset, items) {
+  if (!items?.length || !preset?.lines?.length) return false;
+  return preset.lines.some((line) =>
+    hasNoArrivalDates(findItem(items, line.article)),
+  );
 }
 
 function findBatteryKey(raw) {
@@ -489,7 +542,6 @@ export default function OrderBessPage({ t }) {
   }, [kwhOptions, customKwh]);
 
   const sigenInvMeta = SIGEN_INVERTERS[sigenInv];
-  const sigenLine = sigenInvMeta?.line || "home";
 
   const selectedPhase = useMemo(() => {
     if (presetId === CUSTOM_PRESET_ID) {
@@ -517,12 +569,13 @@ export default function OrderBessPage({ t }) {
     [],
   );
 
+  const sigenBatFamily = sigenCompatibleBatteryFamily(sigenInv);
   const sigenBatteryChoices = useMemo(
     () =>
       Object.entries(SIGEN_BATTERIES)
-        .filter(([, m]) => m.line === sigenLine)
+        .filter(([, m]) => m.family === sigenBatFamily)
         .map(([article, m]) => ({ article, ...m })),
-    [sigenLine],
+    [sigenBatFamily],
   );
 
   useEffect(() => {
@@ -620,6 +673,22 @@ export default function OrderBessPage({ t }) {
   const bizMeta = BUSINESS_TYPES.find((b) => b.id === businessType);
   const priceColLabel = t(bizMeta?.priceLabelKey || "orderBessPriceUsd");
 
+  const usdPerKwh = useMemo(() => {
+    const kwh = Number(activeBom.kwh) || 0;
+    if (totalUsd == null || kwh <= 0) return null;
+    return Math.round((totalUsd / kwh) * 100) / 100;
+  }, [totalUsd, activeBom.kwh]);
+
+  const perkwhAlpha = useMemo(() => {
+    const items = priceList?.items || [];
+    if (!items.length || usdPerKwh == null) return null;
+    const samples = ALL_PRESETS.filter(
+      (p) => !presetHasNoArrival(p, items),
+    ).map((p) => bomUsdPerKwh(p.lines, p.kwh, items, businessType));
+    samples.push(usdPerKwh);
+    return vyriiPriceAlpha(usdPerKwh, samples);
+  }, [priceList, businessType, usdPerKwh]);
+
   const offerTitle = useMemo(() => {
     const kw = activeBom.kw || 0;
     const kwh = activeBom.kwh || 0;
@@ -630,23 +699,45 @@ export default function OrderBessPage({ t }) {
           ? "Sigenergy"
           : "Deye"
         : presetBrand(ALL_PRESETS.find((x) => x.id === presetId));
-    return t("orderBessOfferTitle", { brand, kw, kwh: Math.round(kwh), price });
+    return t("orderBessOfferTitle", {
+      brand,
+      kw,
+      kwh: Math.round(kwh),
+      price,
+    });
   }, [activeBom, presetId, customBrand, totalUsd, t]);
 
   const homePresets = useMemo(
     () =>
-      ALL_PRESETS.filter((p) => presetSegment(p) === "home").sort(
-        (a, b) => a.kw - b.kw || a.kwh - b.kwh,
-      ),
-    [],
+      ALL_PRESETS.filter(
+        (p) =>
+          presetSegment(p) === "home" &&
+          !presetHasNoArrival(p, priceList?.items),
+      ).sort((a, b) => a.kw - b.kw || a.kwh - b.kwh),
+    [priceList],
   );
   const bizPresets = useMemo(
     () =>
-      ALL_PRESETS.filter((p) => presetSegment(p) === "biz").sort(
-        (a, b) => a.kw - b.kw || a.kwh - b.kwh,
-      ),
-    [],
+      ALL_PRESETS.filter(
+        (p) =>
+          presetSegment(p) === "biz" &&
+          !presetHasNoArrival(p, priceList?.items),
+      ).sort((a, b) => a.kw - b.kw || a.kwh - b.kwh),
+    [priceList],
   );
+
+  useEffect(() => {
+    const items = priceList?.items;
+    if (!items?.length || presetId === CUSTOM_PRESET_ID) return;
+    const current = ALL_PRESETS.find((p) => p.id === presetId);
+    if (!current || !presetHasNoArrival(current, items)) return;
+    const visible = ALL_PRESETS.filter((p) => !presetHasNoArrival(p, items));
+    const sameSegment = visible.filter(
+      (p) => presetSegment(p) === presetSegment(current),
+    );
+    const next = sameSegment[0] || visible[0];
+    if (next) setPresetId(next.id);
+  }, [priceList, presetId]);
 
   const biomSavings = useMemo(() => {
     if (presetId !== CUSTOM_PRESET_ID || customBrand === "sigen") return null;
@@ -764,6 +855,8 @@ export default function OrderBessPage({ t }) {
         lines: pricedLines,
         totalUsd,
         totalUah,
+        usdPerKwh,
+        usdPerKwhAlpha: perkwhAlpha,
         fxRate: fx,
         priceLabel: priceColLabel,
       });
@@ -779,7 +872,9 @@ export default function OrderBessPage({ t }) {
     <div className="order-bess-page">
       <div className="order-bess-page__inner">
         <header className="order-bess-hero">
-          <h1 className="order-bess-hero__title">{t("orderBessPageTitle")}</h1>
+          <h1 className="order-bess-hero__title">
+            <strong>220</strong> SPACE
+          </h1>
           <p className="order-bess-hero__sub">{t("orderBessPageSubtitle")}</p>
         </header>
 
@@ -1035,6 +1130,23 @@ export default function OrderBessPage({ t }) {
           <div className="order-bess-card__head">
             <h2 id="order-bess-bom" className="order-bess-card__title">
               {offerTitle}
+              {" · "}
+              <span
+                className={
+                  perkwhAlpha == null
+                    ? undefined
+                    : "order-bess-perkwh"
+                }
+                style={
+                  perkwhAlpha == null
+                    ? undefined
+                    : { "--perkwh-alpha": String(perkwhAlpha) }
+                }
+              >
+                {usdPerKwh == null
+                  ? `—/${t("orderBessKwhUnit")}`
+                  : `$${fmtUsd(usdPerKwh)}/${t("orderBessKwhUnit")}`}
+              </span>
             </h2>
             <button
               type="button"
@@ -1100,7 +1212,11 @@ export default function OrderBessPage({ t }) {
                       ) : null}
                     </td>
                     <td>
-                      <ProductThumb name={l.name} article={l.article} />
+                      <ProductThumb
+                        name={l.name}
+                        article={l.article}
+                        imageUrl={l.imageUrl}
+                      />
                     </td>
                     <td className="order-bess-num">{l.qty}</td>
                     <td className="order-bess-num">
@@ -1186,6 +1302,25 @@ export default function OrderBessPage({ t }) {
               {t("orderBessSummaryTotal")}:{" "}
               {totalUsd == null ? "—" : `$${fmtUsd(totalUsd)}`} ({priceColLabel}
               )
+            </li>
+            <li>
+              {t("orderBessSummaryPerKwh")}:{" "}
+              {usdPerKwh == null ? (
+                "—"
+              ) : (
+                <span
+                  className={
+                    perkwhAlpha == null ? undefined : "order-bess-perkwh"
+                  }
+                  style={
+                    perkwhAlpha == null
+                      ? undefined
+                      : { "--perkwh-alpha": String(perkwhAlpha) }
+                  }
+                >
+                  ${fmtUsd(usdPerKwh)}
+                </span>
+              )}
             </li>
             <li>
               {t("orderBessSummaryItems")}: {pricedLines.length}

@@ -67,9 +67,13 @@ _CANONICAL_ARTICLES = (
     "SUN-5K-SG05LP1-EU-AM2-P",
     "SUN-6K-SG05LP1-EU",
     "SUN-6K-SG05LP1-EU-AM2-P",
+    "SUN-6K-SG06LP1-EU-BM2",
     "SUN-8K-SG05LP1-EU",
+    "SUN-8K-SG06LP1-EU-BM3",
     "SUN-10K-SG02LP1-EU-AM3",
+    "SUN-10K-SG06LP1-EU-BM3",
     "SUN-12K-SG02LP1-EU",
+    "SUN-12K-SG06LP1-EU-BM3",
     "SUN-12K-SG05LP3-EU",
     "SUN-15K-SG05LP3-EU",
     "SUN-16K-SG02LP1-EU-AM3",
@@ -109,7 +113,9 @@ _CANONICAL_ARTICLES = (
     "SigenStor BAT 10.0",
     "Sigen Gateway Home SP 12K",
     "Sigen Gateway Home TP 30K",
-    "SigenStor Installation Kit for Ground-mounted",
+    "SigenStor Installation Kit for Ground",
+    "SigenStor BC",
+    "SigenStor Neo Installation Kit Ground",
     "Sigen PV 50M1-HYB",
     "Sigen PV 80M1-HYB",
     "Sigen PV 125M1-HYB",
@@ -118,48 +124,100 @@ _CANONICAL_ARTICLES = (
     "SigenStack Base MAIN-1C",
     "SigenStack Base SUB-1C",
 )
-# Sigenergy price list 28.10.2026 (USD). Cash/FOP = without VAT, VAT = with 20%.
+# Sigenergy price list Sigen1.xlsx (USD): purchase / sale / with VAT.
+# Cash (Vyrii installers) = purchase. FOP = sale. VAT payers = with VAT.
 # Lead time for every Sigenergy line: 10 days.
 _SIGENERGY_AVAIL = "10 днів"
-_SIGENERGY_CATALOG: tuple[dict[str, Any], ...] = (
+# article, name, purchase, sale, vat
+_SIGENERGY_ROWS: tuple[tuple[str, str, int, int, int], ...] = (
+    ("SigenStor EC 3.0 SP", "SigenStor EC 3.0 SP, 3 кВт, 1 фаза", 1146, 1418, 1702),
+    ("SigenStor EC 4.0 SP", "SigenStor EC 4.0 SP, 4 кВт, 1 фаза", 1196, 1481, 1777),
+    ("SigenStor EC 5.0 SP", "SigenStor EC 5.0 SP, 5 кВт, 1 фаза", 1259, 1559, 1870),
+    ("SigenStor EC 6.0 SP", "SigenStor EC 6.0 SP, 6 кВт, 1 фаза", 1309, 1621, 1945),
+    ("SigenStor EC 8.0 SP", "SigenStor EC 8.0 SP, 8 кВт, 1 фаза", 1850, 2291, 2749),
+    ("SigenStor EC 10.0 SP", "SigenStor EC 10.0 SP, 10 кВт, 1 фаза", 2014, 2493, 2992),
+    ("SigenStor EC 12.0 SP", "SigenStor EC 12.0 SP, 12 кВт, 1 фаза", 2178, 2696, 3235),
+    ("SigenStor EC 5.0 TP", "SigenStor EC 5.0 TP, 5 кВт, 3 фази", 1800, 2228, 2674),
+    ("SigenStor EC 6.0 TP", "SigenStor EC 6.0 TP, 6 кВт, 3 фази", 1976, 2447, 2936),
+    ("SigenStor EC 8.0 TP", "SigenStor EC 8.0 TP, 8 кВт, 3 фази", 2039, 2525, 3030),
+    ("SigenStor EC 10.0 TP", "SigenStor EC 10.0 TP, 10 кВт, 3 фази", 2127, 2634, 3161),
+    ("SigenStor EC 12.0 TP", "SigenStor EC 12.0 TP, 12 кВт, 3 фази", 2518, 3117, 3741),
+    ("SigenStor EC 15.0 TP", "SigenStor EC 15.0 TP, 15 кВт, 3 фази", 2819, 3491, 4189),
+    ("SigenStor EC 17.0 TP", "SigenStor EC 17.0 TP, 17 кВт, 3 фази", 2983, 3693, 4432),
+    ("SigenStor EC 20.0 TP", "SigenStor EC 20.0 TP, 20 кВт, 3 фази", 3147, 3896, 4675),
+    ("SigenStor EC 25.0 TP", "SigenStor EC 25.0 TP, 25 кВт, 3 фази", 3663, 4536, 5443),
+    ("SigenStor EC 30.0 TP", "SigenStor EC 30.0 TP, 30 кВт, 3 фази", 3977, 4924, 5909),
+    ("SigenStor BAT 6.0", "SigenStor BAT 6.0, 6 кВт·год", 1561, 1933, 2320),
+    ("SigenStor BAT 10.0", "SigenStor BAT 10.0, 10 кВт·год", 2090, 2587, 3104),
+    ("Sigen Gateway Home SP 12K", "Sigen Gateway Home SP 12K", 428, 530, 636),
+    ("Sigen Gateway HomePro SP", "Sigen Gateway HomePro SP", 604, 748, 897),
+    ("Sigen Gateway Home TP 30K", "Sigen Gateway Home TP 30K", 491, 608, 730),
+    ("Sigen Gateway HomePro TP", "Sigen Gateway HomePro TP", 894, 1106, 1328),
+    ("SigenStor Installation Kit for Ground", "SigenStor Installation Kit for Ground", 101, 125, 150),
+    ("SigenStor Installation Kit for Wall", "SigenStor Installation Kit for Wall", 125, 155, 186),
+    ("Sigen Hybrid 5.0 SP2", "Sigen Hybrid 5.0 SP2, 5 кВт, 1 фаза", 528, 654, 785),
+    ("Sigen Hybrid 6.0 SP2", "Sigen Hybrid 6.0 SP2, 6 кВт, 1 фаза", 541, 670, 803),
+    ("Sigen Hybrid 8.0 TP2", "Sigen Hybrid 8.0 TP2, 8 кВт, 3 фази", 780, 966, 1159),
+    ("Sigen Hybrid 10.0 TP2", "Sigen Hybrid 10.0 TP2, 10 кВт, 3 фази", 793, 982, 1178),
+    ("Sigen Hybrid 12.0 TP2", "Sigen Hybrid 12.0 TP2, 12 кВт, 3 фази", 805, 997, 1197),
+    ("SigenStor BC", "SigenStor BC, контролер батареї", 302, 374, 449),
+    ("SigenStor Neo EC 3.0 SP", "SigenStor Neo EC 3.0 SP, 3 кВт, 1 фаза", 843, 1044, 1253),
+    ("SigenStor Neo EC 5.0 SP", "SigenStor Neo EC 5.0 SP, 5 кВт, 1 фаза", 950, 1177, 1412),
+    ("SigenStor Neo EC 6.0 SP", "SigenStor Neo EC 6.0 SP, 6 кВт, 1 фаза", 1013, 1255, 1505),
+    ("SigenStor Neo EC 8.0 SP", "SigenStor Neo EC 8.0 SP, 8 кВт, 1 фаза", 1152, 1426, 1711),
+    ("SigenStor Neo EC 10.0 SP", "SigenStor Neo EC 10.0 SP, 10 кВт, 1 фаза", 1284, 1590, 1908),
+    ("SigenStor Neo EC 12.0 SP", "SigenStor Neo EC 12.0 SP, 12 кВт, 1 фаза", 1416, 1754, 2104),
+    ("SigenStor Neo EC 6.0 TP", "SigenStor Neo EC 6.0 TP, 6 кВт, 3 фази", 1215, 1504, 1805),
+    ("SigenStor Neo EC 8.0 TP", "SigenStor Neo EC 8.0 TP, 8 кВт, 3 фази", 1284, 1590, 1908),
+    ("SigenStor Neo EC 10.0 TP", "SigenStor Neo EC 10.0 TP, 10 кВт, 3 фази", 1347, 1668, 2001),
+    ("SigenStor Neo EC 12.0 TP", "SigenStor Neo EC 12.0 TP, 12 кВт, 3 фази", 1416, 1754, 2104),
+    ("SigenStor Neo EC 15.0 TP", "SigenStor Neo EC 15.0 TP, 15 кВт, 3 фази", 1479, 1832, 2198),
+    ("SigenStor Neo BAT 6.0", "SigenStor Neo BAT 6.0, 6,02 кВт·год", 1127, 1395, 1674),
+    ("SigenStor Neo BAT 8.0", "SigenStor Neo BAT 8.0, 7,52 кВт·год", 1328, 1645, 1973),
+    ("SigenStor Neo Installation Kit Ground", "SigenStor Neo Installation Kit Ground", 69, 86, 103),
+    ("SigenStor Neo Installation Kit Wall", "SigenStor Neo Installation Kit Wall", 82, 101, 122),
+    ("Sigen PV 50M1-HYB", "Sigen PV 50M1-HYB, 50 кВт, гібрид бекап", 3742, 4633, 5560),
+    ("Sigen PV 60M1-HYB", "Sigen PV 60M1-HYB, 60 кВт, гібрид бекап", 3866, 4787, 5744),
+    ("Sigen PV 80M1-HYB", "Sigen PV 80M1-HYB, 80 кВт, гібрид бекап", 4241, 5251, 6301),
+    ("Sigen PV 100M1-HYB", "Sigen PV 100M1-HYB, 100 кВт, гібрид бекап", 4366, 5405, 6486),
+    ("Sigen PV 110M1-HYB", "Sigen PV 110M1-HYB, 110 кВт, гібрид бекап", 4241, 5251, 6301),
+    ("Sigen PV 125M1-HYB", "Sigen PV 125M1-HYB, 125 кВт, гібрид бекап", 4241, 5251, 6301),
+    ("SigenStack BAT 12.0", "SigenStack BAT 12.0, 12 кВт·год", 1496, 1853, 2223),
+    ("SigenStack BC M2-0.5C-BST", "SigenStack BC M2-0.5C-BST", 3119, 3861, 4633),
+    ("SigenStack BC M2-1C-BST", "SigenStack BC M2-1C-BST", 5238, 6486, 7783),
+    ("SigenStack Base MAIN-0.5C", "SigenStack Base MAIN-0.5C", 624, 772, 927),
+    ("SigenStack Base MAIN-1C", "SigenStack Base MAIN-1C", 748, 926, 1111),
+    ("SigenStack Base SUB-0.5C", "SigenStack Base SUB-0.5C", 624, 772, 927),
+    ("SigenStack Base SUB-1C", "SigenStack Base SUB-1C", 748, 926, 1111),
+)
+
+
+def _sigenergy_image(article: str) -> str:
+    """Product photo cropped from the Sigenergy datasheets, served by the UI."""
+    a = article.lower()
+    if a.startswith("sigenstor ec "):
+        return "/static/bess/sigen-stor-ec.jpg"
+    if a.startswith("sigen hybrid"):
+        return "/static/bess/sigen-hybrid.jpg"
+    if a.startswith("sigenstor bat") or a == "sigenstor bc":
+        return "/static/bess/sigen-stor-bat.jpg"
+    if a.startswith("sigen pv"):
+        return "/static/bess/sigen-ci-hyb.jpg"
+    if a.startswith("sigen gateway"):
+        return "/static/bess/sigen-gateway.jpg"
+    return ""
+
+
+_SIGENERGY_CATALOG: tuple[dict[str, Any], ...] = tuple(
     {
-        "article": "SigenStor EC 3.0 SP",
-        "name": "SigenStor EC 3.0 SP, 3 кВт, 1 фаза",
-        "exVat": 1354.60,
-        "incVat": 1625.52,
-        "imageUrl": (
-            "https://www.google.com/search?num=10&sca_esv=dfe2b0fb5aadc6a7"
-            "&sxsrf=AKL5yDhvcdt2gPTwJeAj2N2AFqxGsVJUDQ:1794237363012&udm=2"
-            "&fbs=ACAhTvxHM53nx_0OLHZ1FTf0apsbBdIiuZzNqanB1SKz49V7NT7lWo3HN1R0wNca7m7v3442vDCvoFLNE5VTNg1-QiwjP9jkLE6u8ixRkGAfvzghN7Ag7frS18XqT4jC2SiNXg-pvgUfLZ5hgu3gqRQyjVUm5iVLC3Ye_h6kvENR43N_86Dmxc1sA5fHD-FoR9qwb4FfK35JSvzowUQisUfzGzsCzkApm9PDpU-N1DH_weGC3yUrJEORoorr50DbdxUcYGazGbbUnhIrJBiJDCwq6lpKtgwgQA"
-            "&q=SigenStor+EC+3.0+SP,+3+%D0%BA%D0%92%D1%82&sa=X"
-            "&ved=2ahUKEwi1xKiFl_uXAxW_QvEDHXt4MJwQtKgLegQIFxAB&biw=1920&bih=1049&dpr=1"
-        ),
-    },
-    {
-        "article": "SigenStor EC 6.0 SP",
-        "name": "SigenStor EC 6.0 SP, 6 кВт, 1 фаза",
-        "exVat": 1548.30,
-        "incVat": 1857.96,
-    },
-    {"article": "SigenStor EC 10.0 TP", "name": "SigenStor EC 10.0 TP, 10 кВт, 3 фази", "exVat": 2515.50, "incVat": 3018.60},
-    {"article": "SigenStor EC 30.0 TP", "name": "SigenStor EC 30.0 TP, 30 кВт, 3 фази", "exVat": 4703.40, "incVat": 5644.08},
-    {"article": "SigenStor BAT 6.0", "name": "SigenStor BAT 6.0, 6 кВт·год", "exVat": 1846.00, "incVat": 2215.20},
-    {"article": "SigenStor BAT 10.0", "name": "SigenStor BAT 10.0, 10 кВт·год", "exVat": 2470.00, "incVat": 2964.00},
-    {"article": "Sigen Gateway Home SP 12K", "name": "Sigen Gateway Home SP 12K", "exVat": 505.70, "incVat": 606.84},
-    {"article": "Sigen Gateway Home TP 30K", "name": "Sigen Gateway Home TP 30K", "exVat": 579.80, "incVat": 695.76},
-    {
-        "article": "SigenStor Installation Kit for Ground-mounted",
-        "name": "SigenStor Installation Kit for Ground-mounted",
-        "exVat": 119.60,
-        "incVat": 143.52,
-    },
-    {"article": "Sigen PV 50M1-HYB", "name": "Sigen PV 50M1-HYB, 50 кВт, гібрид бекап", "exVat": 4633.20, "incVat": 5559.84},
-    {"article": "Sigen PV 80M1-HYB", "name": "Sigen PV 80M1-HYB, 80 кВт, гібрид бекап", "exVat": 5250.96, "incVat": 6301.15},
-    {"article": "Sigen PV 125M1-HYB", "name": "Sigen PV 125M1-HYB, 125 кВт, гібрид бекап", "exVat": 5250.96, "incVat": 6301.15},
-    {"article": "SigenStack BAT 12.0", "name": "SigenStack BAT 12.0, 12 кВт·год", "exVat": 1853.28, "incVat": 2223.94},
-    {"article": "SigenStack BC M2-1C-BST", "name": "SigenStack BC M2-1C-BST", "exVat": 6486.48, "incVat": 7783.78},
-    {"article": "SigenStack Base MAIN-1C", "name": "SigenStack Base MAIN-1C", "exVat": 926.64, "incVat": 1111.97},
-    {"article": "SigenStack Base SUB-1C", "name": "SigenStack Base SUB-1C", "exVat": 926.64, "incVat": 1111.97},
+        "article": article,
+        "name": name,
+        "purchase": purchase,
+        "sale": sale,
+        "vat": vat,
+        "imageUrl": _sigenergy_image(article),
+    }
+    for article, name, purchase, sale, vat in _SIGENERGY_ROWS
 )
 # sku_key → canonical article (ETU / BIOM spelling variants).
 _ARTICLE_ALIASES = {
@@ -185,6 +243,8 @@ _ARTICLE_ALIASES = {
     "3UHRACKBOSGPRO": "3U-HRACK (BOS G PRO)",
     "HVBOSBPACK16A3PRO": "HV BOS-B-Pack16-A3-Pro",
     "BOSBPACK16A3PRO": "HV BOS-B-Pack16-A3-Pro",
+    "SIGENSTORINSTALLATIONKITFORGROUNDMOUNTED": "SigenStor Installation Kit for Ground",
+    "SIGENSTACKBAT12.06": "SigenStack BAT 12.0",
 }
 
 
@@ -852,10 +912,10 @@ def _merge_sigenergy_catalog(by_article: dict[str, dict[str, Any]]) -> None:
             "brand": "sigenergy",
             "promoUsd": None,
             "promoVatUsd": None,
-            "installerUsd": row["exVat"],
-            "installerCheapestUsd": row["exVat"],
-            "retailUsd": row["exVat"],
-            "retailVatUsd": row["incVat"],
+            "installerUsd": row["purchase"],
+            "installerCheapestUsd": row["purchase"],
+            "retailUsd": row["sale"],
+            "retailVatUsd": row["vat"],
             "availability": _SIGENERGY_AVAIL,
             "availabilityInstaller": _SIGENERGY_AVAIL,
             "priceSourceCash": "sigenergy",

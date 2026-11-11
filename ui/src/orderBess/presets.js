@@ -103,8 +103,12 @@ export const INVERTERS = {
   "SUN-5K-SG05LP1-EU-AM2-P": { kw: 5, voltage: "lv", phase: "sp" },
   "SUN-6K-SG05LP1-EU": { kw: 6, voltage: "lv", phase: "sp" },
   "SUN-6K-SG05LP1-EU-AM2-P": { kw: 6, voltage: "lv", phase: "sp" },
+  "SUN-6K-SG06LP1-EU-BM2": { kw: 6, voltage: "lv", phase: "sp" },
   "SUN-8K-SG05LP1-EU": { kw: 8, voltage: "lv", phase: "sp" },
+  "SUN-8K-SG06LP1-EU-BM3": { kw: 8, voltage: "lv", phase: "sp" },
   "SUN-10K-SG02LP1-EU-AM3": { kw: 10, voltage: "lv", phase: "sp" },
+  "SUN-10K-SG06LP1-EU-BM3": { kw: 10, voltage: "lv", phase: "sp" },
+  "SUN-12K-SG06LP1-EU-BM3": { kw: 12, voltage: "lv", phase: "sp" },
   "SUN-12K-SG02LP1-EU": { kw: 12, voltage: "lv", phase: "sp" },
   "SUN-12K-SG05LP3-EU": { kw: 12, voltage: "lv", phase: "tp" },
   "SUN-15K-SG05LP3-EU": { kw: 15, voltage: "lv", phase: "tp" },
@@ -366,7 +370,7 @@ export const PRESETS = [
     label: "6 кВт + 16 кВт·год",
     kw: 6,
     kwh: 16.08,
-    lines: [line("SUN-6K-SG05LP1-EU", 1), line("BALFP-512314-V2", 1)],
+    lines: [line("SUN-6K-SG06LP1-EU-BM2", 1), line("BALFP-512314-V2", 1)],
   },
   {
     id: "lv-6-5",
@@ -374,7 +378,7 @@ export const PRESETS = [
     label: "6 кВт + 5 кВт·год",
     kw: 6,
     kwh: 5.12,
-    lines: [line("SUN-6K-SG05LP1-EU", 1), line("BALFP-512100-V1", 1)],
+    lines: [line("SUN-6K-SG06LP1-EU-BM2", 1), line("BALFP-512100-V1", 1)],
   },
   {
     id: "lv-6-10",
@@ -382,7 +386,7 @@ export const PRESETS = [
     label: "6 кВт + 10 кВт·год",
     kw: 6,
     kwh: 10.24,
-    lines: [line("SUN-6K-SG05LP1-EU", 1), line("BALFP-512200-V1", 1)],
+    lines: [line("SUN-6K-SG06LP1-EU-BM2", 1), line("BALFP-512200-V1", 1)],
   },
   {
     id: "lv-10-16",
@@ -390,7 +394,7 @@ export const PRESETS = [
     label: "10 кВт + 16 кВт·год",
     kw: 10,
     kwh: 16.08,
-    lines: [line("SUN-10K-SG02LP1-EU-AM3", 1), line("BALFP-512314-V2", 1)],
+    lines: [line("SUN-10K-SG06LP1-EU-BM3", 1), line("BALFP-512314-V2", 1)],
   },
   {
     id: "lv-12-32",
@@ -451,28 +455,93 @@ export const PRESETS = [
   },
 ];
 
-/** Sigenergy custom builder: home (SigenStor) and business (SigenStack). */
+/**
+ * Sigenergy kits from the Nov 2026 price list and datasheets.
+ * stor EC already includes the battery controller (1–6 SigenStor BAT).
+ * hybrid inverters do not: add one SigenStor BC plus 1–6 SigenStor BAT.
+ * neo EC includes backup, so the kit is Neo EC + 1–6 Neo BAT + Neo ground kit.
+ * C&I HYB connects 4–21 SigenStack BAT 12.0 modules (datasheet).
+ */
 export const SIGEN_HOME_MODULES_MIN = 1;
 export const SIGEN_HOME_MODULES_MAX = 6;
-export const SIGEN_BIZ_MODULES_MIN = 5;
-export const SIGEN_BIZ_MODULES_MAX = 12;
-/** Add SigenStack Base SUB-1C when module count is above this. */
-export const SIGEN_BIZ_SUB_BASE_AFTER = 9;
+export const SIGEN_BIZ_MODULES_MIN = 4;
+export const SIGEN_BIZ_MODULES_MAX = 21;
+/** One SigenStack base holds this many modules; further towers need a SUB base. */
+export const SIGEN_BIZ_MODULES_PER_BASE = 9;
+
+export const SIGEN_GROUND_KIT = "SigenStor Installation Kit for Ground";
+export const SIGEN_NEO_GROUND_KIT = "SigenStor Neo Installation Kit Ground";
+export const SIGEN_BC = "SigenStor BC";
+export const SIGEN_STACK_BC = "SigenStack BC M2-1C-BST";
+export const SIGEN_STACK_MAIN = "SigenStack Base MAIN-1C";
+export const SIGEN_STACK_SUB = "SigenStack Base SUB-1C";
+
+export function sigenGatewayArticle(phase) {
+  return phase === "sp"
+    ? "Sigen Gateway Home SP 12K"
+    : "Sigen Gateway Home TP 30K";
+}
+
+export function sigenStackSubBases(modules) {
+  return Math.max(0, Math.ceil(modules / SIGEN_BIZ_MODULES_PER_BASE) - 1);
+}
+
+/** Battery family that pairs with an inverter: stor (also hybrid), neo, or stack. */
+export function sigenCompatibleBatteryFamily(invArticle) {
+  const inv = SIGEN_INVERTERS[invArticle];
+  if (!inv) return "stor";
+  if (inv.family === "neo" || inv.family === "stack") return inv.family;
+  return "stor";
+}
 
 export const SIGEN_INVERTERS = {
-  "SigenStor EC 3.0 SP": { kw: 3, line: "home", phase: "sp" },
-  "SigenStor EC 6.0 SP": { kw: 6, line: "home", phase: "sp" },
-  "SigenStor EC 10.0 TP": { kw: 10, line: "home", phase: "tp" },
-  "SigenStor EC 30.0 TP": { kw: 30, line: "home", phase: "tp" },
-  "Sigen PV 50M1-HYB": { kw: 50, line: "biz", phase: "tp" },
-  "Sigen PV 80M1-HYB": { kw: 80, line: "biz", phase: "tp" },
-  "Sigen PV 125M1-HYB": { kw: 125, line: "biz", phase: "tp" },
+  "SigenStor EC 3.0 SP": { kw: 3, line: "home", family: "stor", phase: "sp" },
+  "SigenStor EC 4.0 SP": { kw: 4, line: "home", family: "stor", phase: "sp" },
+  "SigenStor EC 5.0 SP": { kw: 5, line: "home", family: "stor", phase: "sp" },
+  "SigenStor EC 6.0 SP": { kw: 6, line: "home", family: "stor", phase: "sp" },
+  "SigenStor EC 8.0 SP": { kw: 8, line: "home", family: "stor", phase: "sp" },
+  "SigenStor EC 10.0 SP": { kw: 10, line: "home", family: "stor", phase: "sp" },
+  "SigenStor EC 12.0 SP": { kw: 12, line: "home", family: "stor", phase: "sp" },
+  "SigenStor EC 5.0 TP": { kw: 5, line: "home", family: "stor", phase: "tp" },
+  "SigenStor EC 6.0 TP": { kw: 6, line: "home", family: "stor", phase: "tp" },
+  "SigenStor EC 8.0 TP": { kw: 8, line: "home", family: "stor", phase: "tp" },
+  "SigenStor EC 10.0 TP": { kw: 10, line: "home", family: "stor", phase: "tp" },
+  "SigenStor EC 12.0 TP": { kw: 12, line: "home", family: "stor", phase: "tp" },
+  "SigenStor EC 15.0 TP": { kw: 15, line: "home", family: "stor", phase: "tp" },
+  "SigenStor EC 17.0 TP": { kw: 17, line: "home", family: "stor", phase: "tp" },
+  "SigenStor EC 20.0 TP": { kw: 20, line: "home", family: "stor", phase: "tp" },
+  "SigenStor EC 25.0 TP": { kw: 25, line: "home", family: "stor", phase: "tp" },
+  "SigenStor EC 30.0 TP": { kw: 30, line: "home", family: "stor", phase: "tp" },
+  "Sigen Hybrid 5.0 SP2": { kw: 5, line: "home", family: "hybrid", phase: "sp" },
+  "Sigen Hybrid 6.0 SP2": { kw: 6, line: "home", family: "hybrid", phase: "sp" },
+  "Sigen Hybrid 8.0 TP2": { kw: 8, line: "home", family: "hybrid", phase: "tp" },
+  "Sigen Hybrid 10.0 TP2": { kw: 10, line: "home", family: "hybrid", phase: "tp" },
+  "Sigen Hybrid 12.0 TP2": { kw: 12, line: "home", family: "hybrid", phase: "tp" },
+  "SigenStor Neo EC 3.0 SP": { kw: 3, line: "home", family: "neo", phase: "sp" },
+  "SigenStor Neo EC 5.0 SP": { kw: 5, line: "home", family: "neo", phase: "sp" },
+  "SigenStor Neo EC 6.0 SP": { kw: 6, line: "home", family: "neo", phase: "sp" },
+  "SigenStor Neo EC 8.0 SP": { kw: 8, line: "home", family: "neo", phase: "sp" },
+  "SigenStor Neo EC 10.0 SP": { kw: 10, line: "home", family: "neo", phase: "sp" },
+  "SigenStor Neo EC 12.0 SP": { kw: 12, line: "home", family: "neo", phase: "sp" },
+  "SigenStor Neo EC 6.0 TP": { kw: 6, line: "home", family: "neo", phase: "tp" },
+  "SigenStor Neo EC 8.0 TP": { kw: 8, line: "home", family: "neo", phase: "tp" },
+  "SigenStor Neo EC 10.0 TP": { kw: 10, line: "home", family: "neo", phase: "tp" },
+  "SigenStor Neo EC 12.0 TP": { kw: 12, line: "home", family: "neo", phase: "tp" },
+  "SigenStor Neo EC 15.0 TP": { kw: 15, line: "home", family: "neo", phase: "tp" },
+  "Sigen PV 50M1-HYB": { kw: 50, line: "biz", family: "stack", phase: "tp" },
+  "Sigen PV 60M1-HYB": { kw: 60, line: "biz", family: "stack", phase: "tp" },
+  "Sigen PV 80M1-HYB": { kw: 80, line: "biz", family: "stack", phase: "tp" },
+  "Sigen PV 100M1-HYB": { kw: 100, line: "biz", family: "stack", phase: "tp" },
+  "Sigen PV 110M1-HYB": { kw: 110, line: "biz", family: "stack", phase: "tp" },
+  "Sigen PV 125M1-HYB": { kw: 125, line: "biz", family: "stack", phase: "tp" },
 };
 
 export const SIGEN_BATTERIES = {
-  "SigenStor BAT 6.0": { kwh: 6, line: "home" },
-  "SigenStor BAT 10.0": { kwh: 10, line: "home" },
-  "SigenStack BAT 12.0": { kwh: 12, line: "biz" },
+  "SigenStor BAT 6.0": { kwh: 6, line: "home", family: "stor" },
+  "SigenStor BAT 10.0": { kwh: 10, line: "home", family: "stor" },
+  "SigenStor Neo BAT 6.0": { kwh: 6.02, line: "home", family: "neo" },
+  "SigenStor Neo BAT 8.0": { kwh: 7.52, line: "home", family: "neo" },
+  "SigenStack BAT 12.0": { kwh: 12, line: "biz", family: "stack" },
 };
 
 /**
@@ -482,11 +551,12 @@ export const SIGEN_BATTERIES = {
 export function sigenKwhOptions(invArticle, batArticle) {
   const inv = SIGEN_INVERTERS[invArticle];
   const bat = SIGEN_BATTERIES[batArticle];
-  if (!inv || !bat || inv.line !== bat.line) return [];
-  const min =
-    inv.line === "home" ? SIGEN_HOME_MODULES_MIN : SIGEN_BIZ_MODULES_MIN;
-  const max =
-    inv.line === "home" ? SIGEN_HOME_MODULES_MAX : SIGEN_BIZ_MODULES_MAX;
+  if (!inv || !bat || sigenCompatibleBatteryFamily(invArticle) !== bat.family) {
+    return [];
+  }
+  const stack = inv.family === "stack";
+  const min = stack ? SIGEN_BIZ_MODULES_MIN : SIGEN_HOME_MODULES_MIN;
+  const max = stack ? SIGEN_BIZ_MODULES_MAX : SIGEN_HOME_MODULES_MAX;
   const out = [];
   for (let modules = min; modules <= max; modules += 1) {
     out.push({
@@ -533,134 +603,136 @@ export function buildSigenBom(invArticle, batArticle, targetKwh) {
     };
   }
 
-  if (inv.line === "home") {
-    const gateway =
-      inv.phase === "sp"
-        ? "Sigen Gateway Home SP 12K"
-        : "Sigen Gateway Home TP 30K";
+  const batNote =
+    match.modules > 1 ? `${match.modules}×${bat.kwh} кВт·год` : "";
+  const homeMeta = {
+    kwh: match.kwh,
+    kw: inv.kw,
+    voltageClass: "sigen-home",
+    meta: { modules: match.modules, line: "home", family: inv.family },
+  };
+
+  if (inv.family === "neo") {
     return {
+      ...homeMeta,
       lines: [
         line(invArticle, 1),
-        line(
-          batArticle,
-          match.modules,
-          match.modules > 1 ? `${match.modules}×${bat.kwh} кВт·год` : "",
-        ),
-        line(gateway, 1),
-        line("SigenStor Installation Kit for Ground-mounted", 1),
+        line(batArticle, match.modules, batNote),
+        line(SIGEN_NEO_GROUND_KIT, 1),
       ],
-      kwh: match.kwh,
-      kw: inv.kw,
-      voltageClass: "sigen-home",
-      meta: { modules: match.modules, line: "home" },
     };
   }
 
+  if (inv.family === "hybrid") {
+    return {
+      ...homeMeta,
+      lines: [
+        line(invArticle, 1, "без БМС"),
+        line(batArticle, match.modules, batNote),
+        line(SIGEN_BC, 1, "контролер батареї"),
+        line(sigenGatewayArticle(inv.phase), 1),
+        line(SIGEN_GROUND_KIT, 1),
+      ],
+    };
+  }
+
+  if (inv.family !== "stack") {
+    return {
+      ...homeMeta,
+      lines: [
+        line(invArticle, 1),
+        line(batArticle, match.modules, batNote),
+        line(sigenGatewayArticle(inv.phase), 1),
+        line(SIGEN_GROUND_KIT, 1),
+      ],
+    };
+  }
+
+  const subBases = sigenStackSubBases(match.modules);
   const lines = [
     line(invArticle, 1, "гібрид, бекап / острів"),
     line(batArticle, match.modules, `${match.modules}×${bat.kwh} кВт·год`),
-    line("SigenStack BC M2-1C-BST", 1, "контролер 1C"),
-    line("SigenStack Base MAIN-1C", 1),
+    line(SIGEN_STACK_BC, 1, "контролер 1C"),
+    line(SIGEN_STACK_MAIN, 1),
   ];
-  if (match.modules > SIGEN_BIZ_SUB_BASE_AFTER) {
-    lines.push(line("SigenStack Base SUB-1C", 1));
+  if (subBases > 0) {
+    lines.push(line(SIGEN_STACK_SUB, subBases));
   }
   return {
     lines,
     kwh: match.kwh,
     kw: inv.kw,
     voltageClass: "sigen-biz",
-    meta: { modules: match.modules, line: "biz" },
+    meta: { modules: match.modules, line: "biz", family: "stack", subBases },
+  };
+}
+
+function sigenPreset(id, group, tier, invArticle, batArticle, kwh) {
+  const bom = buildSigenBom(invArticle, batArticle, kwh);
+  const kwhLabel = Number.isInteger(bom.kwh)
+    ? String(bom.kwh)
+    : String(bom.kwh).replace(".", ",");
+  return {
+    id,
+    group,
+    tier,
+    label: `${bom.kw} кВт + ${kwhLabel} кВт·год`,
+    kw: bom.kw,
+    kwh: bom.kwh,
+    lines: bom.lines,
   };
 }
 
 /** Sigenergy block: home (SigenStor) and business (SigenStack), min / avg / max. */
 export const SIGENERGY_PRESETS = [
-  {
-    id: "sigen-home-min",
-    group: "sigen-home",
-    tier: "min",
-    label: "3 кВт + 6 кВт·год",
-    kw: 3,
-    kwh: 6,
-    lines: [
-      line("SigenStor EC 3.0 SP", 1),
-      line("SigenStor BAT 6.0", 1),
-      line("Sigen Gateway Home SP 12K", 1),
-      line("SigenStor Installation Kit for Ground-mounted", 1),
-    ],
-  },
-  {
-    id: "sigen-home-avg",
-    group: "sigen-home",
-    tier: "avg",
-    label: "10 кВт + 20 кВт·год",
-    kw: 10,
-    kwh: 20,
-    lines: [
-      line("SigenStor EC 10.0 TP", 1),
-      line("SigenStor BAT 10.0", 2, "2×10 кВт·год"),
-      line("Sigen Gateway Home TP 30K", 1),
-      line("SigenStor Installation Kit for Ground-mounted", 1),
-    ],
-  },
-  {
-    id: "sigen-home-max",
-    group: "sigen-home",
-    tier: "max",
-    label: "30 кВт + 60 кВт·год",
-    kw: 30,
-    kwh: 60,
-    lines: [
-      line("SigenStor EC 30.0 TP", 1),
-      line("SigenStor BAT 10.0", 6, "6×10 кВт·год"),
-      line("Sigen Gateway Home TP 30K", 1),
-      line("SigenStor Installation Kit for Ground-mounted", 1),
-    ],
-  },
-  {
-    id: "sigen-biz-min",
-    group: "sigen-biz",
-    tier: "min",
-    label: "50 кВт + 60 кВт·год",
-    kw: 50,
-    kwh: 60,
-    lines: [
-      line("Sigen PV 50M1-HYB", 1, "гібрид, бекап / острів"),
-      line("SigenStack BAT 12.0", 5, "5×12 кВт·год"),
-      line("SigenStack BC M2-1C-BST", 1, "контролер 1C"),
-      line("SigenStack Base MAIN-1C", 1),
-    ],
-  },
-  {
-    id: "sigen-biz-avg",
-    group: "sigen-biz",
-    tier: "avg",
-    label: "80 кВт + 96 кВт·год",
-    kw: 80,
-    kwh: 96,
-    lines: [
-      line("Sigen PV 80M1-HYB", 1, "гібрид, бекап / острів"),
-      line("SigenStack BAT 12.0", 8, "8×12 кВт·год"),
-      line("SigenStack BC M2-1C-BST", 1, "контролер 1C"),
-      line("SigenStack Base MAIN-1C", 1),
-    ],
-  },
-  {
-    id: "sigen-biz-max",
-    group: "sigen-biz",
-    tier: "max",
-    label: "125 кВт + 144 кВт·год",
-    kw: 125,
-    kwh: 144,
-    lines: [
-      line("Sigen PV 125M1-HYB", 1, "гібрид, бекап / острів"),
-      line("SigenStack BAT 12.0", 12, "12×12 кВт·год"),
-      line("SigenStack BC M2-1C-BST", 1, "контролер 1C"),
-      line("SigenStack Base MAIN-1C", 1),
-      line("SigenStack Base SUB-1C", 1),
-    ],
-  },
+  sigenPreset(
+    "sigen-home-min",
+    "sigen-home",
+    "min",
+    "SigenStor EC 3.0 SP",
+    "SigenStor BAT 6.0",
+    6,
+  ),
+  sigenPreset(
+    "sigen-home-avg",
+    "sigen-home",
+    "avg",
+    "SigenStor EC 10.0 TP",
+    "SigenStor BAT 10.0",
+    20,
+  ),
+  sigenPreset(
+    "sigen-home-max",
+    "sigen-home",
+    "max",
+    "SigenStor EC 30.0 TP",
+    "SigenStor BAT 10.0",
+    60,
+  ),
+  sigenPreset(
+    "sigen-biz-min",
+    "sigen-biz",
+    "min",
+    "Sigen PV 50M1-HYB",
+    "SigenStack BAT 12.0",
+    48,
+  ),
+  sigenPreset(
+    "sigen-biz-avg",
+    "sigen-biz",
+    "avg",
+    "Sigen PV 80M1-HYB",
+    "SigenStack BAT 12.0",
+    96,
+  ),
+  sigenPreset(
+    "sigen-biz-max",
+    "sigen-biz",
+    "max",
+    "Sigen PV 125M1-HYB",
+    "SigenStack BAT 12.0",
+    252,
+  ),
 ];
 
 export const CUSTOM_PRESET_ID = "custom";
