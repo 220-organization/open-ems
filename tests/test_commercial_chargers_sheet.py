@@ -9,8 +9,11 @@ from app.routers.commercial_chargers import (
     _merge_catalog,
     eport_lead_time,
     eport_prices_to_usd,
+    catalog_layout,
     parse_eds_price_csv,
+    parse_eltis_csv,
     parse_eport_dc_csv,
+    parse_infi_csv,
     parse_ugv_csv,
 )
 
@@ -37,7 +40,7 @@ def test_parse_eds_price_csv_skus_and_facets():
     assert s80["series"] == "S"
     assert s80["family"] == "S80"
     assert s80["power_kw"] == 80.0
-    assert s80["power_bucket"] == "upto160"
+    assert s80["power_bucket"] == "40plus"
     assert s80["form"] == "single"
     assert s80["connectors"] == ["CCS2", "GB/T"]
     assert s80["ports"] == "2dc"
@@ -59,26 +62,26 @@ def test_parse_eds_price_csv_skus_and_facets():
     qs = by_id["EDS-QS240-3DC"]
     assert qs["series"] == "QS"
     assert qs["family"] == "QS240"
-    assert qs["power_bucket"] == "200to320"
+    assert qs["power_bucket"] == "240plus"
     assert qs["connectors"] == ["CCS2", "GB/T"]
     assert qs["ports"] == "3dc"
 
     q = by_id["EDS-Q240-4DC"]
     assert q["form"] == "dual"
-    assert q["power_bucket"] == "200to320"
+    assert q["power_bucket"] == "240plus"
     assert q["ports"] == "4dc"
 
     split = by_id["EDS-SPLIT360-до 500А"]
     assert split["form"] == "split"
     assert split["cooling"] == "air"
-    assert split["power_bucket"] == "360to480"
+    assert split["power_bucket"] == "240plus"
     assert split["ports"] is None
     assert split["image"] == "/static/commercial-chargers/split-hub.jpg"
 
     air = by_id["EDS-DISPENSER-2 DC (повітр.)"]
     assert air["series"] == "DISPENSER"
     assert air["power_kw"] is None
-    assert air["power_bucket"] == "720plus"
+    assert air["power_bucket"] == "240plus"
     assert air["ports"] == "2dc"
     assert air["cooling"] == "air"
     assert air["price"] == 18000.0
@@ -154,15 +157,43 @@ def test_build_facets_mixed_brands():
     ugv = parse_ugv_csv(ugv_path.read_text(encoding="utf-8-sig"))
     eport_path = Path(__file__).resolve().parents[1] / "app" / "data" / "eport_commercial_chargers.csv"
     eport = parse_eport_dc_csv(eport_path.read_text(encoding="utf-8-sig"))
-    merged = _merge_catalog(eds, ugv, eport)
+    infi_path = Path(__file__).resolve().parents[1] / "app" / "data" / "infi_commercial_chargers.csv"
+    infi = parse_infi_csv(infi_path.read_text(encoding="utf-8-sig"))
+    eltis_path = Path(__file__).resolve().parents[1] / "app" / "data" / "eltis_commercial_chargers.csv"
+    eltis = parse_eltis_csv(eltis_path.read_text(encoding="utf-8-sig"))
+    merged = _merge_catalog(eds, ugv, eport, infi, eltis)
     facets = _build_facets(merged["products"])
-    assert facets["brands"] == ["EDS Chargers", "UGV Chargers", "E-port"]
+    assert facets["brands"] == ["EDS Chargers", "UGV Chargers", "E-port", "Infi Power", "Eltis"]
+    assert facets["layouts"] == ["station", "station_dcdc", "split", "split_dcdc"]
     assert facets["warranty_years"] == [1, 2, 3]
     assert "2dc" in facets["ports"]
-    assert merged["count"] == eds["count"] + ugv["count"] + eport["count"]
+    assert (
+        merged["count"]
+        == eds["count"] + ugv["count"] + eport["count"] + infi["count"] + eltis["count"]
+    )
     assert any(p["brand"] == "UGV Chargers" for p in merged["products"])
     assert any(p["brand"] == "EDS Chargers" for p in merged["products"])
     assert any(p["brand"] == "E-port" for p in merged["products"])
+    assert any(p["brand"] == "Infi Power" for p in merged["products"])
+    assert any(p["brand"] == "Eltis" for p in merged["products"])
+    by_sku = {p["sku"]: p for p in merged["products"]}
+    assert by_sku["GRiD03205"]["layout"] == "station_dcdc"
+    assert by_sku["ELT-DS-720-CG"]["layout"] == "split_dcdc"
+    assert by_sku["ELT-SS-960-CG"]["layout"] == "station"
+    assert by_sku["ELT-EL-240-CG"]["layout"] == "station"
+    assert by_sku["EDS-SPLIT360-до 500А"]["layout"] == "split"
+    assert by_sku["EDS-DISPENSER-2 DC (повітр.)"]["layout"] == "split"
+    assert by_sku["EDS-S80-2DC"]["layout"] == "station"
+    assert by_sku["EPG-EVE-SC360D-GN3-Street"]["layout"] == "split"
+    assert by_sku["EPG-EVE300kwCCS2+GBT-Street-CCS2-GBT"]["layout"] == "split"
+
+
+def test_catalog_layout_rules():
+    assert catalog_layout({"brand": "Infi Power", "series": "IDS", "form": "single"}) == "station_dcdc"
+    assert catalog_layout({"brand": "Eltis", "series": "DC/DC", "form": "split"}) == "split_dcdc"
+    assert catalog_layout({"brand": "Eltis", "series": "SPLIT", "form": "split"}) == "station"
+    assert catalog_layout({"brand": "UGV Chargers", "series": "UGV", "form": "single"}) == "station"
+    assert catalog_layout({"brand": "E-port", "series": "EPG", "form": "single"}) == "station"
 
 
 def test_eport_commercial_lead_time_rule():
@@ -204,6 +235,81 @@ def test_parse_eport_dc_csv_snapshot():
     assert disp["form"] == "dispenser"
     assert disp["ports"] == "2dc"
     assert disp["lead_time"] == "2m"
+
+
+def test_parse_infi_csv_snapshot():
+    path = Path(__file__).resolve().parents[1] / "app" / "data" / "infi_commercial_chargers.csv"
+    payload = parse_infi_csv(path.read_text(encoding="utf-8-sig"))
+    assert payload["count"] == 5
+    assert payload["source"] == "gridenergy.in.ua"
+    by_sku = {p["sku"]: p for p in payload["products"]}
+
+    ids90 = by_sku["GRiD03201"]
+    assert ids90["brand"] == "Infi Power"
+    assert ids90["series"] == "IDS"
+    assert ids90["power_kw"] == 90.0
+    assert ids90["power_bucket"] == "40plus"
+    assert ids90["ports"] == "2dc"
+    assert ids90["connectors"] == ["CCS2", "GB/T", "NACS", "CHAdeMO"]
+    assert ids90["price"] == 18800.0
+    assert ids90["currency"] == "USD"
+    assert ids90["warranty_years"] == 3
+    assert ids90["warranty_downtime"] is None
+    assert ids90["dedicated_manager"] is None
+    assert ids90["lead_time"] == "35d"
+    assert ids90["image"] == "/static/commercial-chargers/infi-power.jpg"
+    assert ids90["link"].endswith("/zaryadna-stancziya-infi-power-ids-90-kvt/")
+
+    ids240 = by_sku["GRiD03205"]
+    assert ids240["power_kw"] == 240.0
+    assert ids240["power_bucket"] == "240plus"
+    assert ids240["price"] == 28100.0
+    assert payload["facets"]["brands"] == ["Infi Power"]
+
+
+def test_parse_eltis_csv_snapshot():
+    path = Path(__file__).resolve().parents[1] / "app" / "data" / "eltis_commercial_chargers.csv"
+    payload = parse_eltis_csv(path.read_text(encoding="utf-8-sig"))
+    assert payload["count"] == 16
+    assert payload["source"] == "eltis-master.com.ua"
+    by_sku = {p["sku"]: p for p in payload["products"]}
+
+    dcdc = by_sku["ELT-DS-160-CG"]
+    assert dcdc["brand"] == "Eltis"
+    assert dcdc["series"] == "DC/DC"
+    assert dcdc["form"] == "split"
+    assert dcdc["power_kw"] == 160.0
+    assert dcdc["power_bucket"] == "160plus"
+    assert dcdc["ports"] == "4dc"
+    assert dcdc["connectors"] == ["CCS2", "GB/T", "NACS"]
+    assert dcdc["price"] == 72360.0
+    assert dcdc["currency"] == "USD"
+    assert dcdc["warranty_years"] == 2
+    assert dcdc["lead_time"] is None
+    assert dcdc["image"] == "/static/commercial-chargers/eltis-dcdc.jpg"
+
+    quoted = by_sku["ELT-DS-720-CG"]
+    assert quoted["price"] is None
+    assert quoted["power_kw"] == 720.0
+    assert quoted["power_bucket"] == "240plus"
+    assert quoted["ports"] is None
+    assert quoted["config"] == "10 DC"
+
+    station = by_sku["ELT-EL-120-CG"]
+    assert station["series"] == "Station"
+    assert station["form"] == "single"
+    assert station["power_bucket"] == "120plus"
+    assert station["price"] == 19300.0
+    assert station["config"] == "2-3 DC"
+    assert station["ports"] is None
+
+    split = by_sku["ELT-SS-960-CG"]
+    assert split["series"] == "SPLIT"
+    assert split["form"] == "split"
+    assert split["power_kw"] == 960.0
+    assert split["price"] == 131760.0
+    assert split["config"] == "12+ DC"
+    assert payload["facets"]["brands"] == ["Eltis"]
 
 
 def test_eport_prices_to_usd_uses_nbu_rate():

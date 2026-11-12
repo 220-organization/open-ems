@@ -115,6 +115,11 @@
   font-weight: 600;
 }
 
+.home-charger-chip:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
 .home-charger-filters__toolbar {
   display: flex;
   flex-wrap: wrap;

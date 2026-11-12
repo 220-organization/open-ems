@@ -10,15 +10,24 @@ const USD_UAH_FALLBACK = 42;
 const CURRENCY_STORAGE_KEY = "commercial-charger-currency";
 const DEFAULT_SORT = "price-asc";
 const CATALOG_PATH = "/buy-commercial-charger";
-const PORT_IDS = ["1dc", "2dc", "2dc_ac", "2dc_2ac", "3dc", "4dc"];
+const POWER_FILTERS = [
+  { id: "40plus", minKw: 40 },
+  { id: "120plus", minKw: 120 },
+  { id: "160plus", minKw: 160 },
+  { id: "240plus", minKw: 240 },
+];
+const POWER_IDS = POWER_FILTERS.map((item) => item.id);
+const LAYOUT_IDS = ["station", "station_dcdc", "split", "split_dcdc"];
 const WARRANTY_YEARS = ["1", "2", "3"];
 const DOWNTIME_IDS = ["48h", "5d", "10d"];
 const MANAGER_IDS = ["yes", "no"];
-const BRAND_IDS = ["eds", "ugv", "eport"];
+const BRAND_IDS = ["eds", "ugv", "eport", "infi", "eltis"];
 const BRAND_LABEL = {
   eds: "EDS Chargers",
   ugv: "UGV Chargers",
   eport: "E-port",
+  infi: "Infi Power",
+  eltis: "Eltis",
 };
 
 function apiUrl(path) {
@@ -107,12 +116,21 @@ function toDisplayAmount(price, srcCurrency, displayCurrency, eurUah, usdUah) {
   return amount;
 }
 
-function powerBucketLabel(bucket, t) {
-  if (bucket === "upto160") return t("commercialChargerPowerUpto160");
-  if (bucket === "200to320") return t("commercialChargerPower200to320");
-  if (bucket === "360to480") return t("commercialChargerPower360to480");
-  if (bucket === "720plus") return t("commercialChargerPower720");
-  return bucket;
+function powerFilterLabel(id, t) {
+  if (id === "40plus") return t("commercialChargerPower40");
+  if (id === "120plus") return t("commercialChargerPower120");
+  if (id === "160plus") return t("commercialChargerPower160");
+  if (id === "240plus") return t("commercialChargerPower240");
+  return id;
+}
+
+function meetsPowerFilter(product, filterId) {
+  const filter = POWER_FILTERS.find((item) => item.id === filterId);
+  if (!filter) return true;
+  const raw = product?.power_kw;
+  const kw = raw == null || raw === "" ? null : Number(raw);
+  if (kw != null && Number.isFinite(kw)) return kw >= filter.minKw;
+  return product?.power_bucket === "240plus";
 }
 
 function seriesLabel(series, t) {
@@ -154,6 +172,7 @@ function downtimeLabel(id, t) {
 function leadTimeLabel(id, t) {
   if (id === "now") return t("commercialChargerLeadTimeNow");
   if (id === "2m") return t("commercialChargerLeadTime2m");
+  if (id === "35d") return t("commercialChargerLeadTime35d");
   // Catalog is built to order; fall back to the EDS default when the feed omits it.
   if (!id || id === "2to3m") return t("commercialChargerLeadTime2to3m");
   return id;
@@ -173,6 +192,8 @@ function managerFilterValue(item) {
 
 function brandFilterValue(item) {
   const b = (item?.brand || "").toLowerCase();
+  if (b.includes("infi")) return "infi";
+  if (b.includes("eltis")) return "eltis";
   if (b.includes("ugv")) return "ugv";
   if (b.includes("e-port") || b.includes("eport")) return "eport";
   if (b.includes("eds")) return "eds";
@@ -181,6 +202,32 @@ function brandFilterValue(item) {
 
 function brandLabel(id) {
   return BRAND_LABEL[id] || id;
+}
+
+function productLayout(item) {
+  if (LAYOUT_IDS.includes(item?.layout)) return item.layout;
+  const brand = (item?.brand || "").toLowerCase();
+  const series = (item?.series || "").toUpperCase();
+  const form = (item?.form || "").toLowerCase();
+  if (brand.includes("infi")) return "station_dcdc";
+  if (brand.includes("eltis") && series === "DC/DC") return "split_dcdc";
+  if (
+    (form === "split" || form === "dispenser") &&
+    (brand.includes("eds") ||
+      brand.includes("e-port") ||
+      brand.includes("eport"))
+  ) {
+    return "split";
+  }
+  return "station";
+}
+
+function layoutLabel(id, t) {
+  if (id === "station") return t("commercialChargerLayoutStation");
+  if (id === "station_dcdc") return t("commercialChargerLayoutStationDcdc");
+  if (id === "split") return t("commercialChargerLayoutSplit");
+  if (id === "split_dcdc") return t("commercialChargerLayoutSplitDcdc");
+  return id;
 }
 
 function readCatalogFromUrl() {
@@ -193,9 +240,9 @@ function readCatalogFromUrl() {
     const brand = (u.get("brand") || "").trim().toLowerCase();
     if (BRAND_IDS.includes(brand)) out.brand = brand;
     const power = (u.get("power") || "").trim();
-    if (power) out.power = power;
-    const ports = (u.get("ports") || "").trim();
-    if (PORT_IDS.includes(ports)) out.ports = ports;
+    if (POWER_IDS.includes(power)) out.power = power;
+    const layout = (u.get("layout") || "").trim();
+    if (LAYOUT_IDS.includes(layout)) out.layout = layout;
     const cooling = (u.get("cooling") || "").trim();
     if (cooling) out.cooling = cooling;
     const warranty = (u.get("warranty") || "").trim();
@@ -223,9 +270,10 @@ function writeCatalogToUrl(state) {
     };
     setOrDel("sku", state.sku);
     setOrDel("brand", state.brand);
+    setOrDel("layout", state.layout);
     u.searchParams.delete("series");
     setOrDel("power", state.power);
-    setOrDel("ports", state.ports);
+    u.searchParams.delete("ports");
     u.searchParams.delete("connector");
     setOrDel("cooling", state.cooling);
     setOrDel("warranty", state.warranty);
@@ -252,8 +300,9 @@ function productQuotePageUrl(p) {
   if (p.sku) u.searchParams.set("sku", p.sku);
   const brand = brandFilterValue(p);
   if (brand) u.searchParams.set("brand", brand);
+  const layout = productLayout(p);
+  if (layout) u.searchParams.set("layout", layout);
   if (p.power_bucket) u.searchParams.set("power", p.power_bucket);
-  if (p.ports) u.searchParams.set("ports", p.ports);
   if (p.cooling) u.searchParams.set("cooling", p.cooling);
   if (p.warranty_years)
     u.searchParams.set("warranty", String(p.warranty_years));
@@ -272,12 +321,13 @@ function findSkuCard(sku) {
   return null;
 }
 
-function Chip({ active, onClick, children }) {
+function Chip({ active, disabled, onClick, children }) {
   return (
     <button
       type="button"
       className={`home-charger-chip${active ? " home-charger-chip--active" : ""}`}
       onClick={onClick}
+      disabled={disabled}
       aria-pressed={active}
     >
       {children}
@@ -303,8 +353,8 @@ export default function BuyCommercialChargerPage({ t, locale }) {
   const initialUrl = useMemo(() => readCatalogFromUrl(), []);
   const [sku, setSku] = useState(initialUrl.sku || "");
   const [brand, setBrand] = useState(initialUrl.brand || "");
+  const [layout, setLayout] = useState(initialUrl.layout || "");
   const [power, setPower] = useState(initialUrl.power || "");
-  const [ports, setPorts] = useState(initialUrl.ports || "");
   const [cooling, setCooling] = useState(initialUrl.cooling || "");
   const [warranty, setWarranty] = useState(initialUrl.warranty || "");
   const [downtime, setDowntime] = useState(initialUrl.downtime || "");
@@ -386,15 +436,19 @@ export default function BuyCommercialChargerPage({ t, locale }) {
     writeCatalogToUrl({
       sku,
       brand,
+      layout,
       power,
-      ports,
       cooling,
       warranty,
       downtime,
       manager,
       sort,
     });
-  }, [sku, brand, power, ports, cooling, warranty, downtime, manager, sort]);
+  }, [sku, brand, layout, power, cooling, warranty, downtime, manager, sort]);
+
+  useEffect(() => {
+    if (layout === "station_dcdc" && brand && brand !== "infi") setBrand("");
+  }, [layout, brand]);
 
   useEffect(() => {
     if (skuHydrated.current || !sku || !products.length) return;
@@ -402,8 +456,8 @@ export default function BuyCommercialChargerPage({ t, locale }) {
     if (!p) return;
     skuHydrated.current = true;
     if (!brand && brandFilterValue(p)) setBrand(brandFilterValue(p));
+    if (!layout) setLayout(productLayout(p));
     if (!power && p.power_bucket) setPower(p.power_bucket);
-    if (!ports && p.ports) setPorts(p.ports);
     if (!cooling && p.cooling) setCooling(p.cooling);
     if (!warranty && p.warranty_years) setWarranty(String(p.warranty_years));
     if (!downtime && p.warranty_downtime) setDowntime(p.warranty_downtime);
@@ -412,8 +466,8 @@ export default function BuyCommercialChargerPage({ t, locale }) {
     products,
     sku,
     brand,
+    layout,
     power,
-    ports,
     cooling,
     warranty,
     downtime,
@@ -428,17 +482,17 @@ export default function BuyCommercialChargerPage({ t, locale }) {
       return;
     }
     if (brand && brandFilterValue(p) !== brand) setSku("");
-    else if (power && p.power_bucket !== power) setSku("");
+    else if (layout && productLayout(p) !== layout) setSku("");
+    else if (power && !meetsPowerFilter(p, power)) setSku("");
     else if (cooling && p.cooling !== cooling) setSku("");
-    else if (ports && p.ports !== ports) setSku("");
     else if (warranty && String(p.warranty_years) !== warranty) setSku("");
     else if (downtime && p.warranty_downtime !== downtime) setSku("");
     else if (manager && managerFilterValue(p) !== manager) setSku("");
   }, [
     sku,
     brand,
+    layout,
     power,
-    ports,
     cooling,
     warranty,
     downtime,
@@ -449,8 +503,8 @@ export default function BuyCommercialChargerPage({ t, locale }) {
   const filtered = useMemo(() => {
     let list = products.slice();
     if (brand) list = list.filter((p) => brandFilterValue(p) === brand);
-    if (power) list = list.filter((p) => p.power_bucket === power);
-    if (ports) list = list.filter((p) => p.ports === ports);
+    if (layout) list = list.filter((p) => productLayout(p) === layout);
+    if (power) list = list.filter((p) => meetsPowerFilter(p, power));
     if (cooling) list = list.filter((p) => p.cooling === cooling);
     if (warranty)
       list = list.filter((p) => String(p.warranty_years) === warranty);
@@ -486,8 +540,8 @@ export default function BuyCommercialChargerPage({ t, locale }) {
   }, [
     products,
     brand,
+    layout,
     power,
-    ports,
     cooling,
     warranty,
     downtime,
@@ -509,8 +563,8 @@ export default function BuyCommercialChargerPage({ t, locale }) {
   const clearFilters = () => {
     setSku("");
     setBrand("");
+    setLayout("");
     setPower("");
-    setPorts("");
     setCooling("");
     setWarranty("");
     setDowntime("");
@@ -520,8 +574,8 @@ export default function BuyCommercialChargerPage({ t, locale }) {
   const hasFilters = Boolean(
     sku ||
     brand ||
+    layout ||
     power ||
-    ports ||
     cooling ||
     warranty ||
     downtime ||
@@ -534,7 +588,10 @@ export default function BuyCommercialChargerPage({ t, locale }) {
       catalog: "commercial",
       title: p.title,
       sku: p.sku,
-      price: fmtMoney(p.price, p.currency || "EUR", locale),
+      price:
+        p.price == null
+          ? t("commercialChargerPriceOnRequest")
+          : fmtMoney(p.price, p.currency || "EUR", locale),
       pageUrl: productQuotePageUrl(p),
       productUrl: p.link,
     });
@@ -578,22 +635,38 @@ export default function BuyCommercialChargerPage({ t, locale }) {
               {Array.from(
                 new Set(
                   facets?.brands?.length
-                    ? facets.brands.map((label) => {
-                        const low = label.toLowerCase();
-                        if (low.includes("ugv")) return "ugv";
-                        if (low.includes("e-port") || low.includes("eport"))
-                          return "eport";
-                        return "eds";
-                      })
+                    ? facets.brands
+                        .map((label) => brandFilterValue({ brand: label }))
+                        .filter(Boolean)
                     : BRAND_IDS,
                 ),
               ).map((id) => (
                 <Chip
                   key={id}
                   active={brand === id}
+                  disabled={layout === "station_dcdc" && id !== "infi"}
                   onClick={() => setBrand(brand === id ? "" : id)}
                 >
                   {brandLabel(id)}
+                </Chip>
+              ))}
+            </div>
+          </div>
+          <div className="home-charger-filters__row">
+            <span className="home-charger-filters__label">
+              {t("commercialChargerFilterLayout")}
+            </span>
+            <div className="home-charger-chips">
+              <Chip active={!layout} onClick={() => setLayout("")}>
+                {t("commercialChargerFilterAny")}
+              </Chip>
+              {LAYOUT_IDS.map((id) => (
+                <Chip
+                  key={id}
+                  active={layout === id}
+                  onClick={() => setLayout(layout === id ? "" : id)}
+                >
+                  {layoutLabel(id, t)}
                 </Chip>
               ))}
             </div>
@@ -606,40 +679,13 @@ export default function BuyCommercialChargerPage({ t, locale }) {
               <Chip active={!power} onClick={() => setPower("")}>
                 {t("commercialChargerFilterAny")}
               </Chip>
-              {(
-                facets?.power_buckets || [
-                  "upto160",
-                  "200to320",
-                  "360to480",
-                  "720plus",
-                ]
-              ).map((b) => (
+              {POWER_FILTERS.map((item) => (
                 <Chip
-                  key={b}
-                  active={power === b}
-                  onClick={() => setPower(power === b ? "" : b)}
+                  key={item.id}
+                  active={power === item.id}
+                  onClick={() => setPower(power === item.id ? "" : item.id)}
                 >
-                  {powerBucketLabel(b, t)}
-                </Chip>
-              ))}
-            </div>
-          </div>
-
-          <div className="home-charger-filters__row">
-            <span className="home-charger-filters__label">
-              {t("commercialChargerFilterPorts")}
-            </span>
-            <div className="home-charger-chips">
-              <Chip active={!ports} onClick={() => setPorts("")}>
-                {t("commercialChargerFilterAny")}
-              </Chip>
-              {(facets?.ports || PORT_IDS).map((c) => (
-                <Chip
-                  key={c}
-                  active={ports === c}
-                  onClick={() => setPorts(ports === c ? "" : c)}
-                >
-                  {portsLabel(c, t)}
+                  {powerFilterLabel(item.id, t)}
                 </Chip>
               ))}
             </div>
@@ -866,24 +912,28 @@ export default function BuyCommercialChargerPage({ t, locale }) {
                       <strong>{managerLabel(managerFilterValue(p), t)}</strong>
                     </li>
                   ) : null}
-                  <li>
-                    {t("commercialChargerMetaLeadTime")}:{" "}
-                    <strong>{leadTimeLabel(p.lead_time, t)}</strong>
-                  </li>
+                  {p.lead_time ? (
+                    <li>
+                      {t("commercialChargerMetaLeadTime")}:{" "}
+                      <strong>{leadTimeLabel(p.lead_time, t)}</strong>
+                    </li>
+                  ) : null}
                 </ul>
                 <div className="home-charger-card__footer">
                   <p className="home-charger-card__price">
-                    {fmtMoney(
-                      toDisplayAmount(
-                        p.price,
-                        p.currency,
-                        displayCurrency,
-                        eurUah,
-                        usdUah,
-                      ),
-                      displayCurrency,
-                      locale,
-                    )}
+                    {p.price == null
+                      ? t("commercialChargerPriceOnRequest")
+                      : fmtMoney(
+                          toDisplayAmount(
+                            p.price,
+                            p.currency,
+                            displayCurrency,
+                            eurUah,
+                            usdUah,
+                          ),
+                          displayCurrency,
+                          locale,
+                        )}
                   </p>
                   <button
                     type="button"
