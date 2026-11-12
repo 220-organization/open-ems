@@ -1,4 +1,4 @@
-"""Commercial DC EV chargers catalog — EDS Chargers retail price sheet."""
+"""Commercial DC EV chargers catalog — EDS, UGV, E-port, Infi Power, and Eltis."""
 
 from __future__ import annotations
 
@@ -30,10 +30,14 @@ _FAMILY_RE = re.compile(r"^EDS-(QS|SPLIT|S|Q)(\d+)", re.I)
 _FALLBACK_CSV = Path(__file__).resolve().parents[1] / "data" / "eds_commercial_chargers.csv"
 _UGV_CSV = Path(__file__).resolve().parents[1] / "data" / "ugv_commercial_chargers.csv"
 _EPORT_CSV = Path(__file__).resolve().parents[1] / "data" / "eport_commercial_chargers.csv"
+_INFI_CSV = Path(__file__).resolve().parents[1] / "data" / "infi_commercial_chargers.csv"
+_ELTIS_CSV = Path(__file__).resolve().parents[1] / "data" / "eltis_commercial_chargers.csv"
 _CATALOG_URL = "https://eds-chargers.com/en/products/"
 _UGV_CATALOG_URL = "https://ugv.ua"
 _UGV_IMAGE = "/static/commercial-chargers/ugv-front.png"
 _EPORT_CATALOG_URL = "https://e-port.energy"
+_INFI_CATALOG_URL = "https://gridenergy.in.ua/catalog/"
+_INFI_IMAGE = "/static/commercial-chargers/infi-power.jpg"
 
 # Official product photos from eds-chargers.com catalog (family → image).
 _IMAGES: dict[str, str] = {
@@ -85,10 +89,17 @@ _SERIES_FORM = {
 }
 
 _POWER_BUCKET_ORDER = {
-    "upto160": 0,
-    "200to320": 1,
-    "360to480": 2,
-    "720plus": 3,
+    "40plus": 0,
+    "120plus": 1,
+    "160plus": 2,
+    "240plus": 3,
+}
+
+_LAYOUT_ORDER = {
+    "station": 0,
+    "station_dcdc": 1,
+    "split": 2,
+    "split_dcdc": 3,
 }
 
 _PORT_ORDER = {
@@ -125,6 +136,19 @@ _BRAND_ORDER = {
     "EDS Chargers": 0,
     "UGV Chargers": 1,
     "E-port": 2,
+    "Infi Power": 3,
+    "Eltis": 4,
+}
+
+# Infi Power IDS via Grid Energy: 36-month warranty, shipment in 35 days.
+_INFI_SERVICE = {
+    "warranty_years": 3,
+    "lead_time": "35d",
+}
+
+# Eltis Master lists a 24-month warranty. Prices on the site exclude VAT.
+_ELTIS_SERVICE = {
+    "warranty_years": 2,
 }
 
 
@@ -298,17 +322,26 @@ def _cooling(series: str, config: str, title: str) -> Optional[str]:
     return None
 
 
-def _power_bucket(kw: Optional[float], series: str) -> str:
-    # Dispensers are sold with split HPC. 720 kW+ is always a split system.
-    if series == "DISPENSER" or kw is None:
-        return "720plus"
-    if kw <= 160:
-        return "upto160"
-    if kw <= 320:
-        return "200to320"
-    if kw <= 480:
-        return "360to480"
-    return "720plus"
+def _power_bucket(kw: Optional[float], series: str) -> Optional[str]:
+    """Tightest minimum-power filter this charger still matches.
+
+    Catalog chips are cumulative: 40+, 120+, 160+, 240+. A 240 kW unit is
+    stored as ``240plus`` and still appears under every lower chip.
+    Split dispensers without a kW rating stay on the top filter.
+    """
+    if kw is None:
+        if series in ("DISPENSER", "SPLIT"):
+            return "240plus"
+        return None
+    if kw >= 240:
+        return "240plus"
+    if kw >= 160:
+        return "160plus"
+    if kw >= 120:
+        return "120plus"
+    if kw >= 40:
+        return "40plus"
+    return None
 
 
 def _image_for(family: str, series: str) -> str:
@@ -394,6 +427,27 @@ def _connectors_from_ugv_sku(sku: str) -> list[str]:
     return found
 
 
+def catalog_layout(product: dict[str, Any]) -> str:
+    """Architecture filter: station, station DC+DC, split, or split DC to DC.
+
+    Infi Power monoblocks are station DC+DC. Eltis storage splits (series
+    DC/DC) are split DC to DC. EDS and E-port split cabinets and dispensers
+    are split. Every other SKU is a station.
+    """
+    brand = (product.get("brand") or "").lower()
+    series = (product.get("series") or "").upper()
+    form = (product.get("form") or "").lower()
+    if "infi" in brand:
+        return "station_dcdc"
+    if "eltis" in brand and series == "DC/DC":
+        return "split_dcdc"
+    if form in ("split", "dispenser") and (
+        "eds" in brand or "e-port" in brand or "eport" in brand
+    ):
+        return "split"
+    return "station"
+
+
 def _build_facets(products: list[dict[str, Any]]) -> dict[str, Any]:
     """Build filter facets over a merged commercial-charger product list."""
     series = sorted(
@@ -417,8 +471,13 @@ def _build_facets(products: list[dict[str, Any]]) -> dict[str, Any]:
         key=lambda b: _POWER_BUCKET_ORDER.get(b, 9),
     )
     prices = [p["price"] for p in products if p.get("price") is not None]
+    layouts = sorted(
+        {p["layout"] for p in products if p.get("layout")},
+        key=lambda item: _LAYOUT_ORDER.get(item, 9),
+    )
     return {
         "brands": brands,
+        "layouts": layouts,
         "series": series,
         "connectors": connectors,
         "ports": ports,
@@ -665,6 +724,118 @@ def parse_eport_dc_csv(csv_text: str) -> dict[str, Any]:
     }
 
 
+def parse_infi_csv(csv_text: str) -> dict[str, Any]:
+    """Parse the Grid Energy Infi Power IDS snapshot (USD retail, VAT included)."""
+    reader = csv.DictReader(io.StringIO(csv_text or ""))
+    products: list[dict[str, Any]] = []
+    for row in reader:
+        sku = (row.get("sku") or "").strip()
+        if not sku:
+            continue
+        power_kw = _parse_number(row.get("power_kw"))
+        price = _parse_number(row.get("price_usd"))
+        if price is None:
+            continue
+        dc_ports = _parse_number(row.get("dc_ports"))
+        connectors = _connectors_from_csv(row.get("connectors") or "")
+        title = (row.get("title") or "").strip() or sku
+        link = (row.get("link") or "").strip() or _INFI_CATALOG_URL
+        family = f"IDS{int(power_kw)}" if power_kw is not None else "IDS"
+        products.append(
+            {
+                "id": sku,
+                "sku": sku,
+                "title": title,
+                "brand": "Infi Power",
+                "series": "IDS",
+                "family": family,
+                "form": "single",
+                "config": f"{int(dc_ports)}DC" if dc_ports is not None else "",
+                "power_kw": power_kw,
+                "power_bucket": _power_bucket(power_kw, "IDS"),
+                "connectors": connectors,
+                "ports": _ports_from_dc_count(dc_ports),
+                "cooling": None,
+                "warranty_years": _INFI_SERVICE["warranty_years"],
+                "warranty_downtime": None,
+                "dedicated_manager": None,
+                "lead_time": _INFI_SERVICE["lead_time"],
+                "price": price,
+                "currency": "USD",
+                "image": _INFI_IMAGE,
+                "link": link,
+            }
+        )
+    products.sort(key=lambda p: (p["price"] is None, p["price"] or 0.0, p["title"]))
+    return {
+        "source": "gridenergy.in.ua",
+        "count": len(products),
+        "products": products,
+        "notes": [],
+        "facets": _build_facets(products),
+    }
+
+
+def parse_eltis_csv(csv_text: str) -> dict[str, Any]:
+    """Parse the Eltis Master snapshot: DC stations, splits, and DC/DC storage.
+
+    List prices are USD and exclude VAT. A blank price means the SKU is quoted
+    on request (the 720 kW DC/DC system).
+    """
+    reader = csv.DictReader(io.StringIO(csv_text or ""))
+    products: list[dict[str, Any]] = []
+    for row in reader:
+        sku = (row.get("sku") or "").strip()
+        if not sku:
+            continue
+        power_kw = _parse_number(row.get("power_kw"))
+        price = _parse_number(row.get("price_usd"))
+        connectors = _connectors_from_csv(row.get("connectors") or "")
+        title = (row.get("title") or "").strip() or sku
+        link = (row.get("link") or "").strip()
+        series = (row.get("series") or "").strip() or "Eltis"
+        form = (row.get("form") or "single").strip() or "single"
+        ports_raw = (row.get("ports") or "").strip()
+        ports = ports_raw if ports_raw in _PORT_ORDER else None
+        config = (row.get("config") or "").strip()
+        image = (row.get("image") or "").strip()
+        bucket_series = "SPLIT" if form == "split" else "ELT"
+        family = f"ELT{int(power_kw)}" if power_kw is not None else "ELT"
+        products.append(
+            {
+                "id": sku,
+                "sku": sku,
+                "title": title,
+                "brand": "Eltis",
+                "series": series,
+                "family": family,
+                "form": form,
+                "config": config,
+                "power_kw": power_kw,
+                "power_bucket": _power_bucket(power_kw, bucket_series),
+                "connectors": connectors,
+                "ports": ports,
+                "cooling": None,
+                "warranty_years": _ELTIS_SERVICE["warranty_years"],
+                "warranty_downtime": None,
+                "dedicated_manager": None,
+                "lead_time": None,
+                "price": price,
+                "currency": "USD",
+                "image": image,
+                "link": link,
+            }
+        )
+    products.sort(key=lambda p: (p["price"] is None, p["price"] or 0.0, p["title"]))
+    return {
+        "source": "eltis-master.com.ua",
+        "count": len(products),
+        "products": products,
+        "notes": [],
+        "facets": _build_facets(products),
+    }
+
+
 def _load_fallback_csv() -> str:
     if not _FALLBACK_CSV.is_file():
         raise FileNotFoundError(str(_FALLBACK_CSV))
@@ -683,6 +854,18 @@ def _load_eport_csv() -> str:
     return _EPORT_CSV.read_text(encoding="utf-8-sig")
 
 
+def _load_infi_csv() -> str:
+    if not _INFI_CSV.is_file():
+        raise FileNotFoundError(str(_INFI_CSV))
+    return _INFI_CSV.read_text(encoding="utf-8-sig")
+
+
+def _load_eltis_csv() -> str:
+    if not _ELTIS_CSV.is_file():
+        raise FileNotFoundError(str(_ELTIS_CSV))
+    return _ELTIS_CSV.read_text(encoding="utf-8-sig")
+
+
 def _merge_catalog(*parts: dict[str, Any]) -> dict[str, Any]:
     products: list[dict[str, Any]] = []
     notes: list[str] = []
@@ -694,12 +877,17 @@ def _merge_catalog(*parts: dict[str, Any]) -> dict[str, Any]:
         if src:
             sources.append(str(src))
     products.sort(key=lambda p: (p["price"] is None, p["price"] or 0.0, p["title"]))
+    stamped: list[dict[str, Any]] = []
+    for product in products:
+        item = dict(product)
+        item["layout"] = catalog_layout(item)
+        stamped.append(item)
     return {
         "source": "+".join(sources) if sources else "commercial-chargers",
-        "count": len(products),
-        "products": products,
+        "count": len(stamped),
+        "products": stamped,
         "notes": notes,
-        "facets": _build_facets(products),
+        "facets": _build_facets(stamped),
     }
 
 
@@ -729,7 +917,7 @@ def eport_prices_to_usd(
 
 @router.get("")
 async def list_commercial_chargers(refresh: bool = False) -> dict[str, Any]:
-    """Return EDS + UGV + E-port commercial DC chargers (cached)."""
+    """Return EDS, UGV, E-port, Infi Power, and Eltis commercial DC chargers."""
     ttl = max(60, int(settings.COMMERCIAL_CHARGERS_CACHE_TTL_SEC))
     now = time.time()
     if (
@@ -799,7 +987,33 @@ async def list_commercial_chargers(refresh: bool = False) -> dict[str, Any]:
     else:
         logger.warning("E-port prices left in UAH — NBU USD rate unavailable")
 
-    payload = _merge_catalog(eds_payload, ugv_payload, eport_payload)
+    try:
+        infi_payload = parse_infi_csv(_load_infi_csv())
+    except (OSError, csv.Error, ValueError) as exc:
+        logger.warning("Infi Power commercial chargers snapshot missing/invalid: %s", exc)
+        infi_payload = {
+            "source": "gridenergy.in.ua",
+            "count": 0,
+            "products": [],
+            "notes": [],
+            "facets": {},
+        }
+
+    try:
+        eltis_payload = parse_eltis_csv(_load_eltis_csv())
+    except (OSError, csv.Error, ValueError) as exc:
+        logger.warning("Eltis commercial chargers snapshot missing/invalid: %s", exc)
+        eltis_payload = {
+            "source": "eltis-master.com.ua",
+            "count": 0,
+            "products": [],
+            "notes": [],
+            "facets": {},
+        }
+
+    payload = _merge_catalog(
+        eds_payload, ugv_payload, eport_payload, infi_payload, eltis_payload
+    )
     payload["cached"] = False
     payload["cache_ttl_sec"] = ttl
     payload["source_kind"] = source_kind

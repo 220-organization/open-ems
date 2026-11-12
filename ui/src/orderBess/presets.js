@@ -460,21 +460,38 @@ export const PRESETS = [
  * stor EC already includes the battery controller (1–6 SigenStor BAT).
  * hybrid inverters do not: add one SigenStor BC plus 1–6 SigenStor BAT.
  * neo EC includes backup, so the kit is Neo EC + 1–6 Neo BAT + Neo ground kit.
- * C&I HYB connects 4–21 SigenStack BAT 12.0 modules (datasheet).
+ * C&I HYB connects 4–21 SigenStack BAT 12.06 modules (datasheet).
+ * The datasheet allows a taller column, but a quote caps each rack at 7×12 kWh.
+ * Six modules per rack is the recommendation. Seven is acceptable. Eight
+ * modules plus the controller is about 2.5 m and is at the installer's risk,
+ * so the BOM splits that column onto another SUB base. The controller tops
+ * the main tower; each extra tower gets a SUB base and a cover. Use 0.5C
+ * hardware when kW/kWh ≤ 0.5 (the 125 kW + 252 kWh invoice), otherwise 1C.
  */
 export const SIGEN_HOME_MODULES_MIN = 1;
 export const SIGEN_HOME_MODULES_MAX = 6;
 export const SIGEN_BIZ_MODULES_MIN = 4;
 export const SIGEN_BIZ_MODULES_MAX = 21;
-/** One SigenStack base holds this many modules; further towers need a SUB base. */
-export const SIGEN_BIZ_MODULES_PER_BASE = 9;
+/** Preferred module count on one SigenStack rack. */
+export const SIGEN_BIZ_MODULES_RECOMMENDED = 6;
+/**
+ * Hard cap per rack in a quote: 7×12 kWh.
+ * Eight modules plus the controller is about 2.5 m and is not quoted.
+ */
+export const SIGEN_BIZ_MODULES_PER_BASE = 7;
 
 export const SIGEN_GROUND_KIT = "SigenStor Installation Kit for Ground";
 export const SIGEN_NEO_GROUND_KIT = "SigenStor Neo Installation Kit Ground";
 export const SIGEN_BC = "SigenStor BC";
-export const SIGEN_STACK_BC = "SigenStack BC M2-1C-BST";
-export const SIGEN_STACK_MAIN = "SigenStack Base MAIN-1C";
-export const SIGEN_STACK_SUB = "SigenStack Base SUB-1C";
+export const SIGEN_STACK_BC_05 = "SigenStack BC M2-0.5C-BST";
+export const SIGEN_STACK_BC_1 = "SigenStack BC M2-1C-BST";
+export const SIGEN_STACK_MAIN_05 = "SigenStack Base MAIN-0.5C";
+export const SIGEN_STACK_MAIN_1 = "SigenStack Base MAIN-1C";
+export const SIGEN_STACK_SUB_05 = "SigenStack Base SUB-0.5C";
+export const SIGEN_STACK_SUB_1 = "SigenStack Base SUB-1C";
+export const SIGEN_STACK_COVER = "SigenStack Cover";
+export const SIGEN_STACK_CABLES = "SigenStack BC Cables 4m";
+export const SIGEN_COMM_MODULE = "Sigen Communication Module";
 
 export function sigenGatewayArticle(phase) {
   return phase === "sp"
@@ -484,6 +501,12 @@ export function sigenGatewayArticle(phase) {
 
 export function sigenStackSubBases(modules) {
   return Math.max(0, Math.ceil(modules / SIGEN_BIZ_MODULES_PER_BASE) - 1);
+}
+
+/** 0.5C controller and bases when inverter power stays within half the stack energy. */
+export function sigenStackUsesHalfC(kw, kwh) {
+  if (!kwh || kwh <= 0) return false;
+  return kw / kwh <= 0.5 + 1e-6;
 }
 
 /** Battery family that pairs with an inverter: stor (also hybrid), neo, or stack. */
@@ -541,7 +564,7 @@ export const SIGEN_BATTERIES = {
   "SigenStor BAT 10.0": { kwh: 10, line: "home", family: "stor" },
   "SigenStor Neo BAT 6.0": { kwh: 6.02, line: "home", family: "neo" },
   "SigenStor Neo BAT 8.0": { kwh: 7.52, line: "home", family: "neo" },
-  "SigenStack BAT 12.0": { kwh: 12, line: "biz", family: "stack" },
+  "SigenStack BAT 12.06": { kwh: 12, line: "biz", family: "stack" },
 };
 
 /**
@@ -649,21 +672,40 @@ export function buildSigenBom(invArticle, batArticle, targetKwh) {
   }
 
   const subBases = sigenStackSubBases(match.modules);
+  const towers = subBases + 1;
+  const halfC = sigenStackUsesHalfC(inv.kw, match.kwh);
+  const stackBatNote =
+    towers > 1
+      ? `${match.modules}×${bat.kwh} кВт·год · ${towers} стійки, до ${SIGEN_BIZ_MODULES_PER_BASE} на стійку`
+      : `${match.modules}×${bat.kwh} кВт·год`;
   const lines = [
     line(invArticle, 1, "гібрид, бекап / острів"),
-    line(batArticle, match.modules, `${match.modules}×${bat.kwh} кВт·год`),
-    line(SIGEN_STACK_BC, 1, "контролер 1C"),
-    line(SIGEN_STACK_MAIN, 1),
+    line(batArticle, match.modules, stackBatNote),
+    line(
+      halfC ? SIGEN_STACK_BC_05 : SIGEN_STACK_BC_1,
+      1,
+      halfC ? "контролер 0.5C" : "контролер 1C",
+    ),
+    line(halfC ? SIGEN_STACK_MAIN_05 : SIGEN_STACK_MAIN_1, 1),
   ];
   if (subBases > 0) {
-    lines.push(line(SIGEN_STACK_SUB, subBases));
+    lines.push(line(halfC ? SIGEN_STACK_SUB_05 : SIGEN_STACK_SUB_1, subBases));
+    lines.push(line(SIGEN_STACK_COVER, subBases));
   }
+  lines.push(line(SIGEN_STACK_CABLES, 1, "комплект кабелів"));
+  lines.push(line(SIGEN_COMM_MODULE, 1, "Wi‑Fi"));
   return {
     lines,
     kwh: match.kwh,
     kw: inv.kw,
     voltageClass: "sigen-biz",
-    meta: { modules: match.modules, line: "biz", family: "stack", subBases },
+    meta: {
+      modules: match.modules,
+      line: "biz",
+      family: "stack",
+      subBases,
+      towers,
+    },
   };
 }
 
@@ -680,6 +722,7 @@ function sigenPreset(id, group, tier, invArticle, batArticle, kwh) {
     kw: bom.kw,
     kwh: bom.kwh,
     lines: bom.lines,
+    meta: bom.meta,
   };
 }
 
@@ -716,6 +759,7 @@ function sigenParallelPreset(
     kw,
     kwh,
     lines,
+    meta: one.meta,
   };
 }
 
@@ -750,7 +794,7 @@ export const SIGENERGY_PRESETS = [
     "sigen-biz",
     "min",
     "Sigen PV 50M1-HYB",
-    "SigenStack BAT 12.0",
+    "SigenStack BAT 12.06",
     48,
   ),
   sigenPreset(
@@ -758,15 +802,23 @@ export const SIGENERGY_PRESETS = [
     "sigen-biz",
     "avg",
     "Sigen PV 80M1-HYB",
-    "SigenStack BAT 12.0",
+    "SigenStack BAT 12.06",
     96,
+  ),
+  sigenPreset(
+    "sigen-125-168",
+    "sigen-biz",
+    "168",
+    "Sigen PV 125M1-HYB",
+    "SigenStack BAT 12.06",
+    168,
   ),
   sigenPreset(
     "sigen-biz-max",
     "sigen-biz",
     "max",
     "Sigen PV 125M1-HYB",
-    "SigenStack BAT 12.0",
+    "SigenStack BAT 12.06",
     252,
   ),
   sigenParallelPreset(
@@ -774,7 +826,7 @@ export const SIGENERGY_PRESETS = [
     "sigen-biz",
     "parallel",
     "Sigen PV 80M1-HYB",
-    "SigenStack BAT 12.0",
+    "SigenStack BAT 12.06",
     204,
     3,
   ),
