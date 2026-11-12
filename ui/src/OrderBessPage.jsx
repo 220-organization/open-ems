@@ -260,7 +260,9 @@ function readOrderBessFromUrl() {
     }
     const sinv = (u.get("sinv") || "").trim();
     if (SIGEN_INVERTERS[sinv]) out.sigenInv = sinv;
-    const sbat = (u.get("sbat") || "").trim();
+    const sbatRaw = (u.get("sbat") || "").trim();
+    const sbat =
+      sbatRaw === "SigenStack BAT 12.0" ? "SigenStack BAT 12.06" : sbatRaw;
     if (SIGEN_BATTERIES[sbat]) out.sigenBat = sbat;
     const skwhRaw = u.get("skwh");
     if (skwhRaw != null && skwhRaw !== "") {
@@ -615,7 +617,7 @@ export default function OrderBessPage({ t }) {
       kwh: p.kwh,
       kw: p.kw,
       voltageClass: p.group,
-      meta: {},
+      meta: p.meta || {},
     };
   }, [
     presetId,
@@ -1269,6 +1271,11 @@ export default function OrderBessPage({ t }) {
             {activeBom.kw} кВт
             {selectedPhase ? ` · ${phaseLabel(selectedPhase, t)}` : ""}
           </p>
+          {activeBom?.meta?.family === "stack" ? (
+            <p className="order-bess-muted">
+              {t("orderBessSigenStackHeightNote")}
+            </p>
+          ) : null}
         </section>
 
         <section

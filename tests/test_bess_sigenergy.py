@@ -12,7 +12,7 @@ class TestSigenergyCatalog(unittest.TestCase):
         items: dict = {}
         _merge_sigenergy_catalog(items)
         inv = items["SIGENPV50M1-HYB"]
-        bat = items["SIGENSTACKBAT12.0"]
+        bat = items["SIGENSTACKBAT12.06"]
         self.assertEqual(inv["installerCheapestUsd"], 3742)
         self.assertEqual(inv["retailUsd"], 4633)
         self.assertEqual(inv["retailVatUsd"], 5560)
@@ -20,6 +20,14 @@ class TestSigenergyCatalog(unittest.TestCase):
         self.assertEqual(inv["imageUrl"], "/static/bess/sigen-ci-hyb.jpg")
         self.assertEqual(bat["installerCheapestUsd"], 1496)
         self.assertEqual(bat["availabilityInstaller"], "10 днів")
+        self.assertEqual(items["SIGENSTACKCOVER"]["installerCheapestUsd"], 206)
+        self.assertEqual(items["SIGENSTACKBCCABLES4M"]["installerCheapestUsd"], 206)
+        self.assertEqual(
+            items["SIGENCOMMUNICATIONMODULE"]["installerCheapestUsd"], 101
+        )
+        self.assertEqual(
+            items["SIGENSTACKBCM2-0.5C-BST"]["installerCheapestUsd"], 3119
+        )
         # 1 inverter + 4×12 kWh (datasheet minimum) + 1C controller + 1C base, installer purchase.
         total = (
             inv["installerCheapestUsd"]

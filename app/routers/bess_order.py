@@ -119,10 +119,16 @@ _CANONICAL_ARTICLES = (
     "Sigen PV 50M1-HYB",
     "Sigen PV 80M1-HYB",
     "Sigen PV 125M1-HYB",
-    "SigenStack BAT 12.0",
+    "SigenStack BAT 12.06",
+    "SigenStack BC M2-0.5C-BST",
     "SigenStack BC M2-1C-BST",
+    "SigenStack Base MAIN-0.5C",
     "SigenStack Base MAIN-1C",
+    "SigenStack Base SUB-0.5C",
     "SigenStack Base SUB-1C",
+    "SigenStack Cover",
+    "SigenStack BC Cables 4m",
+    "Sigen Communication Module",
 )
 # Sigenergy price list Sigen1.xlsx (USD): purchase / sale / with VAT.
 # Cash (Vyrii installers) = purchase. FOP = sale. VAT payers = with VAT.
@@ -182,13 +188,16 @@ _SIGENERGY_ROWS: tuple[tuple[str, str, int, int, int], ...] = (
     ("Sigen PV 100M1-HYB", "Sigen PV 100M1-HYB, 100 кВт, гібрид бекап", 4366, 5405, 6486),
     ("Sigen PV 110M1-HYB", "Sigen PV 110M1-HYB, 110 кВт, гібрид бекап", 4241, 5251, 6301),
     ("Sigen PV 125M1-HYB", "Sigen PV 125M1-HYB, 125 кВт, гібрид бекап", 4241, 5251, 6301),
-    ("SigenStack BAT 12.0", "SigenStack BAT 12.0, 12 кВт·год", 1496, 1853, 2223),
+    ("SigenStack BAT 12.06", "SigenStack BAT 12.06, 12 кВт·год", 1496, 1853, 2223),
     ("SigenStack BC M2-0.5C-BST", "SigenStack BC M2-0.5C-BST", 3119, 3861, 4633),
     ("SigenStack BC M2-1C-BST", "SigenStack BC M2-1C-BST", 5238, 6486, 7783),
     ("SigenStack Base MAIN-0.5C", "SigenStack Base MAIN-0.5C", 624, 772, 927),
     ("SigenStack Base MAIN-1C", "SigenStack Base MAIN-1C", 748, 926, 1111),
     ("SigenStack Base SUB-0.5C", "SigenStack Base SUB-0.5C", 624, 772, 927),
     ("SigenStack Base SUB-1C", "SigenStack Base SUB-1C", 748, 926, 1111),
+    ("SigenStack Cover", "SigenStack Cover", 206, 255, 306),
+    ("SigenStack BC Cables 4m", "SigenStack BC Cables 4m", 206, 255, 306),
+    ("Sigen Communication Module", "Sigen Communication Module", 101, 125, 150),
 )
 
 
@@ -248,7 +257,8 @@ _ARTICLE_ALIASES = {
     "HVBOSBPACK16A3PRO": "HV BOS-B-Pack16-A3-Pro",
     "BOSBPACK16A3PRO": "HV BOS-B-Pack16-A3-Pro",
     "SIGENSTORINSTALLATIONKITFORGROUNDMOUNTED": "SigenStor Installation Kit for Ground",
-    "SIGENSTACKBAT12.06": "SigenStack BAT 12.0",
+    "SIGENSTACKBAT12.0": "SigenStack BAT 12.06",
+    "SIGENSTACKBAT12.06": "SigenStack BAT 12.06",
 }
 
 
