@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import ChargerBuyRequestModal from "./ChargerBuyRequestModal";
+import { catalogPageUrlFromLocation } from "./catalogPageUrl";
 import {
   CommercialHero,
   CommercialMarketingSections,
@@ -304,26 +305,6 @@ function writeCatalogToUrl(state) {
   } catch {
     /* ignore */
   }
-}
-
-function productQuotePageUrl(p) {
-  if (typeof window === "undefined") return CATALOG_PATH;
-  const u = new URL(CATALOG_PATH, window.location.origin);
-  const lang = new URLSearchParams(window.location.search).get("lang");
-  if (lang) u.searchParams.set("lang", lang);
-  if (p.sku) u.searchParams.set("sku", p.sku);
-  const brand = brandFilterValue(p);
-  if (brand) u.searchParams.set("brand", brand);
-  const layout = productLayout(p);
-  if (layout) u.searchParams.set("layout", layout);
-  if (p.power_bucket) u.searchParams.set("power", p.power_bucket);
-  if (p.cooling) u.searchParams.set("cooling", p.cooling);
-  if (p.warranty_years)
-    u.searchParams.set("warranty", String(p.warranty_years));
-  if (p.warranty_downtime) u.searchParams.set("downtime", p.warranty_downtime);
-  const manager = managerFilterValue(p);
-  if (manager) u.searchParams.set("manager", manager);
-  return u.toString();
 }
 
 function findSkuCard(sku) {
@@ -726,16 +707,13 @@ export default function BuyCommercialChargerPage({ t, locale }) {
         p.price == null
           ? t("commercialChargerPriceOnRequest")
           : fmtMoney(p.price, p.currency || "EUR", locale),
-      pageUrl: productQuotePageUrl(p),
+      pageUrl: catalogPageUrlFromLocation({ sku: p.sku }),
       productUrl: p.link,
     });
   };
 
   const openGenericQuote = (title) => {
-    const pageUrl =
-      typeof window !== "undefined"
-        ? `${window.location.origin}${CATALOG_PATH}`
-        : CATALOG_PATH;
+    const pageUrl = catalogPageUrlFromLocation() || CATALOG_PATH;
     // Ignore click/keyboard SyntheticEvent if the handler is passed to onClick directly.
     const safeTitle = typeof title === "string" && title ? title : null;
     setBuyRequest({
