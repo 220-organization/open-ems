@@ -1,15 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import ChargerBuyRequestModal from "./ChargerBuyRequestModal";
+import {
+  CommercialHero,
+  CommercialMarketingSections,
+  commercialLandingFaqJsonLd,
+} from "./CommercialChargerLanding";
 import { notifyOpenEmsSearchChange } from "./sharePageQr";
+import { OPEN_EMS_SITE_URL } from "./seoContent";
 import { useOpenEmsSeo } from "./useOpenEmsSeo";
 import ChargerCatalogSegmentBar from "./ChargerCatalogSegmentBar";
 import "./buy-home-charger.css";
+import "./commercial-charger.css";
 
 const EUR_UAH_FALLBACK = 47;
 const USD_UAH_FALLBACK = 42;
 const CURRENCY_STORAGE_KEY = "commercial-charger-currency";
 const DEFAULT_SORT = "price-asc";
+/** Random default when the URL has no brand= (Eltis, UGV, EDS, or Infi). */
+const DEFAULT_BRAND_POOL = ["eltis", "ugv", "eds", "infi"];
 const CATALOG_PATH = "/buy-commercial-charger";
+
+function pickDefaultBrand() {
+  const i = Math.floor(Math.random() * DEFAULT_BRAND_POOL.length);
+  return DEFAULT_BRAND_POOL[i] || "eltis";
+}
 const POWER_FILTERS = [
   { id: "40plus", minKw: 40 },
   { id: "120plus", minKw: 120 },
@@ -21,7 +35,7 @@ const LAYOUT_IDS = ["station", "station_dcdc", "split", "split_dcdc"];
 const WARRANTY_YEARS = ["1", "2", "3"];
 const DOWNTIME_IDS = ["48h", "5d", "10d"];
 const MANAGER_IDS = ["yes", "no"];
-const BRAND_IDS = ["eds", "ugv", "eport", "infi", "eltis"];
+const BRAND_IDS = ["eltis", "eds", "ugv", "eport", "infi"];
 const BRAND_LABEL = {
   eds: "EDS Chargers",
   ugv: "UGV Chargers",
@@ -335,15 +349,113 @@ function Chip({ active, disabled, onClick, children }) {
   );
 }
 
+function buildCommercialJsonLd(t, locale, products) {
+  const origin =
+    typeof window !== "undefined" && window.location?.origin
+      ? window.location.origin
+      : OPEN_EMS_SITE_URL;
+  const pageUrl = `${origin}${CATALOG_PATH}`;
+  const orgId = `${origin}/#organization`;
+  const list = Array.isArray(products) ? products.slice(0, 40) : [];
+
+  return [
+    {
+      id: "organization",
+      data: {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "@id": orgId,
+        name: "220-km.com",
+        alternateName: ["Open EMS", "Вирій EMS"],
+        url: "https://220-km.com",
+        email: "sales@220-km.com",
+        logo: `${origin}/static/220-km-logo.svg`,
+        areaServed: { "@type": "Country", name: "Ukraine" },
+      },
+    },
+    {
+      id: "breadcrumb",
+      data: {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        itemListElement: [
+          {
+            "@type": "ListItem",
+            position: 1,
+            name: "Open EMS",
+            item: origin,
+          },
+          {
+            "@type": "ListItem",
+            position: 2,
+            name: t("commercialChargerPageTitle"),
+            item: pageUrl,
+          },
+        ],
+      },
+    },
+    {
+      id: "collection",
+      data: {
+        "@context": "https://schema.org",
+        "@type": "CollectionPage",
+        name: t("commercialLandingSeoTitle"),
+        description: t("commercialLandingSeoDescription"),
+        url: pageUrl,
+        inLanguage:
+          locale === "uk" ? "uk-UA" : locale === "es" ? "es-ES" : "en-US",
+        isPartOf: { "@id": orgId },
+        mainEntity: {
+          "@type": "ItemList",
+          numberOfItems: list.length,
+          itemListElement: list.map((p, i) => {
+            const offer =
+              p.price == null
+                ? undefined
+                : {
+                    "@type": "Offer",
+                    price: Number(p.price),
+                    priceCurrency: (p.currency || "EUR").toUpperCase(),
+                    availability: "https://schema.org/InStock",
+                    url: p.link || pageUrl,
+                  };
+            return {
+              "@type": "ListItem",
+              position: i + 1,
+              item: {
+                "@type": "Product",
+                name: p.title,
+                sku: p.sku,
+                brand: p.brand
+                  ? { "@type": "Brand", name: p.brand }
+                  : undefined,
+                image: p.image
+                  ? p.image.startsWith("http")
+                    ? p.image
+                    : `${origin}${p.image}`
+                  : undefined,
+                offers: offer,
+              },
+            };
+          }),
+        },
+      },
+    },
+    {
+      id: "faq",
+      data: {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        mainEntity: commercialLandingFaqJsonLd(t),
+      },
+    },
+  ];
+}
+
 /**
  * Buy commercial EV charger — EDS Chargers retail catalog with DC-hub filters.
  */
 export default function BuyCommercialChargerPage({ t, locale }) {
-  useOpenEmsSeo(t("commercialChargerPageTitle"), locale, t, {
-    variant: "landing",
-    canonicalPath: "/buy-commercial-charger",
-  });
-
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [products, setProducts] = useState([]);
@@ -352,7 +464,9 @@ export default function BuyCommercialChargerPage({ t, locale }) {
 
   const initialUrl = useMemo(() => readCatalogFromUrl(), []);
   const [sku, setSku] = useState(initialUrl.sku || "");
-  const [brand, setBrand] = useState(initialUrl.brand || "");
+  const [brand, setBrand] = useState(
+    () => initialUrl.brand || pickDefaultBrand(),
+  );
   const [layout, setLayout] = useState(initialUrl.layout || "");
   const [power, setPower] = useState(initialUrl.power || "");
   const [cooling, setCooling] = useState(initialUrl.cooling || "");
@@ -366,6 +480,26 @@ export default function BuyCommercialChargerPage({ t, locale }) {
   const [usdUah, setUsdUah] = useState(USD_UAH_FALLBACK);
   const [fxMeta, setFxMeta] = useState(null);
   const [buyRequest, setBuyRequest] = useState(null);
+
+  const pageJsonLd = useMemo(
+    () => buildCommercialJsonLd(t, locale, products),
+    [t, locale, products],
+  );
+
+  const originForOg =
+    typeof window !== "undefined" && window.location?.origin
+      ? window.location.origin
+      : OPEN_EMS_SITE_URL;
+
+  useOpenEmsSeo(t("commercialLandingSeoTitle"), locale, t, {
+    variant: "landing",
+    canonicalPath: CATALOG_PATH,
+    description: t("commercialLandingSeoDescription"),
+    ogTitle: t("commercialLandingSeoOgTitle"),
+    ogImage: `${originForOg}/static/commercial-chargers-og.png`,
+    keywords: t("commercialLandingSeoKeywords"),
+    jsonLd: pageJsonLd,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -597,20 +731,40 @@ export default function BuyCommercialChargerPage({ t, locale }) {
     });
   };
 
+  const openGenericQuote = (title) => {
+    const pageUrl =
+      typeof window !== "undefined"
+        ? `${window.location.origin}${CATALOG_PATH}`
+        : CATALOG_PATH;
+    // Ignore click/keyboard SyntheticEvent if the handler is passed to onClick directly.
+    const safeTitle = typeof title === "string" && title ? title : null;
+    setBuyRequest({
+      catalog: "commercial",
+      title: safeTitle || t("commercialChargerPageTitle"),
+      sku: null,
+      price: t("commercialChargerPriceOnRequest"),
+      pageUrl,
+      productUrl: null,
+    });
+  };
+
+  const browseCatalog = () => {
+    const el = document.getElementById("catalog");
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   return (
     <div className="home-charger-page">
       <div className="home-charger-page__inner">
         <ChargerCatalogSegmentBar t={t} active="business" />
-        <header className="home-charger-hero">
-          <h1 className="home-charger-hero__title">
-            {t("commercialChargerPageTitle")}
-          </h1>
-          <p className="home-charger-hero__sub">
-            {t("commercialChargerPageSubtitle")}
-          </p>
-        </header>
+        <CommercialHero
+          t={t}
+          onBrowseCatalog={browseCatalog}
+          onRequestQuote={() => openGenericQuote()}
+        />
 
         <section
+          id="catalog"
           className="home-charger-filters"
           aria-label={t("commercialChargerFiltersAria")}
         >
@@ -972,6 +1126,14 @@ export default function BuyCommercialChargerPage({ t, locale }) {
         ) : (
           <p className="home-charger-fx">{t("commercialChargerVatNote")}</p>
         )}
+
+        <CommercialMarketingSections
+          t={t}
+          onRequestQuote={() => openGenericQuote()}
+          onPartnerRequest={() =>
+            openGenericQuote(t("commercialLandingPartnerTitle"))
+          }
+        />
       </div>
 
       {buyRequest ? (

@@ -6,7 +6,7 @@ from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,6 +48,11 @@ from app.ubetter_power_scheduler import ubetter_power_snapshot_loop
 from app.gridlab_power_scheduler import gridlab_power_snapshot_loop
 from app.gridlab_history_scheduler import gridlab_history_sync_loop
 from app.huawei_power_scheduler import huawei_power_snapshot_loop
+from app.spa_page_meta import (
+    commercial_charger_meta_for_lang,
+    inject_spa_meta,
+    read_spa_index_html,
+)
 from app.huawei_station_energy_scheduler import huawei_station_energy_loop
 from app.deye_low_dam_charge_scheduler import deye_low_dam_charge_loop
 from app.deye_night_charge_scheduler import deye_night_charge_loop
@@ -491,6 +496,21 @@ if settings.OPEN_EMS_SERVE_SPA:
             )
         return FileResponse(REACT_INDEX, headers=_SPA_INDEX_CACHE)
 
+    def _spa_index_with_meta(meta: dict) -> HTMLResponse:
+        if not REACT_INDEX.is_file():
+            raise HTTPException(
+                status_code=503,
+                detail="React UI not built. Run: cd ui && npm run build",
+            )
+        try:
+            html = read_spa_index_html(REACT_INDEX)
+        except OSError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return HTMLResponse(
+            content=inject_spa_meta(html, meta),
+            headers=_SPA_INDEX_CACHE,
+        )
+
     @app.get("/", include_in_schema=False)
     async def root() -> FileResponse:
         return _react_spa_index()
@@ -524,8 +544,9 @@ if settings.OPEN_EMS_SERVE_SPA:
         return _react_spa_index()
 
     @app.get("/buy-commercial-charger", include_in_schema=False)
-    async def buy_commercial_charger_page() -> FileResponse:
-        return _react_spa_index()
+    async def buy_commercial_charger_page(request: Request) -> HTMLResponse:
+        lang = (request.query_params.get("lang") or "uk").lower()
+        return _spa_index_with_meta(commercial_charger_meta_for_lang(lang))
 
     @app.get("/rdn-consultation", include_in_schema=False)
     async def rdn_consultation_page() -> FileResponse:

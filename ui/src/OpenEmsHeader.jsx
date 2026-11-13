@@ -216,12 +216,6 @@ export default function OpenEmsHeader({
             <a className={navLinkClass("landing")} href="/about">
               {t("landingNavHome")}
             </a>
-            <a className={navLinkClass("marketplace")} href="/marketplace">
-              {t("marketplaceNavLabel")}
-            </a>
-            <a className={navLinkClass("orderBess")} href="/order-bess">
-              {t("orderBessNavLabel")}
-            </a>
             <a
               className={
                 activePage === "buyHomeCharger" ||
@@ -229,9 +223,15 @@ export default function OpenEmsHeader({
                   ? "landing-nav__link landing-nav__link--active"
                   : "landing-nav__link"
               }
-              href="/buy-home-charger"
+              href="/buy-commercial-charger"
             >
               {t("chargerCatalogNavLabel")}
+            </a>
+            <a className={navLinkClass("marketplace")} href="/marketplace">
+              {t("marketplaceNavLabel")}
+            </a>
+            <a className={navLinkClass("orderBess")} href="/order-bess">
+              {t("orderBessNavLabel")}
             </a>
             <a
               className={navLinkClass("rdnConsultation")}

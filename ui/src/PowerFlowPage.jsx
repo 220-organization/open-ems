@@ -5501,6 +5501,11 @@ export default function PowerFlowPage({
     submitDeyeToolbar,
   ]);
 
+  const closeDischargeFeedback = useCallback(() => {
+    setDischarge2Feedback('');
+    setToolbarFeedbackError(false);
+  }, []);
+
   const closeDeyeCommandModal = useCallback(() => {
     setDeyeCommandModal(null);
   }, []);
@@ -5549,6 +5554,15 @@ export default function PowerFlowPage({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [deyeCommandModal]);
+
+  useEffect(() => {
+    if (!discharge2Feedback) return undefined;
+    const onKey = e => {
+      if (e.key === 'Escape') closeDischargeFeedback();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [discharge2Feedback, closeDischargeFeedback]);
 
   useEffect(() => {
     const id = setInterval(() => setSimTick(n => n + 1), 60_000);
@@ -7448,16 +7462,6 @@ export default function PowerFlowPage({
                 </div>
               </div>
 
-              {dischargeFeedbackText ? (
-                <div
-                  className={`pf-discharge-feedback${toolbarFeedbackError ? ' pf-discharge-feedback--error' : ''}`}
-                  role="status"
-                  aria-live="polite"
-                >
-                  <p>{dischargeFeedbackText}</p>
-                </div>
-              ) : null}
-
             </div>
 
             <section
@@ -7708,6 +7712,42 @@ export default function PowerFlowPage({
                     onClick={() => void submitWritePinGate()}
                   >
                     {t('deyeWritePinConfirm')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {dischargeFeedbackText ? (
+            <div
+              className="pf-modal-backdrop pf-modal-backdrop--feedback"
+              role="presentation"
+              onClick={closeDischargeFeedback}
+            >
+              <div
+                className={`pf-modal pf-modal--toolbar-feedback${
+                  toolbarFeedbackError ? ' pf-modal--toolbar-feedback-error' : ''
+                }`}
+                role="alertdialog"
+                aria-modal="true"
+                aria-labelledby="pf-toolbar-feedback-title"
+                onClick={e => e.stopPropagation()}
+              >
+                <p
+                  id="pf-toolbar-feedback-title"
+                  className={`pf-modal-message pf-modal-message--multiline pf-toolbar-feedback-message${
+                    toolbarFeedbackError ? ' pf-modal-message--error' : ''
+                  }`}
+                >
+                  {dischargeFeedbackText}
+                </p>
+                <div className="pf-modal-actions pf-toolbar-feedback-actions">
+                  <button
+                    type="button"
+                    className="pf-modal-btn pf-modal-btn--primary"
+                    onClick={closeDischargeFeedback}
+                  >
+                    {t('deyeCommandResultClose')}
                   </button>
                 </div>
               </div>

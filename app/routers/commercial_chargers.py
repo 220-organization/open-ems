@@ -133,11 +133,11 @@ _UGV_SERVICE = {
 }
 
 _BRAND_ORDER = {
-    "EDS Chargers": 0,
-    "UGV Chargers": 1,
-    "E-port": 2,
-    "Infi Power": 3,
-    "Eltis": 4,
+    "Eltis": 0,
+    "EDS Chargers": 1,
+    "UGV Chargers": 2,
+    "E-port": 3,
+    "Infi Power": 4,
 }
 
 # Infi Power IDS via Grid Energy: 36-month warranty, shipment in 35 days.
@@ -1012,7 +1012,7 @@ async def list_commercial_chargers(refresh: bool = False) -> dict[str, Any]:
         }
 
     payload = _merge_catalog(
-        eds_payload, ugv_payload, eport_payload, infi_payload, eltis_payload
+        eltis_payload, eds_payload, ugv_payload, eport_payload, infi_payload
     )
     payload["cached"] = False
     payload["cache_ttl_sec"] = ttl

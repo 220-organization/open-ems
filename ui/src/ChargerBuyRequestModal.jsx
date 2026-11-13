@@ -62,6 +62,10 @@ export default function ChargerBuyRequestModal({ t, product, onClose }) {
           product_url: product.productUrl || null,
         }),
       });
+      if (res.status === 429) {
+        setError(t('chargerBuyRequestRateLimited'));
+        return;
+      }
       if (!res.ok) throw new Error(`buy request ${res.status}`);
       setSent(true);
     } catch {
