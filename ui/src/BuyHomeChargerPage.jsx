@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import ChargerBuyRequestModal from "./ChargerBuyRequestModal";
+import { catalogPageUrlFromLocation } from "./catalogPageUrl";
 import {
   HOME_CHARGER_DEFAULT_SORT,
   applyHomeChargerCatalogSearch,
@@ -12,7 +13,6 @@ import "./buy-home-charger.css";
 
 const USD_UAH_FALLBACK = 42;
 const CURRENCY_STORAGE_KEY = "home-charger-currency";
-const CATALOG_PATH = "/buy-home-charger";
 
 function apiUrl(path) {
   const base = (process.env.REACT_APP_API_BASE_URL || "").replace(/\/$/, "");
@@ -67,27 +67,6 @@ function writeCatalogToUrl(state) {
   } catch {
     /* ignore */
   }
-}
-
-function productQuotePageUrl(p) {
-  if (typeof window === "undefined") return CATALOG_PATH;
-  const u = new URL(CATALOG_PATH, window.location.origin);
-  const lang = new URLSearchParams(window.location.search).get("lang");
-  if (lang) u.searchParams.set("lang", lang);
-  applyHomeChargerCatalogSearch(u.searchParams, {
-    kind:
-      p.kind === "adapter" || p.kind === "cable"
-        ? "accessory"
-        : p.kind === "charger"
-          ? "charger"
-          : "",
-    power: p.power_bucket || "",
-    connector: (p.connectors && p.connectors[0]) || "",
-    phases: p.phases != null ? String(p.phases) : "",
-    brand: p.brand || "",
-    sku: p.id || "",
-  });
-  return u.toString();
 }
 
 function findSkuCard(sku) {
@@ -382,7 +361,7 @@ export default function BuyHomeChargerPage({ t, locale }) {
       title: p.title,
       sku: p.id,
       price: fmtMoney(p.price, p.currency, locale),
-      pageUrl: productQuotePageUrl(p),
+      pageUrl: catalogPageUrlFromLocation({ sku: p.id }),
       productUrl: p.link,
     });
   };

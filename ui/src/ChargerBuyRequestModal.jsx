@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { catalogPageUrlFromLocation } from './catalogPageUrl';
 
 const MIN_PHONE_LEN = 5;
 
@@ -58,7 +59,10 @@ export default function ChargerBuyRequestModal({ t, product, onClose }) {
           title: product.title || null,
           sku: product.sku || null,
           price: product.price || null,
-          page_url: product.pageUrl || null,
+          page_url:
+            catalogPageUrlFromLocation(product.sku ? { sku: product.sku } : {}) ||
+            product.pageUrl ||
+            null,
           product_url: product.productUrl || null,
         }),
       });
