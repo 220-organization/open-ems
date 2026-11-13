@@ -565,6 +565,30 @@ class BessDiscountRequest(Base):
     )
 
 
+class SalesBuyRequest(Base):
+    """Station / BESS buy (and discount) leads shown on admin Buy Request + calendar."""
+
+    __tablename__ = "sales_buy_request"
+
+    id: Mapped[Any] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    phone: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    slot_id: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    slot_label: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    amount_label: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, server_default="'requested'")
+    page_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    payload: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
+    created_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
 class MarketplaceLocation(Base):
     """Public marketplace location offer / looking request (moderation via /admin)."""
 

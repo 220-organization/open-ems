@@ -238,6 +238,10 @@
   text-transform: capitalize;
 }
 
+.calendarAlways {
+  margin: 0 0 1rem;
+}
+
 .weekScroll {
   overflow-x: auto;
   border: 1px solid #c9d5ce;
@@ -345,6 +349,56 @@
 .weekEventPayment {
   background: #e8eef8;
   box-shadow: inset 3px 0 0 #2a4d8f;
+}
+
+.weekEventStation {
+  background: #fce7f3;
+  box-shadow: inset 3px 0 0 #fc019b;
+}
+
+.weekEventBess {
+  background: #fff4e0;
+  box-shadow: inset 3px 0 0 #d97706;
+}
+
+.calLegend {
+  list-style: none;
+  margin: 0.55rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem 1rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #4a5c52;
+}
+
+.calLegend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.calLegendSwatch {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 3px;
+  flex: 0 0 auto;
+}
+
+.calLegendConsultation {
+  background: #e8eef8;
+  box-shadow: inset 3px 0 0 #2a4d8f;
+}
+
+.calLegendStation {
+  background: #fce7f3;
+  box-shadow: inset 3px 0 0 #fc019b;
+}
+
+.calLegendBess {
+  background: #fff4e0;
+  box-shadow: inset 3px 0 0 #d97706;
 }
 
 .weekEventName {

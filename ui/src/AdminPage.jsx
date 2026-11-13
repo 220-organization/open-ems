@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useOpenEmsSeo } from "./useOpenEmsSeo";
-import BessLeadCrud from "./admin/BessLeadCrud";
+import AdminWeekCalendar from "./admin/AdminWeekCalendar";
+import BuyRequestCrud from "./admin/BuyRequestCrud";
 import MarketplaceModeration from "./admin/MarketplaceModeration";
 import RdnConsultationCrud from "./admin/RdnConsultationCrud";
 import styles from "./AdminPage.module.css";
 
 const TOKEN_KEY = "openEmsAdminToken";
-const SECTIONS = ["marketplace", "rdn", "bess"];
+const SECTIONS = ["marketplace", "rdn", "buy"];
 
 function apiBase() {
   return (process.env.REACT_APP_API_BASE_URL || "").replace(/\/$/, "");
@@ -20,7 +21,7 @@ function isLocalAdmin() {
 
 function sectionLabel(t, section) {
   if (section === "rdn") return t("adminSectionRdn");
-  if (section === "bess") return t("adminSectionBess");
+  if (section === "buy") return t("adminSectionBuyRequest");
   return t("adminSectionMarketplace");
 }
 
@@ -43,7 +44,12 @@ export default function AdminPage({ t, locale }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
+  const [requestedConsultationCount, setRequestedConsultationCount] = useState(0);
+  const [requestedBuyCount, setRequestedBuyCount] = useState(0);
+  const [consultationItems, setConsultationItems] = useState([]);
+  const [buyItems, setBuyItems] = useState([]);
   const [section, setSection] = useState("rdn");
+  const [calendarTick, setCalendarTick] = useState(0);
 
   const logout = useCallback(() => {
     if (isLocalAdmin()) return;
@@ -88,24 +94,56 @@ export default function AdminPage({ t, locale }) {
   useEffect(() => {
     if (!token) {
       setPendingCount(0);
+      setRequestedConsultationCount(0);
+      setRequestedBuyCount(0);
+      setConsultationItems([]);
+      setBuyItems([]);
       return undefined;
     }
     let cancelled = false;
+    const countRequested = (items) =>
+      (Array.isArray(items) ? items : []).filter(
+        (row) => String(row.status || "").toLowerCase() === "requested",
+      ).length;
     const loadPending = async () => {
       try {
-        const response = await fetch(
-          `${apiBase()}/api/marketplace/locations/admin/pending-count`,
-          {
+        const [marketRes, rdnRes, buyRes] = await Promise.all([
+          fetch(`${apiBase()}/api/marketplace/locations/admin/pending-count`, {
             headers: { token },
-          },
-        );
-        if (response.status === 401) {
+          }),
+          fetch(`${apiBase()}/api/rdn-consultation/admin`, {
+            headers: { token },
+            cache: "no-store",
+          }),
+          fetch(`${apiBase()}/api/sales-buy-request/admin`, {
+            headers: { token },
+            cache: "no-store",
+          }),
+        ]);
+        if (marketRes.status === 401 || rdnRes.status === 401 || buyRes.status === 401) {
           logout();
           return;
         }
-        if (!response.ok) return;
-        const data = await response.json();
-        if (!cancelled) setPendingCount(Number(data.pending_count) || 0);
+        if (marketRes.ok) {
+          const data = await marketRes.json();
+          if (!cancelled) setPendingCount(Number(data.pending_count) || 0);
+        }
+        if (rdnRes.ok) {
+          const data = await rdnRes.json();
+          const items = Array.isArray(data.items) ? data.items : [];
+          if (!cancelled) {
+            setConsultationItems(items);
+            setRequestedConsultationCount(countRequested(items));
+          }
+        }
+        if (buyRes.ok) {
+          const data = await buyRes.json();
+          const items = Array.isArray(data.items) ? data.items : [];
+          if (!cancelled) {
+            setBuyItems(items);
+            setRequestedBuyCount(countRequested(items));
+          }
+        }
       } catch {
         /* ignore */
       }
@@ -116,7 +154,45 @@ export default function AdminPage({ t, locale }) {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [token, logout]);
+  }, [token, logout, section, calendarTick]);
+
+  const headerBadgeCount = pendingCount + requestedConsultationCount + requestedBuyCount;
+
+  const calendarItems = useMemo(
+    () => [
+      ...consultationItems.map((row) => ({
+        ...row,
+        calendar_group: "consultation",
+        source: "consultation",
+      })),
+      ...buyItems.map((row) => ({
+        ...row,
+        source: "buy",
+      })),
+    ],
+    [consultationItems, buyItems],
+  );
+
+  const calendarMetaLabel = useCallback(
+    (row) => {
+      if (row.source === "buy") {
+        if (row.kind === "bess") return t("adminBuyKindBess");
+        if (row.kind === "bess_discount") return t("adminBuyKindBessDiscount");
+        return t("adminBuyKindStation");
+      }
+      return row.kind === "callback" ? t("rdnAdminKindCallback") : t("rdnAdminKindPayment");
+    },
+    [t],
+  );
+
+  const onCalendarSelect = useCallback((row) => {
+    if (row.source === "buy") setSection("buy");
+    else setSection("rdn");
+  }, []);
+
+  const refreshCalendar = useCallback(() => {
+    setCalendarTick((n) => n + 1);
+  }, []);
 
   return (
     <div className={styles.page}>
@@ -125,8 +201,8 @@ export default function AdminPage({ t, locale }) {
           <div>
             <h1 className={styles.title}>
               {t("adminPageTitle")}
-              {pendingCount > 0 ? (
-                <span className={styles.badge}>{pendingCount}</span>
+              {headerBadgeCount > 0 ? (
+                <span className={styles.badge}>{headerBadgeCount}</span>
               ) : null}
             </h1>
             <p className={styles.lead}>{t("adminPageLead")}</p>
@@ -175,9 +251,24 @@ export default function AdminPage({ t, locale }) {
                   {id === "marketplace" && pendingCount > 0 ? (
                     <span className={styles.badge}>{pendingCount}</span>
                   ) : null}
+                  {id === "rdn" && requestedConsultationCount > 0 ? (
+                    <span className={styles.badge}>{requestedConsultationCount}</span>
+                  ) : null}
+                  {id === "buy" && requestedBuyCount > 0 ? (
+                    <span className={styles.badge}>{requestedBuyCount}</span>
+                  ) : null}
                 </button>
               ))}
             </div>
+            <section className={styles.calendarAlways} aria-label={t("adminWeekAria")}>
+              <AdminWeekCalendar
+                t={t}
+                locale={locale}
+                items={calendarItems}
+                onSelect={onCalendarSelect}
+                metaLabel={calendarMetaLabel}
+              />
+            </section>
             {section === "marketplace" ? (
               <MarketplaceModeration
                 t={t}
@@ -187,9 +278,23 @@ export default function AdminPage({ t, locale }) {
               />
             ) : null}
             {section === "rdn" ? (
-              <RdnConsultationCrud t={t} token={token} locale={locale} />
+              <RdnConsultationCrud
+                t={t}
+                token={token}
+                locale={locale}
+                hideCalendar
+                onDataChanged={refreshCalendar}
+              />
             ) : null}
-            {section === "bess" ? <BessLeadCrud t={t} token={token} /> : null}
+            {section === "buy" ? (
+              <BuyRequestCrud
+                t={t}
+                token={token}
+                locale={locale}
+                hideCalendar
+                onDataChanged={refreshCalendar}
+              />
+            ) : null}
           </>
         )}
       </div>

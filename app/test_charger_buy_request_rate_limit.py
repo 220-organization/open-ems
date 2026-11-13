@@ -13,13 +13,22 @@ def _reset_limits(monkeypatch):
     async def _ok_telegram(_msg: str) -> bool:
         return True
 
+    async def _ok_save(*_args, **_kwargs):
+        return None
+
     monkeypatch.setattr(mod, "send_telegram_message", _ok_telegram)
+    monkeypatch.setattr(mod, "save_sales_buy_request", _ok_save)
     yield
     mod.reset_buy_request_rate_limits_for_tests()
 
 
 def _client() -> TestClient:
     app = FastAPI()
+
+    async def _fake_db():
+        yield None
+
+    app.dependency_overrides[mod.get_db] = _fake_db
     app.include_router(router)
     return TestClient(app)
 
