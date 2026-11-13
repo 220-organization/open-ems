@@ -21,6 +21,11 @@ from app import settings
 from app.admin_auth import require_admin_token
 from app.db import get_db
 from app.models import BessDiscountRequest
+from app.sales_buy_request_store import (
+    KIND_BESS,
+    KIND_BESS_DISCOUNT,
+    save_sales_buy_request,
+)
 from app.telegram_notify import format_bess_lead_message, send_telegram_message
 
 logger = logging.getLogger(__name__)
@@ -1176,7 +1181,10 @@ class BuyRequestResponse(BaseModel):
 
 
 @router.post("/buy-request", response_model=BuyRequestResponse)
-async def create_buy_request(payload: BuyRequestBody) -> BuyRequestResponse:
+async def create_buy_request(
+    payload: BuyRequestBody,
+    db: AsyncSession = Depends(get_db),
+) -> BuyRequestResponse:
     """Notify support chat about a buy request. The user stays on the page."""
     phone = (payload.phone or "").strip()
     if len(phone) < 5:
@@ -1199,6 +1207,29 @@ async def create_buy_request(payload: BuyRequestBody) -> BuyRequestResponse:
     notified = await send_telegram_message(msg)
     if not notified:
         raise HTTPException(status_code=502, detail="Unable to notify support")
+
+    amount_label = None
+    if payload.total_usd is not None:
+        amount_label = f"${payload.total_usd:,.2f}"
+    kit_label = None
+    if isinstance(payload.kit, dict):
+        kit_label = payload.kit.get("label") or payload.kit.get("title")
+    await save_sales_buy_request(
+        db,
+        kind=KIND_BESS,
+        name=name,
+        phone=phone,
+        title=kit_label or (payload.preset_id or "Order BESS"),
+        amount_label=amount_label,
+        status="requested",
+        page_url=(payload.page_url or "").strip() or None,
+        payload={
+            "preset_id": payload.preset_id,
+            "business_type": payload.business_type,
+            "total_usd": payload.total_usd,
+            "kit": payload.kit,
+        },
+    )
 
     logger.info("BESS buy request preset=%s notified=%s", payload.preset_id, notified)
     return BuyRequestResponse(ok=True, notified=True)
@@ -1322,6 +1353,28 @@ async def create_discount_request(
         page_url=payload.page_url,
     )
     notified = await send_telegram_message(msg)
+    amount_label = None
+    if payload.total_usd is not None:
+        amount_label = f"${payload.total_usd:,.2f}"
+    await save_sales_buy_request(
+        db,
+        kind=KIND_BESS_DISCOUNT,
+        name=name,
+        phone=phone,
+        title=payload.preset_id.strip()[:64],
+        amount_label=amount_label,
+        status="requested",
+        page_url=(payload.page_url or "").strip() or None,
+        payload={
+            "preset_id": payload.preset_id,
+            "business_type": payload.business_type,
+            "units": payload.units,
+            "total_usd": payload.total_usd,
+            "contact": contact,
+            "kit": payload.kit,
+            "legacy_discount_id": lead_id,
+        },
+    )
     return DiscountRequestResponse(id=lead_id, ok=True, notified=notified)
 
 

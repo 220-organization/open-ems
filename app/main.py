@@ -28,6 +28,7 @@ from app.routers import (
     nbu_fx,
     power_flow_totals,
     rdn_consultation,
+    sales_buy_request,
     server_metrics,
     ubetter_proxy,
 )
@@ -468,6 +469,7 @@ app.include_router(bess_order.router)
 app.include_router(home_chargers.router)
 app.include_router(commercial_chargers.router)
 app.include_router(charger_buy_request.router)
+app.include_router(sales_buy_request.router)
 app.include_router(marketplace.router)
 app.include_router(marketplace.admin_router)
 

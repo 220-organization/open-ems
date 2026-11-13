@@ -8,10 +8,13 @@ from datetime import datetime
 from typing import Dict, Literal, Optional, Tuple
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db import get_db
 from app.rate_limit_middleware import client_ip_from_request
+from app.sales_buy_request_store import KIND_STATION, save_sales_buy_request
 from app.telegram_notify import (
     format_charger_buy_request_message,
     send_telegram_message,
@@ -78,7 +81,9 @@ class BuyRequestResponse(BaseModel):
 
 @router.post("", response_model=BuyRequestResponse)
 async def create_buy_request(
-    payload: BuyRequestBody, request: Request
+    payload: BuyRequestBody,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
 ) -> BuyRequestResponse:
     """Notify support chat about a buy request. The user never leaves the catalog."""
     phone = (payload.phone or "").strip()
@@ -100,19 +105,42 @@ async def create_buy_request(
             headers={"Retry-After": "86400"},
         )
 
+    name = (payload.name or "").strip() or None
+    title = (payload.title or "").strip() or None
+    sku = (payload.sku or "").strip() or None
+    price = (payload.price or "").strip() or None
+    page_url = (payload.page_url or "").strip() or None
+    product_url = (payload.product_url or "").strip() or None
+
     msg = format_charger_buy_request_message(
         catalog=payload.catalog,
         phone=phone,
-        name=(payload.name or "").strip() or None,
-        title=(payload.title or "").strip() or None,
-        sku=(payload.sku or "").strip() or None,
-        price=(payload.price or "").strip() or None,
-        page_url=(payload.page_url or "").strip() or None,
-        product_url=(payload.product_url or "").strip() or None,
+        name=name,
+        title=title,
+        sku=sku,
+        price=price,
+        page_url=page_url,
+        product_url=product_url,
     )
     notified = await send_telegram_message(msg)
     if not notified:
         raise HTTPException(status_code=502, detail="Unable to notify support")
+
+    await save_sales_buy_request(
+        db,
+        kind=KIND_STATION,
+        name=name,
+        phone=phone,
+        title=title or sku,
+        amount_label=price,
+        status="requested",
+        page_url=page_url or product_url,
+        payload={
+            "catalog": payload.catalog,
+            "sku": sku,
+            "product_url": product_url,
+        },
+    )
 
     new_count = await record_buy_request_for_ip(client_ip)
     logger.info(

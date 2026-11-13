@@ -872,15 +872,17 @@ body {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 14px;
+  gap: 10px 16px;
 }
 
 .pf-power-limit-field {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 6px 8px;
   font-size: 0.85rem;
   color: var(--pf-text-secondary);
+  min-width: 0;
 }
 
 .pf-power-limit-input {
@@ -943,6 +945,8 @@ select.pf-power-limit-select {
 .pf-power-limit-amps {
   color: var(--pf-text-muted);
   font-size: 0.75rem;
+  white-space: nowrap;
+  margin-left: 2px;
 }
 
 .pf-discharge-toolbar .pf-grid-discharge-actions--header { gap: 8px 10px; }
@@ -1669,8 +1673,7 @@ select.pf-power-limit-select {
   background: transparent;
   border: none;
   box-shadow: none;
-  padding-left: 0;
-  padding-right: 0;
+  padding: 4px 0 0;
 }
 
 .pf-arbitrage-details-body {
@@ -1678,7 +1681,10 @@ select.pf-power-limit-select {
   flex-direction: column;
   align-items: stretch;
   width: 100%;
-  margin-top: 10px;
+  margin-top: 0;
+  padding: 4px 16px 12px;
+  box-sizing: border-box;
+  gap: 8px;
 }
 
 .pf-arbitrage-fieldset {
@@ -1690,6 +1696,66 @@ select.pf-power-limit-select {
   display: flex;
   flex-direction: column;
   align-items: stretch;
+  gap: 8px;
+}
+
+.pf-arbitrage-details .pf-deye-command-stack {
+  gap: 12px;
+}
+
+.pf-arbitrage-details .pf-deye-command-line--charge,
+.pf-arbitrage-details .pf-deye-command-line--limits {
+  padding-top: 12px;
+}
+
+.pf-arbitrage-details .pf-grid-discharge-actions--header {
+  gap: 10px 12px;
+}
+
+.pf-arbitrage-details .pf-discharge-delta-controls {
+  gap: 10px;
+  justify-content: flex-start;
+}
+
+.pf-arbitrage-details .pf-peak-dam-toggle {
+  max-width: none;
+  gap: 8px;
+}
+
+.pf-arbitrage-details .pf-power-limit-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px 12px;
+  align-items: center;
+}
+
+.pf-arbitrage-details .pf-power-limit-field {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(4.4rem, 5.5rem) auto auto;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 4px;
+  width: 100%;
+}
+
+.pf-arbitrage-details .pf-power-limit-field > span:first-child {
+  font-weight: 600;
+  color: var(--pf-text-secondary);
+}
+
+.pf-arbitrage-details .pf-power-limit-amps {
+  margin-left: 0;
+  justify-self: start;
+}
+
+@media (min-width: 560px) {
+  .pf-arbitrage-details .pf-power-limit-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .pf-arbitrage-details .pf-power-limit-field {
+    grid-template-columns: auto minmax(4.2rem, 1fr) auto auto;
+  }
 }
 
 .pf-arbitrage-fieldset:disabled {
@@ -1704,6 +1770,7 @@ select.pf-power-limit-select {
   width: 100%;
   max-width: 100%;
   align-self: stretch;
+  margin-top: 4px;
   margin-left: 0;
   border-radius: 10px;
   border-left: 1px solid var(--pf-pink, #fc019b);

@@ -157,6 +157,11 @@ if ! docker compose exec -T db psql -U openems -d openems -v ON_ERROR_STOP=1 -f 
   echo "WARN: BESS discount seed failed (non-fatal)." >&2
 fi
 
+echo "Seeding sales buy requests (station / BESS) for admin calendar…" >&2
+if ! docker compose exec -T db psql -U openems -d openems -v ON_ERROR_STOP=1 -f - < ./scripts/seed_sales_buy_requests.sql; then
+  echo "WARN: sales buy request seed failed (non-fatal)." >&2
+fi
+
 echo "Running ROI dev DB seed for DEVICE_SN=${DEVICE_SN} (./scripts/seed_roi_dev_data.sh)…" >&2
 if ! ./scripts/seed_roi_dev_data.sh; then
   echo "WARN: ROI dev seed failed (non-fatal). Fix DATABASE_URL or run ./scripts/seed_roi_dev_data.sh manually." >&2
