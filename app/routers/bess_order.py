@@ -485,16 +485,179 @@ def _looks_like_sku(article: str) -> bool:
     )
 
 
+_ARRIVAL_WINDOW_RE = re.compile(
+    r"(\d{1,2}\s*[-–—]\s*\d{1,2}\s*"
+    r"(?:січня|лютого|березня|квітня|травня|червня|липня|серпня|"
+    r"вересня|жовтня|листопада|грудня))",
+    re.IGNORECASE,
+)
+
+
+def _clean_arrival_window(raw: str) -> str:
+    match = _ARRIVAL_WINDOW_RE.search(re.sub(r"\s+", " ", raw or ""))
+    if not match:
+        return ""
+    return re.sub(r"\s+", " ", match.group(1)).strip()
+
+
+def _is_specific_arrival(availability: str) -> bool:
+    return bool(_clean_arrival_window(availability))
+
+
+def _etu_price_columns(norms: list[str]) -> tuple[Optional[int], Optional[int]]:
+    """First UAH price column is prepaid, the next is TOV.
+
+    The description header mentions «передплата» and «ТОВ» but is not a price.
+    Current sheets label both money columns «Ціна під замовлення, грн».
+    """
+    price_cols: list[int] = []
+    for i, header in enumerate(norms):
+        if header.startswith("опис"):
+            continue
+        if "ціна" in header and ("грн" in header or "замовлення" in header):
+            price_cols.append(i)
+    if price_cols:
+        prepaid_i = price_cols[0]
+        tov_i = price_cols[1] if len(price_cols) > 1 else None
+        return prepaid_i, tov_i
+
+    prepaid_i = None
+    tov_i = None
+    for i, header in enumerate(norms):
+        if header.startswith("опис"):
+            continue
+        if prepaid_i is None and "передплата" in header:
+            prepaid_i = i
+        if tov_i is None and re.search(r"(^|[\s,])тов([\s,]|$)", header):
+            tov_i = i
+    return prepaid_i, tov_i
+
+
+def _row_arrival_window(row: list[Any], after_index: Optional[int]) -> str:
+    start = 0 if after_index is None else after_index + 1
+    for cell in row[start:]:
+        text = re.sub(r"\s+", " ", str(cell or "")).strip()
+        if not text or len(text) > 40:
+            continue
+        window = _clean_arrival_window(text)
+        if window:
+            return window
+    return ""
+
+
+def _unique_etu_rows(items: dict[str, dict[str, Any]]):
+    seen: set[int] = set()
+    for row in items.values():
+        ident = id(row)
+        if ident in seen:
+            continue
+        seen.add(ident)
+        yield row
+
+
+def _banner_token_matches(article: str, token: str, kind: str) -> bool:
+    key = _sku_key(article)
+    tok = token.lower().replace("к", "k")
+    tok = re.sub(r"\([^)]*\)", "", tok)
+    tok = re.sub(r"[^a-z0-9]", "", tok)
+    if not tok or not key:
+        return False
+    if kind == "inverter":
+        match = re.fullmatch(r"(\d+)k(?:lp(\d))?", tok)
+        if not match or "HP" in key:
+            return False
+        kw, lp = match.group(1), match.group(2)
+        if not re.search(rf"SUN{kw}K", key):
+            return False
+        if lp and f"LP{lp}" not in key:
+            return False
+        return True
+    if tok == "proc":
+        return "F5PROC" in key
+    if tok in ("f12max", "f16max"):
+        return tok.upper() in key
+    if tok == "f16":
+        return "F16" in key and "MAX" not in key
+    if tok == "f12":
+        return "F12" in key and "MAX" not in key
+    return False
+
+
+def _apply_etu_banner_availability(items: dict[str, dict[str, Any]], banner: str) -> None:
+    """Fill generic NL availability from the sheet intro (Kyiv stock and 6K window)."""
+    text = re.sub(r"\s+", " ", banner or "")
+    if not text:
+        return
+    for match in re.finditer(
+        r"(\d+)\s*k\s+інвертор.{0,160}?" + _ARRIVAL_WINDOW_RE.pattern,
+        text,
+        re.IGNORECASE,
+    ):
+        kw = match.group(1)
+        date = _clean_arrival_window(match.group(2))
+        if not date:
+            continue
+        for row in _unique_etu_rows(items):
+            art = str(row.get("article") or "")
+            if row.get("availability") != _ETU_AVAIL:
+                continue
+            if re.search(rf"SUN-{kw}K", art, re.IGNORECASE):
+                row["availability"] = date
+
+    kyiv = re.search(r"київ\s+" + _ARRIVAL_WINDOW_RE.pattern, text, re.IGNORECASE)
+    if not kyiv:
+        return
+    date = _clean_arrival_window(kyiv.group(1))
+    if not date:
+        return
+    tail = text[kyiv.end() :]
+    cut = re.search(r"\d+\s*k\s+інвертор", tail, re.IGNORECASE)
+    if cut:
+        tail = tail[: cut.start()]
+    inv_match = re.search(r"інвертор\w*\s*:", tail, re.IGNORECASE)
+    bat_match = re.search(r"акумулятор\w*\s*:", tail, re.IGNORECASE)
+    inv_part = ""
+    bat_part = ""
+    if inv_match and bat_match and inv_match.start() < bat_match.start():
+        inv_part = tail[inv_match.end() : bat_match.start()]
+        bat_part = tail[bat_match.end() :]
+    elif inv_match and bat_match:
+        bat_part = tail[bat_match.end() : inv_match.start()]
+        inv_part = tail[inv_match.end() :]
+    elif inv_match:
+        inv_part = tail[inv_match.end() :]
+    elif bat_match:
+        bat_part = tail[bat_match.end() :]
+
+    def tokens(part: str) -> list[str]:
+        part = re.sub(r"\([^)]*\)", "", part)
+        return [piece.strip() for piece in part.split(",") if piece.strip()]
+
+    inv_tokens = tokens(inv_part)
+    bat_tokens = tokens(bat_part)
+    for row in _unique_etu_rows(items):
+        if row.get("availability") != _ETU_AVAIL:
+            continue
+        art = str(row.get("article") or "")
+        if any(_banner_token_matches(art, tok, "inverter") for tok in inv_tokens):
+            row["availability"] = date
+        elif any(_banner_token_matches(art, tok, "battery") for tok in bat_tokens):
+            row["availability"] = date
+
+
 def _parse_etu_sheet_csv(text: str) -> dict[str, dict[str, Any]]:
     """Parse Energotrendy Ukrainy UAH price list (model + prepaid / TOV columns)."""
     items: dict[str, dict[str, Any]] = {}
     reader = csv.reader(io.StringIO(text or ""))
     headers: Optional[list[str]] = None
+    banner_chunks: list[str] = []
 
     for row in reader:
         if not row or all(not str(c).strip() for c in row):
             continue
         norms_joined = " ".join(_norm_header(c) for c in row)
+        if headers is None:
+            banner_chunks.append(" ".join(str(c or "") for c in row))
         if headers is None and "модель" in norms_joined and "ціна" in norms_joined:
             headers = [str(c or "") for c in row]
             continue
@@ -506,19 +669,7 @@ def _parse_etu_sheet_csv(text: str) -> dict[str, dict[str, Any]]:
         cap_i = _find_col(headers, "Потужність/ємність", "Потужність")
         brand_i = 1 if len(headers) > 1 else None
         norms = [_norm_header(h) for h in headers]
-        prepaid_i = None
-        tov_i = None
-        for i, h in enumerate(norms):
-            if prepaid_i is None and "передплата" in h:
-                prepaid_i = i
-            # «тов» also appears inside «гарантована» — require a token, not a substring.
-            if tov_i is None and re.search(r"(^|[\s,])тов([\s,]|$)", h):
-                tov_i = i
-        if prepaid_i is None:
-            for i, h in enumerate(norms):
-                if "ціна" in h and "грн" in h and "тов" not in h.split() and "пдв" not in h:
-                    prepaid_i = i
-                    break
+        prepaid_i, tov_i = _etu_price_columns(norms)
 
         if model_i is None or model_i >= len(row):
             continue
@@ -555,6 +706,13 @@ def _parse_etu_sheet_csv(text: str) -> dict[str, dict[str, Any]]:
         if cap and not desc:
             name = f"{article}, {cap}"
 
+        price_after = None
+        for idx in (prepaid_i, tov_i):
+            if idx is None:
+                continue
+            price_after = idx if price_after is None else max(price_after, idx)
+        arrival = _row_arrival_window(row, price_after)
+
         key = _sku_key(article) or article.upper().replace(" ", "")
         items[key] = {
             "article": article,
@@ -563,11 +721,12 @@ def _parse_etu_sheet_csv(text: str) -> dict[str, dict[str, Any]]:
             "brand": brand,
             "prepaidUah": prepaid if prepaid and prepaid > 0 else None,
             "tovUah": tov if tov and tov > 0 else None,
-            "availability": _ETU_AVAIL,
+            "availability": arrival or _ETU_AVAIL,
         }
         raw_key = _sku_key(article_raw)
         if raw_key and raw_key not in items:
             items[raw_key] = items[key]
+    _apply_etu_banner_availability(items, " ".join(banner_chunks))
     return items
 
 
@@ -590,6 +749,28 @@ _NO_ARRIVAL_RE = re.compile(
 
 def _has_no_arrival_dates(availability: str) -> bool:
     return bool(_NO_ARRIVAL_RE.search(availability or ""))
+
+
+_BIOM_DATE_RE = re.compile(r"\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?")
+_BIOM_INSTOCK_RE = re.compile(r"в\s*наявност|закінчил", re.IGNORECASE)
+
+
+def _biom_arrival_label(text: str) -> str:
+    """Date or in-stock text from a BIOM «Наявність» cell."""
+    raw = re.sub(r"\s+", " ", (text or "")).strip(" .")
+    if not raw or _has_no_arrival_dates(raw):
+        return ""
+    if _BIOM_INSTOCK_RE.search(raw) or _BIOM_DATE_RE.search(raw):
+        return raw
+    return ""
+
+
+def _with_promo_arrival(availability: str, availability_installer: str) -> tuple[str, str]:
+    """Public BIOM sheet date replaces the installer-sheet window."""
+    promo = _biom_arrival_label(availability)
+    if promo:
+        return promo, promo
+    return (availability or "").strip(), (availability_installer or "").strip()
 
 
 def _merge_etu_items(
@@ -653,18 +834,34 @@ def _merge_etu_items(
         elif existing.get("retailVatUsd") is None and vat_usd is not None:
             existing["retailVatUsd"] = vat_usd
 
-        # ETU can supply this SKU (prepay NL) even when BIOM price wins — unlock UI selection
-        # when BIOM only says «дані про приходи відсутні».
+        # ETU can supply this SKU even when the BIOM cash price wins — unlock the UI
+        # when BIOM only says «дані про приходи відсутні». A real BIOM date
+        # (for example «10.12» or «в наявності») stays with that BIOM price.
+        # ETU's own window is used when the cash price comes from ETU, or BIOM
+        # has no arrival of its own.
         if etu_avail and (cash_usd is not None or fop_usd is not None):
             biom_avail = (
                 f"{existing.get('availabilityInstaller') or ''} "
                 f"{existing.get('availability') or ''}"
             )
-            if _has_no_arrival_dates(biom_avail):
+            biom_dated = bool(
+                _biom_arrival_label(str(existing.get("availability") or ""))
+                or _biom_arrival_label(str(existing.get("availabilityInstaller") or ""))
+            )
+            cash_from_etu = existing.get("priceSourceCash") == "etu"
+            shown = (
+                existing.get("availabilityInstaller") or existing.get("availability") or ""
+            ).strip()
+            if biom_dated and not cash_from_etu:
+                pass
+            elif (
+                cash_from_etu
+                or _has_no_arrival_dates(biom_avail)
+                or not shown
+                or _is_specific_arrival(etu_avail)
+            ):
                 existing["availabilityInstaller"] = etu_avail
                 existing["availability"] = etu_avail
-            elif not (existing.get("availabilityInstaller") or "").strip():
-                existing["availabilityInstaller"] = etu_avail
 
 
 def _parse_sheet_csv(text: str, *, kind: str) -> tuple[float, dict[str, dict[str, Any]]]:
@@ -1046,7 +1243,17 @@ async def _load_price_list(*, force: bool = False) -> dict[str, Any]:
             ):
                 if cur.get(f) is None and row.get(f) is not None:
                     cur[f] = row[f]
+            avail, avail_inst = _with_promo_arrival(
+                str(cur.get("availability") or row.get("availability") or ""),
+                str(cur.get("availabilityInstaller") or row.get("availabilityInstaller") or ""),
+            )
+            cur["availability"] = avail
+            cur["availabilityInstaller"] = avail_inst
             continue
+        avail, avail_inst = _with_promo_arrival(
+            str(row.get("availability") or ""),
+            str(row.get("availabilityInstaller") or ""),
+        )
         by_article[art_key] = {
             "code": row.get("code") or "",
             "article": art,
@@ -1058,8 +1265,8 @@ async def _load_price_list(*, force: bool = False) -> dict[str, Any]:
             "installerCheapestUsd": row.get("installerCheapestUsd"),
             "retailUsd": row.get("retailUsd"),
             "retailVatUsd": row.get("retailVatUsd"),
-            "availability": row.get("availability") or "",
-            "availabilityInstaller": row.get("availabilityInstaller") or "",
+            "availability": avail,
+            "availabilityInstaller": avail_inst,
             "priceSourceCash": "install",
             "priceSourceRetail": "install",
         }

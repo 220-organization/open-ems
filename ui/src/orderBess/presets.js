@@ -397,6 +397,14 @@ export const PRESETS = [
     lines: [line("SUN-10K-SG06LP1-EU-BM3", 1), line("BALFP-512314-V2", 1)],
   },
   {
+    id: "lv-10-20",
+    group: "lv",
+    label: "10 кВт + 20 кВт·год",
+    kw: 10,
+    kwh: 20.48,
+    lines: [line("SUN-10K-SG06LP1-EU-BM3", 1), line("BALFP-512200-V1", 2)],
+  },
+  {
     id: "lv-12-32",
     group: "lv",
     label: "12 кВт + 32 кВт·год",

@@ -1157,11 +1157,6 @@ export default function OrderBessPage({ t }) {
               {t("orderBessRefreshPrices")}
             </button>
           </div>
-          {priceList?.sources?.etu ? (
-            <p className="order-bess-muted order-bess-etu-hint">
-              {t("orderBessEtuHint")}
-            </p>
-          ) : null}
           {loading && !priceList ? (
             <p className="order-bess-muted">{t("orderBessLoading")}</p>
           ) : null}

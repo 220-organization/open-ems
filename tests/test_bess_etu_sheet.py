@@ -9,6 +9,7 @@ from app.routers.bess_order import (
     _merge_etu_items,
     _parse_etu_sheet_csv,
     _uah_to_usd,
+    _with_promo_arrival,
 )
 
 _ETU_CSV = """\
@@ -109,6 +110,103 @@ class TestBessEtuSheet(unittest.TestCase):
         # Availability comes from ETU so the UI can select 5 kWh HV
         self.assertIn("Енерготренди", row["availabilityInstaller"])
         self.assertNotRegex(row["availabilityInstaller"], r"приход")
+
+    def test_order_price_columns_and_arrival_window(self) -> None:
+        csv_text = """\
+"Прайс лист 11/11 Доступні до замовлення з поставкою в Київ 9-12 листопада  Низьковольні інвертори:  12k lp1, 10k lp3, 15k, 20к
+Акумулятори:  pro c, f12 max, f16, f16max
+6K інвертори будуть доступні під замовлення з поставкою на 24-27 листопада","К-сть фаз ","Потужність/ємність ","Модель ","Опис передплата 100%","Ціна під замовлення, грн","Ціна під замовлення, грн",""
+"Deye","Однофазні","5KW","SUN-5K-SG05LP1-EU-AM2-P","DEYE низьковольтний однофазний інвертор","","",""
+"Deye","Однофазні","6KW","SUN-6K-SG06LP1-EU-BM2","DEYE низьковольтний однофазний інвертор","39500","43000","24-27 листопада"
+"Deye","Однофазні","12kw","SUN-12K-SG02LP1-EU-AM3","DEYE низьковольтний однофазний інвертор 12kw","73500","76000",""
+"Deye","Низьковольний","12 KWH","DEYE SE-F12-С","Низьковольтна DEYE 12 kwh","","",""
+"Deye","Низьковольний","12 KWH","DEYE SE-F12-MAX","Низьковольтна DEYE 12 kwh","77000","84000",""
+"Deye","Низьковольний","5 KWH","SE-F5 Pro C","Низьковольтна універсальна","38000","38000",""
+"""
+        items = _parse_etu_sheet_csv(csv_text)
+        by_art = {row["article"]: row for row in items.values()}
+        self.assertNotIn("SUN-5K-SG05LP1-EU-AM2-P", by_art)
+        self.assertNotIn("SE-F12-C", by_art)
+        six = by_art["SUN-6K-SG06LP1-EU-BM2"]
+        self.assertEqual(six["prepaidUah"], 39500.0)
+        self.assertEqual(six["tovUah"], 43000.0)
+        self.assertEqual(six["availability"], "24-27 листопада")
+        twelve = by_art["SUN-12K-SG02LP1-EU"]
+        self.assertEqual(twelve["availability"], "9-12 листопада")
+        self.assertEqual(by_art["SE-F12-MAX"]["availability"], "9-12 листопада")
+        self.assertEqual(by_art["SE-F5-PRO-C"]["availability"], "9-12 листопада")
+
+    def test_promo_arrival_replaces_installer_window(self) -> None:
+        self.assertEqual(_with_promo_arrival("10.12", "20.12.-30.12"), ("10.12", "10.12"))
+        self.assertEqual(_with_promo_arrival("в наявності", "25.11.-30.11"), ("в наявності", "в наявності"))
+        self.assertEqual(
+            _with_promo_arrival("", "20.12.-30.12"),
+            ("", "20.12.-30.12"),
+        )
+        self.assertEqual(
+            _with_promo_arrival("закінчились", "дані про приходи відсутні"),
+            ("закінчились", "закінчились"),
+        )
+
+    def test_merge_keeps_biom_date_when_biom_price_wins(self) -> None:
+        fx = 45.3
+        by_article = {
+            "SUN-6K-SG06LP1-EU-BM2": {
+                "article": "SUN-6K-SG06LP1-EU-BM2",
+                "installerCheapestUsd": 740.0,
+                "installerUsd": 740.0,
+                "retailUsd": 815.0,
+                "availability": "10.12",
+                "availabilityInstaller": "10.12",
+                "priceSourceCash": "install",
+            }
+        }
+        etu = {
+            "SUN6KSG06LP1EUBM2": {
+                "article": "SUN-6K-SG06LP1-EU-BM2",
+                "name": "6K",
+                "brand": "deye",
+                "prepaidUah": 39500.0,
+                "tovUah": 43000.0,
+                "availability": "24-27 листопада",
+            }
+        }
+        _merge_etu_items(by_article, etu, fx)
+        row = by_article["SUN-6K-SG06LP1-EU-BM2"]
+        self.assertEqual(row["availability"], "10.12")
+        self.assertEqual(row["availabilityInstaller"], "10.12")
+        self.assertEqual(row["installerCheapestUsd"], 740.0)
+        self.assertEqual(row["priceSourceCash"], "install")
+
+    def test_merge_uses_etu_date_when_etu_price_wins(self) -> None:
+        fx = 45.3
+        by_article = {
+            "SUN-12K-SG02LP1-EU": {
+                "article": "SUN-12K-SG02LP1-EU",
+                "installerCheapestUsd": 2000.0,
+                "installerUsd": 2000.0,
+                "retailUsd": 2200.0,
+                "availability": "дані про приходи відсутні",
+                "availabilityInstaller": "дані про приходи відсутні",
+                "priceSourceCash": "install",
+                "priceSourceRetail": "install",
+            }
+        }
+        etu = {
+            "SUN12KSG02LP1EU": {
+                "article": "SUN-12K-SG02LP1-EU",
+                "name": "12K",
+                "brand": "deye",
+                "prepaidUah": 73500.0,
+                "tovUah": 76000.0,
+                "availability": "9-12 листопада",
+            }
+        }
+        _merge_etu_items(by_article, etu, fx)
+        row = by_article["SUN-12K-SG02LP1-EU"]
+        self.assertEqual(row["priceSourceCash"], "etu")
+        self.assertEqual(row["availability"], "9-12 листопада")
+        self.assertEqual(row["availabilityInstaller"], "9-12 листопада")
 
 
 if __name__ == "__main__":

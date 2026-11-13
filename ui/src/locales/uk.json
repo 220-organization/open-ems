@@ -945,7 +945,6 @@
   "orderBessOfferTitle": "{{brand}} · {{kw}} кВт + {{kwh}} кВт·год, {{price}}",
   "orderBessKwhUnit": "кВт·год",
   "orderBessRefreshPrices": "Оновити ціни",
-  "orderBessEtuHint": "Ціни Deye також з прайсу Енерготренди України (передплата 100%, 5–10 днів з Нідерландів) — якщо дешевше або немає котирування BIOM.",
   "orderBessEtuPriceNote": "Ціна: Енерготренди України (передплата, 5–10 днів з NL)",
   "orderBessLoading": "Завантаження прайсу…",
   "orderBessColItem": "Найменування",

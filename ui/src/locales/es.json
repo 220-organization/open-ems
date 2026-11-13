@@ -930,7 +930,6 @@
   "orderBessOfferTitle": "{{brand}} · {{kw}} kW + {{kwh}} kWh, {{price}}",
   "orderBessKwhUnit": "kWh",
   "orderBessRefreshPrices": "Actualizar precios",
-  "orderBessEtuHint": "Los precios Deye también incluyen Energotrendy Ukrainy (prepago 100%, 5–10 días desde Países Bajos) si es más barato o si BIOM no cotiza.",
   "orderBessEtuPriceNote": "Precio: Energotrendy Ukrainy (prepago, 5–10 días desde NL)",
   "orderBessLoading": "Cargando lista de precios…",
   "orderBessColItem": "Concepto",
