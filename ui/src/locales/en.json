@@ -222,7 +222,7 @@
   "powerFlowMonthlyRatesChartTooltipRate": "Retail tariff",
   "powerFlowMonthlyRatesChartTooltipMtd": "Month to date (partial month)",
   "powerFlowMonthlyRatesChartTooltipImport": "Grid import matched to DAM: {{kwh}} kWh",
-  "powerFlowMonthlyRatesChartTooltipMom": "vs {{prevMonth}}: {{pct}}",
+  "powerFlowMonthlyRatesChartTooltipMom": "{{pct}}",
   "powerFlowMonthlyRatesChartTooltipVsAvg": "vs avg DAM: {{pct}}",
   "powerFlowMonthlyRatesChartLegendDevice": "This inverter",
   "powerFlowMonthlyRatesChartLegendFleetAvg": "Average tariff",
