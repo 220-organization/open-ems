@@ -222,7 +222,7 @@
   "powerFlowMonthlyRatesChartTooltipRate": "Tarifa minorista",
   "powerFlowMonthlyRatesChartTooltipMtd": "Mes en curso (mes parcial)",
   "powerFlowMonthlyRatesChartTooltipImport": "Importación de red emparejada con DAM: {{kwh}} kWh",
-  "powerFlowMonthlyRatesChartTooltipMom": "vs {{prevMonth}}: {{pct}}",
+  "powerFlowMonthlyRatesChartTooltipMom": "{{pct}}",
   "powerFlowMonthlyRatesChartTooltipVsAvg": "vs media DAM: {{pct}}",
   "powerFlowMonthlyRatesChartLegendDevice": "Este inversor",
   "powerFlowMonthlyRatesChartLegendFleetAvg": "Tarifa media",

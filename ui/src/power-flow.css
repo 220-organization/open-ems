@@ -4359,6 +4359,30 @@ a.pf-node { cursor: pointer; }
   .pf-monthly-rates-chart-inner { padding: 12px 10px 6px; }
 }
 
+@media (min-width: 721px) {
+  .pf-peak-hourly-chart-dialog.pf-monthly-rates-chart-dialog--wide.pf-messenger-dialog {
+    max-width: min(96vw, 1680px);
+    width: min(96vw, 1680px);
+  }
+}
+
+.pf-monthly-rates-bar-label {
+  pointer-events: none;
+}
+
+.pf-monthly-rates-bar-label text {
+  font-family: var(--pf-font-sans);
+  font-variant-numeric: tabular-nums;
+}
+
+.pf-peak-hourly-chart-inner.pf-monthly-rates-chart-inner--rows {
+  min-height: 0;
+}
+
+.pf-monthly-rates-chart-scroll--rows {
+  overflow-x: hidden;
+}
+
 /* ─────────────────────────────────────────────────────────────
  * Theme toggle.
  * ───────────────────────────────────────────────────────────── */
@@ -4815,6 +4839,30 @@ a.pf-node { cursor: pointer; }
 
 [data-theme="light"] .pf-monthly-rates-chart-tooltip__line { color: var(--pf-label); }
 [data-theme="light"] .pf-monthly-rates-chart-tooltip__line:first-child { color: var(--pf-value); }
+
+/* Retail tariff up is red, down is green. Percent only, large. */
+.pf-monthly-rates-chart-tooltip__mom {
+  font-family: var(--pf-font-sans);
+  font-size: 28px;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  margin: 2px 0 8px;
+}
+.pf-monthly-rates-chart-tooltip__mom--up,
+[data-theme="light"] .pf-monthly-rates-chart-tooltip__mom--up {
+  color: var(--pf-up);
+  font-weight: 700;
+}
+.pf-monthly-rates-chart-tooltip__mom--down,
+[data-theme="light"] .pf-monthly-rates-chart-tooltip__mom--down {
+  color: var(--pf-down);
+  font-weight: 700;
+}
+.pf-monthly-rates-chart-tooltip__mom--flat,
+[data-theme="light"] .pf-monthly-rates-chart-tooltip__mom--flat {
+  color: var(--pf-flat);
+  font-weight: 700;
+}
 
 /* System-preferred light (no [data-theme] attribute) — same overrides. */
 @media (prefers-color-scheme: light) {

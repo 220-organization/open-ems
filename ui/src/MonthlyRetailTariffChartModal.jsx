@@ -2,6 +2,10 @@ import { useEffect, useId, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Bar, BarChart, CartesianGrid, LabelList, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useTheme } from './useTheme';
+import { useMinWidth } from './useMinWidth';
+
+/** Column chart above this width; months stack as horizontal bars below it. */
+const MONTHLY_RATES_CHART_WIDE_MIN_PX = 721;
 
 const LOCAL_MONTHLY_RATES_DEMO_DEVICE_SN = '2410102121';
 
@@ -97,31 +101,53 @@ function buildChartRows(bars, bcp47, uahUnit) {
   });
 }
 
-function DeviceBarTopLabel({ x, y, width, index, rows, rateFill }) {
-  const row = rows?.[index];
-  if (row == null || x == null || y == null || width == null || !row.rateTop) return null;
-  const cx = Number(x) + Number(width) / 2;
+function rowFromLabelProps(rows, index, payload) {
+  if (index != null && rows?.[index]) return rows[index];
+  const key = payload?.barKey;
+  if (!key || !Array.isArray(rows)) return null;
+  return rows.find(r => r.barKey === key) || null;
+}
+
+/** Value above a column, or to the right of a horizontal bar (mobile). */
+function BarValueLabel({ x, y, width, height, index, payload, rows, textKey, fill, rowLayout }) {
+  const row = rowFromLabelProps(rows, index, payload);
+  const text = row?.[textKey];
+  if (row == null || x == null || y == null || !text) return null;
+  if (!rowLayout) {
+    if (width == null) return null;
+    const cx = Number(x) + Number(width) / 2;
+    return (
+      <g className="pf-monthly-rates-bar-label">
+        <text x={cx} y={Number(y) - 8} textAnchor="middle" fill={fill} fontSize={12} fontWeight={700}>
+          {text}
+        </text>
+      </g>
+    );
+  }
+  const barH = Number(height) || 0;
   return (
     <g className="pf-monthly-rates-bar-label">
-      <text x={cx} y={Number(y) - 6} textAnchor="middle" fill={rateFill} fontSize={10} fontWeight={600}>
-        {row.rateTop}
+      <text
+        x={Number(x) + Number(width || 0) + 6}
+        y={Number(y) + barH / 2}
+        textAnchor="start"
+        dominantBaseline="central"
+        fill={fill}
+        fontSize={12}
+        fontWeight={700}
+      >
+        {text}
       </text>
     </g>
   );
 }
 
-function FleetBarTopLabel({ x, y, width, index, rows, rateFill }) {
-  const row = rows?.[index];
-  if (row == null || x == null || y == null || width == null || !row.fleetTop) return null;
-  const cx = Number(x) + Number(width) / 2;
-  const rateY = Number(y) - 6;
-  return (
-    <g className="pf-monthly-rates-bar-label">
-      <text x={cx} y={rateY} textAnchor="middle" fill={rateFill} fontSize={10} fontWeight={600}>
-        {row.fleetTop}
-      </text>
-    </g>
-  );
+/** `2026-11` → `11.2026`. */
+function formatMonthMmYyyy(monthLabel) {
+  const raw = String(monthLabel || '').trim();
+  const m = /^(\d{4})-(\d{2})$/.exec(raw);
+  if (!m) return raw;
+  return `${m[2]}.${m[1]}`;
 }
 
 function formatMonthXLabel(monthLabel, bcp47) {
@@ -286,8 +312,13 @@ export default function MonthlyRetailTariffChartModal({
 
   const deviceGradId = useId().replace(/:/g, '_');
   const fleetGradId = useId().replace(/:/g, '_');
+  const wideLayout = useMinWidth(MONTHLY_RATES_CHART_WIDE_MIN_PX);
   const showFleetAvg = rows.length > 0 && rows[0].showFleetAvg;
-  const chartWidth = useMemo(() => Math.max(480, rows.length * (showFleetAvg ? 88 : 52)), [rows.length, showFleetAvg]);
+  // Wide enough that "14,99 грн" on neighbouring columns does not collide.
+  const chartWidth = useMemo(
+    () => Math.max(560, rows.length * (showFleetAvg ? 164 : 96)),
+    [rows.length, showFleetAvg]
+  );
   const palette = useMemo(
     () =>
       resolvedIsDark
@@ -322,6 +353,14 @@ export default function MonthlyRetailTariffChartModal({
 
   if (!open || typeof document === 'undefined') return null;
 
+  const rowLayout = !wideLayout;
+  const chartHeight = rowLayout ? rows.length * (showFleetAvg ? 84 : 56) + 72 : 480;
+  const axisTick = { fill: palette.axisTick, fontSize: 12, fontWeight: 600 };
+  const formatAxisTick = v => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n.toFixed(2) : String(v);
+  };
+
   const title =
     chartScope === 'import_weighted_dam'
       ? t('powerFlowMonthlyRatesChartTitleDevice')
@@ -330,7 +369,9 @@ export default function MonthlyRetailTariffChartModal({
   const node = (
     <div className="pf-messenger-scrim pf-messenger-scrim--220km" role="presentation" onClick={onClose}>
       <div
-        className="pf-messenger-dialog pf-peak-hourly-chart-dialog pf-monthly-rates-chart-dialog"
+        className={`pf-messenger-dialog pf-peak-hourly-chart-dialog pf-monthly-rates-chart-dialog${
+          rowLayout ? '' : ' pf-monthly-rates-chart-dialog--wide'
+        }`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="pf-monthly-rates-chart-title"
@@ -368,47 +409,82 @@ export default function MonthlyRetailTariffChartModal({
             </p>
           ) : null}
           {status === 'ready' && rows.length > 0 ? (
-            <div className="pf-peak-hourly-chart-scroll pf-monthly-rates-chart-scroll">
-              <div className="pf-peak-hourly-chart-inner pf-monthly-rates-chart-inner" style={{ minWidth: chartWidth }}>
-                <ResponsiveContainer width="100%" height={420}>
+            <div
+              className={`pf-peak-hourly-chart-scroll pf-monthly-rates-chart-scroll${
+                rowLayout ? ' pf-monthly-rates-chart-scroll--rows' : ''
+              }`}
+            >
+              <div
+                className={`pf-peak-hourly-chart-inner pf-monthly-rates-chart-inner${
+                  rowLayout ? ' pf-monthly-rates-chart-inner--rows' : ''
+                }`}
+                style={rowLayout ? undefined : { minWidth: chartWidth }}
+              >
+                <ResponsiveContainer width="100%" height={chartHeight}>
                   <BarChart
                     data={rows}
-                    barCategoryGap={showFleetAvg ? '22%' : '18%'}
-                    barGap={showFleetAvg ? 4 : 0}
-                    margin={{ top: 44, right: 12, left: 14, bottom: showFleetAvg ? 56 : 48 }}
+                    layout={rowLayout ? 'vertical' : 'horizontal'}
+                    barCategoryGap={rowLayout ? '22%' : showFleetAvg ? '8%' : '18%'}
+                    barGap={rowLayout ? 6 : showFleetAvg ? 20 : 0}
+                    margin={
+                      rowLayout
+                        ? { top: 8, right: 96, left: 4, bottom: showFleetAvg ? 28 : 20 }
+                        : { top: 36, right: 16, left: 8, bottom: showFleetAvg ? 36 : 24 }
+                    }
                   >
                     <defs>
-                      <linearGradient id={deviceGradId} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={palette.deviceTop} />
-                        <stop offset="100%" stopColor={palette.deviceBottom} />
+                      <linearGradient id={deviceGradId} x1="0" y1="0" x2={rowLayout ? 1 : 0} y2={rowLayout ? 0 : 1}>
+                        <stop offset="0%" stopColor={rowLayout ? palette.deviceBottom : palette.deviceTop} />
+                        <stop offset="100%" stopColor={rowLayout ? palette.deviceTop : palette.deviceBottom} />
                       </linearGradient>
-                      <linearGradient id={fleetGradId} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={palette.fleetTop} />
-                        <stop offset="100%" stopColor={palette.fleetBottom} />
+                      <linearGradient id={fleetGradId} x1="0" y1="0" x2={rowLayout ? 1 : 0} y2={rowLayout ? 0 : 1}>
+                        <stop offset="0%" stopColor={rowLayout ? palette.fleetBottom : palette.fleetTop} />
+                        <stop offset="100%" stopColor={rowLayout ? palette.fleetTop : palette.fleetBottom} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid stroke={palette.grid} strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="xLabel" tick={{ fill: palette.axisTick, fontSize: 11, fontWeight: 600 }} />
-                    <YAxis
-                      domain={[0, 'auto']}
-                      tick={{ fill: palette.axisTick, fontSize: 11, fontWeight: 600 }}
-                      tickFormatter={v => {
-                        const n = Number(v);
-                        return Number.isFinite(n) ? n.toFixed(2) : String(v);
-                      }}
-                      label={{
-                        value: t('powerFlowMonthlyRatesChartYAxis'),
-                        angle: -90,
-                        position: 'insideLeft',
-                        fill: palette.axisLabel,
-                        fontSize: 12,
-                        fontWeight: 700,
-                      }}
-                    />
+                    <CartesianGrid stroke={palette.grid} strokeDasharray="3 3" vertical={rowLayout} horizontal />
+                    {rowLayout ? (
+                      <XAxis
+                        type="number"
+                        domain={[0, 'auto']}
+                        tick={axisTick}
+                        tickFormatter={formatAxisTick}
+                        tickCount={4}
+                        height={36}
+                        label={{
+                          value: t('powerFlowMonthlyRatesChartYAxis'),
+                          position: 'insideBottom',
+                          offset: 0,
+                          fill: palette.axisLabel,
+                          fontSize: 12,
+                          fontWeight: 700,
+                        }}
+                      />
+                    ) : (
+                      <XAxis dataKey="xLabel" interval={0} tick={axisTick} />
+                    )}
+                    {rowLayout ? (
+                      <YAxis type="category" dataKey="xLabel" width={72} interval={0} tick={axisTick} />
+                    ) : (
+                      <YAxis
+                        domain={[0, 'auto']}
+                        width={52}
+                        tick={axisTick}
+                        tickFormatter={formatAxisTick}
+                        label={{
+                          value: t('powerFlowMonthlyRatesChartYAxis'),
+                          angle: -90,
+                          position: 'insideLeft',
+                          fill: palette.axisLabel,
+                          fontSize: 13,
+                          fontWeight: 700,
+                        }}
+                      />
+                    )}
                     {showFleetAvg ? (
                       <Legend
                         verticalAlign="bottom"
-                        wrapperStyle={{ fontSize: 11, fontWeight: 600, paddingTop: 8 }}
+                        wrapperStyle={{ fontSize: 13, fontWeight: 600, paddingTop: 4 }}
                         formatter={value =>
                           value === 'retailUahPerKwh'
                             ? t('powerFlowMonthlyRatesChartLegendDevice')
@@ -435,15 +511,18 @@ export default function MonthlyRetailTariffChartModal({
                         return (
                           <div className="pf-peak-hourly-chart-tooltip pf-monthly-rates-chart-tooltip">
                             <div className="pf-peak-hourly-chart-tooltip__line pf-monthly-rates-chart-tooltip__line">
-                              {p.monthLabel}
+                              {formatMonthMmYyyy(p.monthLabel)}
                             </div>
                             <div className="pf-peak-hourly-chart-tooltip__line pf-monthly-rates-chart-tooltip__line">
                               {t('powerFlowMonthlyRatesChartTooltipRate')}: {rate ?? '—'}
                             </div>
                             {p.momPct != null && p.prevMonthLabel ? (
-                              <div className="pf-peak-hourly-chart-tooltip__line pf-monthly-rates-chart-tooltip__line">
+                              <div
+                                className={`pf-peak-hourly-chart-tooltip__line pf-monthly-rates-chart-tooltip__line pf-monthly-rates-chart-tooltip__mom pf-monthly-rates-chart-tooltip__mom--${
+                                  p.momPct > 0 ? 'up' : p.momPct < 0 ? 'down' : 'flat'
+                                }`}
+                              >
                                 {t('powerFlowMonthlyRatesChartTooltipMom', {
-                                  prevMonth: p.prevMonthLabel,
                                   pct: formatSignedPercent(p.momPct, bcp47) || '—',
                                 })}
                               </div>
@@ -475,13 +554,23 @@ export default function MonthlyRetailTariffChartModal({
                       name="retailUahPerKwh"
                       dataKey="retailUahPerKwh"
                       fill={`url(#${deviceGradId})`}
-                      radius={[14, 14, 0, 0]}
+                      radius={rowLayout ? [0, 10, 10, 0] : [12, 12, 0, 0]}
+                      barSize={rowLayout ? 14 : undefined}
+                      maxBarSize={rowLayout ? 16 : 72}
                       stroke={palette.barStroke}
                       strokeWidth={0.5}
                       isAnimationActive={false}
                     >
                       <LabelList
-                        content={props => <DeviceBarTopLabel {...props} rows={rows} rateFill={palette.rateLabel} />}
+                        content={props => (
+                          <BarValueLabel
+                            {...props}
+                            rows={rows}
+                            textKey="rateTop"
+                            fill={palette.rateLabel}
+                            rowLayout={rowLayout}
+                          />
+                        )}
                       />
                     </Bar>
                     {showFleetAvg ? (
@@ -489,13 +578,23 @@ export default function MonthlyRetailTariffChartModal({
                         name="fleetAvgRetailUahPerKwh"
                         dataKey="fleetAvgRetailUahPerKwh"
                         fill={`url(#${fleetGradId})`}
-                        radius={[14, 14, 0, 0]}
+                        radius={rowLayout ? [0, 10, 10, 0] : [12, 12, 0, 0]}
+                        barSize={rowLayout ? 14 : undefined}
+                        maxBarSize={rowLayout ? 16 : 72}
                         stroke={palette.fleetStroke}
                         strokeWidth={0.5}
                         isAnimationActive={false}
                       >
                         <LabelList
-                          content={props => <FleetBarTopLabel {...props} rows={rows} rateFill={palette.fleetLabel} />}
+                          content={props => (
+                            <BarValueLabel
+                              {...props}
+                              rows={rows}
+                              textKey="fleetTop"
+                              fill={palette.fleetLabel}
+                              rowLayout={rowLayout}
+                            />
+                          )}
                         />
                       </Bar>
                     ) : null}

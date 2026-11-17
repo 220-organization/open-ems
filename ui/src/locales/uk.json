@@ -222,7 +222,7 @@
   "powerFlowMonthlyRatesChartTooltipRate": "Тариф",
   "powerFlowMonthlyRatesChartTooltipMtd": "MTD (неповний місяць)",
   "powerFlowMonthlyRatesChartTooltipImport": "Імпорт: {{kwh}} кВт·год",
-  "powerFlowMonthlyRatesChartTooltipMom": "vs {{prevMonth}}: {{pct}}",
+  "powerFlowMonthlyRatesChartTooltipMom": "{{pct}}",
   "powerFlowMonthlyRatesChartTooltipVsAvg": "vs ser. РДН: {{pct}}",
   "powerFlowMonthlyRatesChartLegendDevice": "Цей інвертор",
   "powerFlowMonthlyRatesChartLegendFleetAvg": "Середній тариф",
