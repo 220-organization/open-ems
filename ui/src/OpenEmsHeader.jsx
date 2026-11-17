@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import SharePageModal from "./SharePageModal";
 import { buildSharePageModalPayload } from "./sharePageQr";
 import { navigateOpenEmsHomeResetSource } from "./essSelection";
+import { SITE_220KM_HOME } from "./powerFlowEngine";
 import { OPEN_EMS_SITE_URL } from "./seoContent";
+import { useLongPressNavigate } from "./useLongPressNavigate";
 import { VYRII_EMS_LOGO_SRC } from "./vyriiEmsLogo";
 import "./power-flow.css";
 import "./landing.css";
@@ -139,10 +141,20 @@ export default function OpenEmsHeader({
     setShareModalOpen(false);
   }, []);
 
-  const handleBrandClick = useCallback((e) => {
-    e.preventDefault();
-    navigateOpenEmsHomeResetSource();
-  }, []);
+  const {
+    holding: brandHolding,
+    holdHandlers: brandHoldHandlers,
+    consumeClick: consumeBrandHoldClick,
+  } = useLongPressNavigate(SITE_220KM_HOME);
+
+  const handleBrandClick = useCallback(
+    (e) => {
+      if (consumeBrandHoldClick(e)) return;
+      e.preventDefault();
+      navigateOpenEmsHomeResetSource();
+    },
+    [consumeBrandHoldClick]
+  );
 
   const shellRef = useRef(null);
 
@@ -195,8 +207,13 @@ export default function OpenEmsHeader({
       <div ref={shellRef} className="open-ems-header-shell">
         <header className="landing-header open-ems-header">
           <a
-            className="landing-header__brand landing-header__brand--ems-vpp"
+            className={
+              "landing-header__brand landing-header__brand--ems-vpp" +
+              (brandHolding ? " landing-header__brand--holding" : "")
+            }
             href={`${OPEN_EMS_SITE_URL}/`}
+            draggable={false}
+            {...brandHoldHandlers}
             onClick={handleBrandClick}
           >
             <img
@@ -206,6 +223,7 @@ export default function OpenEmsHeader({
               width={36}
               height={36}
               decoding="async"
+              draggable={false}
             />
             <span className="landing-header__name">VYRII EMS</span>
           </a>
