@@ -10,7 +10,7 @@ const config = {
     url: 'https://220-km.com:9220',
     androidScheme: 'https',
     cleartext: false,
-    allowNavigation: isIos ? ['220-km.com', '220-km-preprod.com'] : [],
+    allowNavigation: isIos ? ['220-km.com', '220-km-preprod.com'] : ['220-km.com'],
   },
   ios: {
     contentInset: 'automatic',

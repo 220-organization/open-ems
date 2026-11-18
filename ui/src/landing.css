@@ -43,11 +43,44 @@
 }
 
 .landing-header__brand {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
   text-decoration: none;
   color: var(--pf-text);
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: none;
+}
+
+.landing-header__brand--holding::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -6px;
+  height: 2px;
+  border-radius: 2px;
+  background: #fc019b;
+  transform-origin: left center;
+  animation: landing-brand-hold 4s linear forwards;
+}
+
+@keyframes landing-brand-hold {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.landing-header__logo,
+.landing-header__name {
+  -webkit-user-drag: none;
+  pointer-events: none;
 }
 
 .landing-header__logo {
