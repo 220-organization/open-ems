@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import async_session_factory, get_db
+from app.deye_battery_capacity_service import fleet_battery_capacity_summary
 from app.deye_manual_discharge_store import persist_manual_discharge_session_from_api_result
 from app.deye_manual_limits import apply_manual_power_limits, kw_to_watts, read_manual_power_limits
 from app.askoe_export import ASKOE_PAYMENT_DESCRIPTION, build_askoe_for_period
@@ -498,7 +499,8 @@ async def get_inverters(db: AsyncSession = Depends(get_db)):
     Inverters under your Deye Cloud plants (Open API /station/listWithDevice).
     Requires DEYE_* env vars; returns empty list when not configured.
 
-    Each item may include ``capexUsd`` when ROI CAPEX is stored in ``deye_roi_capex`` (for dropdown).
+    Each item may include ``capexUsd`` when ROI CAPEX is stored in ``deye_roi_capex``
+    and ``capacityKwh`` from the last deep-discharge estimate (for the source dropdown).
     """
     if not deye_configured():
         missing = deye_missing_env_names()
@@ -523,6 +525,23 @@ async def get_inverters(db: AsyncSession = Depends(get_db)):
             logger.exception("GET /api/deye/inverters — CAPEX merge failed; returning without capexUsd")
             for it in items:
                 it["capexUsd"] = None
+        try:
+            summary = await fleet_battery_capacity_summary(db)
+            capacity_map = summary.get("deviceCapacitiesKwh") or {}
+            for it in items:
+                sn = str(it.get("deviceSn") or "").strip()
+                if not sn:
+                    continue
+                cap = capacity_map.get(sn)
+                try:
+                    cap_f = float(cap) if cap is not None else None
+                except (TypeError, ValueError):
+                    cap_f = None
+                it["capacityKwh"] = round(cap_f, 1) if cap_f is not None and cap_f > 0 else None
+        except Exception:
+            logger.exception("GET /api/deye/inverters — capacity merge failed; returning without capacityKwh")
+            for it in items:
+                it["capacityKwh"] = None
         logger.info("GET /api/deye/inverters — OK, %s inverter(s)", len(items))
         return JSONResponse(
             content={"configured": True, "items": items},

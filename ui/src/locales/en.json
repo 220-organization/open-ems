@@ -350,6 +350,10 @@
   "damTooltipDamUnitEur": "EUR/kWh",
   "damTooltipDamEntsoeLabel": "{{zone}}",
   "damSeriesSoc": "SoC",
+  "damSeriesSocIdeal": "Ideal SoC",
+  "damSeriesGridIdeal": "Ideal grid",
+  "damIdealHourHint": "Ideal: {{kwh}} kWh / SoC {{soc}} %",
+  "damIdealSaving": "Ideal arbitrage: {{amount}} {{unit}} for the day vs actual",
   "damTooltipLostSolarIncome": "Lost solar income",
   "damSocAxis": "SoC, %",
   "damSeriesGridFreq": "Grid frequency",
@@ -1289,5 +1293,6 @@
   "adminColCreated": "Created",
   "adminColActions": "Actions",
   "deyeBackfillLocalBypass": "Local bypass (free)",
-  "damEnergyBackfillNote": "kWh for this day come from Deye Cloud counters (backfilled) — not approximate samples."
+  "damEnergyBackfillNote": "kWh for this day come from Deye Cloud counters (backfilled) — not approximate samples.",
+  "damIdealSavingVsActual": "Ideal arbitrage: {{amount}} {{unit}} for the day vs actual"
 }

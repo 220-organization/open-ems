@@ -25,6 +25,25 @@ MAX_SESSION_LOOKBACK = 8
 # Fallback window when legacy rows only have success_at (no exportSession bounds).
 _INFERRED_SESSION_LOOKBACK_HOURS = 3
 
+# Known nameplate kWh when the deep-discharge estimator is wrong (load/PV mix, multi-string, etc.).
+NOMINAL_CAPACITY_KWH_OVERRIDES: dict[str, float] = {
+    "2410102121": 10.0,  # 220-km office pack
+}
+
+
+def nominal_capacity_override_kwh(device_sn: str) -> Optional[float]:
+    sn = (device_sn or "").strip()
+    if not sn:
+        return None
+    v = NOMINAL_CAPACITY_KWH_OVERRIDES.get(sn)
+    if v is None:
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f > 0 else None
+
 
 @dataclass(frozen=True)
 class DischargeSessionWindow:
@@ -224,10 +243,13 @@ async def _session_energy_and_soc(
 
 
 async def estimate_device_capacity_kwh(session: AsyncSession, device_sn: str) -> Optional[float]:
-    """Nominal kWh from the latest qualifying deep discharge for one inverter."""
+    """Nominal kWh: manual override if set, else latest qualifying deep discharge."""
     sn = (device_sn or "").strip()
     if not sn:
         return None
+    override = nominal_capacity_override_kwh(sn)
+    if override is not None:
+        return override
     sessions = [s for s in await _list_recent_discharge_sessions(session) if s.device_sn == sn]
     for win in sessions:
         metrics = await _session_energy_and_soc(session, sn, win.start_at, win.end_at)
@@ -258,7 +280,13 @@ async def fleet_battery_capacity_summary(session: AsyncSession) -> dict[str, Any
         by_device.setdefault(win.device_sn, []).append(win)
 
     per_device_kwh: dict[str, float] = {}
+    for sn, override in NOMINAL_CAPACITY_KWH_OVERRIDES.items():
+        ov = nominal_capacity_override_kwh(sn)
+        if ov is not None:
+            per_device_kwh[sn] = ov
     for sn, wins in by_device.items():
+        if sn in per_device_kwh:
+            continue
         for win in wins:
             metrics = await _session_energy_and_soc(session, sn, win.start_at, win.end_at)
             if metrics is None:

@@ -350,6 +350,10 @@
   "damTooltipDamUnitEur": "€/кВт·год",
   "damTooltipDamEntsoeLabel": "{{zone}}",
   "damSeriesSoc": "SoC",
+  "damSeriesSocIdeal": "SoC ідеал",
+  "damSeriesGridIdeal": "Мережа ідеал",
+  "damIdealHourHint": "Ідеал: {{kwh}} кВт·год / SoC {{soc}} %",
+  "damIdealSaving": "Ідеальний арбітраж: {{amount}} {{unit}} за добу vs факт",
   "damTooltipLostSolarIncome": "Втрачений дохід від сонця",
   "damSocAxis": "SoC, %",
   "damSeriesGridFreq": "Частота мережі",
@@ -1290,5 +1294,6 @@
   "adminColCreated": "Створено",
   "adminColActions": "Дії",
   "deyeBackfillLocalBypass": "Локальний bypass (безкоштовно)",
-  "damEnergyBackfillNote": "кВт·год за цей день з лічильників Deye Cloud (backfill) — не приблизні семпли."
+  "damEnergyBackfillNote": "кВт·год за цей день з лічильників Deye Cloud (backfill) — не приблизні семпли.",
+  "damIdealSavingVsActual": "Ідеальний арбітраж: {{amount}} {{unit}} за добу vs факт"
 }

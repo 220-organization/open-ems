@@ -208,6 +208,10 @@
   "damTooltipDamUnitEur": "EUR/kWh",
   "damTooltipDamEntsoeLabel": "{{zone}}",
   "damSeriesSoc": "SoC",
+  "damSeriesSocIdeal": "Ideale SoC",
+  "damSeriesGridIdeal": "Ideaal net",
+  "damIdealHourHint": "Idea: {{kwh}} kWh / SoC {{soc}} %",
+  "damIdealSaving": "Ideale arbitrage: {{amount}} {{unit}} voor de dag vs werkelijk",
   "damTooltipLostSolarIncome": "Verloren zonne-inkomsten",
   "damSocAxis": "SoC, %",
   "damSeriesGridFreq": "Grid frequency",
@@ -479,5 +483,6 @@
   "marketplaceLeadFormCommentPlaceholder": "Additional details (optional)",
   "adminFieldComment": "Comment",
   "deyeBackfillLocalBypass": "Lokale bypass (gratis)",
-  "damEnergyBackfillNote": "kWh voor deze dag komen van Deye Cloud-tellers (backfill) — geen geschatte samples."
+  "damEnergyBackfillNote": "kWh voor deze dag komen van Deye Cloud-tellers (backfill) — geen geschatte samples.",
+  "damIdealSavingVsActual": "Ideale arbitrage: {{amount}} {{unit}} voor de dag vs werkelijk"
 }

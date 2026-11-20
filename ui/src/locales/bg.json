@@ -208,6 +208,10 @@
   "damTooltipDamUnitEur": "EUR/kWh",
   "damTooltipDamEntsoeLabel": "{{zone}}",
   "damSeriesSoc": "SoC",
+  "damSeriesSocIdeal": "Идеален SoC",
+  "damSeriesGridIdeal": "Идеална мрежа",
+  "damIdealHourHint": "Идеал: {{kwh}} kWh / SoC {{soc}} %",
+  "damIdealSaving": "Идеален арбитраж: {{amount}} {{unit}} за деня vs факт",
   "damTooltipLostSolarIncome": "Загубен слънчев приход",
   "damSocAxis": "SoC, %",
   "damSeriesGridFreq": "Grid frequency",
@@ -479,5 +483,6 @@
   "marketplaceLeadFormCommentPlaceholder": "Additional details (optional)",
   "adminFieldComment": "Comment",
   "deyeBackfillLocalBypass": "Локален bypass (безплатно)",
-  "damEnergyBackfillNote": "kWh за този ден са от броячите на Deye Cloud (backfill) — не приблизителни семпли."
+  "damEnergyBackfillNote": "kWh за този ден са от броячите на Deye Cloud (backfill) — не приблизителни семпли.",
+  "damIdealSavingVsActual": "Идеален арбитраж: {{amount}} {{unit}} за деня vs факт"
 }

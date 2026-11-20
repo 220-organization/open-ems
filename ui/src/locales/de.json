@@ -209,6 +209,10 @@
   "damTooltipDamUnitEur": "EUR/kWh",
   "damTooltipDamEntsoeLabel": "{{zone}}",
   "damSeriesSoc": "SoC",
+  "damSeriesSocIdeal": "Ideal-SoC",
+  "damSeriesGridIdeal": "Ideales Netz",
+  "damIdealHourHint": "Ideal: {{kwh}} kWh / SoC {{soc}} %",
+  "damIdealSaving": "Ideal-Arbitrage: {{amount}} {{unit}} für den Tag vs Ist",
   "damTooltipLostSolarIncome": "Entgangener Solarerlös",
   "damSocAxis": "SoC, %",
   "damSeriesGridFreq": "Netzfrequenz",
@@ -485,5 +489,6 @@
   "marketplaceLeadFormCommentPlaceholder": "Additional details (optional)",
   "adminFieldComment": "Comment",
   "deyeBackfillLocalBypass": "Lokaler Bypass (kostenlos)",
-  "damEnergyBackfillNote": "kWh für diesen Tag stammen von Deye-Cloud-Zählern (Backfill) — keine Näherungswerte."
+  "damEnergyBackfillNote": "kWh für diesen Tag stammen von Deye-Cloud-Zählern (Backfill) — keine Näherungswerte.",
+  "damIdealSavingVsActual": "Ideal-Arbitrage: {{amount}} {{unit}} für den Tag vs Ist"
 }

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Bar,
   CartesianGrid,
@@ -13,42 +13,46 @@ import {
   Tooltip,
   XAxis,
   YAxis,
-} from 'recharts';
-import './dam-chart.css';
-import { DEYE_FLOW_BALANCE_PV_FACTOR, usesDeyeFlowBalance } from './deyeFlowBalanceSites';
-import HuaweiTotalsPanel from './HuaweiTotalsPanel';
-import UbetterTotalsPanel from './UbetterTotalsPanel';
-import GridLabTotalsPanel from './GridLabTotalsPanel';
-import DeyeTotalsPanel from './DeyeTotalsPanel';
-import { useKwhCalibration } from './KwhCalibrationContext';
-import { useTheme } from './useTheme';
-import { VYRII_EMS_LOGO_SRC } from './vyriiEmsLogo';
+} from "recharts";
+import "./dam-chart.css";
+import {
+  DEYE_FLOW_BALANCE_PV_FACTOR,
+  usesDeyeFlowBalance,
+} from "./deyeFlowBalanceSites";
+import HuaweiTotalsPanel from "./HuaweiTotalsPanel";
+import UbetterTotalsPanel from "./UbetterTotalsPanel";
+import GridLabTotalsPanel from "./GridLabTotalsPanel";
+import DeyeTotalsPanel from "./DeyeTotalsPanel";
+import { computeIdealArbitrageDay } from "./idealArbitrage";
+import { useKwhCalibration } from "./KwhCalibrationContext";
+import { useTheme } from "./useTheme";
+import { VYRII_EMS_LOGO_SRC } from "./vyriiEmsLogo";
 
 function apiUrl(path) {
-  const base = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
+  const base = (process.env.REACT_APP_API_BASE_URL || "").replace(/\/$/, "");
   if (!base) return path;
   return `${base}${path}`;
 }
 
 // Panel revision tag (correlates with ui/src/emsModuleRev.js).
-const _DAM_CHART_PANEL_REV = '78ff467a71c2';
+const _DAM_CHART_PANEL_REV = "78ff467a71c2";
 
 const DAM_XLSX_AMOUNT_UAH = 5000;
-const DAM_XLSX_PAID_KEY = 'damXlsxPaidPaymentId';
-const DAM_XLSX_DRAFT_KEY = 'damXlsxPayDraft';
-const DAM_XLSX_PAYMENT_QUERY = 'damXlsxPayment';
+const DAM_XLSX_PAID_KEY = "damXlsxPaidPaymentId";
+const DAM_XLSX_DRAFT_KEY = "damXlsxPayDraft";
+const DAM_XLSX_PAYMENT_QUERY = "damXlsxPayment";
 
 function isLocalhostDev() {
-  if (typeof window === 'undefined') return false;
+  if (typeof window === "undefined") return false;
   const { hostname } = window.location;
-  return hostname === 'localhost' || hostname === '127.0.0.1';
+  return hostname === "localhost" || hostname === "127.0.0.1";
 }
 
 function readDamXlsxPaidId() {
   try {
-    return (sessionStorage.getItem(DAM_XLSX_PAID_KEY) || '').trim() || '';
+    return (sessionStorage.getItem(DAM_XLSX_PAID_KEY) || "").trim() || "";
   } catch {
-    return '';
+    return "";
   }
 }
 
@@ -66,7 +70,7 @@ function readDamXlsxDraft() {
     const raw = sessionStorage.getItem(DAM_XLSX_DRAFT_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? parsed : null;
+    return parsed && typeof parsed === "object" ? parsed : null;
   } catch {
     return null;
   }
@@ -89,31 +93,35 @@ function clearDamXlsxDraft() {
 }
 
 function takeDamXlsxPaymentIdFromUrl() {
-  if (typeof window === 'undefined') return null;
+  if (typeof window === "undefined") return null;
   const url = new URL(window.location.href);
-  const paymentId = (url.searchParams.get(DAM_XLSX_PAYMENT_QUERY) || '').trim();
+  const paymentId = (url.searchParams.get(DAM_XLSX_PAYMENT_QUERY) || "").trim();
   if (!paymentId) return null;
   url.searchParams.delete(DAM_XLSX_PAYMENT_QUERY);
-  window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+  window.history.replaceState(
+    {},
+    "",
+    `${url.pathname}${url.search}${url.hash}`,
+  );
   return paymentId;
 }
 
 function damXlsxRedirectUrl() {
-  if (typeof window === 'undefined') return '';
+  if (typeof window === "undefined") return "";
   const url = new URL(window.location.href);
   url.searchParams.delete(DAM_XLSX_PAYMENT_QUERY);
   return url.toString();
 }
 
-const DAM_GRID_BARS_OPEN_KEY = 'pf-dam-grid-bars-open-v3';
-const DAM_PV_LOAD_BARS_OPEN_KEY = 'pf-dam-pv-load-bars-open-v3';
+const DAM_GRID_BARS_OPEN_KEY = "pf-dam-grid-bars-open-v3";
+const DAM_PV_LOAD_BARS_OPEN_KEY = "pf-dam-pv-load-bars-open-v3";
 
 /** Persist expand/collapse; default collapsed (user opens Мережа / Gen·Cons when needed). */
 function readDamEnergySectionOpen(storageKey) {
   try {
     const v = localStorage.getItem(storageKey);
-    if (v === '1') return true;
-    if (v === '0') return false;
+    if (v === "1") return true;
+    if (v === "0") return false;
   } catch {
     /* ignore */
   }
@@ -122,7 +130,7 @@ function readDamEnergySectionOpen(storageKey) {
 
 function writeDamEnergySectionOpen(storageKey, open) {
   try {
-    localStorage.setItem(storageKey, open ? '1' : '0');
+    localStorage.setItem(storageKey, open ? "1" : "0");
   } catch {
     /* ignore */
   }
@@ -133,88 +141,103 @@ const DAM_CHART_MOBILE_MAX_PX = 600;
 
 function useDamChartMobileLayout() {
   const [isMobile, setIsMobile] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia(`(max-width: ${DAM_CHART_MOBILE_MAX_PX}px)`).matches
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia(`(max-width: ${DAM_CHART_MOBILE_MAX_PX}px)`).matches,
   );
   useEffect(() => {
     const mq = window.matchMedia(`(max-width: ${DAM_CHART_MOBILE_MAX_PX}px)`);
     const onChange = () => setIsMobile(mq.matches);
     onChange();
-    mq.addEventListener('change', onChange);
-    return () => mq.removeEventListener('change', onChange);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
   }, []);
   return isMobile;
 }
 
 const ENTSOE_ZONE_OPTIONS = [
-  { value: 'ES', label: 'Spain (ES)' },
-  { value: 'PL', label: 'Poland (PL)' },
+  { value: "ES", label: "Spain (ES)" },
+  { value: "PL", label: "Poland (PL)" },
 ];
 
 /** Deye serials where DAM panel must not show grid export (negative grid flow). */
-const DEYE_NO_EXPORT_DEVICE_SNS = new Set(['2512291445']);
+const DEYE_NO_EXPORT_DEVICE_SNS = new Set(["2512291445"]);
 
 /** ENTSO-E zones on the Ukraine (OREE) chart — EUR/kWh (or UAH/kWh via NBU); includes UA bidding zone as alternative to OREE. */
-const ENTSOE_OREE_OVERLAY_ZONES = ['ES', 'PL', 'UA_ENTSO'];
+const ENTSOE_OREE_OVERLAY_ZONES = ["ES", "PL", "UA_ENTSO"];
 
 /**
  * OREE ENTSO-E overlay tokens in ``currency`` / ``damOverlay`` (comma-separated, case-insensitive).
- * SoC / grid frequency toggles use separate params: ``damSoc``, ``damHz`` (alias ``damFrequency`` on read).
+ * SoC / ideal SoC / grid frequency toggles use separate params: ``damSoc``, ``damSocIdeal``,
+ * ``damHz`` (alias ``damFrequency`` on read).
  * Primary DAM line (OREE UA / ENTSO-E zone): default visible; ``damPrimary=0`` or ``damUa=0`` hides.
  */
 function parseDamOverlayCurrencyParam(raw) {
-  const s = String(raw ?? '').trim();
+  const s = String(raw ?? "").trim();
   if (!s) return { es: false, pl: false, uaEntsoe: false };
-  const tokens = s.split(/[,+]/).map(x => x.trim().toLowerCase()).filter(Boolean);
+  const tokens = s
+    .split(/[,+]/)
+    .map((x) => x.trim().toLowerCase())
+    .filter(Boolean);
   const set = new Set(tokens);
   return {
-    es: set.has('es'),
-    pl: set.has('pl'),
-    uaEntsoe: set.has('ua_entso') || set.has('ua_entsoe') || set.has('uaents'),
+    es: set.has("es"),
+    pl: set.has("pl"),
+    uaEntsoe: set.has("ua_entso") || set.has("ua_entsoe") || set.has("uaents"),
   };
 }
 
 function buildDamCurrencyQueryParam(overlay) {
   const parts = [];
-  if (overlay.uaEntsoe) parts.push('ua_entso');
-  if (overlay.es) parts.push('es');
-  if (overlay.pl) parts.push('pl');
-  return parts.join(',');
+  if (overlay.uaEntsoe) parts.push("ua_entso");
+  if (overlay.es) parts.push("es");
+  if (overlay.pl) parts.push("pl");
+  return parts.join(",");
 }
 
 /** Primary DAM line: default visible; ``damPrimary=0`` or ``damUa=0`` hides (empty chart if overlays are off too). */
 function parseDamPrimaryVisibleFromSearchParams(searchParams) {
-  const raw = searchParams.get('damPrimary') ?? searchParams.get('damUa');
-  if (raw == null || raw === '') return true;
+  const raw = searchParams.get("damPrimary") ?? searchParams.get("damUa");
+  if (raw == null || raw === "") return true;
   const s = String(raw).trim().toLowerCase();
-  if (s === '0' || s === 'false' || s === 'off' || s === 'no') return false;
+  if (s === "0" || s === "false" || s === "off" || s === "no") return false;
   return true;
 }
 
 /** SoC line on DAM chart: default visible; ``damSoc=0`` hides. */
 function parseDamSocVisibleFromSearchParams(searchParams) {
-  const raw = searchParams.get('damSoc');
-  if (raw == null || raw === '') return true;
+  const raw = searchParams.get("damSoc");
+  if (raw == null || raw === "") return true;
   const s = String(raw).trim().toLowerCase();
-  if (s === '0' || s === 'false' || s === 'off' || s === 'no') return false;
+  if (s === "0" || s === "false" || s === "off" || s === "no") return false;
   return true;
+}
+
+/** Ideal arbitrage SoC line: default hidden; ``damSocIdeal=1`` shows. */
+function parseDamSocIdealVisibleFromSearchParams(searchParams) {
+  const raw = searchParams.get("damSocIdeal");
+  if (raw == null || raw === "") return false;
+  const s = String(raw).trim().toLowerCase();
+  if (s === "1" || s === "true" || s === "on" || s === "yes") return true;
+  return false;
 }
 
 /** Grid frequency line: default hidden; ``damHz=1`` or ``damFrequency=1`` shows. */
 function parseDamHzVisibleFromSearchParams(searchParams) {
-  const raw = searchParams.get('damHz') ?? searchParams.get('damFrequency');
-  if (raw == null || raw === '') return false;
+  const raw = searchParams.get("damHz") ?? searchParams.get("damFrequency");
+  if (raw == null || raw === "") return false;
   const s = String(raw).trim().toLowerCase();
-  if (s === '1' || s === 'true' || s === 'on' || s === 'yes') return true;
+  if (s === "1" || s === "true" || s === "on" || s === "yes") return true;
   return false;
 }
 
 function brusselsCalendarIso() {
   try {
-    return new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Europe/Brussels',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Brussels",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
     }).format(new Date());
   } catch {
     return new Date().toISOString().slice(0, 10);
@@ -226,68 +249,98 @@ function maxTradeDayBrusselsIso() {
 }
 
 function clampTradeDayIsoForMarket(iso, market) {
-  const cap = market === 'entsoe' ? maxTradeDayBrusselsIso() : maxTradeDayKyivIso();
+  const cap =
+    market === "entsoe" ? maxTradeDayBrusselsIso() : maxTradeDayKyivIso();
   return iso > cap ? cap : iso;
 }
 
 /** Calendar “today” for DAM trade-day semantics (Kyiv for OREE, Brussels for ENTSO-E). */
 function tradeCalendarTodayIso(market) {
-  return market === 'entsoe' ? brusselsCalendarIso() : kyivCalendarIso();
+  return market === "entsoe" ? brusselsCalendarIso() : kyivCalendarIso();
 }
 
 /** X-axis `hour` bucket → compact tooltip clock (hour start of the slot). */
 function formatDamBarTooltipClockHour(hour) {
   const h = Number(hour);
-  if (!Number.isFinite(h)) return String(hour ?? '');
+  if (!Number.isFinite(h)) return String(hour ?? "");
   const clamped = Math.min(Math.max(Math.round(h), 0), 24);
-  return `${String(clamped).padStart(2, '0')}:00`;
+  return `${String(clamped).padStart(2, "0")}:00`;
 }
 
-const GRID_OFFGRID_BAR = '#e53935';
+const GRID_OFFGRID_BAR = "#e53935";
 
 function gridEnergyBarFill(row) {
-  if (row?.gridKw == null || !Number.isFinite(row.gridKw)) return 'rgba(90, 90, 110, 0.2)';
+  if (row?.gridKw == null || !Number.isFinite(row.gridKw))
+    return "rgba(90, 90, 110, 0.2)";
   if (row.gridOffGrid) return GRID_OFFGRID_BAR;
-  return row.gridKw >= 0 ? '#f59e0b' : '#38bdf8';
+  return row.gridKw >= 0 ? "#f59e0b" : "#38bdf8";
+}
+
+function gridIdealBarFill(row) {
+  if (row?.gridIdealKw == null || !Number.isFinite(row.gridIdealKw))
+    return "transparent";
+  return row.gridIdealKw >= 0
+    ? "rgba(245, 158, 11, 0.3)"
+    : "rgba(56, 189, 248, 0.3)";
 }
 
 function getHourlyDamPerKwhFromPayload(p) {
   if (!p?.ok) return null;
-  if (Array.isArray(p.hourlyPriceDamEurPerKwh) && p.hourlyPriceDamEurPerKwh.length) {
+  if (
+    Array.isArray(p.hourlyPriceDamEurPerKwh) &&
+    p.hourlyPriceDamEurPerKwh.length
+  ) {
     return p.hourlyPriceDamEurPerKwh;
   }
-  if (Array.isArray(p.hourlyPriceDamUahPerKwh) && p.hourlyPriceDamUahPerKwh.length) {
+  if (
+    Array.isArray(p.hourlyPriceDamUahPerKwh) &&
+    p.hourlyPriceDamUahPerKwh.length
+  ) {
     return p.hourlyPriceDamUahPerKwh;
   }
   return null;
 }
 
 function readDamChartParamsFromUrl() {
-  const marketDefault = 'oree';
-  const zoneDefault = 'ES';
+  const marketDefault = "oree";
+  const zoneDefault = "ES";
   try {
     const u = new URLSearchParams(window.location.search);
-    const m = u.get('market');
-    const market = m === 'oree' || m === 'entsoe' ? m : marketDefault;
-    const z = (u.get('zone') || zoneDefault).toUpperCase();
-    const zone = ENTSOE_ZONE_OPTIONS.some(o => o.value === z) ? z : zoneDefault;
+    const m = u.get("market");
+    const market = m === "oree" || m === "entsoe" ? m : marketDefault;
+    const z = (u.get("zone") || zoneDefault).toUpperCase();
+    const zone = ENTSOE_ZONE_OPTIONS.some((o) => o.value === z)
+      ? z
+      : zoneDefault;
     const todayIso = tradeCalendarTodayIso(market);
-    const dq = u.get('date');
+    const dq = u.get("date");
     let date = dq && /^\d{4}-\d{2}-\d{2}$/.test(dq) ? dq : todayIso;
     date = clampTradeDayIsoForMarket(date, market);
-    const cur = u.get('currency') ?? u.get('damOverlay') ?? '';
+    const cur = u.get("currency") ?? u.get("damOverlay") ?? "";
     const priceOverlay = parseDamOverlayCurrencyParam(cur);
     const primary = parseDamPrimaryVisibleFromSearchParams(u);
     const soc = parseDamSocVisibleFromSearchParams(u);
+    const socIdeal = parseDamSocIdealVisibleFromSearchParams(u);
     const hz = parseDamHzVisibleFromSearchParams(u);
-    const overlay = { ...priceOverlay, primary, soc, hz };
+    const overlay = { ...priceOverlay, primary, soc, socIdeal, hz };
     return { date, market, zone, overlay };
   } catch {
     return {
-      date: clampTradeDayIsoForMarket(tradeCalendarTodayIso(marketDefault), marketDefault),
+      date: clampTradeDayIsoForMarket(
+        tradeCalendarTodayIso(marketDefault),
+        marketDefault,
+      ),
       market: marketDefault,
       zone: zoneDefault,
-      overlay: { es: false, pl: false, uaEntsoe: false, primary: true, soc: true, hz: false },
+      overlay: {
+        es: false,
+        pl: false,
+        uaEntsoe: false,
+        primary: true,
+        soc: true,
+        socIdeal: false,
+        hz: false,
+      },
     };
   }
 }
@@ -304,27 +357,29 @@ function replaceUrlDamChartState(isoDate, market, zone, overlay) {
   try {
     const u = new URL(window.location.href);
     const todayIso = tradeCalendarTodayIso(market);
-    if (isoDate === todayIso) u.searchParams.delete('date');
-    else u.searchParams.set('date', isoDate);
-    u.searchParams.set('market', market);
-    u.searchParams.set('zone', zone);
+    if (isoDate === todayIso) u.searchParams.delete("date");
+    else u.searchParams.set("date", isoDate);
+    u.searchParams.set("market", market);
+    u.searchParams.set("zone", zone);
     const c = buildDamCurrencyQueryParam(overlay);
-    if (c) u.searchParams.set('currency', c);
-    else u.searchParams.delete('currency');
-    u.searchParams.delete('damOverlay');
-    if (overlay.primary === false) u.searchParams.set('damPrimary', '0');
-    else u.searchParams.delete('damPrimary');
-    u.searchParams.delete('damUa');
-    if (overlay.soc === false) u.searchParams.set('damSoc', '0');
-    else u.searchParams.delete('damSoc');
+    if (c) u.searchParams.set("currency", c);
+    else u.searchParams.delete("currency");
+    u.searchParams.delete("damOverlay");
+    if (overlay.primary === false) u.searchParams.set("damPrimary", "0");
+    else u.searchParams.delete("damPrimary");
+    u.searchParams.delete("damUa");
+    if (overlay.soc === false) u.searchParams.set("damSoc", "0");
+    else u.searchParams.delete("damSoc");
+    if (overlay.socIdeal === true) u.searchParams.set("damSocIdeal", "1");
+    else u.searchParams.delete("damSocIdeal");
     if (overlay.hz === true) {
-      u.searchParams.set('damHz', '1');
-      u.searchParams.delete('damFrequency');
+      u.searchParams.set("damHz", "1");
+      u.searchParams.delete("damFrequency");
     } else {
-      u.searchParams.delete('damHz');
-      u.searchParams.delete('damFrequency');
+      u.searchParams.delete("damHz");
+      u.searchParams.delete("damFrequency");
     }
-    window.history.replaceState({}, '', u);
+    window.history.replaceState({}, "", u);
   } catch {
     /* ignore */
   }
@@ -332,11 +387,11 @@ function replaceUrlDamChartState(isoDate, market, zone, overlay) {
 
 function kyivCalendarIso() {
   try {
-    return new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Europe/Kyiv',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Kyiv",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
     }).format(new Date());
   } catch {
     return new Date().toISOString().slice(0, 10);
@@ -344,18 +399,18 @@ function kyivCalendarIso() {
 }
 
 function addCalendarDays(iso, deltaDays) {
-  const [y, m, d] = iso.split('-').map(Number);
+  const [y, m, d] = iso.split("-").map(Number);
   const u = new Date(Date.UTC(y, m - 1, d + deltaDays));
   const yy = u.getUTCFullYear();
-  const mm = String(u.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(u.getUTCDate()).padStart(2, '0');
+  const mm = String(u.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(u.getUTCDate()).padStart(2, "0");
   return `${yy}-${mm}-${dd}`;
 }
 
 /** Display trade day as DD.MM.YYYY from ISO yyyy-mm-dd. */
 function formatTradeDayDdMmYyyy(iso) {
-  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso || '—';
-  const [y, m, d] = iso.split('-');
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso || "—";
+  const [y, m, d] = iso.split("-");
   return `${d}.${m}.${y}`;
 }
 
@@ -366,10 +421,10 @@ function maxTradeDayKyivIso() {
 
 function readInverterFromSearchOnce() {
   try {
-    const v = new URLSearchParams(window.location.search).get('inverter');
-    return v && /^\d{6,32}$/.test(v.trim()) ? v.trim() : '';
+    const v = new URLSearchParams(window.location.search).get("inverter");
+    return v && /^\d{6,32}$/.test(v.trim()) ? v.trim() : "";
   } catch {
-    return '';
+    return "";
   }
 }
 
@@ -397,18 +452,26 @@ const DAM_HZ_Y_AXIS_WIDTH = 72;
 const DAM_ENTSOE_OVERLAY_AXIS_WIDTH = 52;
 
 /** Hour index on X-axis (data uses 1–24): show even ticks only. */
-const DAM_HOUR_X_TICKS = Object.freeze([2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24]);
+const DAM_HOUR_X_TICKS = Object.freeze([
+  2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24,
+]);
 
 /** Half-hour gutters on the X domain so hour-1 bars do not sit on the Y-axis (keep in sync across DAM charts). */
 const DAM_X_AXIS_DOMAIN = Object.freeze([0.5, 24.5]);
 
 /** Treat SoC as “full” for lost-PV heuristics (hourly % may be rounded). */
 function isSocFullPercent(socPercent) {
-  return socPercent != null && Number.isFinite(Number(socPercent)) && Number(socPercent) > 94;
+  return (
+    socPercent != null &&
+    Number.isFinite(Number(socPercent)) &&
+    Number(socPercent) > 94
+  );
 }
 
 function medianPositive(nums) {
-  const s = nums.filter(x => Number.isFinite(x) && x > 0).sort((a, b) => a - b);
+  const s = nums
+    .filter((x) => Number.isFinite(x) && x > 0)
+    .sort((a, b) => a - b);
   if (!s.length) return null;
   const m = Math.floor(s.length / 2);
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
@@ -449,14 +512,21 @@ function computeLostSolarForecast(rows, clearSkyWeights) {
 
   const weights =
     clearSkyWeights != null && clearSkyWeights.length === 24
-      ? clearSkyWeights.map(x => (Number.isFinite(Number(x)) ? Math.max(0, Number(x)) : 0))
+      ? clearSkyWeights.map((x) =>
+          Number.isFinite(Number(x)) ? Math.max(0, Number(x)) : 0,
+        )
       : syntheticMiddayClearSkyWeights24();
 
   const ratios = [];
   for (let i = 0; i < i0; i++) {
     const pv = rows[i]?.pvKwh;
     const ww = weights[i];
-    if (pv != null && Number.isFinite(Number(pv)) && Number(pv) > 0 && ww > 1e-8) {
+    if (
+      pv != null &&
+      Number.isFinite(Number(pv)) &&
+      Number(pv) > 0 &&
+      ww > 1e-8
+    ) {
       ratios.push(Number(pv) / ww);
     }
   }
@@ -464,7 +534,12 @@ function computeLostSolarForecast(rows, clearSkyWeights) {
   if (scale == null) {
     const pv0 = rows[i0]?.pvKwh;
     const ww0 = weights[i0];
-    if (pv0 != null && Number.isFinite(Number(pv0)) && Number(pv0) > 0 && ww0 > 1e-8) {
+    if (
+      pv0 != null &&
+      Number.isFinite(Number(pv0)) &&
+      Number(pv0) > 0 &&
+      ww0 > 1e-8
+    ) {
       scale = Number(pv0) / ww0;
     }
   }
@@ -477,7 +552,10 @@ function computeLostSolarForecast(rows, clearSkyWeights) {
     if (!isSocFullPercent(rows[i]?.socPercent)) continue;
     const predicted = scale * weights[i];
     const pv = rows[i]?.pvKwh;
-    const actual = pv != null && Number.isFinite(Number(pv)) && Number(pv) > 0 ? Number(pv) : 0;
+    const actual =
+      pv != null && Number.isFinite(Number(pv)) && Number(pv) > 0
+        ? Number(pv)
+        : 0;
     const diff = predicted - actual;
     if (diff > 0) {
       totalKwh += diff;
@@ -508,71 +586,91 @@ function formatDamLineTooltipItem(
   damEntsoeOverlaySeriesNamePl,
   damEntsoeOverlaySeriesNameUaEntsoe,
   entsoeOverlayUahMode,
-  preferEurDisplay
+  preferEurDisplay,
 ) {
   const value = entry?.value;
   const name = entry?.name;
   const row = entry?.payload;
-  if (value == null || value === '') return { display: '—', label: name };
-  const entsoeTipLabel = () => t('damTooltipDamEntsoeLabel', { zone: entsoeZone });
-  if (damEntsoeOverlaySeriesNames?.length && damEntsoeOverlaySeriesNames.includes(name)) {
+  if (value == null || value === "") return { display: "—", label: name };
+  const entsoeTipLabel = () =>
+    t("damTooltipDamEntsoeLabel", { zone: entsoeZone });
+  if (
+    damEntsoeOverlaySeriesNames?.length &&
+    damEntsoeOverlaySeriesNames.includes(name)
+  ) {
     const n = Number(value);
-    if (!Number.isFinite(n)) return { display: '—', label: t('damTooltipDamEntsoeLabel', { zone: name }) };
+    if (!Number.isFinite(n))
+      return {
+        display: "—",
+        label: t("damTooltipDamEntsoeLabel", { zone: name }),
+      };
     if (entsoeOverlayUahMode && row) {
       let eurRaw = null;
       if (name === damEntsoeOverlaySeriesNameEs) eurRaw = row.damEntsoeEsEurKwh;
-      else if (name === damEntsoeOverlaySeriesNamePl) eurRaw = row.damEntsoePlEurKwh;
-      else if (name === damEntsoeOverlaySeriesNameUaEntsoe) eurRaw = row.damEntsoeUaEntsoeEurKwh;
-      const eur = eurRaw != null && Number.isFinite(Number(eurRaw)) ? Number(eurRaw) : null;
+      else if (name === damEntsoeOverlaySeriesNamePl)
+        eurRaw = row.damEntsoePlEurKwh;
+      else if (name === damEntsoeOverlaySeriesNameUaEntsoe)
+        eurRaw = row.damEntsoeUaEntsoeEurKwh;
+      const eur =
+        eurRaw != null && Number.isFinite(Number(eurRaw))
+          ? Number(eurRaw)
+          : null;
       if (eur != null) {
         const isEs = name === damEntsoeOverlaySeriesNameEs;
         const isPl = name === damEntsoeOverlaySeriesNamePl;
         if (isEs || isPl) {
           return {
-            display: `${fmtDamTooltip.format(n)} ${t('damTooltipDamUnit')}`,
-            label: t('damTooltipDamEntsoeLabel', { zone: isPl ? 'PL' : 'ES' }),
+            display: `${fmtDamTooltip.format(n)} ${t("damTooltipDamUnit")}`,
+            label: t("damTooltipDamEntsoeLabel", { zone: isPl ? "PL" : "ES" }),
           };
         }
         return {
-          display: `${fmtEur.format(eur)} ${t('damTooltipDamUnitEur')} (${fmtDamTooltip.format(n)} ${t('damTooltipDamUnit')})`,
+          display: `${fmtEur.format(eur)} ${t("damTooltipDamUnitEur")} (${fmtDamTooltip.format(n)} ${t("damTooltipDamUnit")})`,
           label:
             name === damEntsoeOverlaySeriesNameUaEntsoe
-              ? t('damSeriesDamUaEntsoe')
-              : t('damTooltipDamEntsoeLabel', {
-                  zone: name === damEntsoeOverlaySeriesNamePl ? 'PL' : 'ES',
+              ? t("damSeriesDamUaEntsoe")
+              : t("damTooltipDamEntsoeLabel", {
+                  zone: name === damEntsoeOverlaySeriesNamePl ? "PL" : "ES",
                 }),
         };
       }
     }
     return {
-      display: `${fmtEur.format(n)} ${t('damTooltipDamUnitEur')}`,
+      display: `${fmtEur.format(n)} ${t("damTooltipDamUnitEur")}`,
       label:
         name === damEntsoeOverlaySeriesNameUaEntsoe
-          ? t('damSeriesDamUaEntsoe')
-          : t('damTooltipDamEntsoeLabel', {
+          ? t("damSeriesDamUaEntsoe")
+          : t("damTooltipDamEntsoeLabel", {
               zone:
                 name === damEntsoeOverlaySeriesNamePl
-                  ? 'PL'
+                  ? "PL"
                   : name === damEntsoeOverlaySeriesNameEs
-                    ? 'ES'
+                    ? "ES"
                     : name,
             }),
     };
   }
   if (name === damLineSeriesName) {
     const n = Number(value);
-    const primaryLabel = damMarket === 'entsoe' ? entsoeTipLabel() : t('damTooltipDamUaLabel');
-    if (!Number.isFinite(n)) return { display: '—', label: primaryLabel };
-    const fmtPrimary = damMarket === 'entsoe' || preferEurDisplay ? fmtEur : fmtDamTooltip;
+    const primaryLabel =
+      damMarket === "entsoe" ? entsoeTipLabel() : t("damTooltipDamUaLabel");
+    if (!Number.isFinite(n)) return { display: "—", label: primaryLabel };
+    const fmtPrimary =
+      damMarket === "entsoe" || preferEurDisplay ? fmtEur : fmtDamTooltip;
     return {
       display: `${fmtPrimary.format(n)} ${damUnitLabel}`,
       label: primaryLabel,
     };
   }
-  const socLabel = t('damSeriesSoc');
-  if (name === socLabel) return { display: `${fmt1.format(value)} %`, label: socLabel };
-  const hzLabel = t('damSeriesGridFreq');
-  if (name === hzLabel) return { display: `${fmtHz.format(value)} Hz`, label: hzLabel };
+  const socLabel = t("damSeriesSoc");
+  if (name === socLabel)
+    return { display: `${fmt1.format(value)} %`, label: socLabel };
+  const socIdealLabel = t("damSeriesSocIdeal");
+  if (name === socIdealLabel)
+    return { display: `${fmt1.format(value)} %`, label: socIdealLabel };
+  const hzLabel = t("damSeriesGridFreq");
+  if (name === hzLabel)
+    return { display: `${fmtHz.format(value)} Hz`, label: hzLabel };
   return { display: `${fmt1.format(value)}`, label: name };
 }
 
@@ -602,23 +700,31 @@ function DamLineChartTooltip({
 }) {
   if (!active || !payload?.length) return null;
   const row = payload[0]?.payload;
-  const tooltipContentStyle = isDark ? {
-    background: 'rgba(24, 8, 32, 0.94)',
-    border: '1px solid rgba(252, 1, 155, 0.35)',
-    borderRadius: 10,
-    color: '#fff',
-    padding: '8px 12px',
-  } : {
-    background: 'rgba(255, 255, 255, 0.97)',
-    border: '1px solid rgba(193, 0, 185, 0.28)',
-    borderRadius: 10,
-    color: '#1a0a1e',
-    padding: '8px 12px',
-  };
-  const labelStyle = isDark ? { color: 'rgba(255, 248, 252, 0.95)' } : { color: 'rgba(20, 5, 30, 0.92)' };
-  const itemStyle = isDark ? { color: 'rgba(255, 248, 252, 0.95)' } : { color: 'rgba(20, 5, 30, 0.88)' };
-  const hi = label != null && lostSolarHourMoney?.length === 24 ? Number(label) - 1 : -1;
-  const lostSolarIncomeAtHour = hi >= 0 && hi < 24 ? lostSolarHourMoney[hi] : null;
+  const tooltipContentStyle = isDark
+    ? {
+        background: "rgba(24, 8, 32, 0.94)",
+        border: "1px solid rgba(252, 1, 155, 0.35)",
+        borderRadius: 10,
+        color: "#fff",
+        padding: "8px 12px",
+      }
+    : {
+        background: "rgba(255, 255, 255, 0.97)",
+        border: "1px solid rgba(193, 0, 185, 0.28)",
+        borderRadius: 10,
+        color: "#1a0a1e",
+        padding: "8px 12px",
+      };
+  const labelStyle = isDark
+    ? { color: "rgba(255, 248, 252, 0.95)" }
+    : { color: "rgba(20, 5, 30, 0.92)" };
+  const itemStyle = isDark
+    ? { color: "rgba(255, 248, 252, 0.95)" }
+    : { color: "rgba(20, 5, 30, 0.88)" };
+  const hi =
+    label != null && lostSolarHourMoney?.length === 24 ? Number(label) - 1 : -1;
+  const lostSolarIncomeAtHour =
+    hi >= 0 && hi < 24 ? lostSolarHourMoney[hi] : null;
   const showLostSolar =
     lostSolarIncomeAtHour != null &&
     Number.isFinite(lostSolarIncomeAtHour) &&
@@ -630,7 +736,10 @@ function DamLineChartTooltip({
       <p className="recharts-tooltip-label" style={labelStyle}>
         {formatDamBarTooltipClockHour(label)}
       </p>
-      <ul className="recharts-tooltip-item-list" style={{ margin: '4px 0 0', padding: 0, listStyle: 'none' }}>
+      <ul
+        className="recharts-tooltip-item-list"
+        style={{ margin: "4px 0 0", padding: 0, listStyle: "none" }}
+      >
         {payload.map((entry, i) => {
           const { display, label: itemLabel } = formatDamLineTooltipItem(
             entry,
@@ -648,10 +757,14 @@ function DamLineChartTooltip({
             damEntsoeOverlaySeriesNamePl,
             damEntsoeOverlaySeriesNameUaEntsoe,
             entsoeOverlayUahMode,
-            preferEurDisplay
+            preferEurDisplay,
           );
           return (
-            <li key={i} className="recharts-tooltip-item" style={{ ...itemStyle, color: entry.color }}>
+            <li
+              key={i}
+              className="recharts-tooltip-item"
+              style={{ ...itemStyle, color: entry.color }}
+            >
               <span className="recharts-tooltip-item-name">{itemLabel}</span>
               <span className="recharts-tooltip-item-separator">: </span>
               <span className="recharts-tooltip-item-value">{display}</span>
@@ -660,11 +773,13 @@ function DamLineChartTooltip({
         })}
       </ul>
       {showLostSolar ? (
-        <p style={{ ...itemStyle, marginTop: 8, marginBottom: 0, fontSize: 12 }}>
-          {t('damTooltipLostSolarIncome')}:{' '}
-          {lostSolarCurrency === 'eur'
-            ? `${fmtEur.format(lostSolarIncomeAtHour)} ${t('roiValueEurUnit')}`
-            : `${fmtUah.format(lostSolarIncomeAtHour)} ${t('roiValueUahUnit')}`}
+        <p
+          style={{ ...itemStyle, marginTop: 8, marginBottom: 0, fontSize: 12 }}
+        >
+          {t("damTooltipLostSolarIncome")}:{" "}
+          {lostSolarCurrency === "eur"
+            ? `${fmtEur.format(lostSolarIncomeAtHour)} ${t("roiValueEurUnit")}`
+            : `${fmtUah.format(lostSolarIncomeAtHour)} ${t("roiValueUahUnit")}`}
         </p>
       ) : null}
     </div>
@@ -682,12 +797,12 @@ function kyivHourIndexNowForDate(tradeDayIso) {
   try {
     const todayKyiv = kyivCalendarIso();
     if (tradeDayIso !== todayKyiv) return null;
-    const parts = new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Europe/Kyiv',
-      hour: 'numeric',
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/Kyiv",
+      hour: "numeric",
       hour12: false,
     }).formatToParts(new Date());
-    const hp = parts.find(p => p.type === 'hour');
+    const hp = parts.find((p) => p.type === "hour");
     if (!hp) return null;
     const h = parseInt(hp.value, 10);
     return Number.isFinite(h) ? h % 24 : null;
@@ -709,7 +824,7 @@ function kyivHourIndexNowForDate(tradeDayIso) {
 export default function DamChartPanel({
   t,
   getBcp47Locale,
-  variant = 'embedded',
+  variant = "embedded",
   chartHeight,
   locale,
   SUPPORTED,
@@ -727,89 +842,105 @@ export default function DamChartPanel({
   const { isApproximate, formatEnergyKwh } = useKwhCalibration();
 
   // Chart color palette — adapts to resolved light/dark theme.
-  const CHART = useMemo(() => isDark ? {
-    axisText: 'rgba(255,248,252,0.75)',
-    axisTextMuted: 'rgba(255,248,252,0.72)',
-    axisTextAmber: 'rgba(251, 191, 36, 0.92)',
-    axisTextBlue: 'rgba(147, 197, 253, 0.9)',
-    axisTextHz: 'rgba(250, 204, 21, 0.92)',
-    gridStroke: 'rgba(252, 1, 155, 0.12)',
-    gridStrokeFaint: 'rgba(252, 1, 155, 0.08)',
-    gridStrokeIndexes: 'rgba(252, 1, 155, 0.10)',
-    refLineStroke: 'rgba(255,248,252,0.35)',
-    circleBorder: 'rgba(255,255,255,0.45)',
-    tooltipBg: 'rgba(24, 8, 32, 0.94)',
-    tooltipBorder: '1px solid rgba(252, 1, 155, 0.35)',
-    tooltipColor: '#fff',
-    tooltipLabelColor: 'rgba(255, 248, 252, 0.95)',
-    tooltipCursor: 'rgba(252, 1, 155, 0.06)',
-    hzAxisLine: 'rgba(250, 204, 21, 0.35)',
-    hzAxisLabel: 'rgba(250, 204, 21, 0.75)',
-  } : {
-    axisText: 'rgba(20,5,30,0.68)',
-    axisTextMuted: 'rgba(20,5,30,0.58)',
-    axisTextAmber: 'rgba(146, 70, 0, 0.88)',
-    axisTextBlue: 'rgba(30, 90, 200, 0.88)',
-    axisTextHz: 'rgba(133, 95, 0, 0.88)',
-    gridStroke: 'rgba(193, 0, 185, 0.15)',
-    gridStrokeFaint: 'rgba(193, 0, 185, 0.10)',
-    gridStrokeIndexes: 'rgba(193, 0, 185, 0.12)',
-    refLineStroke: 'rgba(20,5,30,0.22)',
-    circleBorder: 'rgba(0,0,0,0.20)',
-    tooltipBg: 'rgba(255, 255, 255, 0.97)',
-    tooltipBorder: '1px solid rgba(193, 0, 185, 0.28)',
-    tooltipColor: '#1a0a1e',
-    tooltipLabelColor: 'rgba(20, 5, 30, 0.92)',
-    tooltipCursor: 'rgba(193, 0, 185, 0.06)',
-    hzAxisLine: 'rgba(133, 95, 0, 0.35)',
-    hzAxisLabel: 'rgba(133, 95, 0, 0.70)',
-  }, [isDark]);
+  const CHART = useMemo(
+    () =>
+      isDark
+        ? {
+            axisText: "rgba(255,248,252,0.75)",
+            axisTextMuted: "rgba(255,248,252,0.72)",
+            axisTextAmber: "rgba(251, 191, 36, 0.92)",
+            axisTextBlue: "rgba(147, 197, 253, 0.9)",
+            axisTextHz: "rgba(250, 204, 21, 0.92)",
+            gridStroke: "rgba(252, 1, 155, 0.12)",
+            gridStrokeFaint: "rgba(252, 1, 155, 0.08)",
+            gridStrokeIndexes: "rgba(252, 1, 155, 0.10)",
+            refLineStroke: "rgba(255,248,252,0.35)",
+            circleBorder: "rgba(255,255,255,0.45)",
+            tooltipBg: "rgba(24, 8, 32, 0.94)",
+            tooltipBorder: "1px solid rgba(252, 1, 155, 0.35)",
+            tooltipColor: "#fff",
+            tooltipLabelColor: "rgba(255, 248, 252, 0.95)",
+            tooltipCursor: "rgba(252, 1, 155, 0.06)",
+            hzAxisLine: "rgba(250, 204, 21, 0.35)",
+            hzAxisLabel: "rgba(250, 204, 21, 0.75)",
+          }
+        : {
+            axisText: "rgba(20,5,30,0.68)",
+            axisTextMuted: "rgba(20,5,30,0.58)",
+            axisTextAmber: "rgba(146, 70, 0, 0.88)",
+            axisTextBlue: "rgba(30, 90, 200, 0.88)",
+            axisTextHz: "rgba(133, 95, 0, 0.88)",
+            gridStroke: "rgba(193, 0, 185, 0.15)",
+            gridStrokeFaint: "rgba(193, 0, 185, 0.10)",
+            gridStrokeIndexes: "rgba(193, 0, 185, 0.12)",
+            refLineStroke: "rgba(20,5,30,0.22)",
+            circleBorder: "rgba(0,0,0,0.20)",
+            tooltipBg: "rgba(255, 255, 255, 0.97)",
+            tooltipBorder: "1px solid rgba(193, 0, 185, 0.28)",
+            tooltipColor: "#1a0a1e",
+            tooltipLabelColor: "rgba(20, 5, 30, 0.92)",
+            tooltipCursor: "rgba(193, 0, 185, 0.06)",
+            hzAxisLine: "rgba(133, 95, 0, 0.35)",
+            hzAxisLabel: "rgba(133, 95, 0, 0.70)",
+          },
+    [isDark],
+  );
 
-  const barTooltipStyle = useMemo(() => ({
-    background: CHART.tooltipBg,
-    border: CHART.tooltipBorder,
-    borderRadius: 10,
-    color: CHART.tooltipColor,
-    padding: '8px 12px',
-  }), [CHART]);
+  const barTooltipStyle = useMemo(
+    () => ({
+      background: CHART.tooltipBg,
+      border: CHART.tooltipBorder,
+      borderRadius: 10,
+      color: CHART.tooltipColor,
+      padding: "8px 12px",
+    }),
+    [CHART],
+  );
 
   const [damUrlBootstrap] = useState(() => getInitialDamChartState());
   const [tradeDay, setTradeDay] = useState(damUrlBootstrap.date);
   const [damMarket, setDamMarket] = useState(damUrlBootstrap.market);
-  const [damXlsxYear, setDamXlsxYear] = useState(
-    () => Number(tradeCalendarTodayIso(damUrlBootstrap.market).slice(0, 4))
+  const [damXlsxYear, setDamXlsxYear] = useState(() =>
+    Number(tradeCalendarTodayIso(damUrlBootstrap.market).slice(0, 4)),
   );
   const [damXlsxYears, setDamXlsxYears] = useState(null);
   const [damXlsxBusy, setDamXlsxBusy] = useState(false);
-  const [damXlsxError, setDamXlsxError] = useState('');
-  const [damXlsxPaymentId, setDamXlsxPaymentId] = useState(() => readDamXlsxPaidId());
+  const [damXlsxError, setDamXlsxError] = useState("");
+  const [damXlsxPaymentId, setDamXlsxPaymentId] = useState(() =>
+    readDamXlsxPaidId(),
+  );
   const [damDownloadHost, setDamDownloadHost] = useState(null);
   useEffect(() => {
-    if (variant !== 'embedded') {
+    if (variant !== "embedded") {
       setDamDownloadHost(null);
       return undefined;
     }
-    setDamDownloadHost(document.getElementById('pf-dam-download-slot'));
+    setDamDownloadHost(document.getElementById("pf-dam-download-slot"));
     return undefined;
   }, [variant]);
   const [entsoeZone, setEntsoeZone] = useState(damUrlBootstrap.zone);
   const [payload, setPayload] = useState(null);
   /** Per-zone ENTSO-E chart-day payloads when primary market is Ukraine (OREE); keys ES, PL, UA_ENTSO. */
   const [entsoeOverlayByZone, setEntsoeOverlayByZone] = useState({});
-  /** Line visibility toggled from the legend (UA / ENTSO-E primary, ES/PL overlay, SoC, Hz). */
+  /** Line visibility toggled from the legend (UA / ENTSO-E primary, ES/PL overlay, SoC, ideal SoC, Hz). */
   const [damSeriesVisible, setDamSeriesVisible] = useState({
     primary: damUrlBootstrap.overlay.primary !== false,
     es: damUrlBootstrap.overlay.es,
     pl: damUrlBootstrap.overlay.pl,
     uaEntsoe: damUrlBootstrap.overlay.uaEntsoe,
     soc: damUrlBootstrap.overlay.soc !== false,
+    socIdeal: damUrlBootstrap.overlay.socIdeal === true,
     hz: damUrlBootstrap.overlay.hz === true,
   });
-  const [loadError, setLoadError] = useState('');
+  const [loadError, setLoadError] = useState("");
   const [loading, setLoading] = useState(true);
   const [socPayload, setSocPayload] = useState(null);
-  const [socError, setSocError] = useState('');
+  const [socError, setSocError] = useState("");
   const [socLoading, setSocLoading] = useState(false);
+  /** D−1 soc-history-day for missing/future load & PV in the ideal schedule. */
+  const [prevDaySocPayload, setPrevDaySocPayload] = useState(null);
+  const [batteryCapacityKwh, setBatteryCapacityKwh] = useState(null);
+  const [batteryPowerLimitsKw, setBatteryPowerLimitsKw] = useState(null);
   /** After Deye Cloud backfill, day kWh are exact counters — drop ``~`` approximation. */
   const energyBackfilled = Boolean(socPayload?.energyBackfilled);
   const energyIsApproximate = isApproximate && !energyBackfilled;
@@ -819,8 +950,12 @@ export default function DamChartPanel({
   const [liveLoadPowerW, setLiveLoadPowerW] = useState(null);
   const [livePvPowerW, setLivePvPowerW] = useState(null);
   const [liveBatteryPowerW, setLiveBatteryPowerW] = useState(null);
-  const [gridBarsOpen, setGridBarsOpen] = useState(() => readDamEnergySectionOpen(DAM_GRID_BARS_OPEN_KEY));
-  const [pvLoadBarsOpen, setPvLoadBarsOpen] = useState(() => readDamEnergySectionOpen(DAM_PV_LOAD_BARS_OPEN_KEY));
+  const [gridBarsOpen, setGridBarsOpen] = useState(() =>
+    readDamEnergySectionOpen(DAM_GRID_BARS_OPEN_KEY),
+  );
+  const [pvLoadBarsOpen, setPvLoadBarsOpen] = useState(() =>
+    readDamEnergySectionOpen(DAM_PV_LOAD_BARS_OPEN_KEY),
+  );
   const [urlInverterOnce] = useState(readInverterFromSearchOnce);
   /** NBU UAH per 1 EUR — scales ENTSO-E EUR/kWh onto the same axis as Ukraine DAM (UAH/kWh). */
   const [eurUahRate, setEurUahRate] = useState(null);
@@ -835,13 +970,13 @@ export default function DamChartPanel({
   const tradeDayGridInputRef = useRef(null);
   const tradeDayPvInputRef = useRef(null);
 
-  const onGridBarsToggle = useCallback(e => {
+  const onGridBarsToggle = useCallback((e) => {
     const open = e.currentTarget.open;
     setGridBarsOpen(open);
     writeDamEnergySectionOpen(DAM_GRID_BARS_OPEN_KEY, open);
   }, []);
 
-  const onPvLoadBarsToggle = useCallback(e => {
+  const onPvLoadBarsToggle = useCallback((e) => {
     const open = e.currentTarget.open;
     setPvLoadBarsOpen(open);
     writeDamEnergySectionOpen(DAM_PV_LOAD_BARS_OPEN_KEY, open);
@@ -849,31 +984,44 @@ export default function DamChartPanel({
 
   const effectiveInverterSn = (
     (inverterSnProp && String(inverterSnProp).trim()) ||
-    (variant === 'fullpage' ? urlInverterOnce : '')
+    (variant === "fullpage" ? urlInverterOnce : "")
   ).trim();
-  const effectiveHuaweiStation = (huaweiStationCodeProp && String(huaweiStationCodeProp).trim()) || '';
-  const effectiveUbetterDevice = (ubetterDeviceSnProp && String(ubetterDeviceSnProp).trim()) || '';
-  const effectiveGridlabDevice = (gridlabDeviceIdProp && String(gridlabDeviceIdProp).trim()) || '';
+  const effectiveHuaweiStation =
+    (huaweiStationCodeProp && String(huaweiStationCodeProp).trim()) || "";
+  const effectiveUbetterDevice =
+    (ubetterDeviceSnProp && String(ubetterDeviceSnProp).trim()) || "";
+  const effectiveGridlabDevice =
+    (gridlabDeviceIdProp && String(gridlabDeviceIdProp).trim()) || "";
   const effectiveEvPortsAcdc =
-    evPortsAcdcProp === 'dc' || evPortsAcdcProp === 'ac' || evPortsAcdcProp === 'bb' ? evPortsAcdcProp : '';
-  const deyeNoExportMode = Boolean(effectiveInverterSn) && DEYE_NO_EXPORT_DEVICE_SNS.has(effectiveInverterSn);
+    evPortsAcdcProp === "dc" ||
+    evPortsAcdcProp === "ac" ||
+    evPortsAcdcProp === "bb"
+      ? evPortsAcdcProp
+      : "";
+  const deyeNoExportMode =
+    Boolean(effectiveInverterSn) &&
+    DEYE_NO_EXPORT_DEVICE_SNS.has(effectiveInverterSn);
   const showEnergyBars = Boolean(
     effectiveInverterSn ||
-      effectiveHuaweiStation ||
-      effectiveEvPortsAcdc ||
-      effectiveUbetterDevice ||
-      effectiveGridlabDevice
+    effectiveHuaweiStation ||
+    effectiveEvPortsAcdc ||
+    effectiveUbetterDevice ||
+    effectiveGridlabDevice,
   );
   const showPvLoadBars = Boolean(
-    effectiveInverterSn || effectiveHuaweiStation || effectiveUbetterDevice || effectiveGridlabDevice
+    effectiveInverterSn ||
+    effectiveHuaweiStation ||
+    effectiveUbetterDevice ||
+    effectiveGridlabDevice,
   );
   const showDeyeExtras = Boolean(
-    (effectiveInverterSn || effectiveUbetterDevice || effectiveGridlabDevice) && !effectiveHuaweiStation
+    (effectiveInverterSn || effectiveUbetterDevice || effectiveGridlabDevice) &&
+    !effectiveHuaweiStation,
   );
 
   const damChartMobile = useDamChartMobileLayout();
 
-  const h = chartHeight ?? (variant === 'embedded' ? 300 : 420);
+  const h = chartHeight ?? (variant === "embedded" ? 300 : 420);
   const gridBarH = 148;
 
   const bcp47 = getBcp47Locale();
@@ -883,7 +1031,7 @@ export default function DamChartPanel({
         minimumFractionDigits: 0,
         maximumFractionDigits: 1,
       }),
-    [bcp47]
+    [bcp47],
   );
 
   const fmtDamTooltip = useMemo(
@@ -892,7 +1040,7 @@ export default function DamChartPanel({
         minimumFractionDigits: 3,
         maximumFractionDigits: 3,
       }),
-    [bcp47]
+    [bcp47],
   );
 
   const fmtGridKwTick = useMemo(
@@ -901,7 +1049,7 @@ export default function DamChartPanel({
         minimumFractionDigits: 0,
         maximumFractionDigits: 2,
       }),
-    [bcp47]
+    [bcp47],
   );
 
   const fmtKwhTick = useMemo(
@@ -910,7 +1058,7 @@ export default function DamChartPanel({
         minimumFractionDigits: 0,
         maximumFractionDigits: 2,
       }),
-    [bcp47]
+    [bcp47],
   );
 
   const fmtHz = useMemo(
@@ -919,7 +1067,7 @@ export default function DamChartPanel({
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
-    [bcp47]
+    [bcp47],
   );
 
   const fmtUah = useMemo(
@@ -928,7 +1076,7 @@ export default function DamChartPanel({
         minimumFractionDigits: 3,
         maximumFractionDigits: 3,
       }),
-    [bcp47]
+    [bcp47],
   );
 
   const fmtEur = useMemo(
@@ -937,27 +1085,42 @@ export default function DamChartPanel({
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
-    [bcp47]
+    [bcp47],
   );
 
   /** Spanish UI shows DAM in EUR (OREE converted via NBU; ENTSO-E overlays stay native EUR). */
-  const preferEurDisplay = locale === 'es';
-  const damAxisIsEur = damMarket === 'entsoe' || preferEurDisplay;
-  const scaleOverlaysToUah = damMarket === 'oree' && !preferEurDisplay && eurUahRate > 0;
-  const damUnitLabel = damAxisIsEur ? t('damTooltipDamUnitEur') : t('damTooltipDamUnit');
+  const preferEurDisplay = locale === "es";
+  const damAxisIsEur = damMarket === "entsoe" || preferEurDisplay;
+  const scaleOverlaysToUah =
+    damMarket === "oree" && !preferEurDisplay && eurUahRate > 0;
+  const damUnitLabel = damAxisIsEur
+    ? t("damTooltipDamUnitEur")
+    : t("damTooltipDamUnit");
 
   const damLineSeriesName = useMemo(
-    () => (damMarket === 'oree' ? t('damSeriesDamUa') : t('damSeriesDamEntsoe', { zone: entsoeZone })),
-    [damMarket, entsoeZone, t]
+    () =>
+      damMarket === "oree"
+        ? t("damSeriesDamUa")
+        : t("damSeriesDamEntsoe", { zone: entsoeZone }),
+    [damMarket, entsoeZone, t],
   );
 
-  const damEntsoeOverlaySeriesNameEs = useMemo(() => t('damSeriesDamEntsoe', { zone: 'ES' }), [t]);
-  const damEntsoeOverlaySeriesNamePl = useMemo(() => t('damSeriesDamEntsoe', { zone: 'PL' }), [t]);
-  const damEntsoeOverlaySeriesNameUaEntsoe = useMemo(() => t('damSeriesDamUaEntsoe'), [t]);
+  const damEntsoeOverlaySeriesNameEs = useMemo(
+    () => t("damSeriesDamEntsoe", { zone: "ES" }),
+    [t],
+  );
+  const damEntsoeOverlaySeriesNamePl = useMemo(
+    () => t("damSeriesDamEntsoe", { zone: "PL" }),
+    [t],
+  );
+  const damEntsoeOverlaySeriesNameUaEntsoe = useMemo(
+    () => t("damSeriesDamUaEntsoe"),
+    [t],
+  );
 
   const showEntsoeOverlayAxis = useMemo(() => {
-    if (damMarket !== 'oree') return false;
-    return ENTSOE_OREE_OVERLAY_ZONES.some(z => {
+    if (damMarket !== "oree") return false;
+    return ENTSOE_OREE_OVERLAY_ZONES.some((z) => {
       const p = entsoeOverlayByZone[z];
       return p && p.entsoeConfigured !== false;
     });
@@ -966,7 +1129,9 @@ export default function DamChartPanel({
   const showEntsoeEurAxis = useMemo(
     () =>
       showEntsoeOverlayAxis &&
-      (damSeriesVisible.es || damSeriesVisible.pl || damSeriesVisible.uaEntsoe) &&
+      (damSeriesVisible.es ||
+        damSeriesVisible.pl ||
+        damSeriesVisible.uaEntsoe) &&
       !scaleOverlaysToUah &&
       !preferEurDisplay,
     [
@@ -976,13 +1141,15 @@ export default function DamChartPanel({
       damSeriesVisible.uaEntsoe,
       scaleOverlaysToUah,
       preferEurDisplay,
-    ]
+    ],
   );
 
   const overlayUsesDamAxis = useMemo(
     () =>
       showEntsoeOverlayAxis &&
-      (damSeriesVisible.es || damSeriesVisible.pl || damSeriesVisible.uaEntsoe) &&
+      (damSeriesVisible.es ||
+        damSeriesVisible.pl ||
+        damSeriesVisible.uaEntsoe) &&
       (scaleOverlaysToUah || preferEurDisplay),
     [
       showEntsoeOverlayAxis,
@@ -991,7 +1158,7 @@ export default function DamChartPanel({
       damSeriesVisible.uaEntsoe,
       scaleOverlaysToUah,
       preferEurDisplay,
-    ]
+    ],
   );
 
   const showDamPriceAxis = damSeriesVisible.primary || overlayUsesDamAxis;
@@ -1000,9 +1167,12 @@ export default function DamChartPanel({
     let cancelled = false;
     (async () => {
       try {
-        const r = await fetch(apiUrl(`/api/fx/eur-uah?date=${encodeURIComponent(tradeDay)}`), {
-          cache: 'no-store',
-        });
+        const r = await fetch(
+          apiUrl(`/api/fx/eur-uah?date=${encodeURIComponent(tradeDay)}`),
+          {
+            cache: "no-store",
+          },
+        );
         const d = await r.json();
         if (cancelled) return;
         if (d?.ok && d.rate != null && Number.isFinite(Number(d.rate))) {
@@ -1019,12 +1189,18 @@ export default function DamChartPanel({
   }, [tradeDay]);
 
   useEffect(() => {
-    if (damMarket !== 'oree') {
-      setDamSeriesVisible(v => ({ ...v, es: false, pl: false, uaEntsoe: false }));
+    if (damMarket !== "oree") {
+      setDamSeriesVisible((v) => ({
+        ...v,
+        es: false,
+        pl: false,
+        uaEntsoe: false,
+      }));
     }
   }, [damMarket]);
 
-  const maxTradeDay = damMarket === 'entsoe' ? maxTradeDayBrusselsIso() : maxTradeDayKyivIso();
+  const maxTradeDay =
+    damMarket === "entsoe" ? maxTradeDayBrusselsIso() : maxTradeDayKyivIso();
   /** Calendar “today” for the active market zone — used only to disable the redundant Today jump. */
   const calendarTodayIso = tradeCalendarTodayIso(damMarket);
 
@@ -1036,13 +1212,17 @@ export default function DamChartPanel({
     let cancelled = false;
     (async () => {
       const q = new URLSearchParams({ market: damMarket });
-      if (damMarket === 'entsoe') q.set('zone', entsoeZone);
+      if (damMarket === "entsoe") q.set("zone", entsoeZone);
       try {
-        const r = await fetch(apiUrl(`/api/dam/xlsx-years?${q}`), { cache: 'no-store' });
+        const r = await fetch(apiUrl(`/api/dam/xlsx-years?${q}`), {
+          cache: "no-store",
+        });
         const d = await r.json();
         if (cancelled) return;
         const years = Array.isArray(d?.years)
-          ? d.years.map(n => Number(n)).filter(n => Number.isInteger(n) && n >= 2000 && n <= 2100)
+          ? d.years
+              .map((n) => Number(n))
+              .filter((n) => Number.isInteger(n) && n >= 2000 && n <= 2100)
           : [];
         setDamXlsxYears(years);
       } catch {
@@ -1079,7 +1259,7 @@ export default function DamChartPanel({
       const draft = readDamXlsxDraft();
       clearDamXlsxDraft();
       setDamXlsxBusy(true);
-      setDamXlsxError('');
+      setDamXlsxError("");
       try {
         await fetchPaidDamXlsxFile(paymentId, {
           year: draft?.year,
@@ -1087,7 +1267,8 @@ export default function DamChartPanel({
           zone: draft?.zone,
         });
       } catch (e) {
-        if (!cancelled) setDamXlsxError(e instanceof Error ? e.message : String(e));
+        if (!cancelled)
+          setDamXlsxError(e instanceof Error ? e.message : String(e));
       } finally {
         if (!cancelled) setDamXlsxBusy(false);
       }
@@ -1096,23 +1277,32 @@ export default function DamChartPanel({
     const poll = async () => {
       attempts += 1;
       try {
-        const r = await fetch(apiUrl(`/api/dam/xlsx-payments/${encodeURIComponent(paymentId)}`), {
-          cache: 'no-store',
-        });
+        const r = await fetch(
+          apiUrl(`/api/dam/xlsx-payments/${encodeURIComponent(paymentId)}`),
+          {
+            cache: "no-store",
+          },
+        );
         let data = null;
         if (r.status === 404) {
           const draft = readDamXlsxDraft();
           if (fromUrl && draft?.invoiceId) {
-            const fallback = await fetch(apiUrl('/api/dam/xlsx-invoice-status'), {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ invoice_id: draft.invoiceId, payment_id: paymentId }),
-            });
+            const fallback = await fetch(
+              apiUrl("/api/dam/xlsx-invoice-status"),
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  invoice_id: draft.invoiceId,
+                  payment_id: paymentId,
+                }),
+              },
+            );
             if (!fallback.ok) throw new Error(`status ${fallback.status}`);
             data = await fallback.json();
           } else {
-            writeDamXlsxPaidId('');
-            if (!cancelled) setDamXlsxPaymentId('');
+            writeDamXlsxPaidId("");
+            if (!cancelled) setDamXlsxPaymentId("");
             if (!cancelled) setDamXlsxBusy(false);
             return;
           }
@@ -1122,31 +1312,31 @@ export default function DamChartPanel({
           data = await r.json();
         }
         if (cancelled) return;
-        const status = String(data.status || '').toUpperCase();
-        if (status === 'SUCCESS') {
+        const status = String(data.status || "").toUpperCase();
+        if (status === "SUCCESS") {
           markPaid();
           if (fromUrl) await downloadAfterPay();
           else if (!cancelled) setDamXlsxBusy(false);
           return;
         }
-        if (['FAILURE', 'EXPIRED', 'REVERSED'].includes(status)) {
-          writeDamXlsxPaidId('');
-          setDamXlsxPaymentId('');
+        if (["FAILURE", "EXPIRED", "REVERSED"].includes(status)) {
+          writeDamXlsxPaidId("");
+          setDamXlsxPaymentId("");
           setDamXlsxBusy(false);
-          setDamXlsxError(t('damDownloadPricesPayFailed'));
+          setDamXlsxError(t("damDownloadPricesPayFailed"));
           return;
         }
       } catch {
         if (cancelled) return;
         if (!fromUrl) {
-          writeDamXlsxPaidId('');
-          setDamXlsxPaymentId('');
+          writeDamXlsxPaidId("");
+          setDamXlsxPaymentId("");
           setDamXlsxBusy(false);
           return;
         }
         if (attempts >= 8) {
           setDamXlsxBusy(false);
-          setDamXlsxError(t('damDownloadPricesPayFailed'));
+          setDamXlsxError(t("damDownloadPricesPayFailed"));
           return;
         }
       }
@@ -1154,13 +1344,13 @@ export default function DamChartPanel({
         window.setTimeout(poll, 2000);
       } else if (!cancelled && fromUrl) {
         setDamXlsxBusy(false);
-        setDamXlsxError(t('damDownloadPricesPayProcessing'));
+        setDamXlsxError(t("damDownloadPricesPayProcessing"));
       }
     };
 
     if (fromUrl) {
       setDamXlsxBusy(true);
-      setDamXlsxError('');
+      setDamXlsxError("");
     }
     poll();
     return () => {
@@ -1176,6 +1366,7 @@ export default function DamChartPanel({
       pl: damSeriesVisible.pl,
       uaEntsoe: damSeriesVisible.uaEntsoe,
       soc: damSeriesVisible.soc,
+      socIdeal: damSeriesVisible.socIdeal,
       hz: damSeriesVisible.hz,
     });
   }, [
@@ -1187,17 +1378,20 @@ export default function DamChartPanel({
     damSeriesVisible.pl,
     damSeriesVisible.uaEntsoe,
     damSeriesVisible.soc,
+    damSeriesVisible.socIdeal,
     damSeriesVisible.hz,
   ]);
 
   const load = useCallback(async () => {
     setLoading(true);
-    setLoadError('');
+    setLoadError("");
     try {
       const q = new URLSearchParams({ date: tradeDay });
-      if (damMarket === 'entsoe') {
-        q.set('zone', entsoeZone);
-        const r = await fetch(apiUrl(`/api/dam/entsoe/chart-day?${q}`), { cache: 'no-store' });
+      if (damMarket === "entsoe") {
+        q.set("zone", entsoeZone);
+        const r = await fetch(apiUrl(`/api/dam/entsoe/chart-day?${q}`), {
+          cache: "no-store",
+        });
         if (!r.ok) throw new Error((await r.text()) || r.statusText);
         const data = await r.json();
         setPayload(data);
@@ -1206,11 +1400,13 @@ export default function DamChartPanel({
       const qOree = new URLSearchParams({ date: tradeDay });
       const qBatch = new URLSearchParams({
         date: tradeDay,
-        zones: ENTSOE_OREE_OVERLAY_ZONES.join(','),
+        zones: ENTSOE_OREE_OVERLAY_ZONES.join(","),
       });
       const [rOree, rBatch] = await Promise.all([
-        fetch(apiUrl(`/api/dam/chart-day?${qOree}`), { cache: 'no-store' }),
-        fetch(apiUrl(`/api/dam/entsoe/chart-day-zones?${qBatch}`), { cache: 'no-store' }),
+        fetch(apiUrl(`/api/dam/chart-day?${qOree}`), { cache: "no-store" }),
+        fetch(apiUrl(`/api/dam/entsoe/chart-day-zones?${qBatch}`), {
+          cache: "no-store",
+        }),
       ]);
       if (!rOree.ok) throw new Error((await rOree.text()) || rOree.statusText);
       const oreeData = await rOree.json();
@@ -1232,11 +1428,13 @@ export default function DamChartPanel({
         }
       }
       if (Object.keys(byZone).length === 0) {
-        const qEnt = z => new URLSearchParams({ date: tradeDay, zone: z });
+        const qEnt = (z) => new URLSearchParams({ date: tradeDay, zone: z });
         const rEnts = await Promise.all(
-          ENTSOE_OREE_OVERLAY_ZONES.map(z =>
-            fetch(apiUrl(`/api/dam/entsoe/chart-day?${qEnt(z)}`), { cache: 'no-store' })
-          )
+          ENTSOE_OREE_OVERLAY_ZONES.map((z) =>
+            fetch(apiUrl(`/api/dam/entsoe/chart-day?${qEnt(z)}`), {
+              cache: "no-store",
+            }),
+          ),
         );
         for (let i = 0; i < ENTSOE_OREE_OVERLAY_ZONES.length; i++) {
           const z = ENTSOE_OREE_OVERLAY_ZONES[i];
@@ -1260,39 +1458,51 @@ export default function DamChartPanel({
   useEffect(() => {
     if (
       effectiveHuaweiStation ||
-      (!effectiveInverterSn && !effectiveUbetterDevice && !effectiveGridlabDevice)
+      (!effectiveInverterSn &&
+        !effectiveUbetterDevice &&
+        !effectiveGridlabDevice)
     ) {
       setSocPayload(null);
-      setSocError('');
+      setSocError("");
       setSocLoading(false);
       return undefined;
     }
     let cancelled = false;
-    const loadSoc = async initial => {
+    const loadSoc = async (initial) => {
       if (initial) {
         setSocLoading(true);
-        setSocError('');
+        setSocError("");
       }
       try {
         let path;
         let q;
         if (effectiveGridlabDevice) {
-          path = '/api/gridlab/soc-history-day';
-          q = new URLSearchParams({ deviceId: effectiveGridlabDevice, date: tradeDay });
+          path = "/api/gridlab/soc-history-day";
+          q = new URLSearchParams({
+            deviceId: effectiveGridlabDevice,
+            date: tradeDay,
+          });
         } else if (effectiveUbetterDevice) {
-          path = '/api/ubetter/soc-history-day';
-          q = new URLSearchParams({ sn: effectiveUbetterDevice, date: tradeDay });
+          path = "/api/ubetter/soc-history-day";
+          q = new URLSearchParams({
+            sn: effectiveUbetterDevice,
+            date: tradeDay,
+          });
         } else {
-          path = '/api/deye/soc-history-day';
-          q = new URLSearchParams({ deviceSn: effectiveInverterSn, date: tradeDay });
+          path = "/api/deye/soc-history-day";
+          q = new URLSearchParams({
+            deviceSn: effectiveInverterSn,
+            date: tradeDay,
+          });
         }
-        const r = await fetch(apiUrl(`${path}?${q}`), { cache: 'no-store' });
+        const r = await fetch(apiUrl(`${path}?${q}`), { cache: "no-store" });
         if (!r.ok) throw new Error((await r.text()) || r.statusText);
         const data = await r.json();
         if (cancelled) return;
         setSocPayload(data);
       } catch (e) {
-        if (!cancelled && initial) setSocError(e instanceof Error ? e.message : String(e));
+        if (!cancelled && initial)
+          setSocError(e instanceof Error ? e.message : String(e));
       } finally {
         if (!cancelled && initial) setSocLoading(false);
       }
@@ -1301,20 +1511,125 @@ export default function DamChartPanel({
     const pollId = setInterval(() => {
       loadSoc(false);
     }, 60_000);
-    const onBackfillDone = ev => {
-      const sn = String(ev?.detail?.deviceSn || '').trim();
-      const day = String(ev?.detail?.date || '').trim();
+    const onBackfillDone = (ev) => {
+      const sn = String(ev?.detail?.deviceSn || "").trim();
+      const day = String(ev?.detail?.date || "").trim();
       if (sn && effectiveInverterSn && sn !== effectiveInverterSn) return;
       if (day && day !== tradeDay) return;
       loadSoc(false);
     };
-    window.addEventListener('deye-energy-backfill-done', onBackfillDone);
+    window.addEventListener("deye-energy-backfill-done", onBackfillDone);
     return () => {
       cancelled = true;
       clearInterval(pollId);
-      window.removeEventListener('deye-energy-backfill-done', onBackfillDone);
+      window.removeEventListener("deye-energy-backfill-done", onBackfillDone);
     };
-  }, [tradeDay, effectiveInverterSn, effectiveUbetterDevice, effectiveGridlabDevice, effectiveHuaweiStation]);
+  }, [
+    tradeDay,
+    effectiveInverterSn,
+    effectiveUbetterDevice,
+    effectiveGridlabDevice,
+    effectiveHuaweiStation,
+  ]);
+
+  // Ideal arbitrage: capacity, charge/discharge limits, and D−1 load/PV (Deye only).
+  useEffect(() => {
+    if (
+      !effectiveInverterSn ||
+      effectiveHuaweiStation ||
+      effectiveUbetterDevice ||
+      effectiveGridlabDevice
+    ) {
+      setPrevDaySocPayload(null);
+      setBatteryCapacityKwh(null);
+      setBatteryPowerLimitsKw(null);
+      return undefined;
+    }
+    let cancelled = false;
+    const prevDay = addCalendarDays(tradeDay, -1);
+    (async () => {
+      try {
+        const [capRes, limRes, prevRes] = await Promise.all([
+          fetch(
+            apiUrl(
+              `/api/power-flow/device-battery-capacity?deviceSn=${encodeURIComponent(effectiveInverterSn)}`,
+            ),
+            { cache: "no-store" },
+          ),
+          fetch(
+            apiUrl(
+              `/api/deye/power-limits?deviceSn=${encodeURIComponent(effectiveInverterSn)}`,
+            ),
+            {
+              cache: "no-store",
+            },
+          ),
+          fetch(
+            apiUrl(
+              `/api/deye/soc-history-day?${new URLSearchParams({
+                deviceSn: effectiveInverterSn,
+                date: prevDay,
+              })}`,
+            ),
+            { cache: "no-store" },
+          ),
+        ]);
+        const [capJson, limJson, prevJson] = await Promise.all([
+          capRes.json().catch(() => ({})),
+          limRes.json().catch(() => ({})),
+          prevRes.json().catch(() => ({})),
+        ]);
+        if (cancelled) return;
+        const cap =
+          capJson?.ok &&
+          capJson.capacityKwh != null &&
+          Number.isFinite(Number(capJson.capacityKwh))
+            ? Number(capJson.capacityKwh)
+            : null;
+        setBatteryCapacityKwh(cap);
+        if (limJson?.ok) {
+          const chargeW =
+            limJson.maxChargePowerW != null &&
+            Number.isFinite(Number(limJson.maxChargePowerW))
+              ? Number(limJson.maxChargePowerW)
+              : limJson.ratedPowerW != null &&
+                  Number.isFinite(Number(limJson.ratedPowerW))
+                ? Number(limJson.ratedPowerW)
+                : null;
+          const dischargeW =
+            limJson.maxDischargePowerW != null &&
+            Number.isFinite(Number(limJson.maxDischargePowerW))
+              ? Number(limJson.maxDischargePowerW)
+              : limJson.ratedPowerW != null &&
+                  Number.isFinite(Number(limJson.ratedPowerW))
+                ? Number(limJson.ratedPowerW)
+                : null;
+          setBatteryPowerLimitsKw({
+            maxChargeKw: chargeW != null ? chargeW / 1000 : null,
+            maxDischargeKw: dischargeW != null ? dischargeW / 1000 : null,
+          });
+        } else {
+          setBatteryPowerLimitsKw(null);
+        }
+        setPrevDaySocPayload(prevJson?.ok ? prevJson : null);
+      } catch {
+        if (!cancelled) {
+          setBatteryCapacityKwh(null);
+          setBatteryPowerLimitsKw(null);
+          setPrevDaySocPayload(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    tradeDay,
+    effectiveInverterSn,
+    effectiveHuaweiStation,
+    effectiveUbetterDevice,
+    effectiveGridlabDevice,
+  ]);
 
   useEffect(() => {
     if (!effectiveInverterSn || effectiveHuaweiStation) {
@@ -1324,12 +1639,25 @@ export default function DamChartPanel({
     let cancelled = false;
     (async () => {
       try {
-        const q = new URLSearchParams({ deviceSn: effectiveInverterSn, date: tradeDay });
-        const r = await fetch(apiUrl(`/api/deye/clear-sky-hourly-shape?${q}`), { cache: 'no-store' });
+        const q = new URLSearchParams({
+          deviceSn: effectiveInverterSn,
+          date: tradeDay,
+        });
+        const r = await fetch(apiUrl(`/api/deye/clear-sky-hourly-shape?${q}`), {
+          cache: "no-store",
+        });
         const j = await r.json().catch(() => ({}));
         if (cancelled) return;
-        if (j?.ok && Array.isArray(j.hourlyWeights) && j.hourlyWeights.length === 24) {
-          setClearSkyWeights(j.hourlyWeights.map(x => (Number.isFinite(Number(x)) ? Number(x) : 0)));
+        if (
+          j?.ok &&
+          Array.isArray(j.hourlyWeights) &&
+          j.hourlyWeights.length === 24
+        ) {
+          setClearSkyWeights(
+            j.hourlyWeights.map((x) =>
+              Number.isFinite(Number(x)) ? Number(x) : 0,
+            ),
+          );
         }
       } catch {
         /* keep previous value on transient fetch errors */
@@ -1352,9 +1680,14 @@ export default function DamChartPanel({
     let cancelled = false;
     const loadLive = async () => {
       try {
-        const r = await fetch(apiUrl(`/api/deye/ess-power?deviceSn=${encodeURIComponent(effectiveInverterSn)}`), {
-          cache: 'no-store',
-        });
+        const r = await fetch(
+          apiUrl(
+            `/api/deye/ess-power?deviceSn=${encodeURIComponent(effectiveInverterSn)}`,
+          ),
+          {
+            cache: "no-store",
+          },
+        );
         const d = await r.json();
         if (cancelled || !d?.ok || d?.configured === false) {
           if (!cancelled) {
@@ -1371,11 +1704,21 @@ export default function DamChartPanel({
         const pv = d.pvPowerW;
         const bat = d.batteryPowerW;
         if (!cancelled) {
-          setLiveGridPowerW(g != null && Number.isFinite(Number(g)) ? Number(g) : null);
-          setLiveOffGrid(d.offGrid === true ? true : d.offGrid === false ? false : null);
-          setLiveLoadPowerW(l != null && Number.isFinite(Number(l)) ? Number(l) : null);
-          setLivePvPowerW(pv != null && Number.isFinite(Number(pv)) ? Number(pv) : null);
-          setLiveBatteryPowerW(bat != null && Number.isFinite(Number(bat)) ? Number(bat) : null);
+          setLiveGridPowerW(
+            g != null && Number.isFinite(Number(g)) ? Number(g) : null,
+          );
+          setLiveOffGrid(
+            d.offGrid === true ? true : d.offGrid === false ? false : null,
+          );
+          setLiveLoadPowerW(
+            l != null && Number.isFinite(Number(l)) ? Number(l) : null,
+          );
+          setLivePvPowerW(
+            pv != null && Number.isFinite(Number(pv)) ? Number(pv) : null,
+          );
+          setLiveBatteryPowerW(
+            bat != null && Number.isFinite(Number(bat)) ? Number(bat) : null,
+          );
         }
       } catch {
         if (!cancelled) {
@@ -1403,8 +1746,13 @@ export default function DamChartPanel({
     let cancelled = false;
     const load = async () => {
       try {
-        const q = new URLSearchParams({ stationCodes: effectiveHuaweiStation, date: tradeDay });
-        const r = await fetch(apiUrl(`/api/huawei/station-hourly?${q}`), { cache: 'no-store' });
+        const q = new URLSearchParams({
+          stationCodes: effectiveHuaweiStation,
+          date: tradeDay,
+        });
+        const r = await fetch(apiUrl(`/api/huawei/station-hourly?${q}`), {
+          cache: "no-store",
+        });
         const j = await r.json().catch(() => ({}));
         if (!cancelled) setHuaweiHourly(j);
       } catch {
@@ -1427,8 +1775,13 @@ export default function DamChartPanel({
     let cancelled = false;
     const load = async () => {
       try {
-        const q = new URLSearchParams({ acdc: effectiveEvPortsAcdc, date: tradeDay });
-        const r = await fetch(apiUrl(`/api/b2b/ev-ports-hourly?${q}`), { cache: 'no-store' });
+        const q = new URLSearchParams({
+          acdc: effectiveEvPortsAcdc,
+          date: tradeDay,
+        });
+        const r = await fetch(apiUrl(`/api/b2b/ev-ports-hourly?${q}`), {
+          cache: "no-store",
+        });
         const j = await r.json().catch(() => ({}));
         if (!cancelled) setEvPortsHourly(j);
       } catch {
@@ -1447,15 +1800,20 @@ export default function DamChartPanel({
     if (!effectiveHuaweiStation) return;
     setHuaweiSnapshotBusy(true);
     try {
-      const r = await fetch(apiUrl('/api/huawei/power-snapshot'), {
-        method: 'POST',
-        cache: 'no-store',
-        headers: { Accept: 'application/json' },
+      const r = await fetch(apiUrl("/api/huawei/power-snapshot"), {
+        method: "POST",
+        cache: "no-store",
+        headers: { Accept: "application/json" },
       });
       const j = await r.json().catch(() => ({}));
       if (j?.ok) {
-        const q = new URLSearchParams({ stationCodes: effectiveHuaweiStation, date: tradeDay });
-        const r2 = await fetch(apiUrl(`/api/huawei/station-hourly?${q}`), { cache: 'no-store' });
+        const q = new URLSearchParams({
+          stationCodes: effectiveHuaweiStation,
+          date: tradeDay,
+        });
+        const r2 = await fetch(apiUrl(`/api/huawei/station-hourly?${q}`), {
+          cache: "no-store",
+        });
         const j2 = await r2.json().catch(() => ({}));
         setHuaweiHourly(j2);
       }
@@ -1470,15 +1828,20 @@ export default function DamChartPanel({
     if (!effectiveEvPortsAcdc) return;
     setEvPortsSnapshotBusy(true);
     try {
-      const r = await fetch(apiUrl('/api/b2b/ev-ports-power-snapshot'), {
-        method: 'POST',
-        cache: 'no-store',
-        headers: { Accept: 'application/json' },
+      const r = await fetch(apiUrl("/api/b2b/ev-ports-power-snapshot"), {
+        method: "POST",
+        cache: "no-store",
+        headers: { Accept: "application/json" },
       });
       const j = await r.json().catch(() => ({}));
       if (j?.ok) {
-        const q = new URLSearchParams({ acdc: effectiveEvPortsAcdc, date: tradeDay });
-        const r2 = await fetch(apiUrl(`/api/b2b/ev-ports-hourly?${q}`), { cache: 'no-store' });
+        const q = new URLSearchParams({
+          acdc: effectiveEvPortsAcdc,
+          date: tradeDay,
+        });
+        const r2 = await fetch(apiUrl(`/api/b2b/ev-ports-hourly?${q}`), {
+          cache: "no-store",
+        });
         const j2 = await r2.json().catch(() => ({}));
         setEvPortsHourly(j2);
       }
@@ -1493,38 +1856,58 @@ export default function DamChartPanel({
     const damArr = getHourlyDamPerKwhFromPayload(payload);
     if (!payload?.ok || !Array.isArray(damArr)) return [];
     const dam = damArr;
-    const esPayload = damMarket === 'oree' ? entsoeOverlayByZone.ES : null;
-    const plPayload = damMarket === 'oree' ? entsoeOverlayByZone.PL : null;
-    const uaEntsoPayload = damMarket === 'oree' ? entsoeOverlayByZone.UA_ENTSO : null;
+    const esPayload = damMarket === "oree" ? entsoeOverlayByZone.ES : null;
+    const plPayload = damMarket === "oree" ? entsoeOverlayByZone.PL : null;
+    const uaEntsoPayload =
+      damMarket === "oree" ? entsoeOverlayByZone.UA_ENTSO : null;
     const entsoeEsEurArr =
-      esPayload?.ok && Array.isArray(esPayload.hourlyPriceDamEurPerKwh) ? esPayload.hourlyPriceDamEurPerKwh : null;
+      esPayload?.ok && Array.isArray(esPayload.hourlyPriceDamEurPerKwh)
+        ? esPayload.hourlyPriceDamEurPerKwh
+        : null;
     const entsoePlEurArr =
-      plPayload?.ok && Array.isArray(plPayload.hourlyPriceDamEurPerKwh) ? plPayload.hourlyPriceDamEurPerKwh : null;
+      plPayload?.ok && Array.isArray(plPayload.hourlyPriceDamEurPerKwh)
+        ? plPayload.hourlyPriceDamEurPerKwh
+        : null;
     const entsoeUaEntsoeEurArr =
-      uaEntsoPayload?.ok && Array.isArray(uaEntsoPayload.hourlyPriceDamEurPerKwh)
+      uaEntsoPayload?.ok &&
+      Array.isArray(uaEntsoPayload.hourlyPriceDamEurPerKwh)
         ? uaEntsoPayload.hourlyPriceDamEurPerKwh
         : null;
     const fx = eurUahRate;
     const socArr =
-      socPayload?.ok && socPayload?.configured && Array.isArray(socPayload.hourlySocPercent)
+      socPayload?.ok &&
+      socPayload?.configured &&
+      Array.isArray(socPayload.hourlySocPercent)
         ? socPayload.hourlySocPercent
         : null;
     const gridArr =
-      socPayload?.ok && socPayload?.configured && Array.isArray(socPayload.hourlyGridPowerW)
+      socPayload?.ok &&
+      socPayload?.configured &&
+      Array.isArray(socPayload.hourlyGridPowerW)
         ? socPayload.hourlyGridPowerW
         : null;
     const freqArr =
-      socPayload?.ok && socPayload?.configured && Array.isArray(socPayload.hourlyGridFrequencyHz)
+      socPayload?.ok &&
+      socPayload?.configured &&
+      Array.isArray(socPayload.hourlyGridFrequencyHz)
         ? socPayload.hourlyGridFrequencyHz
         : null;
     const offGridArr =
-      socPayload?.ok && socPayload?.configured && Array.isArray(socPayload.hourlyOffGrid)
+      socPayload?.ok &&
+      socPayload?.configured &&
+      Array.isArray(socPayload.hourlyOffGrid)
         ? socPayload.hourlyOffGrid
         : null;
     const pvKwhArr =
-      socPayload?.ok && socPayload?.configured && Array.isArray(socPayload.hourlyPvKwh) ? socPayload.hourlyPvKwh : null;
+      socPayload?.ok &&
+      socPayload?.configured &&
+      Array.isArray(socPayload.hourlyPvKwh)
+        ? socPayload.hourlyPvKwh
+        : null;
     const loadKwhArr =
-      socPayload?.ok && socPayload?.configured && Array.isArray(socPayload.hourlyLoadKwh)
+      socPayload?.ok &&
+      socPayload?.configured &&
+      Array.isArray(socPayload.hourlyLoadKwh)
         ? socPayload.hourlyLoadKwh
         : null;
     const out = Array.from({ length: 24 }, (_, i) => {
@@ -1533,28 +1916,49 @@ export default function DamChartPanel({
         socPercent = Number(socArr[i]);
       }
       let gridKw = null;
-      if (gridArr && gridArr[i] != null && Number.isFinite(Number(gridArr[i]))) {
+      if (
+        gridArr &&
+        gridArr[i] != null &&
+        Number.isFinite(Number(gridArr[i]))
+      ) {
         gridKw = Number(gridArr[i]) / 1000;
       }
       let gridFreqHz = null;
-      if (freqArr && freqArr[i] != null && Number.isFinite(Number(freqArr[i]))) {
+      if (
+        freqArr &&
+        freqArr[i] != null &&
+        Number.isFinite(Number(freqArr[i]))
+      ) {
         gridFreqHz = Number(freqArr[i]);
       }
       let pvKwh = null;
-      if (pvKwhArr && pvKwhArr[i] != null && Number.isFinite(Number(pvKwhArr[i]))) {
+      if (
+        pvKwhArr &&
+        pvKwhArr[i] != null &&
+        Number.isFinite(Number(pvKwhArr[i]))
+      ) {
         pvKwh = Number(pvKwhArr[i]);
       }
       let consKwhNeg = null;
-      if (loadKwhArr && loadKwhArr[i] != null && Number.isFinite(Number(loadKwhArr[i]))) {
+      if (
+        loadKwhArr &&
+        loadKwhArr[i] != null &&
+        Number.isFinite(Number(loadKwhArr[i]))
+      ) {
         consKwhNeg = -Math.abs(Number(loadKwhArr[i]));
       }
       return {
         hour: i + 1,
-        damPriceKwh: dam[i] != null && Number.isFinite(Number(dam[i])) ? Number(dam[i]) : null,
-        damPriceEurKwh:
-          damMarket === 'entsoe' && dam[i] != null && Number.isFinite(Number(dam[i]))
+        damPriceKwh:
+          dam[i] != null && Number.isFinite(Number(dam[i]))
             ? Number(dam[i])
-            : damMarket === 'oree' &&
+            : null,
+        damPriceEurKwh:
+          damMarket === "entsoe" &&
+          dam[i] != null &&
+          Number.isFinite(Number(dam[i]))
+            ? Number(dam[i])
+            : damMarket === "oree" &&
                 fx != null &&
                 fx > 0 &&
                 dam[i] != null &&
@@ -1562,11 +1966,15 @@ export default function DamChartPanel({
               ? Number(dam[i]) / fx
               : null,
         damEntsoeEsEurKwh:
-          entsoeEsEurArr && entsoeEsEurArr[i] != null && Number.isFinite(Number(entsoeEsEurArr[i]))
+          entsoeEsEurArr &&
+          entsoeEsEurArr[i] != null &&
+          Number.isFinite(Number(entsoeEsEurArr[i]))
             ? Number(entsoeEsEurArr[i])
             : null,
         damEntsoePlEurKwh:
-          entsoePlEurArr && entsoePlEurArr[i] != null && Number.isFinite(Number(entsoePlEurArr[i]))
+          entsoePlEurArr &&
+          entsoePlEurArr[i] != null &&
+          Number.isFinite(Number(entsoePlEurArr[i]))
             ? Number(entsoePlEurArr[i])
             : null,
         damEntsoeEsUahKwh:
@@ -1586,7 +1994,9 @@ export default function DamChartPanel({
             ? Number(entsoePlEurArr[i]) * fx
             : null,
         damEntsoeUaEntsoeEurKwh:
-          entsoeUaEntsoeEurArr && entsoeUaEntsoeEurArr[i] != null && Number.isFinite(Number(entsoeUaEntsoeEurArr[i]))
+          entsoeUaEntsoeEurArr &&
+          entsoeUaEntsoeEurArr[i] != null &&
+          Number.isFinite(Number(entsoeUaEntsoeEurArr[i]))
             ? Number(entsoeUaEntsoeEurArr[i])
             : null,
         damEntsoeUaEntsoeUahKwh:
@@ -1609,8 +2019,14 @@ export default function DamChartPanel({
       };
     });
 
-    if (effectiveHuaweiStation && huaweiHourly?.ok && Array.isArray(huaweiHourly.hours)) {
-      const byHour = new Map(huaweiHourly.hours.map(h => [Number(h.hour), h]));
+    if (
+      effectiveHuaweiStation &&
+      huaweiHourly?.ok &&
+      Array.isArray(huaweiHourly.hours)
+    ) {
+      const byHour = new Map(
+        huaweiHourly.hours.map((h) => [Number(h.hour), h]),
+      );
       for (let i = 0; i < 24; i++) {
         const hr = byHour.get(i + 1);
         if (!hr) continue;
@@ -1618,13 +2034,19 @@ export default function DamChartPanel({
         const gImp = hr.gridImportKwh;
         const gExp = hr.gridExportKwh;
         let gridKw = null;
-        const hasImp = gImp != null && Number.isFinite(Number(gImp)) && Number(gImp) !== 0;
-        const hasExp = gExp != null && Number.isFinite(Number(gExp)) && Number(gExp) !== 0;
+        const hasImp =
+          gImp != null && Number.isFinite(Number(gImp)) && Number(gImp) !== 0;
+        const hasExp =
+          gExp != null && Number.isFinite(Number(gExp)) && Number(gExp) !== 0;
         if (hasImp || hasExp) {
           gridKw = Number(gImp || 0) + Number(gExp || 0);
         }
         let pvKwh = null;
-        if (hr.generationKwh != null && Number.isFinite(Number(hr.generationKwh)) && Number(hr.generationKwh) !== 0) {
+        if (
+          hr.generationKwh != null &&
+          Number.isFinite(Number(hr.generationKwh)) &&
+          Number(hr.generationKwh) !== 0
+        ) {
           pvKwh = Number(hr.generationKwh);
         }
         let consKwhNeg = null;
@@ -1647,13 +2069,24 @@ export default function DamChartPanel({
       }
     }
 
-    if (effectiveEvPortsAcdc && evPortsHourly?.ok && Array.isArray(evPortsHourly.hours)) {
-      const byHour = new Map(evPortsHourly.hours.map(h => [Number(h.hour), h]));
+    if (
+      effectiveEvPortsAcdc &&
+      evPortsHourly?.ok &&
+      Array.isArray(evPortsHourly.hours)
+    ) {
+      const byHour = new Map(
+        evPortsHourly.hours.map((h) => [Number(h.hour), h]),
+      );
       for (let i = 0; i < 24; i++) {
         const hr = byHour.get(i + 1);
         if (!hr) continue;
         const gImp = hr.gridImportKwh;
-        if (gImp == null || !Number.isFinite(Number(gImp)) || Number(gImp) === 0) continue;
+        if (
+          gImp == null ||
+          !Number.isFinite(Number(gImp)) ||
+          Number(gImp) === 0
+        )
+          continue;
         out[i] = {
           ...out[i],
           gridKw: Number(gImp),
@@ -1666,22 +2099,38 @@ export default function DamChartPanel({
 
     if (!effectiveHuaweiStation && !effectiveEvPortsAcdc) {
       const liveGridKw =
-        liveGridPowerW != null && Number.isFinite(Number(liveGridPowerW)) ? Number(liveGridPowerW) / 1000 : null;
+        liveGridPowerW != null && Number.isFinite(Number(liveGridPowerW))
+          ? Number(liveGridPowerW) / 1000
+          : null;
       const liveLoadKw =
-        liveLoadPowerW != null && Number.isFinite(Number(liveLoadPowerW)) ? Number(liveLoadPowerW) / 1000 : null;
+        liveLoadPowerW != null && Number.isFinite(Number(liveLoadPowerW))
+          ? Number(liveLoadPowerW) / 1000
+          : null;
       const hi = kyivHourIndexNowForDate(tradeDay);
       if (hi != null) {
-        const hasAnyGrid = out.some(r => r.gridKw != null && Number.isFinite(r.gridKw));
+        const hasAnyGrid = out.some(
+          (r) => r.gridKw != null && Number.isFinite(r.gridKw),
+        );
         const slot = out[hi];
         const slotEmpty = slot.gridKw == null || !Number.isFinite(slot.gridKw);
         let fallbackKw = liveGridKw;
         let fallbackFromLoad = false;
-        if (fallbackKw != null && Math.abs(fallbackKw) < 0.2 && liveLoadKw != null && liveLoadKw > 0) {
+        if (
+          fallbackKw != null &&
+          Math.abs(fallbackKw) < 0.2 &&
+          liveLoadKw != null &&
+          liveLoadKw > 0
+        ) {
           fallbackKw = liveLoadKw;
           fallbackFromLoad = true;
         }
         if (fallbackKw != null && (slotEmpty || !hasAnyGrid)) {
-          out[hi] = { ...slot, gridKw: fallbackKw, gridKwLive: true, gridKwFromLoad: fallbackFromLoad };
+          out[hi] = {
+            ...slot,
+            gridKw: fallbackKw,
+            gridKwLive: true,
+            gridKwFromLoad: fallbackFromLoad,
+          };
         }
       }
       if (
@@ -1695,7 +2144,9 @@ export default function DamChartPanel({
         Number.isFinite(Number(liveBatteryPowerW))
       ) {
         const balW =
-          Number(liveLoadPowerW) - DEYE_FLOW_BALANCE_PV_FACTOR * Number(livePvPowerW) - Number(liveBatteryPowerW);
+          Number(liveLoadPowerW) -
+          DEYE_FLOW_BALANCE_PV_FACTOR * Number(livePvPowerW) -
+          Number(liveBatteryPowerW);
         const slot = out[hi];
         out[hi] = {
           ...slot,
@@ -1705,17 +2156,31 @@ export default function DamChartPanel({
         };
       }
       if (hi != null && effectiveInverterSn) {
-        const hasAnyPv = out.some(r => r.pvKwh != null && Number.isFinite(r.pvKwh));
-        const hasAnyLoad = out.some(r => r.consKwhNeg != null && Number.isFinite(r.consKwhNeg));
+        const hasAnyPv = out.some(
+          (r) => r.pvKwh != null && Number.isFinite(r.pvKwh),
+        );
+        const hasAnyLoad = out.some(
+          (r) => r.consKwhNeg != null && Number.isFinite(r.consKwhNeg),
+        );
         const slot = out[hi];
         let pvK = slot.pvKwh;
         let cNeg = slot.consKwhNeg;
-        if (livePvPowerW != null && Number.isFinite(Number(livePvPowerW)) && (pvK == null || !hasAnyPv)) {
+        if (
+          livePvPowerW != null &&
+          Number.isFinite(Number(livePvPowerW)) &&
+          (pvK == null || !hasAnyPv)
+        ) {
           const raw = Number(livePvPowerW);
-          const eff = usesDeyeFlowBalance(effectiveInverterSn) ? raw * DEYE_FLOW_BALANCE_PV_FACTOR : raw;
+          const eff = usesDeyeFlowBalance(effectiveInverterSn)
+            ? raw * DEYE_FLOW_BALANCE_PV_FACTOR
+            : raw;
           pvK = eff / 1000;
         }
-        if (liveLoadPowerW != null && Number.isFinite(Number(liveLoadPowerW)) && (cNeg == null || !hasAnyLoad)) {
+        if (
+          liveLoadPowerW != null &&
+          Number.isFinite(Number(liveLoadPowerW)) &&
+          (cNeg == null || !hasAnyLoad)
+        ) {
           cNeg = -Math.abs(Number(liveLoadPowerW)) / 1000;
         }
         if (pvK !== slot.pvKwh || cNeg !== slot.consKwhNeg) {
@@ -1729,18 +2194,29 @@ export default function DamChartPanel({
       }
     }
 
-    if (effectiveEvPortsAcdc && !effectiveHuaweiStation && !effectiveInverterSn) {
+    if (
+      effectiveEvPortsAcdc &&
+      !effectiveHuaweiStation &&
+      !effectiveInverterSn
+    ) {
       const hi = kyivHourIndexNowForDate(tradeDay);
       const liveKw =
         liveEvPortsPowerW != null && Number.isFinite(Number(liveEvPortsPowerW))
           ? Number(liveEvPortsPowerW) / 1000
           : null;
       if (hi != null && liveKw != null && liveKw > 0) {
-        const hasAnyGrid = out.some(r => r.gridKw != null && Number.isFinite(r.gridKw));
+        const hasAnyGrid = out.some(
+          (r) => r.gridKw != null && Number.isFinite(r.gridKw),
+        );
         const slot = out[hi];
         const slotEmpty = slot.gridKw == null || !Number.isFinite(slot.gridKw);
         if (slotEmpty || !hasAnyGrid) {
-          out[hi] = { ...slot, gridKw: liveKw, gridKwLive: true, gridKwFromLoad: false };
+          out[hi] = {
+            ...slot,
+            gridKw: liveKw,
+            gridKwLive: true,
+            gridKwFromLoad: false,
+          };
         }
       }
     }
@@ -1760,11 +2236,16 @@ export default function DamChartPanel({
       Number.isFinite(Number(liveSocPercent)) &&
       out[liveSocHour]
     ) {
-      out[liveSocHour] = { ...out[liveSocHour], socPercent: Number(liveSocPercent) };
+      out[liveSocHour] = {
+        ...out[liveSocHour],
+        socPercent: Number(liveSocPercent),
+      };
     }
     if (deyeNoExportMode) {
-      return out.map(slot =>
-        slot.gridKw != null && Number.isFinite(slot.gridKw) && slot.gridKw < 0 ? { ...slot, gridKw: 0 } : slot
+      return out.map((slot) =>
+        slot.gridKw != null && Number.isFinite(slot.gridKw) && slot.gridKw < 0
+          ? { ...slot, gridKw: 0 }
+          : slot,
       );
     }
     return out;
@@ -1790,23 +2271,132 @@ export default function DamChartPanel({
     eurUahRate,
   ]);
 
-  const lostSolarForecast = useMemo(() => computeLostSolarForecast(rows, clearSkyWeights), [rows, clearSkyWeights]);
+  const idealPlan = useMemo(() => {
+    if (
+      !effectiveInverterSn ||
+      effectiveHuaweiStation ||
+      effectiveUbetterDevice ||
+      effectiveGridlabDevice
+    ) {
+      return null;
+    }
+    if (batteryCapacityKwh == null || !(batteryCapacityKwh > 0)) return null;
+    const maxChargeKw = batteryPowerLimitsKw?.maxChargeKw;
+    const maxDischargeKw = batteryPowerLimitsKw?.maxDischargeKw;
+    if (!(maxChargeKw > 0) && !(maxDischargeKw > 0)) return null;
+    if (!rows.length) return null;
+
+    const useEur = damMarket === "entsoe" || preferEurDisplay;
+    const prices = rows.map((r) => {
+      const v =
+        useEur && damMarket === "oree" ? r.damPriceEurKwh : r.damPriceKwh;
+      return v != null && Number.isFinite(Number(v)) ? Number(v) : null;
+    });
+    const prevLoad = prevDaySocPayload?.hourlyLoadKwh;
+    const prevPv = prevDaySocPayload?.hourlyPvKwh;
+    const loadKwh = rows.map((r, i) => {
+      if (r.consKwhNeg != null && Number.isFinite(Number(r.consKwhNeg)))
+        return Math.abs(Number(r.consKwhNeg));
+      const y = prevLoad?.[i];
+      return y != null && Number.isFinite(Number(y)) ? Math.abs(Number(y)) : 0;
+    });
+    const pvKwh = rows.map((r, i) => {
+      if (r.pvKwh != null && Number.isFinite(Number(r.pvKwh)))
+        return Math.max(0, Number(r.pvKwh));
+      const y = prevPv?.[i];
+      return y != null && Number.isFinite(Number(y))
+        ? Math.max(0, Number(y))
+        : 0;
+    });
+    const offGrid = rows.map((r) => r.gridOffGrid === true);
+    let startSoc = 50;
+    for (const r of rows) {
+      if (r.socPercent != null && Number.isFinite(Number(r.socPercent))) {
+        startSoc = Number(r.socPercent);
+        break;
+      }
+    }
+    const actualGridKwh = rows.map((r) =>
+      r.gridKw != null && Number.isFinite(Number(r.gridKw))
+        ? Number(r.gridKw)
+        : null,
+    );
+    return computeIdealArbitrageDay({
+      prices,
+      loadKwh,
+      pvKwh,
+      offGrid,
+      startSocPercent: startSoc,
+      capacityKwh: batteryCapacityKwh,
+      maxChargeKw: maxChargeKw > 0 ? maxChargeKw : maxDischargeKw,
+      maxDischargeKw: maxDischargeKw > 0 ? maxDischargeKw : maxChargeKw,
+      allowExport: !deyeNoExportMode,
+      actualGridKwh,
+    });
+  }, [
+    rows,
+    effectiveInverterSn,
+    effectiveHuaweiStation,
+    effectiveUbetterDevice,
+    effectiveGridlabDevice,
+    batteryCapacityKwh,
+    batteryPowerLimitsKw,
+    prevDaySocPayload,
+    damMarket,
+    preferEurDisplay,
+    deyeNoExportMode,
+  ]);
+
+  const chartRows = useMemo(() => {
+    if (!idealPlan?.hours?.length) {
+      return rows.map((r) => ({
+        ...r,
+        socIdealPercent: null,
+        gridIdealKw: null,
+      }));
+    }
+    return rows.map((r, i) => {
+      const h = idealPlan.hours[i];
+      return {
+        ...r,
+        socIdealPercent: h?.socPercent ?? null,
+        // Off-grid hours: no ideal bar (grid forced to 0 in the model).
+        gridIdealKw: r.gridOffGrid ? null : (h?.gridKwh ?? null),
+      };
+    });
+  }, [rows, idealPlan]);
+
+  const hasIdealOverlay = Boolean(idealPlan?.hours?.length);
+
+  const lostSolarForecast = useMemo(
+    () => computeLostSolarForecast(chartRows, clearSkyWeights),
+    [chartRows, clearSkyWeights],
+  );
 
   const gridDomain = useMemo(() => {
-    const vals = rows.map(r => r.gridKw).filter(v => v != null && Number.isFinite(v));
+    const vals = [];
+    for (const r of chartRows) {
+      if (r.gridKw != null && Number.isFinite(r.gridKw)) vals.push(r.gridKw);
+      if (r.gridIdealKw != null && Number.isFinite(r.gridIdealKw))
+        vals.push(r.gridIdealKw);
+    }
     if (!vals.length) return [-0.25, 0.25];
-    const raw = Math.max(...vals.map(v => Math.abs(v)), 0.25);
+    const raw = Math.max(...vals.map((v) => Math.abs(v)), 0.25);
     const cap = niceSymmetricCap(raw);
     return [-cap, cap];
-  }, [rows]);
+  }, [chartRows]);
 
-  const gridYTicks = useMemo(() => fiveSymmetricTicks(gridDomain[0], gridDomain[1]), [gridDomain]);
+  const gridYTicks = useMemo(
+    () => fiveSymmetricTicks(gridDomain[0], gridDomain[1]),
+    [gridDomain],
+  );
 
   const pvLoadDomain = useMemo(() => {
     const vals = [];
     for (const r of rows) {
       if (r.pvKwh != null && Number.isFinite(r.pvKwh)) vals.push(r.pvKwh);
-      if (r.consKwhNeg != null && Number.isFinite(r.consKwhNeg)) vals.push(Math.abs(r.consKwhNeg));
+      if (r.consKwhNeg != null && Number.isFinite(r.consKwhNeg))
+        vals.push(Math.abs(r.consKwhNeg));
     }
     if (!vals.length) return [-0.25, 0.25];
     const raw = Math.max(...vals, 0.25);
@@ -1814,10 +2404,15 @@ export default function DamChartPanel({
     return [-cap, cap];
   }, [rows]);
 
-  const pvLoadYTicks = useMemo(() => fiveSymmetricTicks(pvLoadDomain[0], pvLoadDomain[1]), [pvLoadDomain]);
+  const pvLoadYTicks = useMemo(
+    () => fiveSymmetricTicks(pvLoadDomain[0], pvLoadDomain[1]),
+    [pvLoadDomain],
+  );
 
   const hzDomain = useMemo(() => {
-    const vals = rows.map(r => r.gridFreqHz).filter(v => v != null && Number.isFinite(v));
+    const vals = rows
+      .map((r) => r.gridFreqHz)
+      .filter((v) => v != null && Number.isFinite(v));
     if (!vals.length) return [49.5, 50.5];
     const lo = Math.min(...vals);
     const hi = Math.max(...vals);
@@ -1826,15 +2421,21 @@ export default function DamChartPanel({
     return [lo - pad, hi + pad];
   }, [rows]);
 
+  const showSocAxis = Boolean(
+    showDeyeExtras &&
+    (damSeriesVisible.soc || (damSeriesVisible.socIdeal && hasIdealOverlay)),
+  );
+
   const lineChartRightMargin = useMemo(() => {
     if (damChartMobile) return 8;
     if (!showDeyeExtras) return 16;
-    const { soc, hz } = damSeriesVisible;
-    if (soc && hz) return DAM_RIGHT_Y_AXIS_WIDTH + DAM_HZ_Y_AXIS_WIDTH + 28;
-    if (soc) return 52;
+    const { hz } = damSeriesVisible;
+    if (showSocAxis && hz)
+      return DAM_RIGHT_Y_AXIS_WIDTH + DAM_HZ_Y_AXIS_WIDTH + 28;
+    if (showSocAxis) return 52;
     if (hz) return DAM_HZ_Y_AXIS_WIDTH + 28;
     return 16;
-  }, [showDeyeExtras, damSeriesVisible, damChartMobile]);
+  }, [showDeyeExtras, damSeriesVisible, damChartMobile, showSocAxis]);
 
   /** Same horizontal gutters + matched right-axis bands so LineChart and ComposedChart X domains align. */
   const damLineChartMargin = useMemo(
@@ -1847,7 +2448,7 @@ export default function DamChartPanel({
             left: showEntsoeEurAxis ? 4 : 8,
             bottom: 10,
           },
-    [damChartMobile, lineChartRightMargin, showEntsoeEurAxis]
+    [damChartMobile, lineChartRightMargin, showEntsoeEurAxis],
   );
 
   const damComposedChartMargin = useMemo(
@@ -1860,23 +2461,29 @@ export default function DamChartPanel({
             left: 8,
             bottom: 28,
           },
-    [damChartMobile, lineChartRightMargin]
+    [damChartMobile, lineChartRightMargin],
   );
 
-  const onDateInput = e => {
+  const onDateInput = (e) => {
     const v = e.target.value;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) setTradeDay(clampTradeDayIsoForMarket(v, damMarket));
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v))
+      setTradeDay(clampTradeDayIsoForMarket(v, damMarket));
   };
 
-  const goPrev = () => setTradeDay(d => addCalendarDays(d, -1));
+  const goPrev = () => setTradeDay((d) => addCalendarDays(d, -1));
   const goNext = () =>
-    setTradeDay(d => {
+    setTradeDay((d) => {
       const next = addCalendarDays(d, 1);
-      const cap = damMarket === 'entsoe' ? maxTradeDayBrusselsIso() : maxTradeDayKyivIso();
+      const cap =
+        damMarket === "entsoe"
+          ? maxTradeDayBrusselsIso()
+          : maxTradeDayKyivIso();
       return next > cap ? cap : next;
     });
   const goToday = () =>
-    setTradeDay(damMarket === 'entsoe' ? brusselsCalendarIso() : kyivCalendarIso());
+    setTradeDay(
+      damMarket === "entsoe" ? brusselsCalendarIso() : kyivCalendarIso(),
+    );
 
   const damXlsxYearList = Array.isArray(damXlsxYears) ? damXlsxYears : [];
   const damXlsxYearIdx = damXlsxYearList.indexOf(damXlsxYear);
@@ -1898,8 +2505,10 @@ export default function DamChartPanel({
       market,
       paymentId,
     });
-    if (market === 'entsoe') q.set('zone', zone);
-    const r = await fetch(apiUrl(`/api/dam/prices.xlsx?${q}`), { cache: 'no-store' });
+    if (market === "entsoe") q.set("zone", zone);
+    const r = await fetch(apiUrl(`/api/dam/prices.xlsx?${q}`), {
+      cache: "no-store",
+    });
     if (!r.ok) {
       let msg = r.statusText || String(r.status);
       const txt = await r.text();
@@ -1913,10 +2522,10 @@ export default function DamChartPanel({
     }
     const blob = await r.blob();
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     a.href = url;
     a.download =
-      market === 'entsoe'
+      market === "entsoe"
         ? `dam-prices-entsoe-${zone}-${year}.xlsx`
         : `dam-prices-oree-${year}.xlsx`;
     document.body.appendChild(a);
@@ -1926,15 +2535,19 @@ export default function DamChartPanel({
   };
 
   const startDamXlsxPayment = async () => {
-    writeDamXlsxDraft({ year: damXlsxYear, market: damMarket, zone: entsoeZone });
-    const res = await fetch(apiUrl('/api/dam/xlsx-pay'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    writeDamXlsxDraft({
+      year: damXlsxYear,
+      market: damMarket,
+      zone: entsoeZone,
+    });
+    const res = await fetch(apiUrl("/api/dam/xlsx-pay"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ redirect_url: damXlsxRedirectUrl() }),
     });
     if (!res.ok) throw new Error(`pay ${res.status}`);
     const data = await res.json();
-    if (!data?.page_url) throw new Error('missing page_url');
+    if (!data?.page_url) throw new Error("missing page_url");
     writeDamXlsxDraft({
       year: damXlsxYear,
       market: damMarket,
@@ -1948,7 +2561,7 @@ export default function DamChartPanel({
   const downloadDamPricesXlsx = async () => {
     if (!damXlsxYearList.length) return;
     setDamXlsxBusy(true);
-    setDamXlsxError('');
+    setDamXlsxError("");
     try {
       if (damXlsxPaymentId) {
         await fetchPaidDamXlsxFile(damXlsxPaymentId);
@@ -1964,16 +2577,19 @@ export default function DamChartPanel({
   const skipDamXlsxPaymentTest = async () => {
     if (damXlsxBusy || !isLocalhostDev()) return;
     setDamXlsxBusy(true);
-    setDamXlsxError('');
+    setDamXlsxError("");
     try {
-      const res = await fetch(apiUrl('/api/dam/xlsx-pay-test'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch(apiUrl("/api/dam/xlsx-pay-test"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
       });
       if (!res.ok) throw new Error(`pay-test ${res.status}`);
       const data = await res.json();
-      if (String(data.status || '').toUpperCase() !== 'SUCCESS' || !data.payment_id) {
-        throw new Error('pay-test not success');
+      if (
+        String(data.status || "").toUpperCase() !== "SUCCESS" ||
+        !data.payment_id
+      ) {
+        throw new Error("pay-test not success");
       }
       writeDamXlsxPaidId(data.payment_id);
       setDamXlsxPaymentId(data.payment_id);
@@ -1985,10 +2601,10 @@ export default function DamChartPanel({
     }
   };
 
-  const openTradeDayPicker = useCallback(inputRef => {
+  const openTradeDayPicker = useCallback((inputRef) => {
     const el = inputRef?.current;
     if (!el) return;
-    if (typeof el.showPicker === 'function') {
+    if (typeof el.showPicker === "function") {
       try {
         el.showPicker();
         return;
@@ -1999,37 +2615,44 @@ export default function DamChartPanel({
     el.click();
   }, []);
 
-  const showEmbeddedHeadDateBar = variant !== 'fullpage' && !showEnergyBars;
+  const showEmbeddedHeadDateBar = variant !== "fullpage" && !showEnergyBars;
 
-  const hasChart = Boolean(payload?.ok) && rows.length === 24;
+  const hasChart = Boolean(payload?.ok) && chartRows.length === 24;
   const hasAnyDamPrice = useMemo(
-    () => rows.some(r => r.damPriceKwh != null && Number.isFinite(Number(r.damPriceKwh))),
-    [rows]
+    () =>
+      chartRows.some(
+        (r) => r.damPriceKwh != null && Number.isFinite(Number(r.damPriceKwh)),
+      ),
+    [chartRows],
   );
 
   const marketControls = (
-    <div className="dam-market-toolbar" role="group" aria-label={t('damMarketLabel')}>
+    <div
+      className="dam-market-toolbar"
+      role="group"
+      aria-label={t("damMarketLabel")}
+    >
       <select
         className="pf-lang-select dam-market-select"
-        aria-label={t('damMarketLabel')}
+        aria-label={t("damMarketLabel")}
         value={damMarket}
-        onChange={e => {
+        onChange={(e) => {
           const m = e.target.value;
           setDamMarket(m);
-          setTradeDay(d => clampTradeDayIsoForMarket(d, m));
+          setTradeDay((d) => clampTradeDayIsoForMarket(d, m));
         }}
       >
-        <option value="entsoe">{t('damMarketEntsoe')}</option>
-        <option value="oree">{t('damMarketOree')}</option>
+        <option value="entsoe">{t("damMarketEntsoe")}</option>
+        <option value="oree">{t("damMarketOree")}</option>
       </select>
-      {damMarket === 'entsoe' ? (
+      {damMarket === "entsoe" ? (
         <select
           className="pf-lang-select dam-market-select"
-          aria-label={t('damEntsoeZoneLabel')}
+          aria-label={t("damEntsoeZoneLabel")}
           value={entsoeZone}
-          onChange={e => setEntsoeZone(e.target.value)}
+          onChange={(e) => setEntsoeZone(e.target.value)}
         >
-          {ENTSOE_ZONE_OPTIONS.map(o => (
+          {ENTSOE_ZONE_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}
             </option>
@@ -2040,8 +2663,13 @@ export default function DamChartPanel({
   );
 
   const dateBar = (
-    <div className="dam-date-bar" role="group" aria-label={t('damDateLabel')}>
-      <button type="button" className="dam-date-btn" onClick={goPrev} aria-label={t('damPrevDay')}>
+    <div className="dam-date-bar" role="group" aria-label={t("damDateLabel")}>
+      <button
+        type="button"
+        className="dam-date-btn"
+        onClick={goPrev}
+        aria-label={t("damPrevDay")}
+      >
         ‹
       </button>
       <input
@@ -2050,14 +2678,14 @@ export default function DamChartPanel({
         value={tradeDay}
         max={maxTradeDay}
         onChange={onDateInput}
-        aria-label={t('damDateLabel')}
+        aria-label={t("damDateLabel")}
       />
       <button
         type="button"
         className="dam-date-btn"
         onClick={goNext}
         disabled={tradeDay >= maxTradeDay}
-        aria-label={t('damNextDay')}
+        aria-label={t("damNextDay")}
       >
         ›
       </button>
@@ -2066,9 +2694,9 @@ export default function DamChartPanel({
         className="dam-date-btn dam-date-btn--today"
         onClick={goToday}
         disabled={tradeDay === calendarTodayIso}
-        aria-label={t('damToday')}
+        aria-label={t("damToday")}
       >
-        {t('damToday')}
+        {t("damToday")}
       </button>
     </div>
   );
@@ -2076,13 +2704,17 @@ export default function DamChartPanel({
   const downloadBar = (
     <div className="dam-xlsx-toolbar">
       {damXlsxYearList.length > 0 ? (
-        <div className="dam-xlsx-years" role="group" aria-label={t('damDownloadYearSwitcherAria')}>
+        <div
+          className="dam-xlsx-years"
+          role="group"
+          aria-label={t("damDownloadYearSwitcherAria")}
+        >
           <button
             type="button"
             className="dam-date-btn"
             onClick={goPrevXlsxYear}
             disabled={damXlsxYearIdx <= 0}
-            aria-label={t('damPrevYear')}
+            aria-label={t("damPrevYear")}
           >
             ‹
           </button>
@@ -2091,8 +2723,10 @@ export default function DamChartPanel({
             type="button"
             className="dam-date-btn"
             onClick={goNextXlsxYear}
-            disabled={damXlsxYearIdx < 0 || damXlsxYearIdx >= damXlsxYearList.length - 1}
-            aria-label={t('damNextYear')}
+            disabled={
+              damXlsxYearIdx < 0 || damXlsxYearIdx >= damXlsxYearList.length - 1
+            }
+            aria-label={t("damNextYear")}
           >
             ›
           </button>
@@ -2105,17 +2739,17 @@ export default function DamChartPanel({
         disabled={damXlsxBusy || damXlsxYearList.length === 0}
         aria-label={
           damXlsxPaymentId
-            ? t('damDownloadPrices')
-            : t('damDownloadPricesPay', { amount: DAM_XLSX_AMOUNT_UAH })
+            ? t("damDownloadPrices")
+            : t("damDownloadPricesPay", { amount: DAM_XLSX_AMOUNT_UAH })
         }
       >
         {damXlsxBusy
           ? damXlsxPaymentId
-            ? t('damDownloadPricesBusy')
-            : t('damDownloadPricesPaying')
+            ? t("damDownloadPricesBusy")
+            : t("damDownloadPricesPaying")
           : damXlsxPaymentId
-            ? t('damDownloadPrices')
-            : t('damDownloadPricesPay', { amount: DAM_XLSX_AMOUNT_UAH })}
+            ? t("damDownloadPrices")
+            : t("damDownloadPricesPay", { amount: DAM_XLSX_AMOUNT_UAH })}
       </button>
       {!damXlsxPaymentId && isLocalhostDev() ? (
         <button
@@ -2124,38 +2758,53 @@ export default function DamChartPanel({
           onClick={() => void skipDamXlsxPaymentTest()}
           disabled={damXlsxBusy || damXlsxYearList.length === 0}
         >
-          {t('rdnCallbackPayTestSkip')}
+          {t("rdnCallbackPayTestSkip")}
         </button>
       ) : null}
       {!damXlsxPaymentId ? (
-        <p className="dam-xlsx-pay-hint">{t('damDownloadPricesPayHint', { amount: DAM_XLSX_AMOUNT_UAH })}</p>
+        <p className="dam-xlsx-pay-hint">
+          {t("damDownloadPricesPayHint", { amount: DAM_XLSX_AMOUNT_UAH })}
+        </p>
       ) : null}
       {damXlsxError ? (
         <p className="dam-xlsx-error" role="alert">
-          {t('damError')}: {damXlsxError}
+          {t("damError")}: {damXlsxError}
         </p>
       ) : null}
     </div>
   );
 
-  const renderSectionDateBar = (inputRef, idSuffix, classNameExtra = '') => (
+  const renderSectionDateBar = (inputRef, idSuffix, classNameExtra = "") => (
     <div
-      className={`dam-date-bar dam-date-bar--section${classNameExtra ? ` ${classNameExtra}` : ''}`.trim()}
+      className={`dam-date-bar dam-date-bar--section${classNameExtra ? ` ${classNameExtra}` : ""}`.trim()}
       role="group"
-      aria-label={t('damDateLabel')}
+      aria-label={t("damDateLabel")}
     >
-      <button type="button" className="dam-date-btn" onClick={goPrev} aria-label={t('damPrevDay')}>
+      <button
+        type="button"
+        className="dam-date-btn"
+        onClick={goPrev}
+        aria-label={t("damPrevDay")}
+      >
         ‹
       </button>
       <div className="dam-date-field">
-        <span className="dam-date-field__text">{formatTradeDayDdMmYyyy(tradeDay)}</span>
+        <span className="dam-date-field__text">
+          {formatTradeDayDdMmYyyy(tradeDay)}
+        </span>
         <button
           type="button"
           className="dam-date-field__calendar"
           onClick={() => openTradeDayPicker(inputRef)}
-          aria-label={t('damOpenDatePickerAria')}
+          aria-label={t("damOpenDatePickerAria")}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+            focusable="false"
+          >
             <path
               fill="currentColor"
               d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zM5 8V6h14v2H5zm2 4h5v5H7v-5z"
@@ -2179,7 +2828,7 @@ export default function DamChartPanel({
         className="dam-date-btn"
         onClick={goNext}
         disabled={tradeDay >= maxTradeDay}
-        aria-label={t('damNextDay')}
+        aria-label={t("damNextDay")}
       >
         ›
       </button>
@@ -2188,9 +2837,9 @@ export default function DamChartPanel({
         className="dam-date-btn dam-date-btn--today"
         onClick={goToday}
         disabled={tradeDay === calendarTodayIso}
-        aria-label={t('damToday')}
+        aria-label={t("damToday")}
       >
-        {t('damToday')}
+        {t("damToday")}
       </button>
     </div>
   );
@@ -2199,12 +2848,12 @@ export default function DamChartPanel({
 
   return (
     <div className="dam-chart-panel-root" data-ems-rev={_DAM_CHART_PANEL_REV}>
-      {variant === 'fullpage' ? (
+      {variant === "fullpage" ? (
         <div
-          className={`dam-page-loader${loading ? ' dam-page-loader--visible' : ''}`}
+          className={`dam-page-loader${loading ? " dam-page-loader--visible" : ""}`}
           aria-hidden={!loading}
           role="status"
-          aria-label={loading ? t('damLoading') : undefined}
+          aria-label={loading ? t("damLoading") : undefined}
         >
           <img
             className="dam-page-loader__logo"
@@ -2216,10 +2865,10 @@ export default function DamChartPanel({
           />
         </div>
       ) : null}
-      {variant === 'embedded' && damDownloadHost
+      {variant === "embedded" && damDownloadHost
         ? createPortal(downloadBar, damDownloadHost)
         : null}
-      {variant === 'fullpage' ? (
+      {variant === "fullpage" ? (
         <header className="pf-header dam-header">
           {marketControls}
           {showEnergyBars ? null : dateBar}
@@ -2227,15 +2876,47 @@ export default function DamChartPanel({
             type="button"
             className="pf-theme-btn"
             onClick={cycleTheme}
-            aria-label={theme === 'dark' ? 'Switch to system theme' : theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'}
-            title={theme === 'dark' ? 'Dark theme (click for system)' : theme === 'light' ? 'Light theme (click for dark)' : 'System theme (click for light)'}
+            aria-label={
+              theme === "dark"
+                ? "Switch to system theme"
+                : theme === "light"
+                  ? "Switch to dark theme"
+                  : "Switch to light theme"
+            }
+            title={
+              theme === "dark"
+                ? "Dark theme (click for system)"
+                : theme === "light"
+                  ? "Light theme (click for dark)"
+                  : "System theme (click for light)"
+            }
           >
-            {theme === 'dark' ? (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            {theme === "dark" ? (
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
                 <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z" />
               </svg>
-            ) : theme === 'light' ? (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            ) : theme === "light" ? (
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
                 <circle cx="12" cy="12" r="5" />
                 <line x1="12" y1="1" x2="12" y2="3" />
                 <line x1="12" y1="21" x2="12" y2="23" />
@@ -2247,7 +2928,17 @@ export default function DamChartPanel({
                 <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
               </svg>
             ) : (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
                 <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
                 <line x1="8" y1="21" x2="16" y2="21" />
                 <line x1="12" y1="17" x2="12" y2="21" />
@@ -2258,68 +2949,92 @@ export default function DamChartPanel({
       ) : (
         <div className="dam-embedded-head">
           <div className="dam-embedded-head-main">
-            <h2 className="dam-title dam-title-embedded">{t('damChartHeading')}</h2>
+            <h2 className="dam-title dam-title-embedded">
+              {t("damChartHeading")}
+            </h2>
           </div>
           {showEmbeddedHeadDateBar ? dateBar : null}
         </div>
       )}
 
-      {damMarket === 'oree' && !payload?.oreeConfigured ? (
+      {damMarket === "oree" && !payload?.oreeConfigured ? (
         <div className="dam-banner dam-banner-warn" role="status">
-          {t('damOreeNotConfigured')}
+          {t("damOreeNotConfigured")}
         </div>
       ) : null}
 
-      {damMarket === 'entsoe' && !payload?.entsoeConfigured ? (
+      {damMarket === "entsoe" && !payload?.entsoeConfigured ? (
         <div className="dam-banner dam-banner-warn" role="status">
-          {t('damEntsoeNotConfigured')}
+          {t("damEntsoeNotConfigured")}
         </div>
       ) : null}
 
-      {damMarket === 'oree' && payload?.syncTriggered ? (
+      {damMarket === "oree" && payload?.syncTriggered ? (
         <div className="dam-banner dam-banner-info" role="status">
-          {t('damSyncNote')}
+          {t("damSyncNote")}
         </div>
       ) : null}
 
-      {damMarket === 'oree' && payload?.lazyOree?.exhausted && !hasAnyDamPrice ? (
+      {damMarket === "oree" &&
+      payload?.lazyOree?.exhausted &&
+      !hasAnyDamPrice ? (
         <div className="dam-banner dam-banner-warn" role="status">
-          {t('damLazyOreeExhausted')}
+          {t("damLazyOreeExhausted")}
         </div>
       ) : null}
 
       {effectiveHuaweiStation && huaweiHourly?.ok && huaweiHourly.empty ? (
-        <div className="dam-banner dam-banner-info dam-banner--with-action" role="status">
-          <span className="dam-banner__message">{t('damHuaweiDbSamplesHint')}</span>
+        <div
+          className="dam-banner dam-banner-info dam-banner--with-action"
+          role="status"
+        >
+          <span className="dam-banner__message">
+            {t("damHuaweiDbSamplesHint")}
+          </span>
           <button
             type="button"
             className="dam-banner__btn"
             onClick={() => void runHuaweiPowerSnapshot()}
             disabled={huaweiSnapshotBusy}
           >
-            {huaweiSnapshotBusy ? t('damHuaweiUpdateNowBusy') : t('damHuaweiUpdateNow')}
+            {huaweiSnapshotBusy
+              ? t("damHuaweiUpdateNowBusy")
+              : t("damHuaweiUpdateNow")}
           </button>
         </div>
       ) : null}
 
       {effectiveEvPortsAcdc && evPortsHourly?.ok && evPortsHourly.empty ? (
-        <div className="dam-banner dam-banner-info dam-banner--with-action" role="status">
-          <span className="dam-banner__message">{t('damEvPortsDbSamplesHint')}</span>
+        <div
+          className="dam-banner dam-banner-info dam-banner--with-action"
+          role="status"
+        >
+          <span className="dam-banner__message">
+            {t("damEvPortsDbSamplesHint")}
+          </span>
           <button
             type="button"
             className="dam-banner__btn"
             onClick={() => void runEvPortsPowerSnapshot()}
             disabled={evPortsSnapshotBusy}
           >
-            {evPortsSnapshotBusy ? t('damHuaweiUpdateNowBusy') : t('damHuaweiUpdateNow')}
+            {evPortsSnapshotBusy
+              ? t("damHuaweiUpdateNowBusy")
+              : t("damHuaweiUpdateNow")}
           </button>
         </div>
       ) : null}
 
-      <div className={variant === 'fullpage' ? 'dam-chart-card' : 'dam-chart-card dam-chart-card-embedded'}>
-        {variant === 'fullpage' ? (
+      <div
+        className={
+          variant === "fullpage"
+            ? "dam-chart-card"
+            : "dam-chart-card dam-chart-card-embedded"
+        }
+      >
+        {variant === "fullpage" ? (
           <div className="dam-title-with-compare">
-            <h1 className="dam-title">{t('damChartHeading')}</h1>
+            <h1 className="dam-title">{t("damChartHeading")}</h1>
             {downloadBar}
           </div>
         ) : null}
@@ -2327,29 +3042,53 @@ export default function DamChartPanel({
         <div className="dam-status-slot" aria-live="polite">
           {loadError ? (
             <p className="dam-error dam-status-slot__item" role="alert">
-              {t('damError')}: {loadError}
+              {t("damError")}: {loadError}
             </p>
-          ) : loading && !hasChart && variant !== 'fullpage' ? (
-            <p className="dam-loading dam-status-slot__item">{t('damLoading')}</p>
+          ) : loading && !hasChart && variant !== "fullpage" ? (
+            <p className="dam-loading dam-status-slot__item">
+              {t("damLoading")}
+            </p>
           ) : showDeyeExtras && socLoading && !loading && hasChart ? (
-            <p className="dam-loading dam-soc-loading dam-status-slot__item">{t('damSocLoading')}</p>
+            <p className="dam-loading dam-soc-loading dam-status-slot__item">
+              {t("damSocLoading")}
+            </p>
           ) : showDeyeExtras && socError ? (
             <p className="dam-error dam-status-slot__item" role="status">
-              {t('damSocHistoryError')}: {socError}
+              {t("damSocHistoryError")}: {socError}
             </p>
           ) : null}
         </div>
 
         {hasChart ? (
-          <div className={loading ? 'dam-chart-content dam-chart-content--loading' : 'dam-chart-content'}>
-            {showEnergyBars ? renderSectionDateBar(tradeDayLineInputRef, 'line', 'dam-date-bar--above-chart') : null}
+          <div
+            className={
+              loading
+                ? "dam-chart-content dam-chart-content--loading"
+                : "dam-chart-content"
+            }
+          >
+            {showEnergyBars
+              ? renderSectionDateBar(
+                  tradeDayLineInputRef,
+                  "line",
+                  "dam-date-bar--above-chart",
+                )
+              : null}
             <div
               className="dam-recharts-wrap dam-recharts-wrap--line-stack"
               style={{ minHeight: `calc(${h}px + 42px)` }}
             >
               <ResponsiveContainer width="100%" height={h}>
-                <LineChart data={rows} syncId="dam-day" margin={damLineChartMargin} isAnimationActive={false}>
-                  <CartesianGrid stroke={CHART.gridStroke} strokeDasharray="3 3" />
+                <LineChart
+                  data={chartRows}
+                  syncId="dam-day"
+                  margin={damLineChartMargin}
+                  isAnimationActive={false}
+                >
+                  <CartesianGrid
+                    stroke={CHART.gridStroke}
+                    strokeDasharray="3 3"
+                  />
                   <XAxis
                     dataKey="hour"
                     type="number"
@@ -2369,14 +3108,18 @@ export default function DamChartPanel({
                       hide={damChartMobile}
                       tick={{ fill: CHART.axisTextAmber, fontSize: 11 }}
                       tickLine={false}
-                      tickFormatter={v => fmtEur.format(v)}
+                      tickFormatter={(v) => fmtEur.format(v)}
                       axisLine={{ stroke: CHART.axisTextAmber }}
                       label={{
-                        value: t('damTariffAxisEntsoeOverlay'),
+                        value: t("damTariffAxisEntsoeOverlay"),
                         angle: -90,
-                        position: 'insideLeft',
+                        position: "insideLeft",
                         offset: 8,
-                        style: { fill: CHART.axisTextAmber, fontSize: 10, textAnchor: 'end' },
+                        style: {
+                          fill: CHART.axisTextAmber,
+                          fontSize: 10,
+                          textAnchor: "end",
+                        },
                       }}
                     />
                   ) : null}
@@ -2387,14 +3130,24 @@ export default function DamChartPanel({
                       hide={damChartMobile}
                       tick={{ fill: CHART.axisText, fontSize: 11 }}
                       tickLine={false}
-                      tickFormatter={v => (damAxisIsEur ? fmtEur.format(v) : fmtDamTooltip.format(v))}
-                      axisLine={{ stroke: 'rgba(252, 1, 155, 0.25)' }}
+                      tickFormatter={(v) =>
+                        damAxisIsEur
+                          ? fmtEur.format(v)
+                          : fmtDamTooltip.format(v)
+                      }
+                      axisLine={{ stroke: "rgba(252, 1, 155, 0.25)" }}
                       label={{
-                        value: damAxisIsEur ? t('damTariffAxisEur') : t('damTariffAxis'),
+                        value: damAxisIsEur
+                          ? t("damTariffAxisEur")
+                          : t("damTariffAxis"),
                         angle: -90,
-                        position: 'insideLeft',
+                        position: "insideLeft",
                         offset: 10,
-                        style: { fill: 'rgba(255,248,252,0.55)', fontSize: 11, textAnchor: 'end' },
+                        style: {
+                          fill: "rgba(255,248,252,0.55)",
+                          fontSize: 11,
+                          textAnchor: "end",
+                        },
                       }}
                     />
                   ) : showEnergyBars && !damChartMobile ? (
@@ -2406,7 +3159,7 @@ export default function DamChartPanel({
                       axisLine={false}
                     />
                   ) : null}
-                  {showDeyeExtras && damSeriesVisible.soc ? (
+                  {showSocAxis ? (
                     <YAxis
                       yAxisId="soc"
                       orientation="right"
@@ -2415,14 +3168,18 @@ export default function DamChartPanel({
                       hide={damChartMobile}
                       tick={{ fill: CHART.axisTextBlue, fontSize: 11 }}
                       tickLine={false}
-                      tickFormatter={v => fmt1.format(v)}
+                      tickFormatter={(v) => fmt1.format(v)}
                       axisLine={{ stroke: CHART.axisTextBlue }}
                       label={{
-                        value: t('damSocAxis'),
+                        value: t("damSocAxis"),
                         angle: 90,
-                        position: 'insideRight',
+                        position: "insideRight",
                         offset: 10,
-                        style: { fill: CHART.axisTextBlue, fontSize: 11, textAnchor: 'end' },
+                        style: {
+                          fill: CHART.axisTextBlue,
+                          fontSize: 11,
+                          textAnchor: "end",
+                        },
                       }}
                     />
                   ) : null}
@@ -2439,19 +3196,23 @@ export default function DamChartPanel({
                         dx: 6,
                       }}
                       tickLine={false}
-                      tickFormatter={v => fmtHz.format(v)}
+                      tickFormatter={(v) => fmtHz.format(v)}
                       axisLine={{ stroke: CHART.hzAxisLine }}
                       label={{
-                        value: t('damGridFreqAxis'),
+                        value: t("damGridFreqAxis"),
                         angle: 90,
-                        position: 'insideRight',
+                        position: "insideRight",
                         offset: 14,
-                        style: { fill: CHART.hzAxisLabel, fontSize: 11, textAnchor: 'end' },
+                        style: {
+                          fill: CHART.hzAxisLabel,
+                          fontSize: 11,
+                          textAnchor: "end",
+                        },
                       }}
                     />
                   ) : null}
                   <Tooltip
-                    content={tooltipProps => (
+                    content={(tooltipProps) => (
                       <DamLineChartTooltip
                         {...tooltipProps}
                         t={t}
@@ -2463,34 +3224,51 @@ export default function DamChartPanel({
                         damUnitLabel={damUnitLabel}
                         lostSolarHourMoney={
                           preferEurDisplay &&
-                          damMarket === 'oree' &&
+                          damMarket === "oree" &&
                           eurUahRate > 0 &&
                           Array.isArray(lostSolarForecast?.hourMoney)
-                            ? lostSolarForecast.hourMoney.map(m =>
-                                m != null && Number.isFinite(m) ? m / eurUahRate : m
+                            ? lostSolarForecast.hourMoney.map((m) =>
+                                m != null && Number.isFinite(m)
+                                  ? m / eurUahRate
+                                  : m,
                               )
-                            : lostSolarForecast?.hourMoney ?? null
+                            : (lostSolarForecast?.hourMoney ?? null)
                         }
                         lostSolarCurrency={
-                          damMarket === 'entsoe' || (preferEurDisplay && damMarket === 'oree' && eurUahRate > 0)
-                            ? 'eur'
-                            : 'uah'
+                          damMarket === "entsoe" ||
+                          (preferEurDisplay &&
+                            damMarket === "oree" &&
+                            eurUahRate > 0)
+                            ? "eur"
+                            : "uah"
                         }
                         damLineSeriesName={damLineSeriesName}
                         damEntsoeOverlaySeriesNames={
                           showEntsoeOverlayAxis
                             ? [
-                                ...(damSeriesVisible.uaEntsoe ? [damEntsoeOverlaySeriesNameUaEntsoe] : []),
-                                ...(damSeriesVisible.es ? [damEntsoeOverlaySeriesNameEs] : []),
-                                ...(damSeriesVisible.pl ? [damEntsoeOverlaySeriesNamePl] : []),
+                                ...(damSeriesVisible.uaEntsoe
+                                  ? [damEntsoeOverlaySeriesNameUaEntsoe]
+                                  : []),
+                                ...(damSeriesVisible.es
+                                  ? [damEntsoeOverlaySeriesNameEs]
+                                  : []),
+                                ...(damSeriesVisible.pl
+                                  ? [damEntsoeOverlaySeriesNamePl]
+                                  : []),
                               ]
                             : []
                         }
                         damMarket={damMarket}
                         entsoeZone={entsoeZone}
-                        damEntsoeOverlaySeriesNameEs={damEntsoeOverlaySeriesNameEs}
-                        damEntsoeOverlaySeriesNamePl={damEntsoeOverlaySeriesNamePl}
-                        damEntsoeOverlaySeriesNameUaEntsoe={damEntsoeOverlaySeriesNameUaEntsoe}
+                        damEntsoeOverlaySeriesNameEs={
+                          damEntsoeOverlaySeriesNameEs
+                        }
+                        damEntsoeOverlaySeriesNamePl={
+                          damEntsoeOverlaySeriesNamePl
+                        }
+                        damEntsoeOverlaySeriesNameUaEntsoe={
+                          damEntsoeOverlaySeriesNameUaEntsoe
+                        }
                         entsoeOverlayUahMode={scaleOverlaysToUah}
                         preferEurDisplay={preferEurDisplay}
                         isDark={isDark}
@@ -2501,53 +3279,81 @@ export default function DamChartPanel({
                     <Line
                       yAxisId="dam"
                       type="monotone"
-                      dataKey={preferEurDisplay && damMarket === 'oree' ? 'damPriceEurKwh' : 'damPriceKwh'}
+                      dataKey={
+                        preferEurDisplay && damMarket === "oree"
+                          ? "damPriceEurKwh"
+                          : "damPriceKwh"
+                      }
                       name={damLineSeriesName}
                       stroke="#22c55e"
                       strokeWidth={2.2}
-                      dot={{ r: 2.5, fill: '#22c55e' }}
+                      dot={{ r: 2.5, fill: "#22c55e" }}
                       connectNulls
                       isAnimationActive={false}
                     />
                   ) : null}
                   {showEntsoeOverlayAxis && damSeriesVisible.uaEntsoe ? (
                     <Line
-                      yAxisId={scaleOverlaysToUah || preferEurDisplay ? 'dam' : 'entsoeEur'}
+                      yAxisId={
+                        scaleOverlaysToUah || preferEurDisplay
+                          ? "dam"
+                          : "entsoeEur"
+                      }
                       type="monotone"
-                      dataKey={scaleOverlaysToUah ? 'damEntsoeUaEntsoeUahKwh' : 'damEntsoeUaEntsoeEurKwh'}
+                      dataKey={
+                        scaleOverlaysToUah
+                          ? "damEntsoeUaEntsoeUahKwh"
+                          : "damEntsoeUaEntsoeEurKwh"
+                      }
                       name={damEntsoeOverlaySeriesNameUaEntsoe}
                       stroke="#22d3ee"
                       strokeWidth={2}
                       strokeDasharray="4 3"
-                      dot={{ r: 2, fill: '#22d3ee' }}
+                      dot={{ r: 2, fill: "#22d3ee" }}
                       connectNulls
                       isAnimationActive={false}
                     />
                   ) : null}
                   {showEntsoeOverlayAxis && damSeriesVisible.es ? (
                     <Line
-                      yAxisId={scaleOverlaysToUah || preferEurDisplay ? 'dam' : 'entsoeEur'}
+                      yAxisId={
+                        scaleOverlaysToUah || preferEurDisplay
+                          ? "dam"
+                          : "entsoeEur"
+                      }
                       type="monotone"
-                      dataKey={scaleOverlaysToUah ? 'damEntsoeEsUahKwh' : 'damEntsoeEsEurKwh'}
+                      dataKey={
+                        scaleOverlaysToUah
+                          ? "damEntsoeEsUahKwh"
+                          : "damEntsoeEsEurKwh"
+                      }
                       name={damEntsoeOverlaySeriesNameEs}
                       stroke="#f59e0b"
                       strokeWidth={2}
                       strokeDasharray="5 4"
-                      dot={{ r: 2, fill: '#f59e0b' }}
+                      dot={{ r: 2, fill: "#f59e0b" }}
                       connectNulls
                       isAnimationActive={false}
                     />
                   ) : null}
                   {showEntsoeOverlayAxis && damSeriesVisible.pl ? (
                     <Line
-                      yAxisId={scaleOverlaysToUah || preferEurDisplay ? 'dam' : 'entsoeEur'}
+                      yAxisId={
+                        scaleOverlaysToUah || preferEurDisplay
+                          ? "dam"
+                          : "entsoeEur"
+                      }
                       type="monotone"
-                      dataKey={scaleOverlaysToUah ? 'damEntsoePlUahKwh' : 'damEntsoePlEurKwh'}
+                      dataKey={
+                        scaleOverlaysToUah
+                          ? "damEntsoePlUahKwh"
+                          : "damEntsoePlEurKwh"
+                      }
                       name={damEntsoeOverlaySeriesNamePl}
                       stroke="#c084fc"
                       strokeWidth={2}
                       strokeDasharray="6 5"
-                      dot={{ r: 2, fill: '#c084fc' }}
+                      dot={{ r: 2, fill: "#c084fc" }}
                       connectNulls
                       isAnimationActive={false}
                     />
@@ -2557,10 +3363,27 @@ export default function DamChartPanel({
                       yAxisId="soc"
                       type="monotone"
                       dataKey="socPercent"
-                      name={t('damSeriesSoc')}
+                      name={t("damSeriesSoc")}
                       stroke="#60a5fa"
                       strokeWidth={2}
-                      dot={{ r: 2.2, fill: '#60a5fa' }}
+                      dot={{ r: 2.2, fill: "#60a5fa" }}
+                      connectNulls
+                      isAnimationActive={false}
+                    />
+                  ) : null}
+                  {showDeyeExtras &&
+                  hasIdealOverlay &&
+                  damSeriesVisible.socIdeal ? (
+                    <Line
+                      yAxisId="soc"
+                      type="monotone"
+                      dataKey="socIdealPercent"
+                      name={t("damSeriesSocIdeal")}
+                      stroke="#60a5fa"
+                      strokeOpacity={0.35}
+                      strokeWidth={2}
+                      strokeDasharray="5 4"
+                      dot={false}
                       connectNulls
                       isAnimationActive={false}
                     />
@@ -2570,30 +3393,41 @@ export default function DamChartPanel({
                       yAxisId="hz"
                       type="monotone"
                       dataKey="gridFreqHz"
-                      name={t('damSeriesGridFreq')}
+                      name={t("damSeriesGridFreq")}
                       stroke="#facc15"
                       strokeWidth={1.85}
-                      dot={{ r: 2, fill: '#facc15' }}
+                      dot={{ r: 2, fill: "#facc15" }}
                       connectNulls
                       isAnimationActive={false}
                     />
                   ) : null}
                 </LineChart>
               </ResponsiveContainer>
-              <ul className="dam-line-legend" aria-label={t('damChartHeading')}>
+              <ul className="dam-line-legend" aria-label={t("damChartHeading")}>
                 <li>
                   <button
                     type="button"
                     className={`dam-line-legend-item dam-line-legend-item--toggle ${
-                      damSeriesVisible.primary ? 'dam-line-legend-item--on' : 'dam-line-legend-item--off'
+                      damSeriesVisible.primary
+                        ? "dam-line-legend-item--on"
+                        : "dam-line-legend-item--off"
                     }`}
                     aria-pressed={damSeriesVisible.primary}
-                    aria-label={t('damLegendAriaToggleLine', { label: damLineSeriesName })}
-                    onClick={() => setDamSeriesVisible(v => ({ ...v, primary: !v.primary }))}
+                    aria-label={t("damLegendAriaToggleLine", {
+                      label: damLineSeriesName,
+                    })}
+                    onClick={() =>
+                      setDamSeriesVisible((v) => ({
+                        ...v,
+                        primary: !v.primary,
+                      }))
+                    }
                   >
                     <i
                       className={`dam-line-legend-swatch dam-line-legend-swatch--primary ${
-                        damSeriesVisible.primary ? '' : 'dam-line-legend-swatch--muted'
+                        damSeriesVisible.primary
+                          ? ""
+                          : "dam-line-legend-swatch--muted"
                       }`}
                       aria-hidden
                     />
@@ -2605,15 +3439,24 @@ export default function DamChartPanel({
                     <button
                       type="button"
                       className={`dam-line-legend-item dam-line-legend-item--toggle ${
-                        damSeriesVisible.uaEntsoe ? 'dam-line-legend-item--on' : 'dam-line-legend-item--off'
+                        damSeriesVisible.uaEntsoe
+                          ? "dam-line-legend-item--on"
+                          : "dam-line-legend-item--off"
                       }`}
                       aria-pressed={damSeriesVisible.uaEntsoe}
-                      aria-label={t('damLegendAriaToggleUaEntsoe')}
-                      onClick={() => setDamSeriesVisible(v => ({ ...v, uaEntsoe: !v.uaEntsoe }))}
+                      aria-label={t("damLegendAriaToggleUaEntsoe")}
+                      onClick={() =>
+                        setDamSeriesVisible((v) => ({
+                          ...v,
+                          uaEntsoe: !v.uaEntsoe,
+                        }))
+                      }
                     >
                       <i
                         className={`dam-line-legend-swatch dam-line-legend-swatch--ua-entso ${
-                          damSeriesVisible.uaEntsoe ? '' : 'dam-line-legend-swatch--muted'
+                          damSeriesVisible.uaEntsoe
+                            ? ""
+                            : "dam-line-legend-swatch--muted"
                         }`}
                         aria-hidden
                       />
@@ -2626,15 +3469,23 @@ export default function DamChartPanel({
                     <button
                       type="button"
                       className={`dam-line-legend-item dam-line-legend-item--toggle ${
-                        damSeriesVisible.es ? 'dam-line-legend-item--on' : 'dam-line-legend-item--off'
+                        damSeriesVisible.es
+                          ? "dam-line-legend-item--on"
+                          : "dam-line-legend-item--off"
                       }`}
                       aria-pressed={damSeriesVisible.es}
-                      aria-label={t('damLegendAriaToggleEntsoe', { zone: 'ES' })}
-                      onClick={() => setDamSeriesVisible(v => ({ ...v, es: !v.es }))}
+                      aria-label={t("damLegendAriaToggleEntsoe", {
+                        zone: "ES",
+                      })}
+                      onClick={() =>
+                        setDamSeriesVisible((v) => ({ ...v, es: !v.es }))
+                      }
                     >
                       <i
                         className={`dam-line-legend-swatch dam-line-legend-swatch--es ${
-                          damSeriesVisible.es ? '' : 'dam-line-legend-swatch--muted'
+                          damSeriesVisible.es
+                            ? ""
+                            : "dam-line-legend-swatch--muted"
                         }`}
                         aria-hidden
                       />
@@ -2647,15 +3498,23 @@ export default function DamChartPanel({
                     <button
                       type="button"
                       className={`dam-line-legend-item dam-line-legend-item--toggle ${
-                        damSeriesVisible.pl ? 'dam-line-legend-item--on' : 'dam-line-legend-item--off'
+                        damSeriesVisible.pl
+                          ? "dam-line-legend-item--on"
+                          : "dam-line-legend-item--off"
                       }`}
                       aria-pressed={damSeriesVisible.pl}
-                      aria-label={t('damLegendAriaToggleEntsoe', { zone: 'PL' })}
-                      onClick={() => setDamSeriesVisible(v => ({ ...v, pl: !v.pl }))}
+                      aria-label={t("damLegendAriaToggleEntsoe", {
+                        zone: "PL",
+                      })}
+                      onClick={() =>
+                        setDamSeriesVisible((v) => ({ ...v, pl: !v.pl }))
+                      }
                     >
                       <i
                         className={`dam-line-legend-swatch dam-line-legend-swatch--pl ${
-                          damSeriesVisible.pl ? '' : 'dam-line-legend-swatch--muted'
+                          damSeriesVisible.pl
+                            ? ""
+                            : "dam-line-legend-swatch--muted"
                         }`}
                         aria-hidden
                       />
@@ -2668,19 +3527,59 @@ export default function DamChartPanel({
                     <button
                       type="button"
                       className={`dam-line-legend-item dam-line-legend-item--toggle ${
-                        damSeriesVisible.soc ? 'dam-line-legend-item--on' : 'dam-line-legend-item--off'
+                        damSeriesVisible.soc
+                          ? "dam-line-legend-item--on"
+                          : "dam-line-legend-item--off"
                       }`}
                       aria-pressed={damSeriesVisible.soc}
-                      aria-label={t('damLegendAriaToggleLine', { label: t('damSeriesSoc') })}
-                      onClick={() => setDamSeriesVisible(v => ({ ...v, soc: !v.soc }))}
+                      aria-label={t("damLegendAriaToggleLine", {
+                        label: t("damSeriesSoc"),
+                      })}
+                      onClick={() =>
+                        setDamSeriesVisible((v) => ({ ...v, soc: !v.soc }))
+                      }
                     >
                       <i
                         className={`dam-line-legend-swatch dam-line-legend-swatch--soc ${
-                          damSeriesVisible.soc ? '' : 'dam-line-legend-swatch--muted'
+                          damSeriesVisible.soc
+                            ? ""
+                            : "dam-line-legend-swatch--muted"
                         }`}
                         aria-hidden
                       />
-                      {t('damSeriesSoc')}
+                      {t("damSeriesSoc")}
+                    </button>
+                  </li>
+                ) : null}
+                {showDeyeExtras && hasIdealOverlay ? (
+                  <li>
+                    <button
+                      type="button"
+                      className={`dam-line-legend-item dam-line-legend-item--toggle ${
+                        damSeriesVisible.socIdeal
+                          ? "dam-line-legend-item--on"
+                          : "dam-line-legend-item--off"
+                      }`}
+                      aria-pressed={damSeriesVisible.socIdeal}
+                      aria-label={t("damLegendAriaToggleLine", {
+                        label: t("damSeriesSocIdeal"),
+                      })}
+                      onClick={() =>
+                        setDamSeriesVisible((v) => ({
+                          ...v,
+                          socIdeal: !v.socIdeal,
+                        }))
+                      }
+                    >
+                      <i
+                        className={`dam-line-legend-swatch dam-line-legend-swatch--soc-ideal ${
+                          damSeriesVisible.socIdeal
+                            ? ""
+                            : "dam-line-legend-swatch--muted"
+                        }`}
+                        aria-hidden
+                      />
+                      {t("damSeriesSocIdeal")}
                     </button>
                   </li>
                 ) : null}
@@ -2689,38 +3588,48 @@ export default function DamChartPanel({
                     <button
                       type="button"
                       className={`dam-line-legend-item dam-line-legend-item--toggle ${
-                        damSeriesVisible.hz ? 'dam-line-legend-item--on' : 'dam-line-legend-item--off'
+                        damSeriesVisible.hz
+                          ? "dam-line-legend-item--on"
+                          : "dam-line-legend-item--off"
                       }`}
                       aria-pressed={damSeriesVisible.hz}
-                      aria-label={t('damLegendAriaToggleLine', { label: t('damSeriesGridFreq') })}
-                      onClick={() => setDamSeriesVisible(v => ({ ...v, hz: !v.hz }))}
+                      aria-label={t("damLegendAriaToggleLine", {
+                        label: t("damSeriesGridFreq"),
+                      })}
+                      onClick={() =>
+                        setDamSeriesVisible((v) => ({ ...v, hz: !v.hz }))
+                      }
                     >
                       <i
                         className={`dam-line-legend-swatch dam-line-legend-swatch--hz ${
-                          damSeriesVisible.hz ? '' : 'dam-line-legend-swatch--muted'
+                          damSeriesVisible.hz
+                            ? ""
+                            : "dam-line-legend-swatch--muted"
                         }`}
                         aria-hidden
                       />
-                      {t('damSeriesGridFreq')}
+                      {t("damSeriesGridFreq")}
                     </button>
                   </li>
                 ) : null}
               </ul>
-              {scaleOverlaysToUah && eurUahRateLabel && showEntsoeOverlayAxis ? (
+              {scaleOverlaysToUah &&
+              eurUahRateLabel &&
+              showEntsoeOverlayAxis ? (
                 <p className="dam-line-entsoe-uah-footnote" role="note">
-                  {t('damEntsoeEurUahFootnote', {
+                  {t("damEntsoeEurUahFootnote", {
                     date: String(eurUahRateLabel),
                     rate: fmtDamTooltip.format(eurUahRate),
                   })}
                 </p>
               ) : null}
               {preferEurDisplay &&
-              damMarket === 'oree' &&
+              damMarket === "oree" &&
               damSeriesVisible.primary &&
               eurUahRate > 0 &&
               eurUahRateLabel ? (
                 <p className="dam-line-entsoe-uah-footnote" role="note">
-                  {t('damOreeEurUahFootnote', {
+                  {t("damOreeEurUahFootnote", {
                     date: String(eurUahRateLabel),
                     rate: fmtDamTooltip.format(eurUahRate),
                   })}
@@ -2732,337 +3641,510 @@ export default function DamChartPanel({
 
         {hasChart && showEnergyBars ? (
           <details
-            className={`dam-energy-bars-details dam-grid-bars-wrap${loading ? ' dam-chart-content--loading' : ''}`}
+            className={`dam-energy-bars-details dam-grid-bars-wrap${loading ? " dam-chart-content--loading" : ""}`}
             open={gridBarsOpen}
             onToggle={onGridBarsToggle}
           >
             <summary className="dam-energy-bars-summary">
-              <span className="dam-grid-bars-caption">{t('damGridBarsCaption')}</span>
+              <span className="dam-grid-bars-caption">
+                {t("damGridBarsCaption")}
+              </span>
             </summary>
             <div className="dam-energy-bars-details-body">
-            {renderSectionDateBar(tradeDayGridInputRef, 'grid', 'dam-date-bar--above-chart')}
-            <ResponsiveContainer width="100%" height={gridBarH}>
-              <ComposedChart data={rows} syncId="dam-day" margin={damComposedChartMargin} isAnimationActive={false}>
-                <CartesianGrid stroke={CHART.gridStrokeFaint} strokeDasharray="3 3" vertical={false} />
-                <XAxis
-                  dataKey="hour"
-                  type="number"
-                  domain={DAM_X_AXIS_DOMAIN}
-                  ticks={DAM_HOUR_X_TICKS}
-                  allowDecimals={false}
-                  padding={{ left: 0, right: 0 }}
-                  tick={{ fill: CHART.axisText, fontSize: 11 }}
-                  tickLine={false}
-                  hide={damChartMobile}
-                  label={{
-                    value: t('damHourAxis'),
-                    position: 'insideBottom',
-                    offset: -10,
-                    fill: 'rgba(255,248,252,0.55)',
-                    fontSize: 11,
-                  }}
-                />
-                <YAxis
-                  domain={gridDomain}
-                  ticks={gridYTicks}
-                  width={DAM_LEFT_Y_AXIS_WIDTH}
-                  hide={damChartMobile}
-                  tick={{ fill: CHART.axisTextMuted, fontSize: 10 }}
-                  tickLine={false}
-                  tickFormatter={v => fmtGridKwTick.format(v)}
-                  label={{
-                    value: t('damGridPowerAxis'),
-                    angle: -90,
-                    position: 'insideLeft',
-                    offset: 10,
-                    style: { fill: 'rgba(255,248,252,0.55)', fontSize: 10, textAnchor: 'end' },
-                  }}
-                />
-                {/* Match LineChart right Y-axis band widths so Cartesian X width is identical. */}
-                {!damChartMobile && showDeyeExtras && damSeriesVisible.soc ? (
-                  <YAxis
-                    yAxisId="sync-right-margin"
-                    orientation="right"
-                    domain={[0, 100]}
-                    width={DAM_RIGHT_Y_AXIS_WIDTH}
-                    tick={false}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                ) : null}
-                {!damChartMobile && showDeyeExtras && damSeriesVisible.hz ? (
-                  <YAxis
-                    yAxisId="sync-hz-margin"
-                    orientation="right"
-                    domain={[0, 1]}
-                    width={DAM_HZ_Y_AXIS_WIDTH}
-                    tick={false}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                ) : null}
-                <ReferenceLine y={0} stroke={CHART.refLineStroke} strokeDasharray="4 4" />
-                <Tooltip
-                  wrapperStyle={{ outline: 'none' }}
-                  content={({ active, payload, label }) => {
-                    if (!active || !payload?.length) return null;
-                    const raw = payload[0]?.value;
-                    const unit = t('damEnergyKwhUnit');
-                    let valueLine = '—';
-                    if (raw != null && raw !== '') {
-                      const kw = Number(raw);
-                      if (Number.isFinite(kw)) {
-                        if (energyIsApproximate) {
-                          valueLine =
-                            kw < 0
-                              ? `~- ${fmt1.format(Math.abs(kw))} ${unit}`
-                              : `~ ${fmt1.format(kw)} ${unit}`;
-                        } else {
-                          valueLine =
-                            kw < 0
-                              ? `- ${fmt1.format(Math.abs(kw))} ${unit}`
-                              : `${fmt1.format(kw)} ${unit}`;
-                        }
-                      }
-                    }
-                    return (
-                      <div className="recharts-default-tooltip" style={barTooltipStyle}>
-                        <p
-                          className="recharts-tooltip-label"
-                          style={{ color: CHART.tooltipLabelColor, margin: 0 }}
-                        >
-                          {formatDamBarTooltipClockHour(label)}
-                        </p>
-                        <p
-                          className="recharts-tooltip-item"
-                          style={{ color: CHART.tooltipLabelColor, margin: '4px 0 0' }}
-                        >
-                          {valueLine}
-                        </p>
-                        {payload[0]?.payload?.gridOffGrid ? (
-                          <p
-                            className="recharts-tooltip-item"
-                            style={{ color: GRID_OFFGRID_BAR, margin: '4px 0 0', fontWeight: 600 }}
-                          >
-                            offgrid
-                          </p>
-                        ) : null}
-                      </div>
-                    );
-                  }}
-                />
-                <Bar
-                  dataKey="gridKw"
-                  name={t('damSeriesGrid')}
-                  maxBarSize={26}
-                  minPointSize={8}
+              {renderSectionDateBar(
+                tradeDayGridInputRef,
+                "grid",
+                "dam-date-bar--above-chart",
+              )}
+              {hasIdealOverlay &&
+              idealPlan?.savingVsActual != null &&
+              Number.isFinite(idealPlan.savingVsActual) ? (
+                <p className="dam-ideal-saving-note" role="note">
+                  {t("damIdealSavingVsActual", {
+                    amount: fmt1.format(idealPlan.savingVsActual),
+                    unit: damAxisIsEur ? "€" : "₴",
+                  })}
+                </p>
+              ) : null}
+              <ResponsiveContainer width="100%" height={gridBarH}>
+                <ComposedChart
+                  data={chartRows}
+                  syncId="dam-day"
+                  margin={damComposedChartMargin}
                   isAnimationActive={false}
                 >
-                  {rows.map((e, i) => (
-                    <Cell key={`grid-${i}`} fill={gridEnergyBarFill(e)} />
-                  ))}
-                </Bar>
-                <Scatter
-                  dataKey="gridKw"
-                  tooltipType="none"
-                  legendType="none"
-                  isAnimationActive={false}
-                  shape={dotProps => {
-                    const { cx, cy, payload } = dotProps;
-                    const v = payload?.gridKw;
-                    if (v == null || !Number.isFinite(v) || cx == null || cy == null) return null;
-                    const fill = gridEnergyBarFill(payload);
-                    return (
-                      <circle cx={cx} cy={cy} r={5.5} fill={fill} stroke={CHART.circleBorder} strokeWidth={1.2} />
-                    );
-                  }}
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
+                  <CartesianGrid
+                    stroke={CHART.gridStrokeFaint}
+                    strokeDasharray="3 3"
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="hour"
+                    type="number"
+                    domain={DAM_X_AXIS_DOMAIN}
+                    ticks={DAM_HOUR_X_TICKS}
+                    allowDecimals={false}
+                    padding={{ left: 0, right: 0 }}
+                    tick={{ fill: CHART.axisText, fontSize: 11 }}
+                    tickLine={false}
+                    hide={damChartMobile}
+                    label={{
+                      value: t("damHourAxis"),
+                      position: "insideBottom",
+                      offset: -10,
+                      fill: "rgba(255,248,252,0.55)",
+                      fontSize: 11,
+                    }}
+                  />
+                  <YAxis
+                    domain={gridDomain}
+                    ticks={gridYTicks}
+                    width={DAM_LEFT_Y_AXIS_WIDTH}
+                    hide={damChartMobile}
+                    tick={{ fill: CHART.axisTextMuted, fontSize: 10 }}
+                    tickLine={false}
+                    tickFormatter={(v) => fmtGridKwTick.format(v)}
+                    label={{
+                      value: t("damGridPowerAxis"),
+                      angle: -90,
+                      position: "insideLeft",
+                      offset: 10,
+                      style: {
+                        fill: "rgba(255,248,252,0.55)",
+                        fontSize: 10,
+                        textAnchor: "end",
+                      },
+                    }}
+                  />
+                  {/* Match LineChart right Y-axis band widths so Cartesian X width is identical. */}
+                  {!damChartMobile && showSocAxis ? (
+                    <YAxis
+                      yAxisId="sync-right-margin"
+                      orientation="right"
+                      domain={[0, 100]}
+                      width={DAM_RIGHT_Y_AXIS_WIDTH}
+                      tick={false}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                  ) : null}
+                  {!damChartMobile && showDeyeExtras && damSeriesVisible.hz ? (
+                    <YAxis
+                      yAxisId="sync-hz-margin"
+                      orientation="right"
+                      domain={[0, 1]}
+                      width={DAM_HZ_Y_AXIS_WIDTH}
+                      tick={false}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                  ) : null}
+                  <ReferenceLine
+                    y={0}
+                    stroke={CHART.refLineStroke}
+                    strokeDasharray="4 4"
+                  />
+                  <Tooltip
+                    wrapperStyle={{ outline: "none" }}
+                    content={({ active, payload, label }) => {
+                      if (!active || !payload?.length) return null;
+                      const row = payload[0]?.payload;
+                      const unit = t("damEnergyKwhUnit");
+                      const formatKw = (raw, approx) => {
+                        if (raw == null || raw === "") return "—";
+                        const kw = Number(raw);
+                        if (!Number.isFinite(kw)) return "—";
+                        if (approx) {
+                          return kw < 0
+                            ? `~- ${fmt1.format(Math.abs(kw))} ${unit}`
+                            : `~ ${fmt1.format(kw)} ${unit}`;
+                        }
+                        return kw < 0
+                          ? `- ${fmt1.format(Math.abs(kw))} ${unit}`
+                          : `${fmt1.format(kw)} ${unit}`;
+                      };
+                      const idealKw = row?.gridIdealKw;
+                      const idealSoc = row?.socIdealPercent;
+                      let idealLine = null;
+                      if (idealKw != null && Number.isFinite(Number(idealKw))) {
+                        const signed =
+                          Number(idealKw) >= 0
+                            ? `+${fmt1.format(Number(idealKw))}`
+                            : fmt1.format(Number(idealKw));
+                        idealLine =
+                          idealSoc != null && Number.isFinite(Number(idealSoc))
+                            ? t("damIdealHourHint", {
+                                kwh: signed,
+                                soc: fmt1.format(Number(idealSoc)),
+                              })
+                            : `${t("damSeriesGridIdeal")}: ${signed} ${unit}`;
+                      }
+                      return (
+                        <div
+                          className="recharts-default-tooltip"
+                          style={barTooltipStyle}
+                        >
+                          <p
+                            className="recharts-tooltip-label"
+                            style={{
+                              color: CHART.tooltipLabelColor,
+                              margin: 0,
+                            }}
+                          >
+                            {formatDamBarTooltipClockHour(label)}
+                          </p>
+                          <p
+                            className="recharts-tooltip-item"
+                            style={{
+                              color: CHART.tooltipLabelColor,
+                              margin: "4px 0 0",
+                            }}
+                          >
+                            {formatKw(row?.gridKw, energyIsApproximate)}
+                          </p>
+                          {idealLine ? (
+                            <p
+                              className="recharts-tooltip-item"
+                              style={{
+                                color: "rgba(96, 165, 250, 0.95)",
+                                margin: "4px 0 0",
+                              }}
+                            >
+                              {idealLine}
+                            </p>
+                          ) : null}
+                          {row?.gridOffGrid ? (
+                            <p
+                              className="recharts-tooltip-item"
+                              style={{
+                                color: GRID_OFFGRID_BAR,
+                                margin: "4px 0 0",
+                                fontWeight: 600,
+                              }}
+                            >
+                              offgrid
+                            </p>
+                          ) : null}
+                        </div>
+                      );
+                    }}
+                  />
+                  {hasIdealOverlay ? (
+                    <Bar
+                      dataKey="gridIdealKw"
+                      name={t("damSeriesGridIdeal")}
+                      maxBarSize={26}
+                      minPointSize={0}
+                      isAnimationActive={false}
+                      tooltipType="none"
+                    >
+                      {chartRows.map((e, i) => (
+                        <Cell
+                          key={`grid-ideal-${i}`}
+                          fill={gridIdealBarFill(e)}
+                        />
+                      ))}
+                    </Bar>
+                  ) : null}
+                  <Bar
+                    dataKey="gridKw"
+                    name={t("damSeriesGrid")}
+                    maxBarSize={26}
+                    minPointSize={8}
+                    isAnimationActive={false}
+                  >
+                    {chartRows.map((e, i) => (
+                      <Cell key={`grid-${i}`} fill={gridEnergyBarFill(e)} />
+                    ))}
+                  </Bar>
+                  <Scatter
+                    dataKey="gridKw"
+                    tooltipType="none"
+                    legendType="none"
+                    isAnimationActive={false}
+                    shape={(dotProps) => {
+                      const { cx, cy, payload } = dotProps;
+                      const v = payload?.gridKw;
+                      if (
+                        v == null ||
+                        !Number.isFinite(v) ||
+                        cx == null ||
+                        cy == null
+                      )
+                        return null;
+                      const fill = gridEnergyBarFill(payload);
+                      return (
+                        <circle
+                          cx={cx}
+                          cy={cy}
+                          r={5.5}
+                          fill={fill}
+                          stroke={CHART.circleBorder}
+                          strokeWidth={1.2}
+                        />
+                      );
+                    }}
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
             </div>
           </details>
         ) : null}
 
         {hasChart && showPvLoadBars ? (
           <details
-            className={`dam-energy-bars-details dam-pv-load-bars-wrap${loading ? ' dam-chart-content--loading' : ''}`}
+            className={`dam-energy-bars-details dam-pv-load-bars-wrap${loading ? " dam-chart-content--loading" : ""}`}
             open={pvLoadBarsOpen}
             onToggle={onPvLoadBarsToggle}
           >
             <summary className="dam-energy-bars-summary">
-              <span className="dam-grid-bars-caption">{t('damPvLoadBarsCaption')}</span>
+              <span className="dam-grid-bars-caption">
+                {t("damPvLoadBarsCaption")}
+              </span>
             </summary>
             <div className="dam-energy-bars-details-body">
-            {renderSectionDateBar(tradeDayPvInputRef, 'pv', 'dam-date-bar--above-chart')}
-            <ResponsiveContainer width="100%" height={gridBarH}>
-              <ComposedChart data={rows} syncId="dam-day" margin={damComposedChartMargin} isAnimationActive={false}>
-                <CartesianGrid stroke={CHART.gridStrokeFaint} strokeDasharray="3 3" vertical={false} />
-                <XAxis
-                  dataKey="hour"
-                  type="number"
-                  domain={DAM_X_AXIS_DOMAIN}
-                  ticks={DAM_HOUR_X_TICKS}
-                  allowDecimals={false}
-                  padding={{ left: 0, right: 0 }}
-                  tick={{ fill: CHART.axisText, fontSize: 11 }}
-                  tickLine={false}
-                  hide={damChartMobile}
-                  label={{
-                    value: t('damHourAxis'),
-                    position: 'insideBottom',
-                    offset: -10,
-                    fill: 'rgba(255,248,252,0.55)',
-                    fontSize: 11,
-                  }}
-                />
-                <YAxis
-                  domain={pvLoadDomain}
-                  ticks={pvLoadYTicks}
-                  width={DAM_LEFT_Y_AXIS_WIDTH}
-                  hide={damChartMobile}
-                  tick={{ fill: CHART.axisTextMuted, fontSize: 10 }}
-                  tickLine={false}
-                  tickFormatter={v =>
-                    energyIsApproximate ? `~ ${fmtKwhTick.format(v)}` : fmtKwhTick.format(v)
-                  }
-                  label={{
-                    value: t('damPvLoadEnergyAxis'),
-                    angle: -90,
-                    position: 'insideLeft',
-                    offset: 10,
-                    style: { fill: 'rgba(255,248,252,0.55)', fontSize: 10, textAnchor: 'end' },
-                  }}
-                />
-                {!damChartMobile && showDeyeExtras && damSeriesVisible.soc ? (
-                  <YAxis
-                    yAxisId="sync-right-margin"
-                    orientation="right"
-                    domain={[0, 100]}
-                    width={DAM_RIGHT_Y_AXIS_WIDTH}
-                    tick={false}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                ) : null}
-                {!damChartMobile && showDeyeExtras && damSeriesVisible.hz ? (
-                  <YAxis
-                    yAxisId="sync-hz-margin"
-                    orientation="right"
-                    domain={[0, 1]}
-                    width={DAM_HZ_Y_AXIS_WIDTH}
-                    tick={false}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                ) : null}
-                <ReferenceLine y={0} stroke={CHART.refLineStroke} strokeDasharray="4 4" />
-                <Tooltip
-                  wrapperStyle={{ outline: 'none' }}
-                  content={({ active, payload, label }) => {
-                    if (!active || !payload?.length) return null;
-                    const row = payload[0]?.payload;
-                    const unit = t('damEnergyKwhUnit');
-                    const genVal = energyBackfilled
-                      ? row?.pvKwh != null && Number.isFinite(Number(row.pvKwh))
-                        ? `${fmt1.format(Number(row.pvKwh))} ${unit}`
-                        : `— ${unit}`
-                      : formatEnergyKwh(row?.pvKwh, fmt1, unit);
-                    const consRaw = row?.consKwhNeg;
-                    const consVal =
-                      consRaw != null &&
-                      consRaw !== '' &&
-                      Number.isFinite(Number(consRaw)) &&
-                      Number.isFinite(Math.abs(Number(consRaw)))
-                        ? energyBackfilled
-                          ? `${fmt1.format(Math.abs(Number(consRaw)))} ${unit}`
-                          : formatEnergyKwh(Math.abs(Number(consRaw)), fmt1, unit)
-                        : '—';
-                    const genLine = `${t('damPvLoadTooltipGen')}: ${genVal}`;
-                    const consLine = `${t('damPvLoadTooltipCons')}: ${consVal}`;
-                    return (
-                      <div className="recharts-default-tooltip" style={barTooltipStyle}>
-                        <p
-                          className="recharts-tooltip-label"
-                          style={{ color: CHART.tooltipLabelColor, margin: 0 }}
-                        >
-                          {formatDamBarTooltipClockHour(label)}
-                        </p>
-                        <p
-                          className="recharts-tooltip-item"
-                          style={{ color: CHART.tooltipLabelColor, margin: '4px 0 0' }}
-                        >
-                          {genLine}
-                        </p>
-                        <p
-                          className="recharts-tooltip-item"
-                          style={{ color: CHART.tooltipLabelColor, margin: '2px 0 0' }}
-                        >
-                          {consLine}
-                        </p>
-                      </div>
-                    );
-                  }}
-                />
-                <Bar
-                  dataKey="pvKwh"
-                  name={t('damSeriesPvKwh')}
-                  maxBarSize={22}
-                  minPointSize={6}
+              {renderSectionDateBar(
+                tradeDayPvInputRef,
+                "pv",
+                "dam-date-bar--above-chart",
+              )}
+              <ResponsiveContainer width="100%" height={gridBarH}>
+                <ComposedChart
+                  data={chartRows}
+                  syncId="dam-day"
+                  margin={damComposedChartMargin}
                   isAnimationActive={false}
                 >
-                  {rows.map((e, i) => (
-                    <Cell
-                      key={`pv-${i}`}
-                      fill={e.pvKwh == null || !Number.isFinite(e.pvKwh) ? 'rgba(90, 90, 110, 0.2)' : '#22c55e'}
+                  <CartesianGrid
+                    stroke={CHART.gridStrokeFaint}
+                    strokeDasharray="3 3"
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="hour"
+                    type="number"
+                    domain={DAM_X_AXIS_DOMAIN}
+                    ticks={DAM_HOUR_X_TICKS}
+                    allowDecimals={false}
+                    padding={{ left: 0, right: 0 }}
+                    tick={{ fill: CHART.axisText, fontSize: 11 }}
+                    tickLine={false}
+                    hide={damChartMobile}
+                    label={{
+                      value: t("damHourAxis"),
+                      position: "insideBottom",
+                      offset: -10,
+                      fill: "rgba(255,248,252,0.55)",
+                      fontSize: 11,
+                    }}
+                  />
+                  <YAxis
+                    domain={pvLoadDomain}
+                    ticks={pvLoadYTicks}
+                    width={DAM_LEFT_Y_AXIS_WIDTH}
+                    hide={damChartMobile}
+                    tick={{ fill: CHART.axisTextMuted, fontSize: 10 }}
+                    tickLine={false}
+                    tickFormatter={(v) =>
+                      energyIsApproximate
+                        ? `~ ${fmtKwhTick.format(v)}`
+                        : fmtKwhTick.format(v)
+                    }
+                    label={{
+                      value: t("damPvLoadEnergyAxis"),
+                      angle: -90,
+                      position: "insideLeft",
+                      offset: 10,
+                      style: {
+                        fill: "rgba(255,248,252,0.55)",
+                        fontSize: 10,
+                        textAnchor: "end",
+                      },
+                    }}
+                  />
+                  {!damChartMobile && showSocAxis ? (
+                    <YAxis
+                      yAxisId="sync-right-margin"
+                      orientation="right"
+                      domain={[0, 100]}
+                      width={DAM_RIGHT_Y_AXIS_WIDTH}
+                      tick={false}
+                      tickLine={false}
+                      axisLine={false}
                     />
-                  ))}
-                </Bar>
-                <Bar
-                  dataKey="consKwhNeg"
-                  name={t('damSeriesLoadKwh')}
-                  maxBarSize={22}
-                  minPointSize={6}
-                  isAnimationActive={false}
-                >
-                  {rows.map((e, i) => (
-                    <Cell
-                      key={`load-${i}`}
-                      fill={
-                        e.consKwhNeg == null || !Number.isFinite(e.consKwhNeg) ? 'rgba(90, 90, 110, 0.2)' : '#fb923c'
-                      }
+                  ) : null}
+                  {!damChartMobile && showDeyeExtras && damSeriesVisible.hz ? (
+                    <YAxis
+                      yAxisId="sync-hz-margin"
+                      orientation="right"
+                      domain={[0, 1]}
+                      width={DAM_HZ_Y_AXIS_WIDTH}
+                      tick={false}
+                      tickLine={false}
+                      axisLine={false}
                     />
-                  ))}
-                </Bar>
-                <Scatter
-                  dataKey="pvKwh"
-                  tooltipType="none"
-                  legendType="none"
-                  isAnimationActive={false}
-                  shape={dotProps => {
-                    const { cx, cy, payload } = dotProps;
-                    const v = payload?.pvKwh;
-                    if (v == null || !Number.isFinite(v) || cx == null || cy == null) return null;
-                    return (
-                      <circle cx={cx} cy={cy} r={5} fill="#22c55e" stroke={CHART.circleBorder} strokeWidth={1.2} />
-                    );
-                  }}
-                />
-                <Scatter
-                  dataKey="consKwhNeg"
-                  tooltipType="none"
-                  legendType="none"
-                  isAnimationActive={false}
-                  shape={dotProps => {
-                    const { cx, cy, payload } = dotProps;
-                    const v = payload?.consKwhNeg;
-                    if (v == null || !Number.isFinite(v) || cx == null || cy == null) return null;
-                    return (
-                      <circle cx={cx} cy={cy} r={5} fill="#fb923c" stroke={CHART.circleBorder} strokeWidth={1.2} />
-                    );
-                  }}
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
+                  ) : null}
+                  <ReferenceLine
+                    y={0}
+                    stroke={CHART.refLineStroke}
+                    strokeDasharray="4 4"
+                  />
+                  <Tooltip
+                    wrapperStyle={{ outline: "none" }}
+                    content={({ active, payload, label }) => {
+                      if (!active || !payload?.length) return null;
+                      const row = payload[0]?.payload;
+                      const unit = t("damEnergyKwhUnit");
+                      const genVal = energyBackfilled
+                        ? row?.pvKwh != null &&
+                          Number.isFinite(Number(row.pvKwh))
+                          ? `${fmt1.format(Number(row.pvKwh))} ${unit}`
+                          : `— ${unit}`
+                        : formatEnergyKwh(row?.pvKwh, fmt1, unit);
+                      const consRaw = row?.consKwhNeg;
+                      const consVal =
+                        consRaw != null &&
+                        consRaw !== "" &&
+                        Number.isFinite(Number(consRaw)) &&
+                        Number.isFinite(Math.abs(Number(consRaw)))
+                          ? energyBackfilled
+                            ? `${fmt1.format(Math.abs(Number(consRaw)))} ${unit}`
+                            : formatEnergyKwh(
+                                Math.abs(Number(consRaw)),
+                                fmt1,
+                                unit,
+                              )
+                          : "—";
+                      const genLine = `${t("damPvLoadTooltipGen")}: ${genVal}`;
+                      const consLine = `${t("damPvLoadTooltipCons")}: ${consVal}`;
+                      return (
+                        <div
+                          className="recharts-default-tooltip"
+                          style={barTooltipStyle}
+                        >
+                          <p
+                            className="recharts-tooltip-label"
+                            style={{
+                              color: CHART.tooltipLabelColor,
+                              margin: 0,
+                            }}
+                          >
+                            {formatDamBarTooltipClockHour(label)}
+                          </p>
+                          <p
+                            className="recharts-tooltip-item"
+                            style={{
+                              color: CHART.tooltipLabelColor,
+                              margin: "4px 0 0",
+                            }}
+                          >
+                            {genLine}
+                          </p>
+                          <p
+                            className="recharts-tooltip-item"
+                            style={{
+                              color: CHART.tooltipLabelColor,
+                              margin: "2px 0 0",
+                            }}
+                          >
+                            {consLine}
+                          </p>
+                        </div>
+                      );
+                    }}
+                  />
+                  <Bar
+                    dataKey="pvKwh"
+                    name={t("damSeriesPvKwh")}
+                    maxBarSize={22}
+                    minPointSize={6}
+                    isAnimationActive={false}
+                  >
+                    {rows.map((e, i) => (
+                      <Cell
+                        key={`pv-${i}`}
+                        fill={
+                          e.pvKwh == null || !Number.isFinite(e.pvKwh)
+                            ? "rgba(90, 90, 110, 0.2)"
+                            : "#22c55e"
+                        }
+                      />
+                    ))}
+                  </Bar>
+                  <Bar
+                    dataKey="consKwhNeg"
+                    name={t("damSeriesLoadKwh")}
+                    maxBarSize={22}
+                    minPointSize={6}
+                    isAnimationActive={false}
+                  >
+                    {rows.map((e, i) => (
+                      <Cell
+                        key={`load-${i}`}
+                        fill={
+                          e.consKwhNeg == null || !Number.isFinite(e.consKwhNeg)
+                            ? "rgba(90, 90, 110, 0.2)"
+                            : "#fb923c"
+                        }
+                      />
+                    ))}
+                  </Bar>
+                  <Scatter
+                    dataKey="pvKwh"
+                    tooltipType="none"
+                    legendType="none"
+                    isAnimationActive={false}
+                    shape={(dotProps) => {
+                      const { cx, cy, payload } = dotProps;
+                      const v = payload?.pvKwh;
+                      if (
+                        v == null ||
+                        !Number.isFinite(v) ||
+                        cx == null ||
+                        cy == null
+                      )
+                        return null;
+                      return (
+                        <circle
+                          cx={cx}
+                          cy={cy}
+                          r={5}
+                          fill="#22c55e"
+                          stroke={CHART.circleBorder}
+                          strokeWidth={1.2}
+                        />
+                      );
+                    }}
+                  />
+                  <Scatter
+                    dataKey="consKwhNeg"
+                    tooltipType="none"
+                    legendType="none"
+                    isAnimationActive={false}
+                    shape={(dotProps) => {
+                      const { cx, cy, payload } = dotProps;
+                      const v = payload?.consKwhNeg;
+                      if (
+                        v == null ||
+                        !Number.isFinite(v) ||
+                        cx == null ||
+                        cy == null
+                      )
+                        return null;
+                      return (
+                        <circle
+                          cx={cx}
+                          cy={cy}
+                          r={5}
+                          fill="#fb923c"
+                          stroke={CHART.circleBorder}
+                          strokeWidth={1.2}
+                        />
+                      );
+                    }}
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
             </div>
           </details>
         ) : null}
@@ -3093,24 +4175,28 @@ export default function DamChartPanel({
             getBcp47Locale={getBcp47Locale}
           />
         ) : null}
-        {((effectiveInverterSn &&
+        {(effectiveInverterSn &&
           !effectiveHuaweiStation &&
           !effectiveUbetterDevice &&
           !effectiveGridlabDevice &&
           !effectiveEvPortsAcdc) ||
-          effectiveGridlabDevice ||
-          effectiveEvPortsAcdc) ? (
+        effectiveGridlabDevice ||
+        effectiveEvPortsAcdc ? (
           <DeyeTotalsPanel
             tradeDay={tradeDay}
             inverterSn={
-              effectiveGridlabDevice || effectiveEvPortsAcdc ? undefined : effectiveInverterSn
+              effectiveGridlabDevice || effectiveEvPortsAcdc
+                ? undefined
+                : effectiveInverterSn
             }
             gridlabDeviceId={effectiveGridlabDevice || undefined}
             evPortsAcdc={effectiveEvPortsAcdc || undefined}
             apiUrl={apiUrl}
             t={t}
             getBcp47Locale={getBcp47Locale}
-            onTradeDayChange={(nextIso) => setTradeDay(clampTradeDayIsoForMarket(nextIso, damMarket))}
+            onTradeDayChange={(nextIso) =>
+              setTradeDay(clampTradeDayIsoForMarket(nextIso, damMarket))
+            }
           />
         ) : null}
       </div>
