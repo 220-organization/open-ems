@@ -67,10 +67,98 @@ def _first_currency_name_from_root(root: ET.Element) -> str:
     return ""
 
 
+_STEP_MINUTES = {"PT15M": 15, "PT30M": 30, "PT60M": 60}
+
+
+def _child_text(el: ET.Element, name: str) -> str:
+    for ch in el:
+        if _local_tag(ch.tag) == name and ch.text:
+            return str(ch.text).strip()
+    return ""
+
+
+def _point_prices(period_el: ET.Element) -> dict[int, float]:
+    points: dict[int, float] = {}
+    for ch in period_el:
+        if _local_tag(ch.tag) != "Point":
+            continue
+        pos: Optional[int] = None
+        price: Optional[float] = None
+        for leaf in ch:
+            lt = _local_tag(leaf.tag)
+            if lt == "position" and leaf.text is not None:
+                try:
+                    pos = int(str(leaf.text).strip())
+                except ValueError:
+                    pos = None
+            elif lt == "price.amount" and leaf.text is not None:
+                try:
+                    price = float(str(leaf.text).strip().replace(",", "."))
+                except ValueError:
+                    price = None
+        if pos is not None and price is not None:
+            points[pos] = price
+    return points
+
+
+def _period_slot_count(period_el: ET.Element, step_min: int, max_pos: int) -> int:
+    start = end = ""
+    for ch in period_el:
+        if _local_tag(ch.tag) != "timeInterval":
+            continue
+        start = _child_text(ch, "start")
+        end = _child_text(ch, "end")
+    if start and end and step_min > 0:
+        try:
+            s = datetime.fromisoformat(start.replace("Z", "+00:00"))
+            e = datetime.fromisoformat(end.replace("Z", "+00:00"))
+            minutes = (e - s).total_seconds() / 60.0
+            if minutes > 0:
+                return max(max_pos, int(round(minutes / step_min)))
+        except ValueError:
+            pass
+    return max_pos
+
+
+def _hourly_from_period(period_el: ET.Element) -> dict[int, float]:
+    """
+    One Period → clock hours 1..24.
+
+    ENTSO-E day-ahead curves omit a position when the price does not change.
+    The last published price holds until the next point (curve type A03).
+    """
+    resolution = _child_text(period_el, "resolution") or "PT60M"
+    step = _STEP_MINUTES.get(resolution, 60)
+    points = _point_prices(period_el)
+    if not points:
+        return {}
+    n_slots = _period_slot_count(period_el, step, max(points))
+    filled: list[Optional[float]] = []
+    last: Optional[float] = None
+    for i in range(1, n_slots + 1):
+        if i in points:
+            last = points[i]
+        filled.append(last)
+    if step >= 60:
+        return {i: v for i, v in enumerate(filled, start=1) if v is not None and 1 <= i <= 24}
+    per_hour = max(1, 60 // step)
+    hourly: dict[int, float] = {}
+    for hour in range(1, 25):
+        chunk = [
+            v
+            for v in filled[(hour - 1) * per_hour : hour * per_hour]
+            if v is not None
+        ]
+        if chunk:
+            hourly[hour] = sum(chunk) / len(chunk)
+    return hourly
+
+
 def parse_entsoe_price_points_xml(content: bytes) -> tuple[Optional[str], dict[int, float], str]:
     """
-    Parse Publication_MarketDocument / Price_MarketDocument XML; collect position -> price (per MWh in document currency).
-    Returns (acknowledgement_error_or_None, position_to_price, currency_name_upper_or_empty).
+    Parse Publication_MarketDocument / Price_MarketDocument XML into hours 1..24.
+    Returns (acknowledgement_error_or_None, hour_to_price, currency_name_upper_or_empty).
+    Price is per MWh in the document currency. A later Period overwrites the same hour.
     """
     try:
         root = ET.fromstring(content)
@@ -87,40 +175,14 @@ def parse_entsoe_price_points_xml(content: bytes) -> tuple[Optional[str], dict[i
         return "; ".join(ack_reasons) or "Acknowledgement", {}, ""
 
     currency = _first_currency_name_from_root(root)
-
-    by_pos: dict[int, float] = {}
-    for el in root.iter():
-        if _local_tag(el.tag) != "Point":
-            continue
-        pos: Optional[int] = None
-        price: Optional[float] = None
-        for ch in el:
-            lt = _local_tag(ch.tag)
-            if lt == "position" and ch.text is not None:
-                try:
-                    pos = int(str(ch.text).strip())
-                except ValueError:
-                    pos = None
-            elif lt == "price.amount" and ch.text is not None:
-                try:
-                    price = float(str(ch.text).strip().replace(",", "."))
-                except ValueError:
-                    price = None
-        if pos is not None and price is not None:
-            by_pos[pos] = price
-
-    if not by_pos:
-        return "No price points in document", {}, currency
-
-    max_pos = max(by_pos)
-    if max_pos <= 24:
-        return None, {p: by_pos[p] for p in sorted(by_pos) if 1 <= p <= 24}, currency
-    # 15-minute resolution: collapse 96 intervals to 24 hourly averages
     hourly: dict[int, float] = {}
-    for h in range(1, 25):
-        chunk = [by_pos[p] for p in range((h - 1) * 4 + 1, h * 4 + 1) if p in by_pos]
-        if chunk:
-            hourly[h] = sum(chunk) / len(chunk)
+    for el in root.iter():
+        if _local_tag(el.tag) != "Period":
+            continue
+        hourly.update(_hourly_from_period(el))
+
+    if not hourly:
+        return "No price points in document", {}, currency
     return None, hourly, currency
 
 
