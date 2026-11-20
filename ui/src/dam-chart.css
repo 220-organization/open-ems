@@ -1345,13 +1345,6 @@
   color: rgba(250, 204, 21, 0.95);
 }
 
-.dam-ideal-saving-note {
-  margin: 0 0 6px;
-  font-size: 11px;
-  line-height: 1.35;
-  color: rgba(96, 165, 250, 0.9);
-}
-
 /* OREE official DAM embed — same layout idea as b2b OreePriceIndicesWidget (full-width under Open EMS chart). */
 .dam-indexes-wrap {
   margin-top: 18px;

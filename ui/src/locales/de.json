@@ -489,6 +489,5 @@
   "marketplaceLeadFormCommentPlaceholder": "Additional details (optional)",
   "adminFieldComment": "Comment",
   "deyeBackfillLocalBypass": "Lokaler Bypass (kostenlos)",
-  "damEnergyBackfillNote": "kWh für diesen Tag stammen von Deye-Cloud-Zählern (Backfill) — keine Näherungswerte.",
-  "damIdealSavingVsActual": "Ideal-Arbitrage: {{amount}} {{unit}} für den Tag vs Ist"
+  "damEnergyBackfillNote": "kWh für diesen Tag stammen von Deye-Cloud-Zählern (Backfill) — keine Näherungswerte."
 }

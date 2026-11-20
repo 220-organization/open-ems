@@ -1293,6 +1293,5 @@
   "adminColCreated": "Created",
   "adminColActions": "Actions",
   "deyeBackfillLocalBypass": "Local bypass (free)",
-  "damEnergyBackfillNote": "kWh for this day come from Deye Cloud counters (backfilled) — not approximate samples.",
-  "damIdealSavingVsActual": "Ideal arbitrage: {{amount}} {{unit}} for the day vs actual"
+  "damEnergyBackfillNote": "kWh for this day come from Deye Cloud counters (backfilled) — not approximate samples."
 }
