@@ -2268,15 +2268,6 @@ export default function PowerFlowPage({
     return `${v} $`;
   }, []);
 
-  /** Dropdown BESS capacity from deep-discharge estimate. */
-  const formatInverterCapacityKwh = useCallback((n) => {
-    const v = Number(n);
-    if (!Number.isFinite(v) || v <= 0) return "";
-    const rounded = Math.round(v * 10) / 10;
-    const shown = Number.isInteger(rounded) ? String(rounded) : String(rounded);
-    return `${shown} kWh`;
-  }, []);
-
   const geoForPortsRef = useRef(null);
   const geoRequestedRef = useRef(false);
   /** Only the first charging-ports fetch toggles `loading` so the page overlay does not flash on 60s refresh. */
@@ -7160,21 +7151,15 @@ export default function PowerFlowPage({
             : p != null && Number.isFinite(p)
               ? ` · ${inverterSocFmt.format(p)}%`
               : "";
-          const capKwh = row.capacityKwh;
-          const capacitySuffix =
-            capKwh != null &&
-            Number.isFinite(Number(capKwh)) &&
-            Number(capKwh) > 0
-              ? ` · ${formatInverterCapacityKwh(Number(capKwh))}`
-              : "";
           const c = row.capexUsd;
           const capexSuffix =
             c != null && Number.isFinite(Number(c))
               ? ` · ${formatInverterCapexUsd(Number(c))}`
               : "";
+          // Label is SoC and CAPEX only; capacity kWh stays off the menu.
           return menuItem(
             `${ESS_PREFIX_DEYE}${row.representativeSn}`,
-            row.shortLabel + socSuffix + capacitySuffix + capexSuffix,
+            row.shortLabel + socSuffix + capexSuffix,
             {
               offline,
             },

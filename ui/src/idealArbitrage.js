@@ -3,7 +3,10 @@
  *
  * Minimises Σ price · grid with self-consumption, optional export, off-grid
  * hours (grid forced to 0), SoC 10–100 %, and √0.9 round-trip efficiency.
- * No terminal value on end-of-day SoC.
+ * Each stored kWh discharged also pays ``batteryLcoePerKwh`` (same unit as
+ * prices), so a cycle is taken only when the spread covers the 10 % loss and
+ * battery wear. No separate terminal wear: end-of-day SoC is valued at the
+ * mean price.
  */
 
 export const IDEAL_SOC_MIN = 10;
@@ -70,6 +73,7 @@ function hourCost(price, gridKwh) {
  * @param {number} input.maxChargeKw
  * @param {number} input.maxDischargeKw
  * @param {boolean} [input.allowExport]
+ * @param {number} [input.batteryLcoePerKwh] Wear per stored kWh discharged, same unit as prices.
  * @param {(number|null)[]} [input.actualGridKwh]
  * @returns {null | {
  *   hours: { socPercent: number, gridKwh: number, chargeKwh: number, dischargeKwh: number, unservedKwh: number }[],
@@ -89,6 +93,7 @@ export function computeIdealArbitrageDay(input) {
   if (maxChargeKw <= 0 && maxDischargeKw <= 0) return null;
 
   const allowExport = input.allowExport !== false;
+  const batteryLcoePerKwh = Math.max(0, finiteOr(input.batteryLcoePerKwh, 0));
   const nStates = socIndexCount();
   const startSoc = finiteOr(input.startSocPercent, 50);
   const startIdx = socToIndex(startSoc);
@@ -158,8 +163,13 @@ export function computeIdealArbitrageDay(input) {
           grid = 0;
         }
 
+        // LCOE is once per stored kWh delivered, not on the charge leg.
+        const wear = batteryLcoePerKwh * (dischargeKwh / IDEAL_ETA);
         const cost =
-          hourCost(price, grid) + unserved * UNSERVED_PENALTY + dp[h + 1][t];
+          hourCost(price, grid) +
+          wear +
+          unserved * UNSERVED_PENALTY +
+          dp[h + 1][t];
         const movedKwh = chargeKwh + dischargeKwh;
         // Flat-price tie-break: do not cycle the battery when cost is the same.
         const better =
@@ -207,7 +217,8 @@ export function computeIdealArbitrageDay(input) {
     if (off[h]) gridNoBess = 0;
     else if (!allowExport && gridNoBess < 0) gridNoBess = 0;
 
-    costIdeal += hourCost(prices[h], grid);
+    const wear = batteryLcoePerKwh * (dischargeKwh / IDEAL_ETA);
+    costIdeal += hourCost(prices[h], grid) + wear;
     costNoBess += hourCost(prices[h], gridNoBess);
 
     hours.push({

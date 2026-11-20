@@ -1294,6 +1294,5 @@
   "adminColCreated": "Створено",
   "adminColActions": "Дії",
   "deyeBackfillLocalBypass": "Локальний bypass (безкоштовно)",
-  "damEnergyBackfillNote": "кВт·год за цей день з лічильників Deye Cloud (backfill) — не приблизні семпли.",
-  "damIdealSavingVsActual": "Ідеальний арбітраж: {{amount}} {{unit}} за добу vs факт"
+  "damEnergyBackfillNote": "кВт·год за цей день з лічильників Deye Cloud (backfill) — не приблизні семпли."
 }

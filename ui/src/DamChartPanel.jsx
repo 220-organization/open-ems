@@ -960,6 +960,8 @@ export default function DamChartPanel({
   /** NBU UAH per 1 EUR — scales ENTSO-E EUR/kWh onto the same axis as Ukraine DAM (UAH/kWh). */
   const [eurUahRate, setEurUahRate] = useState(null);
   const [eurUahRateLabel, setEurUahRateLabel] = useState(null);
+  /** Reference battery LCOE, UAH per stored kWh. Null until the request settles. */
+  const [batteryLcoeUahPerKwh, setBatteryLcoeUahPerKwh] = useState(null);
   const [huaweiHourly, setHuaweiHourly] = useState(null);
   const [huaweiSnapshotBusy, setHuaweiSnapshotBusy] = useState(false);
   const [evPortsHourly, setEvPortsHourly] = useState(null);
@@ -1187,6 +1189,26 @@ export default function DamChartPanel({
       cancelled = true;
     };
   }, [tradeDay]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(apiUrl("/api/power-flow/reference-lcoe"), {
+          cache: "no-store",
+        });
+        const d = await r.json();
+        if (cancelled) return;
+        const b = Number(d?.batteryAmortizedUahPerKwh);
+        setBatteryLcoeUahPerKwh(d?.ok && Number.isFinite(b) && b > 0 ? b : 0);
+      } catch {
+        if (!cancelled) setBatteryLcoeUahPerKwh(0);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (damMarket !== "oree") {
@@ -2284,9 +2306,18 @@ export default function DamChartPanel({
     const maxChargeKw = batteryPowerLimitsKw?.maxChargeKw;
     const maxDischargeKw = batteryPowerLimitsKw?.maxDischargeKw;
     if (!(maxChargeKw > 0) && !(maxDischargeKw > 0)) return null;
+    if (batteryLcoeUahPerKwh == null) return null;
     if (!rows.length) return null;
 
     const useEur = damMarket === "entsoe" || preferEurDisplay;
+    const batteryLcoePerKwh =
+      batteryLcoeUahPerKwh > 0
+        ? useEur && eurUahRate > 0
+          ? batteryLcoeUahPerKwh / eurUahRate
+          : useEur
+            ? 0
+            : batteryLcoeUahPerKwh
+        : 0;
     const prices = rows.map((r) => {
       const v =
         useEur && damMarket === "oree" ? r.damPriceEurKwh : r.damPriceKwh;
@@ -2331,6 +2362,7 @@ export default function DamChartPanel({
       maxChargeKw: maxChargeKw > 0 ? maxChargeKw : maxDischargeKw,
       maxDischargeKw: maxDischargeKw > 0 ? maxDischargeKw : maxChargeKw,
       allowExport: !deyeNoExportMode,
+      batteryLcoePerKwh,
       actualGridKwh,
     });
   }, [
@@ -2345,6 +2377,8 @@ export default function DamChartPanel({
     damMarket,
     preferEurDisplay,
     deyeNoExportMode,
+    batteryLcoeUahPerKwh,
+    eurUahRate,
   ]);
 
   const chartRows = useMemo(() => {
@@ -3656,16 +3690,6 @@ export default function DamChartPanel({
                 "grid",
                 "dam-date-bar--above-chart",
               )}
-              {hasIdealOverlay &&
-              idealPlan?.savingVsActual != null &&
-              Number.isFinite(idealPlan.savingVsActual) ? (
-                <p className="dam-ideal-saving-note" role="note">
-                  {t("damIdealSavingVsActual", {
-                    amount: fmt1.format(idealPlan.savingVsActual),
-                    unit: damAxisIsEur ? "€" : "₴",
-                  })}
-                </p>
-              ) : null}
               <ResponsiveContainer width="100%" height={gridBarH}>
                 <ComposedChart
                   data={chartRows}

@@ -74,6 +74,51 @@ describe("computeIdealArbitrageDay", () => {
     expect(r.savingVsNoBess).toBeGreaterThan(0);
   });
 
+  test("LCOE blocks a cycle that earns less than battery wear", () => {
+    const prices = hours(0.02);
+    for (let i = 12; i < 14; i++) prices[i] = 0.043;
+    const r = computeIdealArbitrageDay(
+      baseInput({
+        prices,
+        loadKwh: hours(0),
+        startSocPercent: 10,
+        capacityKwh: 10,
+        maxChargeKw: 5.1,
+        maxDischargeKw: 6.9,
+        batteryLcoePerKwh: 1.61,
+      }),
+    );
+    expect(r).not.toBeNull();
+    for (const h of r.hours) {
+      expect(h.chargeKwh).toBeLessThan(1e-6);
+      expect(h.dischargeKwh).toBeLessThan(1e-6);
+    }
+  });
+
+  test("wide spread still cycles after 10% RTE and LCOE", () => {
+    const prices = hours(2);
+    for (let i = 0; i < 4; i++) prices[i] = 0.01;
+    for (let i = 18; i < 22; i++) prices[i] = 11;
+    const r = computeIdealArbitrageDay(
+      baseInput({
+        prices,
+        loadKwh: hours(0),
+        startSocPercent: 10,
+        capacityKwh: 10,
+        maxChargeKw: 5,
+        maxDischargeKw: 7,
+        batteryLcoePerKwh: 1.61,
+      }),
+    );
+    expect(r).not.toBeNull();
+    const charged = r.hours.slice(0, 4).reduce((s, h) => s + h.chargeKwh, 0);
+    const discharged = r.hours
+      .slice(18, 22)
+      .reduce((s, h) => s + h.dischargeKwh, 0);
+    expect(charged).toBeGreaterThan(1);
+    expect(discharged).toBeGreaterThan(1);
+  });
+
   test("no export: grid stays at 0 or above; battery only covers load", () => {
     const prices = hours(5);
     for (let i = 0; i < 4; i++) prices[i] = 1;

@@ -483,6 +483,5 @@
   "marketplaceLeadFormCommentPlaceholder": "Additional details (optional)",
   "adminFieldComment": "Comment",
   "deyeBackfillLocalBypass": "Lokale bypass (gratis)",
-  "damEnergyBackfillNote": "kWh voor deze dag komen van Deye Cloud-tellers (backfill) — geen geschatte samples.",
-  "damIdealSavingVsActual": "Ideale arbitrage: {{amount}} {{unit}} voor de dag vs werkelijk"
+  "damEnergyBackfillNote": "kWh voor deze dag komen van Deye Cloud-tellers (backfill) — geen geschatte samples."
 }
