@@ -208,6 +208,10 @@
   "damTooltipDamUnitEur": "EUR/kWh",
   "damTooltipDamEntsoeLabel": "{{zone}}",
   "damSeriesSoc": "SoC",
+  "damSeriesSocIdeal": "SoC idéal",
+  "damSeriesGridIdeal": "Réseau idéal",
+  "damIdealHourHint": "Idéal : {{kwh}} kWh / SoC {{soc}} %",
+  "damIdealSaving": "Arbitrage idéal : {{amount}} {{unit}} pour la journée vs réel",
   "damTooltipLostSolarIncome": "Revenu solaire perdu",
   "damSocAxis": "SoC, %",
   "damSeriesGridFreq": "Grid frequency",
@@ -479,5 +483,6 @@
   "marketplaceLeadFormCommentPlaceholder": "Additional details (optional)",
   "adminFieldComment": "Comment",
   "deyeBackfillLocalBypass": "Bypass local (gratuit)",
-  "damEnergyBackfillNote": "Les kWh de ce jour proviennent des compteurs Deye Cloud (backfill) — pas d’échantillons approximatifs."
+  "damEnergyBackfillNote": "Les kWh de ce jour proviennent des compteurs Deye Cloud (backfill) — pas d’échantillons approximatifs.",
+  "damIdealSavingVsActual": "Arbitrage idéal : {{amount}} {{unit}} pour la journée vs réel"
 }

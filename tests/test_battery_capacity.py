@@ -4,10 +4,17 @@ from __future__ import annotations
 
 import unittest
 
-from app.deye_battery_capacity_service import estimate_capacity_kwh_from_balance
+from app.deye_battery_capacity_service import (
+    estimate_capacity_kwh_from_balance,
+    nominal_capacity_override_kwh,
+)
 
 
 class TestBatteryCapacityEstimate(unittest.TestCase):
+    def test_office_pack_override_is_10_kwh(self) -> None:
+        self.assertEqual(nominal_capacity_override_kwh("2410102121"), 10.0)
+        self.assertIsNone(nominal_capacity_override_kwh("unknown-sn"))
+
     def test_deep_discharge_balance(self) -> None:
         # 50 kWh load, 5 kWh grid, 10 kWh solar → 35 kWh from battery; 70% → 50 kWh pack
         cap = estimate_capacity_kwh_from_balance(

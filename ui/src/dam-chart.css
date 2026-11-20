@@ -463,7 +463,11 @@
 .rdn-callback-card__amount-slider::-webkit-slider-runnable-track {
   height: 16px;
   border-radius: 999px;
-  background: linear-gradient(90deg, rgba(252, 1, 155, 0.35), rgba(124, 58, 237, 0.55));
+  background: linear-gradient(
+    90deg,
+    rgba(252, 1, 155, 0.35),
+    rgba(124, 58, 237, 0.55)
+  );
 }
 
 .rdn-callback-card__amount-slider::-webkit-slider-thumb {
@@ -487,7 +491,11 @@
   height: 16px;
   border: none;
   border-radius: 999px;
-  background: linear-gradient(90deg, rgba(252, 1, 155, 0.35), rgba(124, 58, 237, 0.55));
+  background: linear-gradient(
+    90deg,
+    rgba(252, 1, 155, 0.35),
+    rgba(124, 58, 237, 0.55)
+  );
 }
 
 .rdn-callback-card__amount-slider::-moz-range-thumb {
@@ -504,9 +512,14 @@
   cursor: grabbing;
 }
 
-[data-theme="light"] .rdn-callback-card__amount-slider::-webkit-slider-runnable-track,
+[data-theme="light"]
+  .rdn-callback-card__amount-slider::-webkit-slider-runnable-track,
 [data-theme="light"] .rdn-callback-card__amount-slider::-moz-range-track {
-  background: linear-gradient(90deg, rgba(252, 1, 155, 0.28), rgba(124, 58, 237, 0.4));
+  background: linear-gradient(
+    90deg,
+    rgba(252, 1, 155, 0.28),
+    rgba(124, 58, 237, 0.4)
+  );
 }
 
 [data-theme="light"] .rdn-callback-card__amount-slider-range {
@@ -592,7 +605,9 @@
   cursor: pointer;
   border: 1px solid transparent;
   color: #fff;
-  transition: opacity 0.15s ease, transform 0.12s ease;
+  transition:
+    opacity 0.15s ease,
+    transform 0.12s ease;
 }
 
 .rdn-callback-card__btn:disabled {
@@ -783,7 +798,9 @@
   color: var(--pf-value);
   text-decoration: none;
   font-size: 14px;
-  transition: border-color 0.15s ease, color 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .pf-nav-link:hover {
@@ -837,7 +854,9 @@
 }
 
 .dam-date-field__text {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    monospace;
   font-size: 14px;
   font-variant-numeric: tabular-nums;
   color: var(--pf-label);
@@ -919,11 +938,11 @@
 }
 
 .dam-energy-bars-summary::marker {
-  content: '';
+  content: "";
 }
 
 .dam-energy-bars-summary::before {
-  content: '\25B6';
+  content: "\25B6";
   font-size: 0.72rem;
   line-height: 1;
   opacity: 0.72;
@@ -1126,7 +1145,10 @@
   padding: 8px 14px;
   cursor: pointer;
   touch-action: manipulation;
-  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease,
+    background 0.15s ease;
 }
 
 .dam-banner__btn:hover:not(:disabled) {
@@ -1182,8 +1204,10 @@
 
 .dam-chart-content--loading .recharts-cartesian-axis-tick-value,
 .dam-chart-content--loading .dam-day-energy-totals__value,
-.dam-energy-bars-details.dam-chart-content--loading .dam-day-energy-totals__value,
-.dam-energy-bars-details.dam-chart-content--loading .dam-day-energy-totals__dam-sub {
+.dam-energy-bars-details.dam-chart-content--loading
+  .dam-day-energy-totals__value,
+.dam-energy-bars-details.dam-chart-content--loading
+  .dam-day-energy-totals__dam-sub {
   opacity: 0.35;
 }
 
@@ -1288,12 +1312,18 @@
   background: #60a5fa;
 }
 
+.dam-line-legend-swatch--soc-ideal {
+  background: transparent;
+  border: 2px dashed rgba(96, 165, 250, 0.55);
+}
+
 .dam-line-legend-swatch--hz {
   background: #facc15;
 }
 
 .dam-line-legend-swatch--primary.dam-line-legend-swatch--muted,
 .dam-line-legend-swatch--soc.dam-line-legend-swatch--muted,
+.dam-line-legend-swatch--soc-ideal.dam-line-legend-swatch--muted,
 .dam-line-legend-swatch--hz.dam-line-legend-swatch--muted {
   background: transparent;
   border: 2px dashed currentColor;
@@ -1307,8 +1337,19 @@
   color: rgba(96, 165, 250, 0.95);
 }
 
+.dam-line-legend-swatch--soc-ideal.dam-line-legend-swatch--muted {
+  color: rgba(96, 165, 250, 0.45);
+}
+
 .dam-line-legend-swatch--hz.dam-line-legend-swatch--muted {
   color: rgba(250, 204, 21, 0.95);
+}
+
+.dam-ideal-saving-note {
+  margin: 0 0 6px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: rgba(96, 165, 250, 0.9);
 }
 
 /* OREE official DAM embed — same layout idea as b2b OreePriceIndicesWidget (full-width under Open EMS chart). */
@@ -1403,11 +1444,11 @@
 }
 
 .dam-oree-market-summary::marker {
-  content: '';
+  content: "";
 }
 
 .dam-oree-market-summary::before {
-  content: '\25B6';
+  content: "\25B6";
   font-size: 0.58rem;
   line-height: 1;
   opacity: 0.72;
@@ -1527,7 +1568,9 @@ a.dam-oree-embed-external {
   color: var(--pf-value, #f9a8ef);
   text-decoration: none;
   border-bottom: 1px solid rgba(252, 1, 155, 0.38);
-  transition: border-color 0.15s ease, color 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease;
 }
 
 a.dam-oree-embed-external:hover {
@@ -1571,8 +1614,13 @@ a.dam-oree-embed-external:hover {
 }
 
 @keyframes dam-loader-pulse {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 1; }
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1588,12 +1636,12 @@ a.dam-oree-embed-external:hover {
 }
 
 [data-theme="light"] .dam-page-loader {
-  background: rgba(247, 240, 255, 0.30);
+  background: rgba(247, 240, 255, 0.3);
 }
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme]) .dam-page-loader {
-    background: rgba(247, 240, 255, 0.30);
+    background: rgba(247, 240, 255, 0.3);
   }
 }
 
@@ -1631,7 +1679,9 @@ a.dam-oree-embed-external:hover {
 [data-theme="light"] .dam-indexes-tooltip-wrap .recharts-tooltip-label,
 [data-theme="light"] .dam-indexes-tooltip-wrap .recharts-tooltip-item-name,
 [data-theme="light"] .dam-indexes-tooltip-wrap .recharts-tooltip-item-value,
-[data-theme="light"] .dam-indexes-tooltip-wrap .recharts-tooltip-item-separator {
+[data-theme="light"]
+  .dam-indexes-tooltip-wrap
+  .recharts-tooltip-item-separator {
   color: #1a0a1e !important;
 }
 
@@ -1666,8 +1716,12 @@ a.dam-oree-embed-external:hover {
   :root:not([data-theme]) .dam-indexes-tooltip-wrap .recharts-default-tooltip,
   :root:not([data-theme]) .dam-indexes-tooltip-wrap .recharts-tooltip-label,
   :root:not([data-theme]) .dam-indexes-tooltip-wrap .recharts-tooltip-item-name,
-  :root:not([data-theme]) .dam-indexes-tooltip-wrap .recharts-tooltip-item-value,
-  :root:not([data-theme]) .dam-indexes-tooltip-wrap .recharts-tooltip-item-separator {
+  :root:not([data-theme])
+    .dam-indexes-tooltip-wrap
+    .recharts-tooltip-item-value,
+  :root:not([data-theme])
+    .dam-indexes-tooltip-wrap
+    .recharts-tooltip-item-separator {
     color: #1a0a1e !important;
   }
 }
@@ -1797,7 +1851,11 @@ a.dam-oree-embed-external:hover {
   padding: 6px 10px;
   border-radius: 8px;
   color: var(--pf-label);
-  transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    border-color 0.15s,
+    transform 0.15s;
 }
 
 .hw-totals__tab:hover {
@@ -1821,7 +1879,9 @@ a.dam-oree-embed-external:hover {
 .hw-totals__body {
   padding: 10px 14px 14px;
   min-height: 132px;
-  transition: opacity 0.2s ease, filter 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    filter 0.2s ease;
 }
 
 .hw-totals__body--loading {
@@ -1899,7 +1959,11 @@ a.dam-oree-embed-external:hover {
 .hw-totals__backfill-btn {
   appearance: none;
   border: 1px solid color-mix(in srgb, var(--pf-border) 80%, transparent 20%);
-  background: color-mix(in srgb, var(--pf-surface, transparent) 88%, var(--pf-border) 12%);
+  background: color-mix(
+    in srgb,
+    var(--pf-surface, transparent) 88%,
+    var(--pf-border) 12%
+  );
   color: var(--pf-label);
   font: inherit;
   font-size: 11px;
@@ -1923,7 +1987,11 @@ a.dam-oree-embed-external:hover {
 
 .hw-totals__backfill-btn--primary {
   background: color-mix(in srgb, var(--pf-accent, #3b82f6) 18%, transparent);
-  border-color: color-mix(in srgb, var(--pf-accent, #3b82f6) 45%, var(--pf-border));
+  border-color: color-mix(
+    in srgb,
+    var(--pf-accent, #3b82f6) 45%,
+    var(--pf-border)
+  );
 }
 
 .hw-totals__backfill-panel {
@@ -1958,11 +2026,11 @@ a.dam-oree-embed-external:hover {
 }
 
 .hw-totals__origin-title::marker {
-  content: '';
+  content: "";
 }
 
 .hw-totals__origin-title::before {
-  content: '\25B6';
+  content: "\25B6";
   font-size: 0.58rem;
   line-height: 1;
   letter-spacing: 0;
@@ -1997,7 +2065,8 @@ a.dam-oree-embed-external:hover {
   flex-direction: column;
   gap: 3px;
   padding: 2px 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--pf-border) 85%, transparent 15%);
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--pf-border) 85%, transparent 15%);
 }
 
 .hw-totals__row:last-child {
