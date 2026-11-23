@@ -129,6 +129,37 @@ class UbetterPowerSample(Base):
     )
 
 
+class UbetterEvent(Base):
+    """One Ubetter alarm from detail ``faultList``. Rows stay after the alarm clears."""
+
+    __tablename__ = "ubetter_event"
+
+    device_sn: Mapped[str] = mapped_column(String(128), primary_key=True)
+    alarm_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    alarm_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    alarm_name_en: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    alarm_source: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    alarm_level: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    event_status: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    is_fault: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    occurred_at: Mapped[Optional[datetime.datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    cleared_at: Mapped[Optional[datetime.datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    component_category_en: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    component_model_en: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    fault_position: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    first_seen_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    last_seen_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class GridLabPowerSample(Base):
     """
     GridLab BESS live metrics in 5-minute UTC buckets.

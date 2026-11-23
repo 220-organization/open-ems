@@ -4553,18 +4553,23 @@ export default function PowerFlowPage({
   ]);
 
   useEffect(() => {
-    if (!selInverterSn || !inverterRows.configured || inverterRows.error) {
+    const ubetterEvents = Boolean(selUbetterSn);
+    const deyeEvents = Boolean(selInverterSn) && !ubetterEvents;
+    const ready = ubetterEvents
+      ? ubetterRows.configured && !ubetterRows.error && !ubetterRows.authFailed
+      : deyeEvents && inverterRows.configured && !inverterRows.error;
+    if (!ready) {
       setDeyeAlerts({ loading: false, items: [], error: false });
       return undefined;
     }
     let cancelled = false;
     const loadAlerts = async () => {
       try {
-        const q = new URLSearchParams({
-          deviceSn: selInverterSn,
-          hours: "168",
-        });
-        const r = await fetch(`${apiUrl("/api/deye/alerts")}?${q}`, {
+        const q = ubetterEvents
+          ? new URLSearchParams({ sn: selUbetterSn, hours: "168" })
+          : new URLSearchParams({ deviceSn: selInverterSn, hours: "168" });
+        const path = ubetterEvents ? "/api/ubetter/events" : "/api/deye/alerts";
+        const r = await fetch(`${apiUrl(path)}?${q}`, {
           cache: "no-store",
         });
         const data = await r.json().catch(() => ({}));
@@ -4590,7 +4595,15 @@ export default function PowerFlowPage({
       cancelled = true;
       clearInterval(id);
     };
-  }, [selInverterSn, inverterRows.configured, inverterRows.error]);
+  }, [
+    selInverterSn,
+    selUbetterSn,
+    inverterRows.configured,
+    inverterRows.error,
+    ubetterRows.configured,
+    ubetterRows.error,
+    ubetterRows.authFailed,
+  ]);
 
   useLayoutEffect(() => {
     if (selInverterSn && inverterRows.configured && !inverterRows.error) {
@@ -9390,9 +9403,8 @@ export default function PowerFlowPage({
                     </>
                   )
                 ) : null}
-                {selInverterSn &&
+                {(selInverterSn || selUbetterSn) &&
                 !selHuaweiStationCode &&
-                !selUbetterSn &&
                 !selGridlabDeviceId &&
                 !selEvPortsAggregate ? (
                   <details className="pf-inverter-events pf-roi-details">

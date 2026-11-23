@@ -25,6 +25,7 @@ from app.ubetter_api import (
     ubetter_configured,
     ubetter_missing_env_names,
 )
+from app.ubetter_event_service import list_stored_events, sync_device_alarms_from_cloud
 from app.ubetter_power_service import hourly_device_history_for_kyiv_day, run_ubetter_power_snapshot
 
 logger = logging.getLogger(__name__)
@@ -246,6 +247,42 @@ async def post_discharge_route(body: UbetterDischargeBody):
     except Exception as exc:
         _log_ubetter_route_error("POST /api/ubetter/discharge", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/events")
+async def get_events_route(
+    sn: str = Query(..., min_length=1, max_length=128, description="Ubetter device serial number"),
+    hours: int = Query(168, ge=1, le=720, description="How far back to list stored alarms"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Alarm log from ubetter_event. The live faultList is stored before the list is returned."""
+    if not ubetter_configured():
+        return JSONResponse(
+            content={"ok": False, "configured": False, "items": [], "total": 0},
+            headers=_NO_STORE_CACHE,
+        )
+    device_sn = sn.strip()
+    try:
+        await sync_device_alarms_from_cloud(db, device_sn)
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        _log_ubetter_route_error("GET /api/ubetter/events sync", exc)
+    try:
+        items = await list_stored_events(db, device_sn, hours=hours)
+    except Exception as exc:
+        logger.exception("GET /api/ubetter/events — failed sn=%s: %s", device_sn, exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return JSONResponse(
+        content={
+            "ok": True,
+            "configured": True,
+            "sn": device_sn,
+            "total": len(items),
+            "items": items,
+        },
+        headers=_NO_STORE_CACHE,
+    )
 
 
 @router.get("/soc-history-day")
