@@ -433,6 +433,24 @@ def _battery_power_w_from_api_kw(bat_kw: Optional[float]) -> Optional[float]:
     return -bat_kw * 1000.0 if bat_kw is not None else None
 
 
+def _off_grid_from_energy_flow(energy_flow: Any) -> Optional[bool]:
+    """True when the utility grid is disconnected.
+
+    ``energyFlow.gridData.gridConnected`` is false while the cabinet runs
+    islanded (battery covers the load, grid meter at 0 kW). A missing flag
+    stays unknown so a summary-only payload is not painted off-grid.
+    """
+    if not isinstance(energy_flow, dict):
+        return None
+    grid = energy_flow.get("gridData")
+    if not isinstance(grid, dict) or "gridConnected" not in grid:
+        return None
+    connected = grid.get("gridConnected")
+    if isinstance(connected, bool):
+        return not connected
+    return None
+
+
 def _map_summary_to_power_flow(sn: str, summary: dict[str, Any]) -> dict[str, Any]:
     pv_kw = _float_or_none(summary.get("pvTotalPower"))
     grid_kw = _float_or_none(summary.get("gridActivePower"))
@@ -456,6 +474,7 @@ def _map_summary_to_power_flow(sn: str, summary: dict[str, Any]) -> dict[str, An
         "batteryCurrentA": _float_or_none(summary.get("batteryCurrent")),
         "batteryTemperatureC": _float_or_none(summary.get("batteryTemperature")),
         "reportTimeMs": _int_or_none(summary.get("reportTime")),
+        "offGrid": None,
     }
 
 
@@ -531,6 +550,7 @@ def _map_detail_to_power_flow(
         "batteryCurrentA": _float_or_none(fb.get("batteryCurrent")),
         "batteryTemperatureC": _float_or_none(fb.get("batteryTemperature")),
         "reportTimeMs": report_ts,
+        "offGrid": _off_grid_from_energy_flow(ef),
     }
 
 

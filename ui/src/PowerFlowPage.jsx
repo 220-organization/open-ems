@@ -4734,6 +4734,12 @@ export default function PowerFlowPage({
                 : null,
             socPercent:
               soc != null && Number.isFinite(Number(soc)) ? Number(soc) : null,
+            offGrid:
+              data.offGrid === true
+                ? true
+                : data.offGrid === false
+                  ? false
+                  : null,
           });
         } else if (!data?.ubetterAuthFailed) {
           setUbetterLive(null);
@@ -5540,6 +5546,9 @@ export default function PowerFlowPage({
     Boolean(selInverterSn) &&
     deyeLive?.offGrid === true &&
     !deyeInverterOffline;
+  const ubetterOffGrid =
+    Boolean(selUbetterSn) && ubetterLive?.offGrid === true;
+  const graphOffGrid = deyeOffGrid || ubetterOffGrid;
   const graphDisplaySolarW =
     evOnlyFocusMode || graphInverterOffline ? null : displaySolarW;
   const graphDisplayLoadW =
@@ -5554,7 +5563,7 @@ export default function PowerFlowPage({
       : Math.max(0, Number(evStationPowerW ?? 0))
     : evPortsFocusMode
       ? evPortsDisplayPowerW
-      : graphInverterOffline || deyeOffGrid
+      : graphInverterOffline || graphOffGrid
         ? null
         : displayGridW;
   const graphDisplayEssCharging =
@@ -7735,7 +7744,7 @@ export default function PowerFlowPage({
                           <span
                             className={pfNodeValueClass(
                               solarGridEssValuePending,
-                              graphInverterOffline || deyeOffGrid,
+                              graphInverterOffline || graphOffGrid,
                             )}
                             id="pf-val-grid"
                           >
@@ -7744,7 +7753,7 @@ export default function PowerFlowPage({
                                 collectionTimeSec={flowUpdatedAtSec}
                                 t={t}
                               />
-                            ) : deyeOffGrid ? (
+                            ) : graphOffGrid ? (
                               t("gridOffGrid")
                             ) : selHuaweiStationCode ? (
                               formatHuaweiPowerFlowNodeValue(

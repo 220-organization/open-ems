@@ -122,6 +122,8 @@ class UbetterPowerSample(Base):
     pv_power_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
     pv_generation_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
     battery_power_w: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    # True when energyFlow.gridData.gridConnected was false. NULL = not recorded yet.
+    off_grid: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
     created_on: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

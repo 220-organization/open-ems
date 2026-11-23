@@ -3,7 +3,12 @@
 from datetime import datetime, timezone
 
 from app.deye_soc_service import floor_to_5min_utc
-from app.ubetter_power_service import _mean_or_none, _mean_power_w_to_kwh_hour, _optional_float
+from app.ubetter_power_service import (
+    _mean_or_none,
+    _mean_power_w_to_kwh_hour,
+    _optional_float,
+    classify_hour_off_grid,
+)
 
 
 def test_floor_to_5min_utc_aligns():
@@ -27,3 +32,10 @@ def test_mean_power_w_to_kwh_hour():
 def test_mean_or_none():
     assert _mean_or_none([10.0, 20.0]) == 15.0
     assert _mean_or_none([]) is None
+
+
+def test_hour_off_grid_any_sample_wins():
+    assert classify_hour_off_grid([False, True]) is True
+    assert classify_hour_off_grid([False, False]) is False
+    assert classify_hour_off_grid([None, None]) is None
+    assert classify_hour_off_grid([]) is None

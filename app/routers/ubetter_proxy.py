@@ -278,6 +278,7 @@ async def get_soc_history_day_route(
                 "hourlyGridFrequencyHz": [None] * 24,
                 "hourlyPvKwh": [None] * 24,
                 "hourlyLoadKwh": [None] * 24,
+                "hourlyOffGrid": [None] * 24,
             },
             headers=_NO_STORE_CACHE,
         )
@@ -286,9 +287,14 @@ async def get_soc_history_day_route(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD") from exc
     try:
-        hourly_soc, hourly_grid_w, hourly_grid_hz, hourly_pv_kwh, hourly_load_kwh = (
-            await hourly_device_history_for_kyiv_day(db, sn, trade_day)
-        )
+        (
+            hourly_soc,
+            hourly_grid_w,
+            hourly_grid_hz,
+            hourly_pv_kwh,
+            hourly_load_kwh,
+            hourly_off_grid,
+        ) = await hourly_device_history_for_kyiv_day(db, sn, trade_day)
         return JSONResponse(
             content={
                 "ok": True,
@@ -300,6 +306,7 @@ async def get_soc_history_day_route(
                 "hourlyGridFrequencyHz": hourly_grid_hz,
                 "hourlyPvKwh": hourly_pv_kwh,
                 "hourlyLoadKwh": hourly_load_kwh,
+                "hourlyOffGrid": hourly_off_grid,
             },
             headers=_NO_STORE_CACHE,
         )
