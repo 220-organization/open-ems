@@ -6,7 +6,7 @@ import logging
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,11 +17,43 @@ from app.ubetter_api import get_device_summary, list_devices, ubetter_configured
 
 logger = logging.getLogger(__name__)
 
+_off_grid_column_ready: bool = False
+
 
 def _kyiv_day_bounds(trade_day: date) -> tuple[datetime, datetime]:
     start = datetime.combine(trade_day, time.min, tzinfo=KYIV)
     end = start + timedelta(days=1)
     return start, end
+
+
+async def ubetter_off_grid_column_ready(session: AsyncSession) -> bool:
+    """True when ``ubetter_power_sample.off_grid`` exists (migration applied)."""
+    global _off_grid_column_ready
+    if _off_grid_column_ready:
+        return True
+    result = await session.execute(
+        text(
+            "SELECT COUNT(*)::int FROM information_schema.columns "
+            "WHERE table_name = 'ubetter_power_sample' AND column_name = 'off_grid'"
+        )
+    )
+    ok = int(result.scalar_one() or 0) >= 1
+    if ok:
+        _off_grid_column_ready = True
+    return ok
+
+
+def classify_hour_off_grid(flags: list[Optional[bool]]) -> Optional[bool]:
+    """Whether one Kyiv hour was off-grid.
+
+    Any stored ``off_grid`` sample wins. Hours with no flag stay unknown:
+    Ubetter does not store grid frequency, so a missing flag is not an outage.
+    """
+    if any(flag is True for flag in flags):
+        return True
+    if any(flag is False for flag in flags):
+        return False
+    return None
 
 
 def _mean_or_none(values: list[float]) -> Optional[float]:
@@ -47,7 +79,9 @@ async def upsert_ubetter_power_sample(
     pv_power_w: Optional[float] = None,
     pv_generation_w: Optional[float] = None,
     battery_power_w: Optional[float] = None,
+    off_grid: Optional[bool] = None,
 ) -> None:
+    store_off_grid = await ubetter_off_grid_column_ready(session)
     if (
         soc_percent is None
         and grid_power_w is None
@@ -55,34 +89,41 @@ async def upsert_ubetter_power_sample(
         and pv_power_w is None
         and pv_generation_w is None
         and battery_power_w is None
+        and (off_grid is None or not store_off_grid)
     ):
         return
-    stmt = pg_insert(UbetterPowerSample).values(
-        device_sn=device_sn,
-        bucket_start=bucket_start,
-        soc_percent=soc_percent,
-        grid_power_w=grid_power_w,
-        load_power_w=load_power_w,
-        pv_power_w=pv_power_w,
-        pv_generation_w=pv_generation_w,
-        battery_power_w=battery_power_w,
-    )
+    values: dict[str, object] = {
+        "device_sn": device_sn,
+        "bucket_start": bucket_start,
+        "soc_percent": soc_percent,
+        "grid_power_w": grid_power_w,
+        "load_power_w": load_power_w,
+        "pv_power_w": pv_power_w,
+        "pv_generation_w": pv_generation_w,
+        "battery_power_w": battery_power_w,
+    }
+    if store_off_grid:
+        values["off_grid"] = off_grid
+    stmt = pg_insert(UbetterPowerSample).values(**values)
+    updates = {
+        "soc_percent": func.coalesce(stmt.excluded.soc_percent, UbetterPowerSample.soc_percent),
+        "grid_power_w": func.coalesce(stmt.excluded.grid_power_w, UbetterPowerSample.grid_power_w),
+        "load_power_w": func.coalesce(stmt.excluded.load_power_w, UbetterPowerSample.load_power_w),
+        "pv_power_w": func.coalesce(stmt.excluded.pv_power_w, UbetterPowerSample.pv_power_w),
+        "pv_generation_w": func.coalesce(
+            stmt.excluded.pv_generation_w,
+            UbetterPowerSample.pv_generation_w,
+        ),
+        "battery_power_w": func.coalesce(
+            stmt.excluded.battery_power_w,
+            UbetterPowerSample.battery_power_w,
+        ),
+    }
+    if store_off_grid:
+        updates["off_grid"] = func.coalesce(stmt.excluded.off_grid, UbetterPowerSample.off_grid)
     stmt = stmt.on_conflict_do_update(
         index_elements=["device_sn", "bucket_start"],
-        set_={
-            "soc_percent": func.coalesce(stmt.excluded.soc_percent, UbetterPowerSample.soc_percent),
-            "grid_power_w": func.coalesce(stmt.excluded.grid_power_w, UbetterPowerSample.grid_power_w),
-            "load_power_w": func.coalesce(stmt.excluded.load_power_w, UbetterPowerSample.load_power_w),
-            "pv_power_w": func.coalesce(stmt.excluded.pv_power_w, UbetterPowerSample.pv_power_w),
-            "pv_generation_w": func.coalesce(
-                stmt.excluded.pv_generation_w,
-                UbetterPowerSample.pv_generation_w,
-            ),
-            "battery_power_w": func.coalesce(
-                stmt.excluded.battery_power_w,
-                UbetterPowerSample.battery_power_w,
-            ),
-        },
+        set_=updates,
     )
     await session.execute(stmt)
 
@@ -135,8 +176,17 @@ async def run_ubetter_power_snapshot(session: AsyncSession) -> int:
         pv_val = max(0.0, pv_raw) if pv_raw is not None else None
         pv_gen_val = pv_val
         bat_val = _optional_float(pf.get("batteryPowerW"))
+        off_raw = pf.get("offGrid")
+        off_val = off_raw if off_raw is True or off_raw is False else None
 
-        if soc_val is None and grid_val is None and load_val is None and pv_val is None and bat_val is None:
+        if (
+            soc_val is None
+            and grid_val is None
+            and load_val is None
+            and pv_val is None
+            and bat_val is None
+            and off_val is None
+        ):
             continue
 
         await upsert_ubetter_power_sample(
@@ -149,6 +199,7 @@ async def run_ubetter_power_snapshot(session: AsyncSession) -> int:
             pv_power_w=pv_val,
             pv_generation_w=pv_gen_val,
             battery_power_w=bat_val,
+            off_grid=off_val,
         )
         n += 1
     return n
@@ -164,30 +215,34 @@ async def hourly_device_history_for_kyiv_day(
     list[Optional[float]],
     list[Optional[float]],
     list[Optional[float]],
+    list[Optional[bool]],
 ]:
     """
-    Five lists of 24 Kyiv-hour values: SoC %, grid W, frequency placeholder (None),
-    PV kWh/h, load kWh/h — same response shape as Deye soc-history-day.
+    Six lists of 24 Kyiv-hour values: SoC %, grid W, frequency placeholder (None),
+    PV kWh/h, load kWh/h, off-grid flag — same chart shape as Deye soc-history-day.
     """
     sn = (device_sn or "").strip()
-    empty = ([None] * 24,) * 5
     if not sn:
-        return empty  # type: ignore[return-value]
+        return tuple([None] * 24 for _ in range(6))  # type: ignore[return-value]
 
     start_kyiv, end_kyiv = _kyiv_day_bounds(trade_day)
     start_utc = start_kyiv.astimezone(timezone.utc)
     end_utc = end_kyiv.astimezone(timezone.utc)
+    store_off_grid = await ubetter_off_grid_column_ready(session)
 
+    columns = [
+        UbetterPowerSample.bucket_start,
+        UbetterPowerSample.soc_percent,
+        UbetterPowerSample.grid_power_w,
+        UbetterPowerSample.load_power_w,
+        UbetterPowerSample.pv_generation_w,
+        UbetterPowerSample.pv_power_w,
+        UbetterPowerSample.battery_power_w,
+    ]
+    if store_off_grid:
+        columns.append(UbetterPowerSample.off_grid)
     result = await session.execute(
-        select(
-            UbetterPowerSample.bucket_start,
-            UbetterPowerSample.soc_percent,
-            UbetterPowerSample.grid_power_w,
-            UbetterPowerSample.load_power_w,
-            UbetterPowerSample.pv_generation_w,
-            UbetterPowerSample.pv_power_w,
-            UbetterPowerSample.battery_power_w,
-        ).where(
+        select(*columns).where(
             UbetterPowerSample.device_sn == sn,
             UbetterPowerSample.bucket_start >= start_utc,
             UbetterPowerSample.bucket_start < end_utc,
@@ -199,8 +254,10 @@ async def hourly_device_history_for_kyiv_day(
     grid_buckets: list[list[float]] = [[] for _ in range(24)]
     pv_w_buckets: list[list[float]] = [[] for _ in range(24)]
     load_w_buckets: list[list[float]] = [[] for _ in range(24)]
+    off_buckets: list[list[Optional[bool]]] = [[] for _ in range(24)]
 
-    for bucket_start, soc, grid_w, load_w, pv_gen_w, pv_w, _bat_w in rows:
+    for row in rows:
+        bucket_start, soc, grid_w, load_w, pv_gen_w, pv_w, _bat_w = row[:7]
         local = bucket_start.astimezone(KYIV)
         h = int(local.hour)
         if not (0 <= h <= 23):
@@ -214,10 +271,13 @@ async def hourly_device_history_for_kyiv_day(
             pv_w_buckets[h].append(float(eff_pv))
         if load_w is not None:
             load_w_buckets[h].append(float(load_w))
+        if store_off_grid and len(row) > 7 and isinstance(row[7], bool):
+            off_buckets[h].append(row[7])
 
     soc_out = [_mean_or_none(soc_buckets[i]) for i in range(24)]
     grid_out = [_mean_or_none(grid_buckets[i]) for i in range(24)]
     freq_out: list[Optional[float]] = [None] * 24
     pv_kwh_out = [_mean_power_w_to_kwh_hour(_mean_or_none(pv_w_buckets[i])) for i in range(24)]
     load_kwh_out = [_mean_power_w_to_kwh_hour(_mean_or_none(load_w_buckets[i])) for i in range(24)]
-    return soc_out, grid_out, freq_out, pv_kwh_out, load_kwh_out
+    off_out = [classify_hour_off_grid(off_buckets[i]) for i in range(24)]
+    return soc_out, grid_out, freq_out, pv_kwh_out, load_kwh_out, off_out

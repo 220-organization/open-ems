@@ -8,6 +8,7 @@ import logging
 from app import settings
 from app.db import async_session_factory
 from app.ubetter_api import ubetter_configured
+from app.ubetter_event_service import run_ubetter_event_snapshot
 from app.ubetter_power_service import run_ubetter_power_snapshot
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,14 @@ async def ubetter_power_snapshot_loop(stop: asyncio.Event) -> None:
                     logger.debug("Ubetter power DB snapshot: no rows (no devices or power unavailable)")
             except Exception:
                 logger.exception("Ubetter power DB snapshot failed")
+            try:
+                async with async_session_factory() as session:
+                    events = await run_ubetter_event_snapshot(session)
+                    await session.commit()
+                if events:
+                    logger.info("Ubetter event DB snapshot: %s device(s)", events)
+            except Exception:
+                logger.exception("Ubetter event DB snapshot failed")
         else:
             logger.debug("Ubetter power snapshot skipped: UBETTER_* not configured")
         try:

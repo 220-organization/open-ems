@@ -1691,13 +1691,50 @@ export default function DamChartPanel({
   }, [tradeDay, effectiveInverterSn, effectiveHuaweiStation]);
 
   useEffect(() => {
-    if (!effectiveInverterSn || effectiveHuaweiStation) {
+    if (
+      effectiveHuaweiStation ||
+      (!effectiveInverterSn && !effectiveUbetterDevice)
+    ) {
       setLiveGridPowerW(null);
       setLiveOffGrid(null);
       setLiveLoadPowerW(null);
       setLivePvPowerW(null);
       setLiveBatteryPowerW(null);
       return undefined;
+    }
+    if (effectiveUbetterDevice) {
+      let cancelled = false;
+      const loadLive = async () => {
+        try {
+          const r = await fetch(
+            apiUrl(
+              `/api/ubetter/power-flow?sn=${encodeURIComponent(effectiveUbetterDevice)}`,
+            ),
+            { cache: "no-store" },
+          );
+          const d = await r.json();
+          if (cancelled) return;
+          if (!d?.ok || d?.configured === false) {
+            setLiveOffGrid(null);
+            return;
+          }
+          setLiveOffGrid(
+            d.offGrid === true ? true : d.offGrid === false ? false : null,
+          );
+        } catch {
+          if (!cancelled) setLiveOffGrid(null);
+        }
+      };
+      setLiveGridPowerW(null);
+      setLiveLoadPowerW(null);
+      setLivePvPowerW(null);
+      setLiveBatteryPowerW(null);
+      loadLive();
+      const id = setInterval(loadLive, 25_000);
+      return () => {
+        cancelled = true;
+        clearInterval(id);
+      };
     }
     let cancelled = false;
     const loadLive = async () => {
@@ -1758,7 +1795,7 @@ export default function DamChartPanel({
       cancelled = true;
       clearInterval(id);
     };
-  }, [effectiveInverterSn, effectiveHuaweiStation]);
+  }, [effectiveInverterSn, effectiveHuaweiStation, effectiveUbetterDevice]);
 
   useEffect(() => {
     if (!effectiveHuaweiStation) {

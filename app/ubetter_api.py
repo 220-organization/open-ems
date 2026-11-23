@@ -433,6 +433,24 @@ def _battery_power_w_from_api_kw(bat_kw: Optional[float]) -> Optional[float]:
     return -bat_kw * 1000.0 if bat_kw is not None else None
 
 
+def _off_grid_from_energy_flow(energy_flow: Any) -> Optional[bool]:
+    """True when the utility grid is disconnected.
+
+    ``energyFlow.gridData.gridConnected`` is false while the cabinet runs
+    islanded (battery covers the load, grid meter at 0 kW). A missing flag
+    stays unknown so a summary-only payload is not painted off-grid.
+    """
+    if not isinstance(energy_flow, dict):
+        return None
+    grid = energy_flow.get("gridData")
+    if not isinstance(grid, dict) or "gridConnected" not in grid:
+        return None
+    connected = grid.get("gridConnected")
+    if isinstance(connected, bool):
+        return not connected
+    return None
+
+
 def _map_summary_to_power_flow(sn: str, summary: dict[str, Any]) -> dict[str, Any]:
     pv_kw = _float_or_none(summary.get("pvTotalPower"))
     grid_kw = _float_or_none(summary.get("gridActivePower"))
@@ -456,6 +474,7 @@ def _map_summary_to_power_flow(sn: str, summary: dict[str, Any]) -> dict[str, An
         "batteryCurrentA": _float_or_none(summary.get("batteryCurrent")),
         "batteryTemperatureC": _float_or_none(summary.get("batteryTemperature")),
         "reportTimeMs": _int_or_none(summary.get("reportTime")),
+        "offGrid": None,
     }
 
 
@@ -531,6 +550,7 @@ def _map_detail_to_power_flow(
         "batteryCurrentA": _float_or_none(fb.get("batteryCurrent")),
         "batteryTemperatureC": _float_or_none(fb.get("batteryTemperature")),
         "reportTimeMs": report_ts,
+        "offGrid": _off_grid_from_energy_flow(ef),
     }
 
 
@@ -567,6 +587,93 @@ async def get_device_summary(sn: str) -> dict[str, Any]:
     if summary_data is not None:
         return _map_summary_to_power_flow(device_sn, summary_data)
     return {"ok": False, "configured": True, "reason": "invalid_summary", "sn": device_sn}
+
+
+def _occurred_unix_sec(raw: Any) -> Optional[int]:
+    """Ubetter ``time`` is epoch milliseconds; some payloads send seconds."""
+    sec = _int_or_none(raw)
+    if sec is None:
+        return None
+    if sec > 10_000_000_000:
+        sec //= 1000
+    if sec <= 0:
+        return None
+    return sec
+
+
+def normalize_ubetter_alarm(row: Any) -> Optional[dict[str, Any]]:
+    """One detail ``faultList`` alarm, or None when the row has no identity."""
+    if not isinstance(row, dict):
+        return None
+    alarm_id = str(row.get("id") or "").strip()
+    name = str(row.get("alarmName") or "").strip()
+    name_en = str(row.get("alarmNameEn") or "").strip()
+    if not alarm_id and not name and not name_en:
+        return None
+    if not alarm_id:
+        alarm_id = f"{name_en or name}:{row.get('time') or ''}"
+    current = row.get("isCurrentAlarm")
+    if isinstance(current, bool):
+        active = current
+    else:
+        active = row.get("isFault") is True
+    category = str(row.get("componentCategoryNameEn") or "").strip()
+    model = str(row.get("componentModelNameEn") or "").strip()
+    position = str(row.get("faultPosition") or "").strip()
+    source = str(row.get("alarmSource") or "").strip()
+    return {
+        "id": alarm_id[:64],
+        "name": name or name_en,
+        "title": name_en or name,
+        "source": source or None,
+        "level": _int_or_none(row.get("alarmLevel")),
+        "eventStatus": _int_or_none(row.get("eventStatus")),
+        "isFault": row.get("isFault") if isinstance(row.get("isFault"), bool) else None,
+        "active": active,
+        "startTime": _occurred_unix_sec(row.get("time")),
+        "componentCategoryEn": category or None,
+        "componentModelEn": model or None,
+        "faultPosition": position or None,
+    }
+
+
+def alarms_from_fault_list(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in raw:
+        item = normalize_ubetter_alarm(row)
+        if item is None or item["id"] in seen:
+            continue
+        seen.add(item["id"])
+        out.append(item)
+    return out
+
+
+async def fetch_device_alarms(sn: str) -> tuple[list[dict[str, Any]], bool]:
+    """Current alarms from GET /v1/devices/{sn}/detail ``faultList``.
+
+    The second value is False when the payload has no ``faultList`` key, so the
+    caller must not mark previously stored alarms as cleared.
+    """
+    device_sn = (sn or "").strip()
+    if not device_sn:
+        return [], False
+    if not ubetter_configured():
+        return [], False
+    session = await _session_for_sn(device_sn)
+    async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+        detail_raw = await session.request(
+            client,
+            "GET",
+            f"/v1/devices/{device_sn}/detail",
+            params={"viewScope": "group"},
+        )
+    summary = _extract_detail_group_summary(detail_raw)
+    if not isinstance(summary, dict) or "faultList" not in summary:
+        return [], False
+    return alarms_from_fault_list(summary.get("faultList")), True
 
 
 async def get_power_flow(sn: str) -> dict[str, Any]:
