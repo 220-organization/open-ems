@@ -5546,8 +5546,7 @@ export default function PowerFlowPage({
     Boolean(selInverterSn) &&
     deyeLive?.offGrid === true &&
     !deyeInverterOffline;
-  const ubetterOffGrid =
-    Boolean(selUbetterSn) && ubetterLive?.offGrid === true;
+  const ubetterOffGrid = Boolean(selUbetterSn) && ubetterLive?.offGrid === true;
   const graphOffGrid = deyeOffGrid || ubetterOffGrid;
   const graphDisplaySolarW =
     evOnlyFocusMode || graphInverterOffline ? null : displaySolarW;
