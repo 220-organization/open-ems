@@ -234,6 +234,36 @@ body {
   font-size: 0.78rem;
 }
 
+.pf-inverter-events__item--command {
+  display: block;
+}
+
+.pf-inverter-events__command {
+  width: 100%;
+}
+
+.pf-inverter-events__command > summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.pf-inverter-events__command > summary .pf-inverter-events__name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.pf-inverter-events__detail {
+  margin: 8px 0 0;
+  max-height: 16rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 0.72rem;
+  color: var(--pf-text-muted);
+}
+
 .pf-post-charts-bar {
   width: 100%;
   max-width: 1100px;

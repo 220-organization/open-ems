@@ -503,6 +503,7 @@
   "inverterEventsError": "Не вдалося завантажити події інвертора.",
   "inverterEventActive": "активна",
   "inverterEventCleared": "закрита",
+  "inverterEventSent": "надіслано",
   "roiCapexPrompt": "Сума інвестицій (USD)",
   "roiStartDatePrompt": "Дата початку (календар Києва)",
   "roiStartDateInvalid": "Некоректна дата початку.",

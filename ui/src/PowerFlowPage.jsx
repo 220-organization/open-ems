@@ -3379,6 +3379,7 @@ export default function PowerFlowPage({
     items: [],
     error: false,
   });
+  const [ubetterEventsReload, setUbetterEventsReload] = useState(0);
   /** Matches `selInverterSn` after Deye ess-power has completed for that SN (avoids blur on 20s poll). */
   /** Huawei real power (getDevRealKpi meter + inverter via GET /api/huawei/power-flow). */
   const [huaweiLive, setHuaweiLive] = useState(null);
@@ -4767,6 +4768,7 @@ export default function PowerFlowPage({
     ubetterRows.configured,
     ubetterRows.error,
     ubetterRows.authFailed,
+    ubetterEventsReload,
   ]);
 
   useLayoutEffect(() => {
@@ -6682,6 +6684,7 @@ export default function PowerFlowPage({
               : t("toolbarSaved"),
           );
           setToolbarFeedbackError(false);
+          setUbetterEventsReload((n) => n + 1);
           return;
         }
         setDischarge2Feedback("");
@@ -6774,6 +6777,7 @@ export default function PowerFlowPage({
           setDeyeCommandModal(null);
           return;
         }
+        if (out.ok) setUbetterEventsReload((n) => n + 1);
         setDeyeCommandModal({
           phase: "result",
           kind: "discharge",
@@ -6801,6 +6805,7 @@ export default function PowerFlowPage({
         setDeyeCommandModal(null);
         return;
       }
+      if (out.ok) setUbetterEventsReload((n) => n + 1);
       setDeyeCommandModal({
         phase: "result",
         kind: "discharge",
@@ -6844,6 +6849,7 @@ export default function PowerFlowPage({
           setDeyeCommandModal(null);
           return;
         }
+        if (out.ok) setUbetterEventsReload((n) => n + 1);
         setDeyeCommandModal({
           phase: "result",
           kind: "charge",
@@ -6871,6 +6877,7 @@ export default function PowerFlowPage({
         setDeyeCommandModal(null);
         return;
       }
+      if (out.ok) setUbetterEventsReload((n) => n + 1);
       setDeyeCommandModal({
         phase: "result",
         kind: "charge",
@@ -7222,6 +7229,7 @@ export default function PowerFlowPage({
         setDeyeCommandModal(null);
         return;
       }
+      if (out.ok) setUbetterEventsReload((n) => n + 1);
       setDeyeCommandModal({
         phase: "result",
         kind: "strategy",
@@ -9989,6 +9997,40 @@ export default function PowerFlowPage({
                                     minute: "2-digit",
                                   })
                                 : "";
+                            const title = item.title || item.name;
+                            const meta = `${when}${when ? " · " : ""}${
+                              item.kind === "command"
+                                ? t("inverterEventSent")
+                                : item.active
+                                  ? t("inverterEventActive")
+                                  : t("inverterEventCleared")
+                            }`;
+                            if (item.kind === "command") {
+                              return (
+                                <li
+                                  key={
+                                    item.id || `${item.name}-${item.startTime}`
+                                  }
+                                  className="pf-inverter-events__item pf-inverter-events__item--command"
+                                >
+                                  <details className="pf-inverter-events__command">
+                                    <summary>
+                                      <span className="pf-inverter-events__name">
+                                        {title}
+                                      </span>
+                                      <span className="pf-inverter-events__meta">
+                                        {meta}
+                                      </span>
+                                    </summary>
+                                    {item.detail ? (
+                                      <pre className="pf-inverter-events__detail">
+                                        {item.detail}
+                                      </pre>
+                                    ) : null}
+                                  </details>
+                                </li>
+                              );
+                            }
                             return (
                               <li
                                 key={
@@ -10001,14 +10043,10 @@ export default function PowerFlowPage({
                                 }`}
                               >
                                 <span className="pf-inverter-events__name">
-                                  {item.title || item.name}
+                                  {title}
                                 </span>
                                 <span className="pf-inverter-events__meta">
-                                  {when}
-                                  {when ? " · " : ""}
-                                  {item.active
-                                    ? t("inverterEventActive")
-                                    : t("inverterEventCleared")}
+                                  {meta}
                                 </span>
                               </li>
                             );
