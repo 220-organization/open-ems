@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-const HOLD_MS = 4000;
+const HOLD_MS = 2000;
 const MOVE_PX = 16;
 
 /**
- * Hold a control for 4 seconds, then load `url` in this WebView.
- * Uses location.assign so Capacitor does not open the system browser.
+ * Hold a control for 2 seconds, then run `onHold`.
+ * A short click is left for the control's own click handler.
  */
-export function useLongPressNavigate(url) {
+export function useLongPressNavigate(onHold) {
   const timerRef = useRef(null);
   const originRef = useRef(null);
   const switchedRef = useRef(false);
@@ -48,10 +48,10 @@ export function useLongPressNavigate(url) {
         timerRef.current = null;
         switchedRef.current = true;
         setHolding(false);
-        window.location.assign(url);
+        onHold();
       }, HOLD_MS);
     },
-    [clear, url]
+    [clear, onHold]
   );
 
   const onPointerMove = useCallback(
