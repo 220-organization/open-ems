@@ -210,7 +210,7 @@
             "method": "GET",
             "header": [],
             "url": "{{baseUrl}}/v1/devices/{{deviceSn}}/run-strategy",
-            "description": "strategy 0–6 (see appendix B). strategy=0: chargeCtrl 1=charge, 2=discharge."
+            "description": "V2.1 nested run-strategy. strategy plus one block (manual, backup, peakValley, fixedTime, selfConsumption, aiAuto, transformerExpand). slots only for strategy 3 and 7. See docs/ubetter-run-strategy-v2.1.md."
           },
           "response": []
         },
@@ -221,11 +221,11 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategy\": 5,\n  \"chargeSoc\": 95,\n  \"dischargeSoc\": 10\n}",
+              "raw": "{\n  \"strategy\": 3,\n  \"peakValley\": {\n    \"chargeSoc\": 98,\n    \"dischargeSoc\": 10,\n    \"chargePower\": 50,\n    \"dischargePower\": 50\n  }\n}",
               "options": { "raw": { "language": "json" } }
             },
             "url": "{{baseUrl}}/v1/devices/{{deviceSn}}/run-strategy",
-            "description": "Same fields as API 7 response. `strategy` is required. Fields depend on strategy type.\n\nAppendix B: 0=Manual, 1=Backup, 2=Test, 3=Peak shaving, 4=Scheduled, 5=Self-consumption, 6=AI economic (read-only)."
+            "description": "V2.1: strategy is required. Send only the matching block. Optional slots only for strategy 3 and 7. Omitted fields do not overwrite stored values. PUT without slots does not delete the schedule.\n\n0 manual (chargeCtrl), 1 backup, 3 peakValley, 4 fixedTime, 5 selfConsumption, 6 aiAuto (no slots), 7 transformerExpand."
           },
           "response": []
         }
@@ -240,7 +240,7 @@
             "method": "GET",
             "header": [],
             "url": "{{baseUrl}}/v1/devices/{{deviceSn}}/time-schedule",
-            "description": "Today's slots in device timezone. Check `editable` before PUT."
+            "description": "Today's effective slots in device-local time, including read-only AI slots when strategy is 6."
           },
           "response": []
         },
@@ -255,7 +255,7 @@
               "options": { "raw": { "language": "json" } }
             },
             "url": "{{baseUrl}}/v1/devices/{{deviceSn}}/time-schedule",
-            "description": "Requires `editable=true` from API 9. Slot mode: 0=idle, 1=charge, 2=discharge."
+            "description": "Updates slots and optional SOC only. Does not change strategy. Allowed for strategy 3 and 7. Slot mode: 0=idle, 1=charge, 2=discharge. endTime 00:00:00 means end of day."
           },
           "response": []
         }

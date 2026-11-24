@@ -49,7 +49,12 @@ class UbetterChargeBody(BaseModel):
     chargeSocPercent: int = Field(..., ge=1, le=100, description="Target SoC % when charging")
     dischargeSocPercent: int = Field(10, ge=0, le=99, description="Discharge floor SoC % (limits)")
     powerKw: Optional[float] = Field(None, gt=0, le=500)
-    strategy: int = Field(3, ge=0, le=5, description="Run strategy 0–5. 6 is read-only.")
+    strategy: int = Field(
+        3,
+        ge=0,
+        le=7,
+        description="Ignored. Charge keeps the strategy already on the device.",
+    )
     chargePowerKw: Optional[float] = Field(None, gt=0, le=500)
     dischargePowerKw: Optional[float] = Field(None, gt=0, le=500)
     password: str = Field("", max_length=64)
@@ -60,7 +65,12 @@ class UbetterDischargeBody(BaseModel):
     dischargeSocPercent: int = Field(..., ge=0, le=99, description="Target SoC % when discharging")
     chargeSocPercent: int = Field(95, ge=1, le=100, description="Charge ceiling SoC % (limits)")
     powerKw: Optional[float] = Field(None, gt=0, le=500)
-    strategy: int = Field(3, ge=0, le=5, description="Run strategy 0–5. 6 is read-only.")
+    strategy: int = Field(
+        3,
+        ge=0,
+        le=7,
+        description="Ignored. Discharge keeps the strategy already on the device.",
+    )
     chargePowerKw: Optional[float] = Field(None, gt=0, le=500)
     dischargePowerKw: Optional[float] = Field(None, gt=0, le=500)
     password: str = Field("", max_length=64)
@@ -68,9 +78,14 @@ class UbetterDischargeBody(BaseModel):
 
 class UbetterStrategySettingsBody(BaseModel):
     sn: str = Field(..., min_length=1, max_length=128)
-    strategy: int = Field(..., ge=0, le=5, description="Run strategy 0–5. 6 is read-only.")
-    chargePowerKw: float = Field(..., gt=0, le=500)
-    dischargePowerKw: float = Field(..., gt=0, le=500)
+    strategy: int = Field(
+        ...,
+        ge=0,
+        le=7,
+        description="V2.1 strategy: 0, 1, 3, 4, 5, 6, or 7. 2 is not writable.",
+    )
+    chargePowerKw: Optional[float] = Field(None, gt=0, le=500)
+    dischargePowerKw: Optional[float] = Field(None, gt=0, le=500)
     password: str = Field("", max_length=64)
 
 
@@ -219,7 +234,7 @@ async def get_run_strategy_route(
 
 @router.post("/run-strategy")
 async def post_run_strategy_route(body: UbetterStrategySettingsBody):
-    """Write strategy and charge/discharge power limits. Does not change chargeCtrl."""
+    """Write the V2.1 strategy block and power limits. Does not replace slots."""
     if not ubetter_command_password_ok(body.password):
         return JSONResponse(
             content={"ok": False, "reason": "bad_password", "detail": "Wrong password."},
@@ -253,7 +268,7 @@ async def post_run_strategy_route(body: UbetterStrategySettingsBody):
 
 @router.post("/charge")
 async def post_charge_route(body: UbetterChargeBody):
-    """Charge via Open API run-strategy (chargeCtrl=1). Keeps the strategy already set."""
+    """Charge via Open API run-strategy. Keeps the strategy already set."""
     if not ubetter_command_password_ok(body.password):
         return JSONResponse(
             content={"ok": False, "reason": "bad_password", "detail": "Wrong password."},
@@ -289,7 +304,7 @@ async def post_charge_route(body: UbetterChargeBody):
 
 @router.post("/discharge")
 async def post_discharge_route(body: UbetterDischargeBody):
-    """Discharge via Open API run-strategy (chargeCtrl=2). Keeps the strategy already set."""
+    """Discharge via Open API run-strategy. Keeps the strategy already set."""
     if not ubetter_command_password_ok(body.password):
         return JSONResponse(
             content={"ok": False, "reason": "bad_password", "detail": "Wrong password."},

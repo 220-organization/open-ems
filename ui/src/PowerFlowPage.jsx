@@ -97,23 +97,73 @@ function ubetterChargeCtrlLabel(ctrl) {
   return String(ctrl ?? "?");
 }
 
+const UBETTER_STRATEGY_BLOCKS = {
+  0: "manual",
+  1: "backup",
+  3: "peakValley",
+  4: "fixedTime",
+  5: "selfConsumption",
+  6: "aiAuto",
+  7: "transformerExpand",
+};
+
+function ubetterStrategyBlock(strategy) {
+  if (!strategy || typeof strategy !== "object") return {};
+  const name = UBETTER_STRATEGY_BLOCKS[Number(strategy.strategy)];
+  if (name && strategy[name] && typeof strategy[name] === "object")
+    return strategy[name];
+  return strategy;
+}
+
+/** Flat view of a V2.1 run-strategy payload (one block + optional slots). */
+function ubetterStrategyView(strategy) {
+  if (!strategy || typeof strategy !== "object") {
+    return { strategy: null, slots: [] };
+  }
+  const block = ubetterStrategyBlock(strategy);
+  return {
+    strategy: strategy.strategy,
+    chargeCtrl: block.chargeCtrl != null ? block.chargeCtrl : strategy.chargeCtrl,
+    chargeSoc: block.chargeSoc != null ? block.chargeSoc : strategy.chargeSoc,
+    dischargeSoc:
+      block.dischargeSoc != null ? block.dischargeSoc : strategy.dischargeSoc,
+    chargePower:
+      block.chargePower != null ? block.chargePower : strategy.chargePower,
+    dischargePower:
+      block.dischargePower != null
+        ? block.dischargePower
+        : strategy.dischargePower,
+    slots: Array.isArray(strategy.slots) ? strategy.slots : [],
+  };
+}
+
+function formatUbetterSlots(slots) {
+  if (!Array.isArray(slots) || slots.length === 0) return null;
+  if (slots.length > 1) return `slots=${slots.length}`;
+  const slot = slots[0];
+  const mode = ubetterChargeCtrlLabel(slot.mode);
+  const power = slot.power != null ? ` ${slot.power} kW` : "";
+  return `slots=${slot.startTime || "?"}-${slot.endTime || "?"} ${mode}${power}`;
+}
+
 function formatUbetterStrategyLine(prefix, strategy) {
   if (!strategy || typeof strategy !== "object") return null;
-  const parts = [
-    `${prefix}strategy=${strategy.strategy ?? "?"}`,
-    `chargeCtrl=${strategy.chargeCtrl ?? "?"} (${ubetterChargeCtrlLabel(strategy.chargeCtrl)})`,
-  ];
-  if (strategy.chargeSoc != null)
-    parts.push(`chargeSoc=${strategy.chargeSoc}%`);
-  if (strategy.dischargeSoc != null)
-    parts.push(`dischargeSoc=${strategy.dischargeSoc}%`);
-  if (strategy.chargePower != null)
-    parts.push(`chargePower=${strategy.chargePower} kW`);
-  if (strategy.dischargePower != null)
-    parts.push(`dischargePower=${strategy.dischargePower} kW`);
-  const start = strategy.startTime || strategy.startChargeTime;
-  const end = strategy.endTime || strategy.endChargeTime;
-  if (start && end) parts.push(`${start}–${end}`);
+  const view = ubetterStrategyView(strategy);
+  const parts = [`${prefix}strategy=${view.strategy ?? "?"}`];
+  if (view.chargeCtrl != null) {
+    parts.push(
+      `chargeCtrl=${view.chargeCtrl} (${ubetterChargeCtrlLabel(view.chargeCtrl)})`,
+    );
+  }
+  if (view.chargeSoc != null) parts.push(`chargeSoc=${view.chargeSoc}%`);
+  if (view.dischargeSoc != null)
+    parts.push(`dischargeSoc=${view.dischargeSoc}%`);
+  if (view.chargePower != null)
+    parts.push(`chargePower=${view.chargePower} kW`);
+  if (view.dischargePower != null)
+    parts.push(`dischargePower=${view.dischargePower} kW`);
+  const slots = formatUbetterSlots(view.slots);
+  if (slots) parts.push(slots);
   return parts.join(" · ");
 }
 
@@ -2119,8 +2169,33 @@ function LandingExportMetricCounter({
 const GRIDLAB_LIST_PASSWORD = "3759";
 /** Ubetter Charge Now / Discharge Now. Same literal as the API gate. */
 const UBETTER_COMMAND_PASSWORD = "3759";
-/** Writable run-strategy codes. 6 (AI economic) is read-only on the cloud. */
-const UBETTER_STRATEGY_OPTIONS = [0, 1, 2, 3, 4, 5];
+/** V2.1 strategies the settings form can write. 2 (test) is not in the contract. */
+const UBETTER_STRATEGY_OPTIONS = [0, 1, 3, 4, 5, 6, 7];
+
+function ubetterStrategyWritable(code) {
+  return UBETTER_STRATEGY_OPTIONS.includes(Number(code));
+}
+
+function ubetterStrategyHasChargePower(code) {
+  return [0, 1, 3, 4, 6, 7].includes(Number(code));
+}
+
+function ubetterStrategyHasDischargePower(code) {
+  return [0, 3, 4, 6, 7].includes(Number(code));
+}
+
+function ubetterStrategyChoices(currentCode) {
+  const code = Number(currentCode);
+  if (!Number.isInteger(code) || UBETTER_STRATEGY_OPTIONS.includes(code)) {
+    return UBETTER_STRATEGY_OPTIONS;
+  }
+  return [...UBETTER_STRATEGY_OPTIONS, code].sort((a, b) => a - b);
+}
+
+function ubetterKwText(value, fallback) {
+  if (value != null && Number.isFinite(Number(value))) return String(Number(value));
+  return fallback;
+}
 
 function ubetterPowerKwOrNull(raw) {
   const n = Number(
@@ -3694,6 +3769,7 @@ export default function PowerFlowPage({
   const [ubetterStrategyCode, setUbetterStrategyCode] = useState("3");
   const [ubetterChargePowerKw, setUbetterChargePowerKw] = useState("50");
   const [ubetterDischargePowerKw, setUbetterDischargePowerKw] = useState("50");
+  const [ubetterStrategySlots, setUbetterStrategySlots] = useState([]);
   const [ubetterStrategyBaseline, setUbetterStrategyBaseline] = useState(null);
   const [ubetterStrategyLoading, setUbetterStrategyLoading] = useState(false);
   const [ubetterStrategyBusy, setUbetterStrategyBusy] = useState(false);
@@ -6963,6 +7039,7 @@ export default function PowerFlowPage({
     const sn = selUbetterSn?.trim();
     if (!sn) {
       setUbetterStrategyLoading(false);
+      setUbetterStrategySlots([]);
       return undefined;
     }
     let cancelled = false;
@@ -6973,23 +7050,17 @@ export default function PowerFlowPage({
         if (cancelled) return;
         const live = res.data?.strategy;
         if (live && typeof live === "object") {
+          const view = ubetterStrategyView(live);
           const code =
-            live.strategy != null && Number.isFinite(Number(live.strategy))
-              ? String(Math.round(Number(live.strategy)))
+            view.strategy != null && Number.isFinite(Number(view.strategy))
+              ? String(Math.round(Number(view.strategy)))
               : "3";
-          const charge =
-            live.chargePower != null &&
-            Number.isFinite(Number(live.chargePower))
-              ? String(Number(live.chargePower))
-              : "50";
-          const discharge =
-            live.dischargePower != null &&
-            Number.isFinite(Number(live.dischargePower))
-              ? String(Number(live.dischargePower))
-              : "50";
+          const charge = ubetterKwText(view.chargePower, "50");
+          const discharge = ubetterKwText(view.dischargePower, "50");
           setUbetterStrategyCode(code);
           setUbetterChargePowerKw(charge);
           setUbetterDischargePowerKw(discharge);
+          setUbetterStrategySlots(view.slots);
           setUbetterStrategyBaseline({
             strategy: code,
             charge,
@@ -7017,13 +7088,10 @@ export default function PowerFlowPage({
     const charge = ubetterPowerKwOrNull(ubetterChargePowerKw);
     const discharge = ubetterPowerKwOrNull(ubetterDischargePowerKw);
     const strategy = Number(ubetterStrategyCode);
-    if (
-      charge == null ||
-      discharge == null ||
-      !Number.isInteger(strategy) ||
-      strategy < 0 ||
-      strategy > 5
-    ) {
+    const chargeOk = !ubetterStrategyHasChargePower(strategy) || charge != null;
+    const dischargeOk =
+      !ubetterStrategyHasDischargePower(strategy) || discharge != null;
+    if (!ubetterStrategyWritable(strategy) || !chargeOk || !dischargeOk) {
       setDischarge2Feedback(t("ubetterStrategyInvalidPower"));
       setToolbarFeedbackError(true);
       return;
@@ -7052,7 +7120,10 @@ export default function PowerFlowPage({
     const charge = ubetterPowerKwOrNull(ubetterChargePowerKw);
     const discharge = ubetterPowerKwOrNull(ubetterDischargePowerKw);
     const strategy = Number(ubetterStrategyCode);
-    if (charge == null || discharge == null) {
+    const chargeOk = !ubetterStrategyHasChargePower(strategy) || charge != null;
+    const dischargeOk =
+      !ubetterStrategyHasDischargePower(strategy) || discharge != null;
+    if (!chargeOk || !dischargeOk) {
       return {
         ok: false,
         message: t("ubetterStrategyInvalidPower"),
@@ -7067,8 +7138,8 @@ export default function PowerFlowPage({
         body: JSON.stringify({
           sn,
           strategy,
-          chargePowerKw: charge,
-          dischargePowerKw: discharge,
+          ...(charge != null ? { chargePowerKw: charge } : {}),
+          ...(discharge != null ? { dischargePowerKw: discharge } : {}),
           password: UBETTER_COMMAND_PASSWORD,
         }),
         cache: "no-store",
@@ -7090,21 +7161,20 @@ export default function PowerFlowPage({
       const verified = await fetchUbetterRunStrategy(sn);
       const live = verified.data?.strategy;
       if (live && typeof live === "object") {
+        const view = ubetterStrategyView(live);
         const code =
-          live.strategy != null
-            ? String(Math.round(Number(live.strategy)))
+          view.strategy != null
+            ? String(Math.round(Number(view.strategy)))
             : String(strategy);
-        const nextCharge =
-          live.chargePower != null
-            ? String(Number(live.chargePower))
-            : String(charge);
-        const nextDischarge =
-          live.dischargePower != null
-            ? String(Number(live.dischargePower))
-            : String(discharge);
+        const nextCharge = ubetterKwText(view.chargePower, String(charge ?? ""));
+        const nextDischarge = ubetterKwText(
+          view.dischargePower,
+          String(discharge ?? ""),
+        );
         setUbetterStrategyCode(code);
         setUbetterChargePowerKw(nextCharge);
         setUbetterDischargePowerKw(nextDischarge);
+        setUbetterStrategySlots(view.slots);
         setUbetterStrategyBaseline({
           strategy: code,
           charge: nextCharge,
@@ -9282,16 +9352,13 @@ export default function PowerFlowPage({
                                         setUbetterStrategyCode(e.target.value)
                                       }
                                     >
-                                      {UBETTER_STRATEGY_OPTIONS.map((code) => (
+                                      {ubetterStrategyChoices(
+                                        ubetterStrategyCode,
+                                      ).map((code) => (
                                         <option key={code} value={String(code)}>
                                           {t(`ubetterStrategy${code}`)}
                                         </option>
                                       ))}
-                                      {String(ubetterStrategyCode) === "6" ? (
-                                        <option value="6">
-                                          {t("ubetterStrategy6")}
-                                        </option>
-                                      ) : null}
                                     </select>
                                   </label>
                                   <label className="pf-power-limit-field">
@@ -9307,7 +9374,10 @@ export default function PowerFlowPage({
                                       value={ubetterChargePowerKw}
                                       disabled={
                                         ubetterStrategyLoading ||
-                                        ubetterStrategyBusy
+                                        ubetterStrategyBusy ||
+                                        !ubetterStrategyHasChargePower(
+                                          ubetterStrategyCode,
+                                        )
                                       }
                                       aria-label={t("ubetterChargePowerAria")}
                                       onChange={(e) =>
@@ -9329,7 +9399,10 @@ export default function PowerFlowPage({
                                       value={ubetterDischargePowerKw}
                                       disabled={
                                         ubetterStrategyLoading ||
-                                        ubetterStrategyBusy
+                                        ubetterStrategyBusy ||
+                                        !ubetterStrategyHasDischargePower(
+                                          ubetterStrategyCode,
+                                        )
                                       }
                                       aria-label={t(
                                         "ubetterDischargePowerAria",
@@ -9353,7 +9426,9 @@ export default function PowerFlowPage({
                                       ubetterStrategyLoading ||
                                       ubetterStrategyBusy ||
                                       ubetterLiveLoading ||
-                                      Number(ubetterStrategyCode) > 5
+                                      !ubetterStrategyWritable(
+                                        ubetterStrategyCode,
+                                      )
                                     }
                                     onClick={requestUbetterStrategySubmit}
                                   >
@@ -9362,6 +9437,28 @@ export default function PowerFlowPage({
                                       : t("ubetterStrategySubmit")}
                                   </button>
                                 </div>
+                                {ubetterStrategySlots.length ? (
+                                  <p className="pf-ubetter-slots">
+                                    {t("ubetterSlotsLabel")}:{" "}
+                                    {ubetterStrategySlots
+                                      .map((slot) => {
+                                        const mode = Number(slot.mode);
+                                        const label =
+                                          mode === 1
+                                            ? t("ubetterChargePower")
+                                            : mode === 2
+                                              ? t("ubetterDischargePower")
+                                              : t("ubetterSlotIdle");
+                                        const power =
+                                          slot.power != null &&
+                                          Number(slot.power) > 0
+                                            ? ` ${Number(slot.power)} ${t("powerLimitUnit")}`
+                                            : "";
+                                        return `${slot.startTime || "?"}–${slot.endTime || "?"} ${label}${power}`;
+                                      })
+                                      .join(" · ")}
+                                  </p>
+                                ) : null}
                               </div>
                             </div>
                           </div>

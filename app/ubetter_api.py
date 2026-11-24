@@ -732,14 +732,43 @@ async def get_energy(
     return {"ok": True, "configured": True, "sn": device_sn, "items": rows}
 
 
-# Open API run-strategy appendix B: 3=Peak shaving. chargeCtrl 1=charge, 2=discharge.
-# Charge and discharge keep the strategy already on the device. The whole local day stays filled.
+# EMS Open API run-strategy V2.1 (docs/ubetter-run-strategy-v2.1.md).
+# Each strategy has one parameter block. Slots are writable only for 3 and 7.
+# chargeCtrl lives on strategy 0 (`manual`) only. Device clocks are local; this fleet is in Ukraine.
 _STRATEGY_PEAK_SHAVING = 3
-_FULL_DAY_START = "00:00:00"
-_FULL_DAY_END = "23:59:59"
+_DEVICE_LOCAL_TZ = "Europe/Kyiv"
 _CHARGE_CTRL_IDLE = 0
 _CHARGE_CTRL_CHARGE = 1
 _CHARGE_CTRL_DISCHARGE = 2
+_STRATEGY_BLOCKS = {
+    0: "manual",
+    1: "backup",
+    3: "peakValley",
+    4: "fixedTime",
+    5: "selfConsumption",
+    6: "aiAuto",
+    7: "transformerExpand",
+}
+_SETTINGS_STRATEGY_CODES = frozenset(_STRATEGY_BLOCKS)
+_SLOT_STRATEGY_CODES = frozenset({3, 7})
+_SOC_FIELDS = {
+    "manual": ("chargeSoc", "dischargeSoc"),
+    "backup": ("chargeSoc",),
+    "peakValley": ("chargeSoc", "dischargeSoc"),
+    "fixedTime": ("chargeSoc", "dischargeSoc"),
+    "selfConsumption": ("chargeSoc", "dischargeSoc"),
+    "aiAuto": ("chargeSoc", "dischargeSoc"),
+    "transformerExpand": ("chargeSoc", "dischargeSoc"),
+}
+_POWER_FIELDS = {
+    "manual": ("chargePower", "dischargePower"),
+    "backup": ("chargePower",),
+    "peakValley": ("chargePower", "dischargePower"),
+    "fixedTime": ("chargePower", "dischargePower"),
+    "selfConsumption": (),
+    "aiAuto": ("chargePower", "dischargePower"),
+    "transformerExpand": ("chargePower", "dischargePower"),
+}
 
 
 def _invalidate_power_flow_cache(device_sn: str) -> None:
@@ -753,116 +782,257 @@ def _clamp_soc(value: Any, *, default: int) -> int:
     return max(0, min(100, n))
 
 
-def _strategy_code(
-    value: Any,
-    *,
-    default: int = _STRATEGY_PEAK_SHAVING,
-    allow_readonly: bool = False,
-) -> int:
-    """Writable run-strategy codes are 0–5. 6 (AI economic) is read-only unless already set."""
+def _settings_strategy_code(value: Any) -> Optional[int]:
+    """Strategies the settings form may write. Test (2) is not in the V2.1 contract."""
     n = _int_or_none(value)
-    hi = 6 if allow_readonly else 5
-    if n is None or n < 0 or n > hi:
-        return default
-    return n
-
-
-def _live_strategy_code(value: Any) -> Optional[int]:
-    """Strategy already stored on the device, including read-only AI economic (6)."""
-    n = _int_or_none(value)
-    if n is None or n < 0 or n > 6:
+    if n is None or n not in _SETTINGS_STRATEGY_CODES:
         return None
     return n
 
 
+def _live_strategy_code(value: Any) -> Optional[int]:
+    """Strategy already stored on the device, including AI auto (6) and transformer expansion (7)."""
+    n = _int_or_none(value)
+    if n is None or n < 0 or n > 7:
+        return None
+    return n
+
+
+def _live_block(src: dict[str, Any]) -> dict[str, Any]:
+    code = _live_strategy_code(src.get("strategy"))
+    name = _STRATEGY_BLOCKS.get(code) if code is not None else None
+    block = src.get(name) if name else None
+    if isinstance(block, dict):
+        return dict(block)
+    return {}
+
+
+def _clock_seconds(value: Any, *, end: bool = False) -> Optional[int]:
+    """Device-local HH:mm:ss. endTime 00:00:00 is end of day (24:00)."""
+    text = str(value or "").strip()
+    parts = text.split(":")
+    if len(parts) < 2:
+        return None
+    try:
+        hour = int(parts[0])
+        minute = int(parts[1])
+        second = int(parts[2]) if len(parts) > 2 else 0
+    except ValueError:
+        return None
+    if end and hour == 0 and minute == 0 and second == 0:
+        return 24 * 3600
+    if hour == 24 and minute == 0 and second == 0:
+        return 24 * 3600
+    if not (0 <= hour <= 23 and 0 <= minute <= 59 and 0 <= second <= 59):
+        return None
+    return hour * 3600 + minute * 60 + second
+
+
+def _format_clock(total_seconds: int) -> str:
+    if total_seconds >= 24 * 3600:
+        return "00:00:00"
+    total_seconds = max(0, total_seconds)
+    hour, rem = divmod(total_seconds, 3600)
+    minute, second = divmod(rem, 60)
+    return f"{hour:02d}:{minute:02d}:{second:02d}"
+
+
+def _device_local_hms() -> str:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    return datetime.now(ZoneInfo(_DEVICE_LOCAL_TZ)).strftime("%H:%M:%S")
+
+
+def _apply_slot_mode(
+    slot: dict[str, Any],
+    mode: int,
+    power: Optional[float],
+    charge_soc: int,
+    discharge_soc: int,
+) -> dict[str, Any]:
+    out = dict(slot)
+    out["mode"] = int(mode)
+    if int(mode) == _CHARGE_CTRL_IDLE:
+        out["power"] = 0
+    elif power is not None and float(power) > 0:
+        out["power"] = float(power)
+    if int(mode) == _CHARGE_CTRL_CHARGE:
+        out["chargeSocLimit"] = charge_soc
+    elif int(mode) == _CHARGE_CTRL_DISCHARGE:
+        out["dischargeSocLimit"] = discharge_soc
+    return out
+
+
+def _slots_with_mode(
+    slots: Any,
+    *,
+    now_hms: str,
+    mode: int,
+    power: Optional[float],
+    charge_soc: int,
+    discharge_soc: int,
+) -> list[dict[str, Any]]:
+    """Keep every saved window. Point the window that covers now at charge, discharge, or idle."""
+    now_sec = _clock_seconds(now_hms)
+    if now_sec is None:
+        now_sec = 0
+    parsed: list[tuple[int, int, dict[str, Any]]] = []
+    untouched: list[dict[str, Any]] = []
+    raw = slots if isinstance(slots, list) else []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        start = _clock_seconds(item.get("startTime"))
+        end = _clock_seconds(item.get("endTime"), end=True)
+        if start is None or end is None or end <= start:
+            untouched.append(dict(item))
+            continue
+        parsed.append((start, end, dict(item)))
+    covering = [row for row in parsed if row[0] <= now_sec < row[1]]
+    ordered: list[tuple[int, dict[str, Any]]] = []
+    if covering:
+        for start, end, slot in parsed:
+            if start <= now_sec < end:
+                ordered.append(
+                    (start, _apply_slot_mode(slot, mode, power, charge_soc, discharge_soc))
+                )
+            else:
+                ordered.append((start, slot))
+    else:
+        for start, _end, slot in parsed:
+            ordered.append((start, slot))
+        later = [start for start, _end, _slot in parsed if start > now_sec]
+        next_start = min(later) if later else 24 * 3600
+        if next_start > now_sec:
+            created: dict[str, Any] = {
+                "startTime": _format_clock(now_sec),
+                "endTime": _format_clock(next_start),
+                "mode": int(mode),
+                "power": 0 if int(mode) == _CHARGE_CTRL_IDLE else float(power or 0),
+            }
+            if int(mode) == _CHARGE_CTRL_CHARGE:
+                created["chargeSocLimit"] = charge_soc
+            elif int(mode) == _CHARGE_CTRL_DISCHARGE:
+                created["dischargeSocLimit"] = discharge_soc
+            ordered.append((now_sec, created))
+    ordered.sort(key=lambda row: row[0])
+    return [slot for _start, slot in ordered] + untouched
+
+
+def _command_powers(
+    *,
+    for_charge: bool,
+    include_power: bool,
+    power_kw: Optional[float],
+    charge_power_kw: Optional[float],
+    discharge_power_kw: Optional[float],
+) -> tuple[Optional[float], Optional[float]]:
+    if not include_power:
+        return None, None
+    charge_kw = charge_power_kw
+    discharge_kw = discharge_power_kw
+    if charge_kw is None and for_charge:
+        charge_kw = power_kw if power_kw is not None else float(settings.UBETTER_MANUAL_POWER_KW)
+    if discharge_kw is None and not for_charge:
+        discharge_kw = power_kw if power_kw is not None else float(settings.UBETTER_MANUAL_POWER_KW)
+    charge_out = float(charge_kw) if charge_kw is not None and float(charge_kw) > 0 else None
+    discharge_out = (
+        float(discharge_kw) if discharge_kw is not None and float(discharge_kw) > 0 else None
+    )
+    return charge_out, discharge_out
+
+
 def _manual_run_strategy_body(
     *,
+    current: Optional[dict[str, Any]],
     charge_ctrl: int,
     charge_soc: int,
     discharge_soc: int,
     power_kw: Optional[float] = None,
     for_charge: bool,
     include_power: bool = True,
-    strategy: int = _STRATEGY_PEAK_SHAVING,
     charge_power_kw: Optional[float] = None,
     discharge_power_kw: Optional[float] = None,
-    allow_readonly_strategy: bool = False,
-) -> dict[str, Any]:
-    """Charge/discharge fields for the whole day. Strategy is the code already on the device."""
-    body: dict[str, Any] = {
-        "strategy": _strategy_code(strategy, allow_readonly=allow_readonly_strategy),
-        "chargeCtrl": int(charge_ctrl),
-        "chargeSoc": _clamp_soc(charge_soc, default=95),
-        "dischargeSoc": _clamp_soc(discharge_soc, default=10),
-        "startTime": _FULL_DAY_START,
-        "endTime": _FULL_DAY_END,
-        "startChargeTime": _FULL_DAY_START,
-        "endChargeTime": _FULL_DAY_END,
-        "startDischargeTime": _FULL_DAY_START,
-        "endDischargeTime": _FULL_DAY_END,
-    }
-    if include_power:
-        charge_kw = charge_power_kw
-        discharge_kw = discharge_power_kw
-        if charge_kw is None and for_charge:
-            charge_kw = power_kw if power_kw is not None else float(settings.UBETTER_MANUAL_POWER_KW)
-        if discharge_kw is None and not for_charge:
-            discharge_kw = power_kw if power_kw is not None else float(settings.UBETTER_MANUAL_POWER_KW)
-        if charge_kw is not None and float(charge_kw) > 0:
-            body["chargePower"] = float(charge_kw)
-        if discharge_kw is not None and float(discharge_kw) > 0:
-            body["dischargePower"] = float(discharge_kw)
-    return body
-
-
-_STRATEGY_KEEP_KEYS = (
-    "chargePeriodPeak",
-    "chargePeriodTop",
-    "chargePeriodNormal",
-    "chargePeriodValley",
-    "dischargePeriodPeak",
-    "dischargePeriodTop",
-    "dischargePeriodNormal",
-    "dischargePeriodValley",
-    "aiSeasonMode",
-)
-
-
-def _clock_or_full_day(value: Any, *, fallback: str) -> str:
-    text = str(value or "").strip()
-    return text or fallback
+    now_hms: str = "12:00:00",
+) -> tuple[Optional[dict[str, Any]], Optional[str]]:
+    """Nested V2.1 body. Keeps the strategy code already on the device."""
+    src = current if isinstance(current, dict) else {}
+    code = _live_strategy_code(src.get("strategy"))
+    if code is None:
+        return None, "strategy_unknown"
+    if code == 1 and int(charge_ctrl) == _CHARGE_CTRL_DISCHARGE:
+        return None, "backup_charge_only"
+    name = _STRATEGY_BLOCKS.get(code)
+    if name is None:
+        return None, "strategy_unsupported"
+    block = dict(src[name]) if isinstance(src.get(name), dict) else {}
+    charge_target = _clamp_soc(charge_soc, default=95)
+    discharge_target = _clamp_soc(discharge_soc, default=10)
+    if "chargeSoc" in _SOC_FIELDS[name]:
+        block["chargeSoc"] = charge_target
+    if "dischargeSoc" in _SOC_FIELDS[name]:
+        block["dischargeSoc"] = discharge_target
+    charge_kw, discharge_kw = _command_powers(
+        for_charge=for_charge,
+        include_power=include_power,
+        power_kw=power_kw,
+        charge_power_kw=charge_power_kw,
+        discharge_power_kw=discharge_power_kw,
+    )
+    if "chargePower" in _POWER_FIELDS[name] and charge_kw is not None:
+        block["chargePower"] = charge_kw
+    if "dischargePower" in _POWER_FIELDS[name] and discharge_kw is not None:
+        block["dischargePower"] = discharge_kw
+    if code == 0:
+        block["chargeCtrl"] = int(charge_ctrl)
+    body: dict[str, Any] = {"strategy": code, name: block}
+    if code in _SLOT_STRATEGY_CODES:
+        slot_power = None
+        if int(charge_ctrl) == _CHARGE_CTRL_CHARGE:
+            slot_power = charge_kw
+        elif int(charge_ctrl) == _CHARGE_CTRL_DISCHARGE:
+            slot_power = discharge_kw
+        elif int(charge_ctrl) == _CHARGE_CTRL_IDLE:
+            slot_power = 0
+        body["slots"] = _slots_with_mode(
+            src.get("slots"),
+            now_hms=now_hms,
+            mode=int(charge_ctrl),
+            power=slot_power,
+            charge_soc=charge_target,
+            discharge_soc=discharge_target,
+        )
+    return body, None
 
 
 def _settings_run_strategy_body(
     current: Optional[dict[str, Any]],
     *,
     strategy: int,
-    charge_power_kw: float,
-    discharge_power_kw: float,
+    charge_power_kw: Optional[float],
+    discharge_power_kw: Optional[float],
 ) -> dict[str, Any]:
-    """Strategy and both power limits. Keeps chargeCtrl, SoC targets, and the clock window."""
+    """One V2.1 parameter block. Does not send slots, so the saved schedule stays."""
+    code = _settings_strategy_code(strategy)
+    if code is None:
+        raise ValueError("strategy is not writable")
+    name = _STRATEGY_BLOCKS[code]
     src = current if isinstance(current, dict) else {}
-    charge_ctrl = _int_or_none(src.get("chargeCtrl"))
-    body: dict[str, Any] = {
-        "strategy": _strategy_code(strategy),
-        "chargeCtrl": 0 if charge_ctrl is None else int(charge_ctrl),
-        "chargeSoc": _clamp_soc(src.get("chargeSoc"), default=95),
-        "dischargeSoc": _clamp_soc(src.get("dischargeSoc"), default=10),
-        "startTime": _clock_or_full_day(src.get("startTime"), fallback=_FULL_DAY_START),
-        "endTime": _clock_or_full_day(src.get("endTime"), fallback=_FULL_DAY_END),
-        "startChargeTime": _clock_or_full_day(src.get("startChargeTime"), fallback=_FULL_DAY_START),
-        "endChargeTime": _clock_or_full_day(src.get("endChargeTime"), fallback=_FULL_DAY_END),
-        "startDischargeTime": _clock_or_full_day(
-            src.get("startDischargeTime"), fallback=_FULL_DAY_START
-        ),
-        "endDischargeTime": _clock_or_full_day(src.get("endDischargeTime"), fallback=_FULL_DAY_END),
-        "chargePower": float(charge_power_kw),
-        "dischargePower": float(discharge_power_kw),
-    }
-    for key in _STRATEGY_KEEP_KEYS:
-        if src.get(key) is not None:
-            body[key] = src.get(key)
-    return body
+    prev = _live_block(src)
+    same = _live_strategy_code(src.get("strategy")) == code
+    block: dict[str, Any] = dict(src[name]) if same and isinstance(src.get(name), dict) else {}
+    if "chargeSoc" in _SOC_FIELDS[name]:
+        block["chargeSoc"] = _clamp_soc(block.get("chargeSoc", prev.get("chargeSoc")), default=95)
+    if "dischargeSoc" in _SOC_FIELDS[name]:
+        block["dischargeSoc"] = _clamp_soc(
+            block.get("dischargeSoc", prev.get("dischargeSoc")), default=10
+        )
+    if "chargePower" in _POWER_FIELDS[name] and charge_power_kw is not None:
+        block["chargePower"] = float(charge_power_kw)
+    if "dischargePower" in _POWER_FIELDS[name] and discharge_power_kw is not None:
+        block["dischargePower"] = float(discharge_power_kw)
+    return {"strategy": code, name: block}
 
 
 async def get_run_strategy(sn: str) -> dict[str, Any]:
@@ -896,18 +1066,27 @@ async def apply_run_strategy_settings(
     sn: str,
     *,
     strategy: int,
-    charge_power_kw: float,
-    discharge_power_kw: float,
+    charge_power_kw: Optional[float],
+    discharge_power_kw: Optional[float],
 ) -> dict[str, Any]:
-    """Write strategy plus charge and discharge power. Leaves chargeCtrl as it is."""
+    """Write the V2.1 block for this strategy. Does not replace slots."""
     device_sn = (sn or "").strip()
     if not device_sn:
         return {"ok": False, "configured": bool(ubetter_configured()), "reason": "missing_sn"}
     if not ubetter_configured():
         return {"ok": False, "configured": False, "reason": "not_configured"}
-    code = _strategy_code(strategy, default=-1)
-    if code < 0:
+    code = _settings_strategy_code(strategy)
+    if code is None:
         return {"ok": False, "configured": True, "reason": "bad_strategy", "sn": device_sn}
+    name = _STRATEGY_BLOCKS[code]
+    if "chargePower" in _POWER_FIELDS[name] and (
+        charge_power_kw is None or float(charge_power_kw) <= 0
+    ):
+        return {"ok": False, "configured": True, "reason": "bad_power", "sn": device_sn}
+    if "dischargePower" in _POWER_FIELDS[name] and (
+        discharge_power_kw is None or float(discharge_power_kw) <= 0
+    ):
+        return {"ok": False, "configured": True, "reason": "bad_power", "sn": device_sn}
     current = await get_run_strategy(device_sn)
     if not current.get("ok"):
         return current
@@ -921,21 +1100,20 @@ async def apply_run_strategy_settings(
     return await update_run_strategy(device_sn, body)
 
 
-async def _strategy_already_set(device_sn: str) -> tuple[Optional[int], Optional[dict[str, Any]]]:
-    """Return the device's current strategy, or an error body when it cannot be kept."""
+async def _load_live_strategy(device_sn: str) -> tuple[Optional[dict[str, Any]], Optional[dict[str, Any]]]:
+    """Return the device's current run-strategy object, or an error body."""
     current = await get_run_strategy(device_sn)
     if not current.get("ok"):
         return None, current
     live = current.get("strategy") if isinstance(current.get("strategy"), dict) else {}
-    code = _live_strategy_code(live.get("strategy"))
-    if code is None:
+    if _live_strategy_code(live.get("strategy")) is None:
         return None, {
             "ok": False,
             "configured": True,
             "reason": "strategy_unknown",
             "sn": device_sn,
         }
-    return code, None
+    return live, None
 
 
 async def start_manual_charge(
@@ -947,7 +1125,7 @@ async def start_manual_charge(
     charge_power_kw: Optional[float] = None,
     discharge_power_kw: Optional[float] = None,
 ) -> dict[str, Any]:
-    """Charge until chargeSoc (chargeCtrl=1). Keeps the strategy already on the device."""
+    """Charge until chargeSoc. Keeps the strategy already on the device."""
     device_sn = (sn or "").strip()
     if not device_sn:
         return {"ok": False, "configured": bool(ubetter_configured()), "reason": "missing_sn"}
@@ -966,20 +1144,27 @@ async def start_manual_charge(
             "startSoc": start_soc,
             "chargeSocPercent": charge_soc,
         }
-    strategy, err = await _strategy_already_set(device_sn)
-    if err is not None or strategy is None:
+    live, err = await _load_live_strategy(device_sn)
+    if err is not None or live is None:
         return err or {"ok": False, "configured": True, "reason": "strategy_unknown", "sn": device_sn}
-    body = _manual_run_strategy_body(
+    body, reason = _manual_run_strategy_body(
+        current=live,
         charge_ctrl=_CHARGE_CTRL_CHARGE,
         charge_soc=charge_soc,
         discharge_soc=discharge_soc,
         power_kw=power_kw,
         for_charge=True,
-        strategy=strategy,
         charge_power_kw=charge_power_kw,
         discharge_power_kw=discharge_power_kw,
-        allow_readonly_strategy=True,
+        now_hms=_device_local_hms(),
     )
+    if reason or body is None:
+        return {
+            "ok": False,
+            "configured": True,
+            "reason": reason or "strategy_unsupported",
+            "sn": device_sn,
+        }
     result = await update_run_strategy(device_sn, body)
     return {
         **result,
@@ -1000,7 +1185,7 @@ async def start_manual_discharge(
     charge_power_kw: Optional[float] = None,
     discharge_power_kw: Optional[float] = None,
 ) -> dict[str, Any]:
-    """Discharge until dischargeSoc (chargeCtrl=2). Keeps the strategy already on the device."""
+    """Discharge until dischargeSoc. Keeps the strategy already on the device."""
     device_sn = (sn or "").strip()
     if not device_sn:
         return {"ok": False, "configured": bool(ubetter_configured()), "reason": "missing_sn"}
@@ -1019,20 +1204,27 @@ async def start_manual_discharge(
             "startSoc": start_soc,
             "dischargeSocPercent": discharge_soc,
         }
-    strategy, err = await _strategy_already_set(device_sn)
-    if err is not None or strategy is None:
+    live, err = await _load_live_strategy(device_sn)
+    if err is not None or live is None:
         return err or {"ok": False, "configured": True, "reason": "strategy_unknown", "sn": device_sn}
-    body = _manual_run_strategy_body(
+    body, reason = _manual_run_strategy_body(
+        current=live,
         charge_ctrl=_CHARGE_CTRL_DISCHARGE,
         charge_soc=charge_soc,
         discharge_soc=discharge_soc,
         power_kw=power_kw,
         for_charge=False,
-        strategy=strategy,
         charge_power_kw=charge_power_kw,
         discharge_power_kw=discharge_power_kw,
-        allow_readonly_strategy=True,
+        now_hms=_device_local_hms(),
     )
+    if reason or body is None:
+        return {
+            "ok": False,
+            "configured": True,
+            "reason": reason or "strategy_unsupported",
+            "sn": device_sn,
+        }
     result = await update_run_strategy(device_sn, body)
     return {
         **result,
@@ -1050,13 +1242,17 @@ async def stop_manual_control(
     charge_soc_percent: int = 95,
     discharge_soc_percent: int = 10,
 ) -> dict[str, Any]:
-    """Stop charge/discharge (chargeCtrl=0) and keep peak shaving (strategy=3)."""
+    """Stop the slot that covers now and keep peak shaving (strategy=3)."""
     device_sn = (sn or "").strip()
-    body = _manual_run_strategy_body(
+    body, reason = _manual_run_strategy_body(
+        current={"strategy": _STRATEGY_PEAK_SHAVING, "peakValley": {}},
         charge_ctrl=_CHARGE_CTRL_IDLE,
         charge_soc=charge_soc_percent,
         discharge_soc=discharge_soc_percent,
         for_charge=True,
         include_power=False,
+        now_hms=_device_local_hms(),
     )
+    if reason or body is None:
+        return {"ok": False, "configured": True, "reason": reason or "strategy_unsupported", "sn": device_sn}
     return await update_run_strategy(device_sn, body)

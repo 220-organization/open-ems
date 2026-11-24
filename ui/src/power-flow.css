@@ -916,6 +916,12 @@ select.pf-ubetter-strategy-select {
   border-color: var(--pf-pink, #fc019b);
 }
 
+.pf-ubetter-slots {
+  margin: 0.35rem 0 0;
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+
 @keyframes pf-toolbar-blink {
   0%,
   100% { opacity: 1; }
