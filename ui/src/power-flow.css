@@ -902,6 +902,20 @@ select.pf-power-limit-select {
   cursor: pointer;
 }
 
+select.pf-ubetter-strategy-select {
+  min-width: 9.5rem;
+}
+
+.pf-ubetter-strategy-submit.pf-discharge-go-btn {
+  border-color: var(--pf-pink, #fc019b);
+}
+
+.pf-grid-discharge-actions--header .pf-ubetter-strategy-submit--dirty:not(:disabled) {
+  background: var(--pf-pink, #fc019b);
+  color: #fff;
+  border-color: var(--pf-pink, #fc019b);
+}
+
 @keyframes pf-toolbar-blink {
   0%,
   100% { opacity: 1; }

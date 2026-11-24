@@ -111,6 +111,9 @@ function formatUbetterStrategyLine(prefix, strategy) {
     parts.push(`chargePower=${strategy.chargePower} kW`);
   if (strategy.dischargePower != null)
     parts.push(`dischargePower=${strategy.dischargePower} kW`);
+  const start = strategy.startTime || strategy.startChargeTime;
+  const end = strategy.endTime || strategy.endChargeTime;
+  if (start && end) parts.push(`${start}–${end}`);
   return parts.join(" · ");
 }
 
@@ -149,6 +152,56 @@ function formatUbetterCloudFeedback(commandData, verifiedData) {
     lines.push(String(commandData));
   }
   return lines.join("\n");
+}
+
+/** Text shown in the command-result dialog (cloud dump when present). */
+function commandResultCopyText(modal) {
+  if (!modal || modal.phase !== "result") return "";
+  const cloud = String(modal.cloudOutput || "").trim();
+  if (cloud) return cloud;
+  return String(modal.message || "").trim();
+}
+
+function copyTextWithExecCommand(text) {
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.setAttribute("readonly", "");
+  area.style.position = "fixed";
+  area.style.top = "0";
+  area.style.left = "0";
+  area.style.width = "2em";
+  area.style.height = "2em";
+  area.style.padding = "0";
+  area.style.border = "none";
+  area.style.outline = "none";
+  area.style.boxShadow = "none";
+  area.style.background = "transparent";
+  document.body.appendChild(area);
+  area.focus();
+  area.select();
+  area.setSelectionRange(0, text.length);
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch {
+    ok = false;
+  }
+  document.body.removeChild(area);
+  return ok;
+}
+
+async function copyTextToClipboard(text) {
+  // execCommand has to run inside the click, before any await drops the gesture.
+  if (copyTextWithExecCommand(text)) return true;
+  try {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
 }
 
 async function fetchUbetterRunStrategy(sn) {
@@ -2063,7 +2116,34 @@ function LandingExportMetricCounter({
 }
 
 /** Client-side gate: GridLab rows stay out of the source list until this password is entered. */
-const GRIDLAB_LIST_PASSWORD = "1";
+const GRIDLAB_LIST_PASSWORD = "3759";
+/** Ubetter Charge Now / Discharge Now. Same literal as the API gate. */
+const UBETTER_COMMAND_PASSWORD = "3759";
+/** Writable run-strategy codes. 6 (AI economic) is read-only on the cloud. */
+const UBETTER_STRATEGY_OPTIONS = [0, 1, 2, 3, 4, 5];
+
+function ubetterPowerKwOrNull(raw) {
+  const n = Number(
+    String(raw ?? "")
+      .trim()
+      .replace(",", "."),
+  );
+  if (!Number.isFinite(n) || n <= 0 || n > 500) return null;
+  return n;
+}
+
+function ubetterStrategyPayload(strategyCode, chargeKwRaw, dischargeKwRaw) {
+  const strategy = Number(strategyCode);
+  const payload = {};
+  if (Number.isInteger(strategy) && strategy >= 0 && strategy <= 5) {
+    payload.strategy = strategy;
+  }
+  const charge = ubetterPowerKwOrNull(chargeKwRaw);
+  const discharge = ubetterPowerKwOrNull(dischargeKwRaw);
+  if (charge != null) payload.chargePowerKw = charge;
+  if (discharge != null) payload.dischargePowerKw = discharge;
+  return payload;
+}
 const GRIDLAB_LIST_UNLOCK_KEY = "pf-gridlab-list-unlocked";
 /** Shown in the field instead of the typed password (iOS reveals the last password character). */
 const GRIDLAB_PASSWORD_MASK = "\u2022";
@@ -3605,12 +3685,26 @@ export default function PowerFlowPage({
   const [chargeConfirmOpen, setChargeConfirmOpen] = useState(false);
   const [dischargeConfirmPin, setDischargeConfirmPin] = useState("");
   const [chargeConfirmPin, setChargeConfirmPin] = useState("");
+  const [ubetterCommandPassword, setUbetterCommandPassword] = useState(
+    UBETTER_COMMAND_PASSWORD,
+  );
+  const [ubetterCommandPasswordError, setUbetterCommandPasswordError] =
+    useState("");
   /** PIN gate for peak/low DAM toggles and depth dropdowns when inverter name encodes a PIN. */
   const [writePinGate, setWritePinGate] = useState(null);
   const [writePinValue, setWritePinValue] = useState("");
   const [writePinError, setWritePinError] = useState("");
   /** Deye charge/discharge: loading spinner then result in a follow-up modal. */
   const [deyeCommandModal, setDeyeCommandModal] = useState(null);
+  const [commandResultCopied, setCommandResultCopied] = useState(false);
+  const [ubetterStrategyCode, setUbetterStrategyCode] = useState("3");
+  const [ubetterChargePowerKw, setUbetterChargePowerKw] = useState("50");
+  const [ubetterDischargePowerKw, setUbetterDischargePowerKw] = useState("50");
+  const [ubetterStrategyBaseline, setUbetterStrategyBaseline] = useState(null);
+  const [ubetterStrategyLoading, setUbetterStrategyLoading] = useState(false);
+  const [ubetterStrategyBusy, setUbetterStrategyBusy] = useState(false);
+  const [ubetterStrategyConfirmOpen, setUbetterStrategyConfirmOpen] =
+    useState(false);
   /** Centered zoom popup for tapped flow nodes. */
   const [nodePopup, setNodePopup] = useState(null);
   const peakPrefSaveTimerRef = useRef(null);
@@ -6026,6 +6120,12 @@ export default function PowerFlowPage({
           sn,
           dischargeSocPercent: targetSoc,
           chargeSocPercent: 95,
+          password: UBETTER_COMMAND_PASSWORD,
+          ...ubetterStrategyPayload(
+            ubetterStrategyCode,
+            ubetterChargePowerKw,
+            ubetterDischargePowerKw,
+          ),
         }),
         cache: "no-store",
       });
@@ -6067,7 +6167,16 @@ export default function PowerFlowPage({
     } finally {
       discharge2BusyRef.current = false;
     }
-  }, [selUbetterSn, dischargeSocDeltaPct, essSocPercent, inverterSocFmt, t]);
+  }, [
+    selUbetterSn,
+    dischargeSocDeltaPct,
+    essSocPercent,
+    inverterSocFmt,
+    t,
+    ubetterStrategyCode,
+    ubetterChargePowerKw,
+    ubetterDischargePowerKw,
+  ]);
 
   const executeUbetterCharge = useCallback(async () => {
     const sn = selUbetterSn?.trim();
@@ -6090,6 +6199,12 @@ export default function PowerFlowPage({
           sn,
           chargeSocPercent: chargeTarget,
           dischargeSocPercent: 10,
+          password: UBETTER_COMMAND_PASSWORD,
+          ...ubetterStrategyPayload(
+            ubetterStrategyCode,
+            ubetterChargePowerKw,
+            ubetterDischargePowerKw,
+          ),
         }),
         cache: "no-store",
       });
@@ -6131,7 +6246,16 @@ export default function PowerFlowPage({
     } finally {
       charge2BusyRef.current = false;
     }
-  }, [selUbetterSn, chargeSocDeltaPct, essSocPercent, inverterSocFmt, t]);
+  }, [
+    selUbetterSn,
+    chargeSocDeltaPct,
+    essSocPercent,
+    inverterSocFmt,
+    t,
+    ubetterStrategyCode,
+    ubetterChargePowerKw,
+    ubetterDischargePowerKw,
+  ]);
 
   const requestDischarge2Pct = useCallback(() => {
     const ubSn = selUbetterSn?.trim();
@@ -6159,6 +6283,8 @@ export default function PowerFlowPage({
         return;
       }
       setDischarge2Feedback("");
+      setUbetterCommandPassword(UBETTER_COMMAND_PASSWORD);
+      setUbetterCommandPasswordError("");
       setDischargeConfirmOpen(true);
       return;
     }
@@ -6225,6 +6351,8 @@ export default function PowerFlowPage({
         return;
       }
       setDischarge2Feedback("");
+      setUbetterCommandPassword(UBETTER_COMMAND_PASSWORD);
+      setUbetterCommandPasswordError("");
       setChargeConfirmOpen(true);
       return;
     }
@@ -6562,7 +6690,12 @@ export default function PowerFlowPage({
 
   const confirmDischargeFromModal = useCallback(() => {
     if (selUbetterSn.trim()) {
+      if (ubetterCommandPassword.trim() !== UBETTER_COMMAND_PASSWORD) {
+        setUbetterCommandPasswordError(t("ubetterCommandPasswordWrong"));
+        return;
+      }
       setDischarge2Feedback("");
+      setUbetterCommandPasswordError("");
       setDischargeConfirmOpen(false);
       setDeyeCommandModal({
         phase: "loading",
@@ -6613,6 +6746,7 @@ export default function PowerFlowPage({
     executeDischarge2Pct,
     executeUbetterDischarge,
     selUbetterSn,
+    ubetterCommandPassword,
     selInverterPinRequired,
     dischargeConfirmPin,
     cachedWritePin,
@@ -6626,7 +6760,12 @@ export default function PowerFlowPage({
 
   const confirmChargeFromModal = useCallback(() => {
     if (selUbetterSn.trim()) {
+      if (ubetterCommandPassword.trim() !== UBETTER_COMMAND_PASSWORD) {
+        setUbetterCommandPasswordError(t("ubetterCommandPasswordWrong"));
+        return;
+      }
       setDischarge2Feedback("");
+      setUbetterCommandPasswordError("");
       setChargeConfirmOpen(false);
       setDeyeCommandModal({
         phase: "loading",
@@ -6677,6 +6816,7 @@ export default function PowerFlowPage({
     executeCharge2Pct,
     executeUbetterCharge,
     selUbetterSn,
+    ubetterCommandPassword,
     selInverterPinRequired,
     chargeConfirmPin,
     cachedWritePin,
@@ -6815,7 +6955,223 @@ export default function PowerFlowPage({
 
   const closeDeyeCommandModal = useCallback(() => {
     setDeyeCommandModal(null);
+    setCommandResultCopied(false);
   }, []);
+
+  const copyCommandResult = useCallback(async () => {
+    const text = commandResultCopyText(deyeCommandModal);
+    if (!text) return;
+    const ok = await copyTextToClipboard(text);
+    setCommandResultCopied(ok);
+  }, [deyeCommandModal]);
+
+  useEffect(() => {
+    setCommandResultCopied(false);
+  }, [deyeCommandModal]);
+
+  useEffect(() => {
+    const sn = selUbetterSn?.trim();
+    if (!sn) {
+      setUbetterStrategyLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setUbetterStrategyLoading(true);
+    void (async () => {
+      try {
+        const res = await fetchUbetterRunStrategy(sn);
+        if (cancelled) return;
+        const live = res.data?.strategy;
+        if (live && typeof live === "object") {
+          const code =
+            live.strategy != null && Number.isFinite(Number(live.strategy))
+              ? String(Math.round(Number(live.strategy)))
+              : "3";
+          const charge =
+            live.chargePower != null &&
+            Number.isFinite(Number(live.chargePower))
+              ? String(Number(live.chargePower))
+              : "50";
+          const discharge =
+            live.dischargePower != null &&
+            Number.isFinite(Number(live.dischargePower))
+              ? String(Number(live.dischargePower))
+              : "50";
+          setUbetterStrategyCode(code);
+          setUbetterChargePowerKw(charge);
+          setUbetterDischargePowerKw(discharge);
+          setUbetterStrategyBaseline({
+            strategy: code,
+            charge,
+            discharge,
+          });
+        }
+      } finally {
+        if (!cancelled) setUbetterStrategyLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selUbetterSn]);
+
+  const ubetterStrategyDirty =
+    ubetterStrategyBaseline != null &&
+    (ubetterStrategyCode !== ubetterStrategyBaseline.strategy ||
+      String(ubetterChargePowerKw) !== String(ubetterStrategyBaseline.charge) ||
+      String(ubetterDischargePowerKw) !==
+        String(ubetterStrategyBaseline.discharge));
+
+  const requestUbetterStrategySubmit = useCallback(() => {
+    if (ubetterStrategyBusy || ubetterStrategyLoading) return;
+    const charge = ubetterPowerKwOrNull(ubetterChargePowerKw);
+    const discharge = ubetterPowerKwOrNull(ubetterDischargePowerKw);
+    const strategy = Number(ubetterStrategyCode);
+    if (
+      charge == null ||
+      discharge == null ||
+      !Number.isInteger(strategy) ||
+      strategy < 0 ||
+      strategy > 5
+    ) {
+      setDischarge2Feedback(t("ubetterStrategyInvalidPower"));
+      setToolbarFeedbackError(true);
+      return;
+    }
+    setDischarge2Feedback("");
+    setToolbarFeedbackError(false);
+    setUbetterCommandPassword(UBETTER_COMMAND_PASSWORD);
+    setUbetterCommandPasswordError("");
+    setUbetterStrategyConfirmOpen(true);
+  }, [
+    ubetterStrategyBusy,
+    ubetterStrategyLoading,
+    ubetterChargePowerKw,
+    ubetterDischargePowerKw,
+    ubetterStrategyCode,
+    t,
+  ]);
+
+  const cancelUbetterStrategyConfirm = useCallback(() => {
+    setUbetterStrategyConfirmOpen(false);
+  }, []);
+
+  const executeUbetterStrategySubmit = useCallback(async () => {
+    const sn = selUbetterSn?.trim();
+    if (!sn) return null;
+    const charge = ubetterPowerKwOrNull(ubetterChargePowerKw);
+    const discharge = ubetterPowerKwOrNull(ubetterDischargePowerKw);
+    const strategy = Number(ubetterStrategyCode);
+    if (charge == null || discharge == null) {
+      return {
+        ok: false,
+        message: t("ubetterStrategyInvalidPower"),
+        cloudOutput: null,
+      };
+    }
+    setUbetterStrategyBusy(true);
+    try {
+      const r = await fetch(apiUrl("/api/ubetter/run-strategy"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sn,
+          strategy,
+          chargePowerKw: charge,
+          dischargePowerKw: discharge,
+          password: UBETTER_COMMAND_PASSWORD,
+        }),
+        cache: "no-store",
+      });
+      let data = {};
+      try {
+        data = await r.json();
+      } catch {
+        /* ignore */
+      }
+      if (!r.ok || !data.ok) {
+        const msg = data.detail ?? data.reason ?? data.message ?? r.statusText;
+        return {
+          ok: false,
+          message: `${t("ubetterStrategyError")}: ${String(msg || "Request failed")}`,
+          cloudOutput: formatUbetterCloudFeedback(data, null),
+        };
+      }
+      const verified = await fetchUbetterRunStrategy(sn);
+      const live = verified.data?.strategy;
+      if (live && typeof live === "object") {
+        const code =
+          live.strategy != null
+            ? String(Math.round(Number(live.strategy)))
+            : String(strategy);
+        const nextCharge =
+          live.chargePower != null
+            ? String(Number(live.chargePower))
+            : String(charge);
+        const nextDischarge =
+          live.dischargePower != null
+            ? String(Number(live.dischargePower))
+            : String(discharge);
+        setUbetterStrategyCode(code);
+        setUbetterChargePowerKw(nextCharge);
+        setUbetterDischargePowerKw(nextDischarge);
+        setUbetterStrategyBaseline({
+          strategy: code,
+          charge: nextCharge,
+          discharge: nextDischarge,
+        });
+      }
+      return {
+        ok: true,
+        message: `${t("commandSentStatus")}\n\n${t("ubetterStrategyApplied")}`,
+        cloudOutput: formatUbetterCloudFeedback(data, verified.data),
+      };
+    } catch (e) {
+      const err = e instanceof Error ? e.message : String(e);
+      return {
+        ok: false,
+        message: `${t("ubetterStrategyError")}: ${err}`,
+        cloudOutput: null,
+      };
+    } finally {
+      setUbetterStrategyBusy(false);
+    }
+  }, [
+    selUbetterSn,
+    ubetterChargePowerKw,
+    ubetterDischargePowerKw,
+    ubetterStrategyCode,
+    t,
+  ]);
+
+  const confirmUbetterStrategyFromModal = useCallback(() => {
+    if (ubetterCommandPassword.trim() !== UBETTER_COMMAND_PASSWORD) {
+      setUbetterCommandPasswordError(t("ubetterCommandPasswordWrong"));
+      return;
+    }
+    setUbetterCommandPasswordError("");
+    setUbetterStrategyConfirmOpen(false);
+    setDeyeCommandModal({
+      phase: "loading",
+      kind: "strategy",
+      provider: "ubetter",
+    });
+    void (async () => {
+      const out = await executeUbetterStrategySubmit();
+      if (out == null) {
+        setDeyeCommandModal(null);
+        return;
+      }
+      setDeyeCommandModal({
+        phase: "result",
+        kind: "strategy",
+        provider: "ubetter",
+        ok: out.ok,
+        message: out.message,
+        cloudOutput: out.cloudOutput ?? null,
+      });
+    })();
+  }, [ubetterCommandPassword, executeUbetterStrategySubmit, t]);
 
   useEffect(() => {
     if (!dischargeConfirmOpen) return undefined;
@@ -6834,6 +7190,15 @@ export default function PowerFlowPage({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [chargeConfirmOpen, cancelChargeConfirm]);
+
+  useEffect(() => {
+    if (!ubetterStrategyConfirmOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key === "Escape") cancelUbetterStrategyConfirm();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [ubetterStrategyConfirmOpen, cancelUbetterStrategyConfirm]);
 
   useEffect(() => {
     if (!writePinGate) return undefined;
@@ -8909,6 +9274,105 @@ export default function PowerFlowPage({
                                   </select>
                                 </div>
                               </div>
+                              <div className="pf-grid-discharge-actions pf-grid-discharge-actions--header pf-deye-command-line pf-deye-command-line--limits">
+                                <div className="pf-power-limit-row">
+                                  <label className="pf-power-limit-field">
+                                    <span>{t("ubetterStrategyLabel")}</span>
+                                    <select
+                                      id="pf-ubetter-strategy-select"
+                                      className="pf-power-limit-input pf-power-limit-select pf-ubetter-strategy-select"
+                                      value={ubetterStrategyCode}
+                                      disabled={
+                                        ubetterStrategyLoading ||
+                                        ubetterStrategyBusy ||
+                                        ubetterLiveLoading
+                                      }
+                                      aria-label={t("ubetterStrategyAria")}
+                                      onChange={(e) =>
+                                        setUbetterStrategyCode(e.target.value)
+                                      }
+                                    >
+                                      {UBETTER_STRATEGY_OPTIONS.map((code) => (
+                                        <option key={code} value={String(code)}>
+                                          {t(`ubetterStrategy${code}`)}
+                                        </option>
+                                      ))}
+                                      {String(ubetterStrategyCode) === "6" ? (
+                                        <option value="6">
+                                          {t("ubetterStrategy6")}
+                                        </option>
+                                      ) : null}
+                                    </select>
+                                  </label>
+                                  <label className="pf-power-limit-field">
+                                    <span>{t("ubetterChargePower")}</span>
+                                    <input
+                                      id="pf-ubetter-charge-power"
+                                      className="pf-power-limit-input"
+                                      type="number"
+                                      inputMode="decimal"
+                                      min="1"
+                                      max="500"
+                                      step="1"
+                                      value={ubetterChargePowerKw}
+                                      disabled={
+                                        ubetterStrategyLoading ||
+                                        ubetterStrategyBusy
+                                      }
+                                      aria-label={t("ubetterChargePowerAria")}
+                                      onChange={(e) =>
+                                        setUbetterChargePowerKw(e.target.value)
+                                      }
+                                    />
+                                    <span>{t("powerLimitUnit")}</span>
+                                  </label>
+                                  <label className="pf-power-limit-field">
+                                    <span>{t("ubetterDischargePower")}</span>
+                                    <input
+                                      id="pf-ubetter-discharge-power"
+                                      className="pf-power-limit-input"
+                                      type="number"
+                                      inputMode="decimal"
+                                      min="1"
+                                      max="500"
+                                      step="1"
+                                      value={ubetterDischargePowerKw}
+                                      disabled={
+                                        ubetterStrategyLoading ||
+                                        ubetterStrategyBusy
+                                      }
+                                      aria-label={t(
+                                        "ubetterDischargePowerAria",
+                                      )}
+                                      onChange={(e) =>
+                                        setUbetterDischargePowerKw(
+                                          e.target.value,
+                                        )
+                                      }
+                                    />
+                                    <span>{t("powerLimitUnit")}</span>
+                                  </label>
+                                  <button
+                                    type="button"
+                                    className={`pf-discharge-btn pf-discharge-go-btn pf-ubetter-strategy-submit${
+                                      ubetterStrategyDirty
+                                        ? " pf-ubetter-strategy-submit--dirty"
+                                        : ""
+                                    }`}
+                                    disabled={
+                                      ubetterStrategyLoading ||
+                                      ubetterStrategyBusy ||
+                                      ubetterLiveLoading ||
+                                      Number(ubetterStrategyCode) > 5
+                                    }
+                                    onClick={requestUbetterStrategySubmit}
+                                  >
+                                    {ubetterStrategyBusy
+                                      ? t("ubetterStrategySubmitting")
+                                      : t("ubetterStrategySubmit")}
+                                  </button>
+                                </div>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -9583,6 +10047,34 @@ export default function PowerFlowPage({
                     ),
                   })}
                 </p>
+                {selUbetterSn.trim() ? (
+                  <div className="pf-modal-pin-row">
+                    <label
+                      htmlFor="pf-discharge-ubetter-password"
+                      className="pf-modal-pin-label"
+                    >
+                      {t("ubetterCommandPasswordLabel")}
+                    </label>
+                    <input
+                      id="pf-discharge-ubetter-password"
+                      type="password"
+                      autoComplete="off"
+                      className="pf-modal-pin-input"
+                      value={ubetterCommandPassword}
+                      onChange={(e) => {
+                        setUbetterCommandPassword(e.target.value);
+                        if (ubetterCommandPasswordError)
+                          setUbetterCommandPasswordError("");
+                      }}
+                      aria-label={t("ubetterCommandPasswordLabel")}
+                    />
+                    {ubetterCommandPasswordError ? (
+                      <p className="pf-modal-pin-error" role="alert">
+                        {ubetterCommandPasswordError}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
                 {selInverterPinRequired && !cachedWritePin ? (
                   <div className="pf-modal-pin-row">
                     <label
@@ -9646,6 +10138,34 @@ export default function PowerFlowPage({
                     ),
                   })}
                 </p>
+                {selUbetterSn.trim() ? (
+                  <div className="pf-modal-pin-row">
+                    <label
+                      htmlFor="pf-charge-ubetter-password"
+                      className="pf-modal-pin-label"
+                    >
+                      {t("ubetterCommandPasswordLabel")}
+                    </label>
+                    <input
+                      id="pf-charge-ubetter-password"
+                      type="password"
+                      autoComplete="off"
+                      className="pf-modal-pin-input"
+                      value={ubetterCommandPassword}
+                      onChange={(e) => {
+                        setUbetterCommandPassword(e.target.value);
+                        if (ubetterCommandPasswordError)
+                          setUbetterCommandPasswordError("");
+                      }}
+                      aria-label={t("ubetterCommandPasswordLabel")}
+                    />
+                    {ubetterCommandPasswordError ? (
+                      <p className="pf-modal-pin-error" role="alert">
+                        {ubetterCommandPasswordError}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
                 {selInverterPinRequired && !cachedWritePin ? (
                   <div className="pf-modal-pin-row">
                     <label
@@ -9680,6 +10200,75 @@ export default function PowerFlowPage({
                     onClick={confirmChargeFromModal}
                   >
                     {t("chargeConfirmOk")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {ubetterStrategyConfirmOpen ? (
+            <div
+              className="pf-modal-backdrop"
+              role="presentation"
+              onClick={cancelUbetterStrategyConfirm}
+            >
+              <div
+                className="pf-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="pf-ubetter-strategy-confirm-title"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <p
+                  id="pf-ubetter-strategy-confirm-title"
+                  className="pf-modal-message"
+                >
+                  {t("ubetterStrategyConfirm", {
+                    strategy: t(`ubetterStrategy${ubetterStrategyCode}`),
+                    charge: ubetterChargePowerKw,
+                    discharge: ubetterDischargePowerKw,
+                  })}
+                </p>
+                <div className="pf-modal-pin-row">
+                  <label
+                    htmlFor="pf-ubetter-strategy-password"
+                    className="pf-modal-pin-label"
+                  >
+                    {t("ubetterCommandPasswordLabel")}
+                  </label>
+                  <input
+                    id="pf-ubetter-strategy-password"
+                    type="password"
+                    autoComplete="off"
+                    className="pf-modal-pin-input"
+                    value={ubetterCommandPassword}
+                    onChange={(e) => {
+                      setUbetterCommandPassword(e.target.value);
+                      if (ubetterCommandPasswordError)
+                        setUbetterCommandPasswordError("");
+                    }}
+                    aria-label={t("ubetterCommandPasswordLabel")}
+                  />
+                  {ubetterCommandPasswordError ? (
+                    <p className="pf-modal-pin-error" role="alert">
+                      {ubetterCommandPasswordError}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="pf-modal-actions">
+                  <button
+                    type="button"
+                    className="pf-modal-btn pf-modal-btn--secondary"
+                    onClick={cancelUbetterStrategyConfirm}
+                  >
+                    {t("chargeConfirmCancel")}
+                  </button>
+                  <button
+                    type="button"
+                    className="pf-modal-btn pf-modal-btn--primary"
+                    onClick={confirmUbetterStrategyFromModal}
+                  >
+                    {t("ubetterStrategySubmit")}
                   </button>
                 </div>
               </div>
@@ -9901,6 +10490,17 @@ export default function PowerFlowPage({
                       </pre>
                     ) : null}
                     <div className="pf-modal-actions">
+                      {commandResultCopyText(deyeCommandModal) ? (
+                        <button
+                          type="button"
+                          className="pf-modal-btn pf-modal-btn--secondary"
+                          onClick={() => void copyCommandResult()}
+                        >
+                          {commandResultCopied
+                            ? t("ubetterCommandResultCopied")
+                            : t("ubetterCommandResultCopy")}
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         className="pf-modal-btn pf-modal-btn--primary"
