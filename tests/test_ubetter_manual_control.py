@@ -8,6 +8,7 @@ from app.ubetter_api import (
     _FULL_DAY_END,
     _FULL_DAY_START,
     _STRATEGY_PEAK_SHAVING,
+    _live_strategy_code,
     _manual_run_strategy_body,
     _settings_run_strategy_body,
 )
@@ -70,6 +71,26 @@ def test_ubetter_command_password():
     assert ubetter_command_password_ok("3758") is False
     assert ubetter_command_password_ok("") is False
     assert ubetter_command_password_ok(None) is False
+
+
+def test_live_strategy_code_keeps_the_mode_already_set():
+    assert _live_strategy_code(4) == 4
+    assert _live_strategy_code(6) == 6
+    assert _live_strategy_code(None) is None
+    assert _live_strategy_code(7) is None
+
+
+def test_manual_run_strategy_body_keeps_readonly_strategy():
+    body = _manual_run_strategy_body(
+        charge_ctrl=_CHARGE_CTRL_CHARGE,
+        charge_soc=98,
+        discharge_soc=10,
+        for_charge=True,
+        strategy=6,
+        allow_readonly_strategy=True,
+        include_power=False,
+    )
+    assert body["strategy"] == 6
 
 
 def test_manual_run_strategy_body_custom_strategy_and_both_powers():

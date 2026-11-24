@@ -3370,6 +3370,15 @@ a.pf-node { cursor: pointer; }
   border-color: #d40183;
 }
 
+.pf-modal-btn:disabled,
+.pf-modal-btn--primary:disabled,
+.pf-modal-btn--primary:disabled:hover {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: var(--pf-pink);
+  border-color: var(--pf-pink);
+}
+
 .pf-modal-btn:focus-visible {
   outline: 2px solid var(--pf-accent-focus);
   outline-offset: 2px;

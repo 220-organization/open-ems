@@ -733,7 +733,7 @@ async def get_energy(
 
 
 # Open API run-strategy appendix B: 3=Peak shaving. chargeCtrl 1=charge, 2=discharge.
-# Charge and discharge always stay on peak shaving, for the whole local day.
+# Charge and discharge keep the strategy already on the device. The whole local day stays filled.
 _STRATEGY_PEAK_SHAVING = 3
 _FULL_DAY_START = "00:00:00"
 _FULL_DAY_END = "23:59:59"
@@ -753,11 +753,25 @@ def _clamp_soc(value: Any, *, default: int) -> int:
     return max(0, min(100, n))
 
 
-def _strategy_code(value: Any, *, default: int = _STRATEGY_PEAK_SHAVING) -> int:
-    """Writable run-strategy codes are 0–5. 6 (AI economic) is read-only."""
+def _strategy_code(
+    value: Any,
+    *,
+    default: int = _STRATEGY_PEAK_SHAVING,
+    allow_readonly: bool = False,
+) -> int:
+    """Writable run-strategy codes are 0–5. 6 (AI economic) is read-only unless already set."""
     n = _int_or_none(value)
-    if n is None or n < 0 or n > 5:
+    hi = 6 if allow_readonly else 5
+    if n is None or n < 0 or n > hi:
         return default
+    return n
+
+
+def _live_strategy_code(value: Any) -> Optional[int]:
+    """Strategy already stored on the device, including read-only AI economic (6)."""
+    n = _int_or_none(value)
+    if n is None or n < 0 or n > 6:
+        return None
     return n
 
 
@@ -772,10 +786,11 @@ def _manual_run_strategy_body(
     strategy: int = _STRATEGY_PEAK_SHAVING,
     charge_power_kw: Optional[float] = None,
     discharge_power_kw: Optional[float] = None,
+    allow_readonly_strategy: bool = False,
 ) -> dict[str, Any]:
-    """Charge/discharge fields for the whole day. Strategy defaults to peak shaving (3)."""
+    """Charge/discharge fields for the whole day. Strategy is the code already on the device."""
     body: dict[str, Any] = {
-        "strategy": _strategy_code(strategy),
+        "strategy": _strategy_code(strategy, allow_readonly=allow_readonly_strategy),
         "chargeCtrl": int(charge_ctrl),
         "chargeSoc": _clamp_soc(charge_soc, default=95),
         "dischargeSoc": _clamp_soc(discharge_soc, default=10),
@@ -906,17 +921,33 @@ async def apply_run_strategy_settings(
     return await update_run_strategy(device_sn, body)
 
 
+async def _strategy_already_set(device_sn: str) -> tuple[Optional[int], Optional[dict[str, Any]]]:
+    """Return the device's current strategy, or an error body when it cannot be kept."""
+    current = await get_run_strategy(device_sn)
+    if not current.get("ok"):
+        return None, current
+    live = current.get("strategy") if isinstance(current.get("strategy"), dict) else {}
+    code = _live_strategy_code(live.get("strategy"))
+    if code is None:
+        return None, {
+            "ok": False,
+            "configured": True,
+            "reason": "strategy_unknown",
+            "sn": device_sn,
+        }
+    return code, None
+
+
 async def start_manual_charge(
     sn: str,
     *,
     charge_soc_percent: int,
     discharge_soc_percent: int = 10,
     power_kw: Optional[float] = None,
-    strategy: int = _STRATEGY_PEAK_SHAVING,
     charge_power_kw: Optional[float] = None,
     discharge_power_kw: Optional[float] = None,
 ) -> dict[str, Any]:
-    """Charge until chargeSoc (chargeCtrl=1). Strategy defaults to peak shaving (3)."""
+    """Charge until chargeSoc (chargeCtrl=1). Keeps the strategy already on the device."""
     device_sn = (sn or "").strip()
     if not device_sn:
         return {"ok": False, "configured": bool(ubetter_configured()), "reason": "missing_sn"}
@@ -935,6 +966,9 @@ async def start_manual_charge(
             "startSoc": start_soc,
             "chargeSocPercent": charge_soc,
         }
+    strategy, err = await _strategy_already_set(device_sn)
+    if err is not None or strategy is None:
+        return err or {"ok": False, "configured": True, "reason": "strategy_unknown", "sn": device_sn}
     body = _manual_run_strategy_body(
         charge_ctrl=_CHARGE_CTRL_CHARGE,
         charge_soc=charge_soc,
@@ -944,6 +978,7 @@ async def start_manual_charge(
         strategy=strategy,
         charge_power_kw=charge_power_kw,
         discharge_power_kw=discharge_power_kw,
+        allow_readonly_strategy=True,
     )
     result = await update_run_strategy(device_sn, body)
     return {
@@ -962,11 +997,10 @@ async def start_manual_discharge(
     discharge_soc_percent: int,
     charge_soc_percent: int = 95,
     power_kw: Optional[float] = None,
-    strategy: int = _STRATEGY_PEAK_SHAVING,
     charge_power_kw: Optional[float] = None,
     discharge_power_kw: Optional[float] = None,
 ) -> dict[str, Any]:
-    """Discharge until dischargeSoc (chargeCtrl=2). Strategy defaults to peak shaving (3)."""
+    """Discharge until dischargeSoc (chargeCtrl=2). Keeps the strategy already on the device."""
     device_sn = (sn or "").strip()
     if not device_sn:
         return {"ok": False, "configured": bool(ubetter_configured()), "reason": "missing_sn"}
@@ -985,6 +1019,9 @@ async def start_manual_discharge(
             "startSoc": start_soc,
             "dischargeSocPercent": discharge_soc,
         }
+    strategy, err = await _strategy_already_set(device_sn)
+    if err is not None or strategy is None:
+        return err or {"ok": False, "configured": True, "reason": "strategy_unknown", "sn": device_sn}
     body = _manual_run_strategy_body(
         charge_ctrl=_CHARGE_CTRL_DISCHARGE,
         charge_soc=charge_soc,
@@ -994,6 +1031,7 @@ async def start_manual_discharge(
         strategy=strategy,
         charge_power_kw=charge_power_kw,
         discharge_power_kw=discharge_power_kw,
+        allow_readonly_strategy=True,
     )
     result = await update_run_strategy(device_sn, body)
     return {
