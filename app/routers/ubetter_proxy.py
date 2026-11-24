@@ -26,7 +26,11 @@ from app.ubetter_api import (
     ubetter_configured,
     ubetter_missing_env_names,
 )
-from app.ubetter_event_service import list_stored_events, sync_device_alarms_from_cloud
+from app.ubetter_event_service import (
+    list_stored_events,
+    record_ubetter_command,
+    sync_device_alarms_from_cloud,
+)
 from app.ubetter_power_service import hourly_device_history_for_kyiv_day, run_ubetter_power_snapshot
 
 logger = logging.getLogger(__name__)
@@ -42,6 +46,25 @@ UBETTER_COMMAND_PASSWORD = "3759"
 
 def ubetter_command_password_ok(password: Optional[str]) -> bool:
     return (password or "").strip() == UBETTER_COMMAND_PASSWORD
+
+
+async def _remember_sent_command(db: AsyncSession, sn: str, result: dict) -> None:
+    """Store a successful cloud write on the inverter event list. Failures stay out of the log."""
+    if not isinstance(result, dict) or not result.get("ok") or not isinstance(result.get("strategy"), dict):
+        return
+    verified = None
+    try:
+        got = await get_run_strategy(sn)
+        if isinstance(got, dict) and got.get("ok") and isinstance(got.get("strategy"), dict):
+            verified = got
+    except Exception as exc:
+        _log_ubetter_route_error("record command verify", exc)
+    try:
+        await record_ubetter_command(db, sn, command=result, verified=verified)
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        _log_ubetter_route_error("record command", exc)
 
 
 class UbetterChargeBody(BaseModel):
@@ -233,7 +256,10 @@ async def get_run_strategy_route(
 
 
 @router.post("/run-strategy")
-async def post_run_strategy_route(body: UbetterStrategySettingsBody):
+async def post_run_strategy_route(
+    body: UbetterStrategySettingsBody,
+    db: AsyncSession = Depends(get_db),
+):
     """Write the V2.1 strategy block and power limits. Does not replace slots."""
     if not ubetter_command_password_ok(body.password):
         return JSONResponse(
@@ -253,6 +279,7 @@ async def post_run_strategy_route(body: UbetterStrategySettingsBody):
             charge_power_kw=body.chargePowerKw,
             discharge_power_kw=body.dischargePowerKw,
         )
+        await _remember_sent_command(db, body.sn, result)
         status = 200 if result.get("ok") else 409
         return JSONResponse(content=result, status_code=status, headers=_NO_STORE_CACHE)
     except UbetterAuthError as exc:
@@ -267,7 +294,10 @@ async def post_run_strategy_route(body: UbetterStrategySettingsBody):
 
 
 @router.post("/charge")
-async def post_charge_route(body: UbetterChargeBody):
+async def post_charge_route(
+    body: UbetterChargeBody,
+    db: AsyncSession = Depends(get_db),
+):
     """Charge via Open API run-strategy. Keeps the strategy already set."""
     if not ubetter_command_password_ok(body.password):
         return JSONResponse(
@@ -289,6 +319,7 @@ async def post_charge_route(body: UbetterChargeBody):
             charge_power_kw=body.chargePowerKw,
             discharge_power_kw=body.dischargePowerKw,
         )
+        await _remember_sent_command(db, body.sn, result)
         status = 200 if result.get("ok") else 409
         return JSONResponse(content=result, status_code=status, headers=_NO_STORE_CACHE)
     except UbetterAuthError as exc:
@@ -303,7 +334,10 @@ async def post_charge_route(body: UbetterChargeBody):
 
 
 @router.post("/discharge")
-async def post_discharge_route(body: UbetterDischargeBody):
+async def post_discharge_route(
+    body: UbetterDischargeBody,
+    db: AsyncSession = Depends(get_db),
+):
     """Discharge via Open API run-strategy. Keeps the strategy already set."""
     if not ubetter_command_password_ok(body.password):
         return JSONResponse(
@@ -325,6 +359,7 @@ async def post_discharge_route(body: UbetterDischargeBody):
             charge_power_kw=body.chargePowerKw,
             discharge_power_kw=body.dischargePowerKw,
         )
+        await _remember_sent_command(db, body.sn, result)
         status = 200 if result.get("ok") else 409
         return JSONResponse(content=result, status_code=status, headers=_NO_STORE_CACHE)
     except UbetterAuthError as exc:

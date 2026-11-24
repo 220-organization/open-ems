@@ -152,11 +152,27 @@ class UbetterEvent(Base):
     component_category_en: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     component_model_en: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     fault_position: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Pretty JSON of a command sent from this app. Null for cloud alarms.
+    detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     first_seen_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     last_seen_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class DeyeCommandEvent(Base):
+    """One command this app sent to a Deye inverter. Shown beside cloud alarms."""
+
+    __tablename__ = "deye_command_event"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    device_sn: Mapped[str] = mapped_column(String(32), nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    occurred_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
     )
 
 

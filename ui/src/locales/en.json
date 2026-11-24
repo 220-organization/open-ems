@@ -514,6 +514,7 @@
   "inverterEventsError": "Could not load inverter events.",
   "inverterEventActive": "active",
   "inverterEventCleared": "cleared",
+  "inverterEventSent": "sent",
   "roiCapexPrompt": "CAPEX (USD)",
   "roiStartDatePrompt": "Start date (Kyiv calendar)",
   "roiStartDateInvalid": "Invalid start date.",

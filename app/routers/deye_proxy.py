@@ -29,6 +29,7 @@ from app.deye_energy_backfill_payment import (
 )
 from app.deye_energy_backfill_service import backfill_device_period, period_dates_kyiv
 from app.rdn_consultation_payment import fetch_invoice_status
+from app.deye_command_log import list_deye_commands, record_deye_command
 from app.deye_api import (
     assert_deye_write_pin,
     assert_inverter_owned,
@@ -110,6 +111,16 @@ from app.solar_forecast_open_meteo import (
 from app import settings
 
 logger = logging.getLogger(__name__)
+
+
+async def _remember_deye_command(db: AsyncSession, sn: str, action: str, result: dict[str, Any]) -> None:
+    """Store an accepted inverter command. A log failure must not undo the command."""
+    try:
+        await record_deye_command(db, sn, action=action, result=result)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        logger.exception("Deye command log failed sn=%s action=%s", sn, action)
 logger.setLevel(logging.INFO)
 
 
@@ -1713,8 +1724,9 @@ async def get_device_alerts(
         description="Deye inverter serial",
     ),
     hours: int = Query(168, ge=1, le=720),
+    db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    """Inverter alarm events from Deye POST /device/alertList. Polled by the power-flow page."""
+    """Cloud alarms plus commands this app sent to the inverter."""
     if not deye_configured():
         return JSONResponse(
             content={"ok": False, "configured": False, "items": [], "total": 0},
@@ -1729,13 +1741,20 @@ async def get_device_alerts(
     except Exception as exc:
         logger.exception("GET /api/deye/alerts — failed sn=%s: %s", sn, exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    try:
+        commands = await list_deye_commands(db, sn, hours=hours)
+    except Exception:
+        logger.exception("GET /api/deye/alerts — command log failed sn=%s", sn)
+        commands = []
+    items = list(data["items"]) + commands
+    items.sort(key=lambda item: -(item.get("startTime") or 0))
     return JSONResponse(
         content={
             "ok": True,
             "configured": True,
             "deviceSn": data["deviceSn"],
-            "total": data["total"],
-            "items": data["items"],
+            "total": len(items),
+            "items": items,
         },
         headers=_NO_STORE_CACHE,
     )
@@ -1942,16 +1961,15 @@ async def post_peak_auto_discharge(
         await db.rollback()
         logger.exception("POST /api/deye/peak-auto-discharge — failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return JSONResponse(
-        content={
-            "ok": True,
-            "configured": True,
-            "deviceSn": sn,
-            "enabled": body.enabled,
-            "dischargeSocDeltaPct": body.dischargeSocDeltaPct,
-        },
-        headers=_NO_STORE_CACHE,
-    )
+    content = {
+        "ok": True,
+        "configured": True,
+        "deviceSn": sn,
+        "enabled": body.enabled,
+        "dischargeSocDeltaPct": body.dischargeSocDeltaPct,
+    }
+    await _remember_deye_command(db, sn, "peak-auto-discharge", content)
+    return JSONResponse(content=content, headers=_NO_STORE_CACHE)
 
 
 @router.get("/power-limits")
@@ -1973,7 +1991,10 @@ async def get_power_limits(deviceSn: str = Query(..., min_length=6, max_length=6
 
 
 @router.post("/power-limits")
-async def post_power_limits(body: ManualPowerLimitsBody) -> JSONResponse:
+async def post_power_limits(
+    body: ManualPowerLimitsBody,
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
     """Manual set: maxSolarPower (W) and battery max charge/discharge power (converted to current)."""
     if not deye_configured():
         return JSONResponse(
@@ -1998,7 +2019,9 @@ async def post_power_limits(body: ManualPowerLimitsBody) -> JSONResponse:
     except Exception as exc:
         logger.exception("POST /api/deye/power-limits — failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return JSONResponse(content={"ok": True, "configured": True, **applied}, headers=_NO_STORE_CACHE)
+    content = {"ok": True, "configured": True, **applied}
+    await _remember_deye_command(db, sn, "power-limits", content)
+    return JSONResponse(content=content, headers=_NO_STORE_CACHE)
 
 
 @router.post("/discharge-2pct")
@@ -2038,10 +2061,9 @@ async def post_discharge_2pct(
             return_after_start=body.respondAfterStart,
             on_export_session_complete=_persist_manual_discharge_session,
         )
-        return JSONResponse(
-            content={"ok": True, "configured": True, **result},
-            headers=_NO_STORE_CACHE,
-        )
+        content = {"ok": True, "configured": True, **result}
+        await _remember_deye_command(db, sn, "discharge", content)
+        return JSONResponse(content=content, headers=_NO_STORE_CACHE)
     except HTTPException:
         raise
     except ValueError as exc:
@@ -2119,16 +2141,15 @@ async def post_low_dam_charge(
         await db.rollback()
         logger.exception("POST /api/deye/low-dam-charge — failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return JSONResponse(
-        content={
-            "ok": True,
-            "configured": True,
-            "deviceSn": sn,
-            "enabled": body.enabled,
-            "chargeSocDeltaPct": body.chargeSocDeltaPct,
-        },
-        headers=_NO_STORE_CACHE,
-    )
+    content = {
+        "ok": True,
+        "configured": True,
+        "deviceSn": sn,
+        "enabled": body.enabled,
+        "chargeSocDeltaPct": body.chargeSocDeltaPct,
+    }
+    await _remember_deye_command(db, sn, "low-dam-charge", content)
+    return JSONResponse(content=content, headers=_NO_STORE_CACHE)
 
 
 @router.get("/night-charge")
@@ -2204,15 +2225,14 @@ async def post_night_charge(
         await db.rollback()
         logger.exception("POST /api/deye/night-charge — failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return JSONResponse(
-        content={
-            "ok": True,
-            "configured": True,
-            "deviceSn": sn,
-            **snap,
-        },
-        headers=_NO_STORE_CACHE,
-    )
+    content = {
+        "ok": True,
+        "configured": True,
+        "deviceSn": sn,
+        **snap,
+    }
+    await _remember_deye_command(db, sn, "night-charge", content)
+    return JSONResponse(content=content, headers=_NO_STORE_CACHE)
 
 
 @router.post("/charge-2pct")
@@ -2245,10 +2265,9 @@ async def post_charge_2pct(
         result = await charge_soc_delta_then_zero_export_ct(
             sn, float(delta), return_after_start=body.respondAfterStart
         )
-        return JSONResponse(
-            content={"ok": True, "configured": True, **result},
-            headers=_NO_STORE_CACHE,
-        )
+        content = {"ok": True, "configured": True, **result}
+        await _remember_deye_command(db, sn, "charge", content)
+        return JSONResponse(content=content, headers=_NO_STORE_CACHE)
     except HTTPException:
         raise
     except ValueError as exc:
@@ -2332,17 +2351,16 @@ async def post_self_consumption(
         await db.rollback()
         logger.exception("POST /api/deye/self-consumption — failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return JSONResponse(
-        content={
-            "ok": True,
-            "configured": True,
-            "deviceSn": sn,
-            "enabled": bool(auto_dam_after),
-            "autoDamEnabled": bool(auto_dam_after),
-            "selfConsumptionEnabled": bool(sc_after),
-        },
-        headers=_NO_STORE_CACHE,
-    )
+    content = {
+        "ok": True,
+        "configured": True,
+        "deviceSn": sn,
+        "enabled": bool(auto_dam_after),
+        "autoDamEnabled": bool(auto_dam_after),
+        "selfConsumptionEnabled": bool(sc_after),
+    }
+    await _remember_deye_command(db, sn, "self-consumption", content)
+    return JSONResponse(content=content, headers=_NO_STORE_CACHE)
 
 
 @router.get("/self-consumption-auto-dam")
@@ -2498,20 +2516,22 @@ async def post_smart_load(
         await db.rollback()
         logger.exception("POST /api/deye/smart-load — failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return JSONResponse(
-        content={
-            "ok": True,
-            "configured": True,
-            "deviceSn": sn,
-            "smartLoadEnabled": body.enabled,
-            "enabled": body.enabled,
-        },
-        headers=_NO_STORE_CACHE,
-    )
+    content = {
+        "ok": True,
+        "configured": True,
+        "deviceSn": sn,
+        "smartLoadEnabled": body.enabled,
+        "enabled": body.enabled,
+    }
+    await _remember_deye_command(db, sn, "smart-load", content)
+    return JSONResponse(content=content, headers=_NO_STORE_CACHE)
 
 
 @router.post("/smart-load/gen-port")
-async def post_smart_load_gen_port(body: SmartLoadGenPortBody) -> JSONResponse:
+async def post_smart_load_gen_port(
+    body: SmartLoadGenPortBody,
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
     """Debug: toggle Gen port On Grid always on on the inverter immediately (Deye Cloud write)."""
     if not deye_configured():
         missing = deye_missing_env_names()
@@ -2602,6 +2622,7 @@ async def post_smart_load_gen_port(body: SmartLoadGenPortBody) -> JSONResponse:
     }
     if _deye_debug_responses() and deye_order:
         content["deye"] = _deye_order_payload_for_client(deye_order)
+    await _remember_deye_command(db, sn, "gen-port", content)
     return JSONResponse(
         content=content,
         headers=_NO_STORE_CACHE,
