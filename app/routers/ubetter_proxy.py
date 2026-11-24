@@ -253,7 +253,7 @@ async def post_run_strategy_route(body: UbetterStrategySettingsBody):
 
 @router.post("/charge")
 async def post_charge_route(body: UbetterChargeBody):
-    """Charge via Open API run-strategy (strategy=3, chargeCtrl=1)."""
+    """Charge via Open API run-strategy (chargeCtrl=1). Keeps the strategy already set."""
     if not ubetter_command_password_ok(body.password):
         return JSONResponse(
             content={"ok": False, "reason": "bad_password", "detail": "Wrong password."},
@@ -271,7 +271,6 @@ async def post_charge_route(body: UbetterChargeBody):
             charge_soc_percent=body.chargeSocPercent,
             discharge_soc_percent=body.dischargeSocPercent,
             power_kw=body.powerKw,
-            strategy=body.strategy,
             charge_power_kw=body.chargePowerKw,
             discharge_power_kw=body.dischargePowerKw,
         )
@@ -290,7 +289,7 @@ async def post_charge_route(body: UbetterChargeBody):
 
 @router.post("/discharge")
 async def post_discharge_route(body: UbetterDischargeBody):
-    """Discharge via Open API run-strategy (strategy=3, chargeCtrl=2)."""
+    """Discharge via Open API run-strategy (chargeCtrl=2). Keeps the strategy already set."""
     if not ubetter_command_password_ok(body.password):
         return JSONResponse(
             content={"ok": False, "reason": "bad_password", "detail": "Wrong password."},
@@ -308,7 +307,6 @@ async def post_discharge_route(body: UbetterDischargeBody):
             discharge_soc_percent=body.dischargeSocPercent,
             charge_soc_percent=body.chargeSocPercent,
             power_kw=body.powerKw,
-            strategy=body.strategy,
             charge_power_kw=body.chargePowerKw,
             discharge_power_kw=body.dischargePowerKw,
         )

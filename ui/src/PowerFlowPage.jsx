@@ -2132,12 +2132,8 @@ function ubetterPowerKwOrNull(raw) {
   return n;
 }
 
-function ubetterStrategyPayload(strategyCode, chargeKwRaw, dischargeKwRaw) {
-  const strategy = Number(strategyCode);
+function ubetterPowerPayload(chargeKwRaw, dischargeKwRaw) {
   const payload = {};
-  if (Number.isInteger(strategy) && strategy >= 0 && strategy <= 5) {
-    payload.strategy = strategy;
-  }
   const charge = ubetterPowerKwOrNull(chargeKwRaw);
   const discharge = ubetterPowerKwOrNull(dischargeKwRaw);
   if (charge != null) payload.chargePowerKw = charge;
@@ -3685,9 +3681,7 @@ export default function PowerFlowPage({
   const [chargeConfirmOpen, setChargeConfirmOpen] = useState(false);
   const [dischargeConfirmPin, setDischargeConfirmPin] = useState("");
   const [chargeConfirmPin, setChargeConfirmPin] = useState("");
-  const [ubetterCommandPassword, setUbetterCommandPassword] = useState(
-    UBETTER_COMMAND_PASSWORD,
-  );
+  const [ubetterCommandPassword, setUbetterCommandPassword] = useState("");
   const [ubetterCommandPasswordError, setUbetterCommandPasswordError] =
     useState("");
   /** PIN gate for peak/low DAM toggles and depth dropdowns when inverter name encodes a PIN. */
@@ -6121,8 +6115,7 @@ export default function PowerFlowPage({
           dischargeSocPercent: targetSoc,
           chargeSocPercent: 95,
           password: UBETTER_COMMAND_PASSWORD,
-          ...ubetterStrategyPayload(
-            ubetterStrategyCode,
+          ...ubetterPowerPayload(
             ubetterChargePowerKw,
             ubetterDischargePowerKw,
           ),
@@ -6173,7 +6166,6 @@ export default function PowerFlowPage({
     essSocPercent,
     inverterSocFmt,
     t,
-    ubetterStrategyCode,
     ubetterChargePowerKw,
     ubetterDischargePowerKw,
   ]);
@@ -6200,8 +6192,7 @@ export default function PowerFlowPage({
           chargeSocPercent: chargeTarget,
           dischargeSocPercent: 10,
           password: UBETTER_COMMAND_PASSWORD,
-          ...ubetterStrategyPayload(
-            ubetterStrategyCode,
+          ...ubetterPowerPayload(
             ubetterChargePowerKw,
             ubetterDischargePowerKw,
           ),
@@ -6252,7 +6243,6 @@ export default function PowerFlowPage({
     essSocPercent,
     inverterSocFmt,
     t,
-    ubetterStrategyCode,
     ubetterChargePowerKw,
     ubetterDischargePowerKw,
   ]);
@@ -6283,7 +6273,7 @@ export default function PowerFlowPage({
         return;
       }
       setDischarge2Feedback("");
-      setUbetterCommandPassword(UBETTER_COMMAND_PASSWORD);
+      setUbetterCommandPassword("");
       setUbetterCommandPasswordError("");
       setDischargeConfirmOpen(true);
       return;
@@ -6351,7 +6341,7 @@ export default function PowerFlowPage({
         return;
       }
       setDischarge2Feedback("");
-      setUbetterCommandPassword(UBETTER_COMMAND_PASSWORD);
+      setUbetterCommandPassword("");
       setUbetterCommandPasswordError("");
       setChargeConfirmOpen(true);
       return;
@@ -7040,7 +7030,7 @@ export default function PowerFlowPage({
     }
     setDischarge2Feedback("");
     setToolbarFeedbackError(false);
-    setUbetterCommandPassword(UBETTER_COMMAND_PASSWORD);
+    setUbetterCommandPassword("");
     setUbetterCommandPasswordError("");
     setUbetterStrategyConfirmOpen(true);
   }, [
@@ -10058,7 +10048,7 @@ export default function PowerFlowPage({
                     <input
                       id="pf-discharge-ubetter-password"
                       type="password"
-                      autoComplete="off"
+                      autoComplete="new-password"
                       className="pf-modal-pin-input"
                       value={ubetterCommandPassword}
                       onChange={(e) => {
@@ -10107,6 +10097,10 @@ export default function PowerFlowPage({
                     type="button"
                     className="pf-modal-btn pf-modal-btn--primary"
                     onClick={confirmDischargeFromModal}
+                    disabled={
+                      Boolean(selUbetterSn.trim()) &&
+                      !ubetterCommandPassword.trim()
+                    }
                   >
                     {t("dischargeConfirmOk")}
                   </button>
@@ -10149,7 +10143,7 @@ export default function PowerFlowPage({
                     <input
                       id="pf-charge-ubetter-password"
                       type="password"
-                      autoComplete="off"
+                      autoComplete="new-password"
                       className="pf-modal-pin-input"
                       value={ubetterCommandPassword}
                       onChange={(e) => {
@@ -10198,6 +10192,10 @@ export default function PowerFlowPage({
                     type="button"
                     className="pf-modal-btn pf-modal-btn--primary pf-modal-btn--charge"
                     onClick={confirmChargeFromModal}
+                    disabled={
+                      Boolean(selUbetterSn.trim()) &&
+                      !ubetterCommandPassword.trim()
+                    }
                   >
                     {t("chargeConfirmOk")}
                   </button>
@@ -10239,7 +10237,7 @@ export default function PowerFlowPage({
                   <input
                     id="pf-ubetter-strategy-password"
                     type="password"
-                    autoComplete="off"
+                    autoComplete="new-password"
                     className="pf-modal-pin-input"
                     value={ubetterCommandPassword}
                     onChange={(e) => {
@@ -10267,6 +10265,7 @@ export default function PowerFlowPage({
                     type="button"
                     className="pf-modal-btn pf-modal-btn--primary"
                     onClick={confirmUbetterStrategyFromModal}
+                    disabled={!ubetterCommandPassword.trim()}
                   >
                     {t("ubetterStrategySubmit")}
                   </button>
