@@ -1,4 +1,4 @@
-import { VYRII_EMS_LOGO_SRC } from './vyriiEmsLogo';
+import { EMS_WORDMARK_SRC } from './vyriiEmsLogo';
 import { notifyOpenEmsSearchChange } from './sharePageQr';
 
 const staticBase = `${process.env.PUBLIC_URL || ''}/static/partners`;
@@ -9,9 +9,10 @@ export const HUB_PARTNER_PROMOTIONS = [
     id: 'vyrii',
     name: 'Open EMS',
     url: 'https://220-km.com',
-    logoSrc: VYRII_EMS_LOGO_SRC,
-    hubLabelText: 'VYRII EMS',
-    logoBare: true,
+    logoSrc: EMS_WORDMARK_SRC,
+    hubLabelText: '220 EMS',
+    hideHubLabel: true,
+    logoWordmark: true,
   },
   {
     id: 'dtek-kem',

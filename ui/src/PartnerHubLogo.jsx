@@ -23,6 +23,7 @@ export default function PartnerHubLogo({ t, flowEndsHere = false }) {
   const logoWide = Boolean(partner.logoWide);
   const logoDarkPad = Boolean(partner.logoDarkPad);
   const logoBare = Boolean(partner.logoBare);
+  const logoWordmark = Boolean(partner.logoWordmark);
 
   const applyLogoFromUrl = useCallback(() => {
     const pinned = readPinnedHubLogoIndexFromUrl();
@@ -113,7 +114,7 @@ export default function PartnerHubLogo({ t, flowEndsHere = false }) {
         aria-live="polite"
       >
         <span
-          className={`pf-hub-logo-stage${logoWide ? ' pf-hub-logo-stage--wide' : ''}${logoDarkPad ? ' pf-hub-logo-stage--dark' : ''}${logoBare ? ' pf-hub-logo-stage--bare' : ''}`}
+          className={`pf-hub-logo-stage${logoWide ? ' pf-hub-logo-stage--wide' : ''}${logoDarkPad ? ' pf-hub-logo-stage--dark' : ''}${logoBare ? ' pf-hub-logo-stage--bare' : ''}${logoWordmark ? ' pf-hub-logo-stage--wordmark' : ''}`}
           aria-hidden="true"
         >
           <img
@@ -121,15 +122,15 @@ export default function PartnerHubLogo({ t, flowEndsHere = false }) {
             className={`pf-hub-logo${logoWide ? ' pf-hub-logo--wide' : ''}${flipping ? ' pf-hub-logo--flip-in' : ''}`}
             src={partner.logoSrc}
             alt=""
-            width={logoWide ? 100 : 44}
-            height={logoWide ? 50 : 44}
+            width={logoWordmark ? 109 : logoWide ? 100 : 44}
+            height={logoWordmark ? 59 : logoWide ? 50 : 44}
             loading="lazy"
             decoding="async"
             draggable={false}
           />
         </span>
       </button>
-      <span className="pf-hub-label">{hubLabel}</span>
+      {partner.hideHubLabel ? null : <span className="pf-hub-label">{hubLabel}</span>}
     </>
   );
 }

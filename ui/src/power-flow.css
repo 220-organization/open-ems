@@ -2328,6 +2328,20 @@ a.pf-node { cursor: pointer; }
   box-shadow: none;
 }
 
+.pf-hub-logo-stage--wordmark {
+  width: 88px;
+  height: 48px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.pf-hub:has(.pf-hub-logo-stage--wordmark) {
+  max-width: none;
+}
+
 .pf-hub:has(.pf-hub-logo-stage--bare) {
   flex-direction: column;
   align-items: center;
@@ -3214,6 +3228,15 @@ a.pf-node { cursor: pointer; }
   .pf-hub { max-width: min(132px, 40vw); }
   .pf-hub-logo-stage { width: 46px; height: 46px; padding: 4px; border-radius: 12px; }
   .pf-hub-logo-stage--wide { width: 92px; height: 46px; padding: 4px 6px; }
+  .pf-hub-logo-stage--wordmark {
+    width: 88px;
+    height: 48px;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
   .pf-hub-label { font-size: 9px; margin-top: 6px; letter-spacing: 0.12em; }
   .pf-hub-opensource {
     font-size: 8px;
@@ -3282,6 +3305,15 @@ a.pf-node { cursor: pointer; }
   .pf-hub { max-width: min(96px, 34vw); }
   .pf-hub-logo-stage { width: 40px; height: 40px; padding: 3px; border-radius: 10px; }
   .pf-hub-logo-stage--wide { width: 80px; height: 40px; padding: 3px 5px; }
+  .pf-hub-logo-stage--wordmark {
+    width: 76px;
+    height: 41px;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
 
   .pf-roi-stack-bar { grid-template-columns: 1fr; }
   .pf-roi-stack-seg--load { grid-column: 1; }
