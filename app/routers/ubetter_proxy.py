@@ -18,6 +18,7 @@ from app.ubetter_api import (
     get_device_summary,
     get_energy,
     get_power_flow,
+    apply_run_strategy_settings,
     get_run_strategy,
     list_devices,
     start_manual_charge,
@@ -35,12 +36,23 @@ router = APIRouter(prefix="/api/ubetter", tags=["ubetter"])
 
 _NO_STORE_CACHE = {"Cache-Control": "no-store, max-age=0, must-revalidate"}
 
+# Power-flow Charge Now / Discharge Now. Same literal as the UI confirm field.
+UBETTER_COMMAND_PASSWORD = "3759"
+
+
+def ubetter_command_password_ok(password: Optional[str]) -> bool:
+    return (password or "").strip() == UBETTER_COMMAND_PASSWORD
+
 
 class UbetterChargeBody(BaseModel):
     sn: str = Field(..., min_length=1, max_length=128)
     chargeSocPercent: int = Field(..., ge=1, le=100, description="Target SoC % when charging")
     dischargeSocPercent: int = Field(10, ge=0, le=99, description="Discharge floor SoC % (limits)")
     powerKw: Optional[float] = Field(None, gt=0, le=500)
+    strategy: int = Field(3, ge=0, le=5, description="Run strategy 0–5. 6 is read-only.")
+    chargePowerKw: Optional[float] = Field(None, gt=0, le=500)
+    dischargePowerKw: Optional[float] = Field(None, gt=0, le=500)
+    password: str = Field("", max_length=64)
 
 
 class UbetterDischargeBody(BaseModel):
@@ -48,6 +60,18 @@ class UbetterDischargeBody(BaseModel):
     dischargeSocPercent: int = Field(..., ge=0, le=99, description="Target SoC % when discharging")
     chargeSocPercent: int = Field(95, ge=1, le=100, description="Charge ceiling SoC % (limits)")
     powerKw: Optional[float] = Field(None, gt=0, le=500)
+    strategy: int = Field(3, ge=0, le=5, description="Run strategy 0–5. 6 is read-only.")
+    chargePowerKw: Optional[float] = Field(None, gt=0, le=500)
+    dischargePowerKw: Optional[float] = Field(None, gt=0, le=500)
+    password: str = Field("", max_length=64)
+
+
+class UbetterStrategySettingsBody(BaseModel):
+    sn: str = Field(..., min_length=1, max_length=128)
+    strategy: int = Field(..., ge=0, le=5, description="Run strategy 0–5. 6 is read-only.")
+    chargePowerKw: float = Field(..., gt=0, le=500)
+    dischargePowerKw: float = Field(..., gt=0, le=500)
+    password: str = Field("", max_length=64)
 
 
 def _log_ubetter_route_error(context: str, exc: BaseException) -> None:
@@ -193,9 +217,49 @@ async def get_run_strategy_route(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+@router.post("/run-strategy")
+async def post_run_strategy_route(body: UbetterStrategySettingsBody):
+    """Write strategy and charge/discharge power limits. Does not change chargeCtrl."""
+    if not ubetter_command_password_ok(body.password):
+        return JSONResponse(
+            content={"ok": False, "reason": "bad_password", "detail": "Wrong password."},
+            status_code=403,
+            headers=_NO_STORE_CACHE,
+        )
+    if not ubetter_configured():
+        return JSONResponse(
+            content={"ok": False, "configured": False, "reason": "not_configured"},
+            headers=_NO_STORE_CACHE,
+        )
+    try:
+        result = await apply_run_strategy_settings(
+            body.sn,
+            strategy=body.strategy,
+            charge_power_kw=body.chargePowerKw,
+            discharge_power_kw=body.dischargePowerKw,
+        )
+        status = 200 if result.get("ok") else 409
+        return JSONResponse(content=result, status_code=status, headers=_NO_STORE_CACHE)
+    except UbetterAuthError as exc:
+        _log_ubetter_route_error("POST /api/ubetter/run-strategy", exc)
+        return JSONResponse(
+            content={"ok": False, "configured": True, "reason": "ubetter_login_failed", "detail": str(exc)[:400]},
+            headers=_NO_STORE_CACHE,
+        )
+    except Exception as exc:
+        _log_ubetter_route_error("POST /api/ubetter/run-strategy", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 @router.post("/charge")
 async def post_charge_route(body: UbetterChargeBody):
-    """Manual charge via Open API run-strategy (strategy=0, chargeCtrl=1)."""
+    """Charge via Open API run-strategy (strategy=3, chargeCtrl=1)."""
+    if not ubetter_command_password_ok(body.password):
+        return JSONResponse(
+            content={"ok": False, "reason": "bad_password", "detail": "Wrong password."},
+            status_code=403,
+            headers=_NO_STORE_CACHE,
+        )
     if not ubetter_configured():
         return JSONResponse(
             content={"ok": False, "configured": False, "reason": "not_configured"},
@@ -207,6 +271,9 @@ async def post_charge_route(body: UbetterChargeBody):
             charge_soc_percent=body.chargeSocPercent,
             discharge_soc_percent=body.dischargeSocPercent,
             power_kw=body.powerKw,
+            strategy=body.strategy,
+            charge_power_kw=body.chargePowerKw,
+            discharge_power_kw=body.dischargePowerKw,
         )
         status = 200 if result.get("ok") else 409
         return JSONResponse(content=result, status_code=status, headers=_NO_STORE_CACHE)
@@ -223,7 +290,13 @@ async def post_charge_route(body: UbetterChargeBody):
 
 @router.post("/discharge")
 async def post_discharge_route(body: UbetterDischargeBody):
-    """Manual discharge via Open API run-strategy (strategy=0, chargeCtrl=2)."""
+    """Discharge via Open API run-strategy (strategy=3, chargeCtrl=2)."""
+    if not ubetter_command_password_ok(body.password):
+        return JSONResponse(
+            content={"ok": False, "reason": "bad_password", "detail": "Wrong password."},
+            status_code=403,
+            headers=_NO_STORE_CACHE,
+        )
     if not ubetter_configured():
         return JSONResponse(
             content={"ok": False, "configured": False, "reason": "not_configured"},
@@ -235,6 +308,9 @@ async def post_discharge_route(body: UbetterDischargeBody):
             discharge_soc_percent=body.dischargeSocPercent,
             charge_soc_percent=body.chargeSocPercent,
             power_kw=body.powerKw,
+            strategy=body.strategy,
+            charge_power_kw=body.chargePowerKw,
+            discharge_power_kw=body.dischargePowerKw,
         )
         status = 200 if result.get("ok") else 409
         return JSONResponse(content=result, status_code=status, headers=_NO_STORE_CACHE)
