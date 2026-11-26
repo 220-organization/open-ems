@@ -1,4 +1,5 @@
 import {
+  aggregateDeyeClusterPower,
   evStationPowerPortsToPoll,
   formatInverterOfflineAge,
   formatInverterOfflineLabel,
@@ -122,5 +123,37 @@ describe('pickClusterLiveStatus', () => {
         { collectionTime: 80, online: false },
       ])
     ).toEqual({ collectionTime: 100, online: false });
+  });
+});
+
+describe('aggregateDeyeClusterPower', () => {
+  it('counts a station-fallback plant total once', () => {
+    const row = {
+      stationId: '61942715',
+      stationFallback: true,
+      batteryPowerW: 77000,
+      loadPowerW: 78000,
+      pvPowerW: 0,
+      gridPowerW: 0,
+    };
+    const agg = aggregateDeyeClusterPower([row, { ...row }]);
+    expect(agg.batteryPowerW).toBe(77000);
+    expect(agg.loadPowerW).toBe(78000);
+    expect(agg.rows).toHaveLength(1);
+  });
+
+  it('sums distinct PCS converter watts even when two readings match', () => {
+    const a = { batteryPowerW: 19000, loadPowerW: 19100, pvPowerW: 0, gridPowerW: 0, gridFrequencyHz: 50 };
+    const agg = aggregateDeyeClusterPower([a, { ...a }], { keepDistinctPower: true });
+    expect(agg.batteryPowerW).toBe(38000);
+    expect(agg.loadPowerW).toBe(38200);
+    expect(agg.rows).toHaveLength(2);
+  });
+
+  it('collapses identical non-PCS tuples', () => {
+    const a = { batteryPowerW: 19000, loadPowerW: 19100, pvPowerW: 0, gridPowerW: 0, gridFrequencyHz: 50 };
+    const agg = aggregateDeyeClusterPower([a, { ...a }]);
+    expect(agg.batteryPowerW).toBe(19000);
+    expect(agg.rows).toHaveLength(1);
   });
 });

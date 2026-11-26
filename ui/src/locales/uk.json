@@ -11,6 +11,8 @@
   "stationPlaceholder": "Оберіть EV-порт",
   "inverterLabel": "Інвертор",
   "inverterSelectLabel": "Оберіть джерело",
+  "inverterMenuSearch": "Пошук",
+  "inverterMenuSearchEmpty": "Нічого не знайдено",
   "inverterNotConfigured": "Не налаштовано (DEYE_* на сервері)",
   "inverterSourcesNotConfigured": "Не налаштовано (DEYE_* та/або HUAWEI_* на сервері)",
   "inverterLoadError": "Не вдалося завантажити список",

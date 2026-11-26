@@ -211,25 +211,41 @@ def _collect_station_list(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return [x for x in raw if isinstance(x, dict)]
 
 
+def _device_type(dev: dict[str, Any]) -> str:
+    return str(dev.get("deviceType") or "").upper()
+
+
+def _is_inverter_like_device(dev: dict[str, Any]) -> bool:
+    """INVERTER*, FEED_IN_LIMIT ESS serials, and rows with no type."""
+    dt = _device_type(dev)
+    if not dt or "INVERTER" in dt or dt == "FEED_IN_LIMIT":
+        return True
+    return False
+
+
 def _devices_from_station(st: dict[str, Any]) -> list[dict[str, Any]]:
     # listWithDevice returns deviceListItems (newer); older samples use deviceList / devices.
     dl = st.get("deviceListItems") or st.get("deviceList") or st.get("devices") or []
     if not isinstance(dl, list):
         return []
-    out: list[dict[str, Any]] = []
+    inverter_like: list[dict[str, Any]] = []
+    pcs: list[dict[str, Any]] = []
     for d in dl:
         if not isinstance(d, dict):
             continue
         sn = d.get("deviceSn") or d.get("deviceSN") or d.get("serialNumber")
         if not sn:
             continue
-        dt = str(d.get("deviceType") or "").upper()
-        # Some plants expose ESS serials as FEED_IN_LIMIT (without explicit INVERTER rows).
-        # Keep inverter-like rows and this fallback; keep rows with missing type.
-        if dt and ("INVERTER" not in dt) and (dt != "FEED_IN_LIMIT"):
-            continue
-        out.append(d)
-    return out
+        if _is_inverter_like_device(d):
+            inverter_like.append(d)
+        elif _device_type(d) == "PCS":
+            pcs.append(d)
+    # Commercial BESS plants (PCS + BATTERY + COLLECTOR, no INVERTER) still need a
+    # power source. PCS watts are per converter. Skip PCS when an inverter row exists
+    # so the same plant is not counted twice. BATTERY and COLLECTOR stay out.
+    if inverter_like:
+        return inverter_like
+    return pcs
 
 
 def _log_list_with_device_round_trip(page: int, base: str, req_body: dict[str, Any], data: Any) -> None:
@@ -351,6 +367,23 @@ def _parse_geo_from_dict(d: dict[str, Any], _depth: int = 0) -> tuple[Optional[f
     return lat, lon
 
 
+def _station_created_at_unix(st: dict[str, Any]) -> Optional[int]:
+    """Plant add time from listWithDevice ``createdDate`` (unix seconds)."""
+    raw = st.get("createdDate")
+    if raw is None or isinstance(raw, bool):
+        return None
+    try:
+        n = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(n) or n <= 0:
+        return None
+    # Some payloads use milliseconds.
+    if n > 10_000_000_000:
+        n = n / 1000.0
+    return int(n)
+
+
 def _compose_inverter_label(pname: str, dname: str, sn: str) -> str:
     """Build list label from plant + device display names (already PIN-stripped by caller)."""
     p = (pname or "").strip()
@@ -371,6 +404,10 @@ class _InverterListRow:
     lat: Optional[float]
     lon: Optional[float]
     station_id: Optional[str]
+    # "pcs" for commercial BESS converters; fleet sums those serials instead of one representative.
+    device_role: str = "inverter"
+    # Unix seconds when the Deye plant was created (listWithDevice createdDate).
+    created_at: Optional[int] = None
 
 
 async def _list_inverter_rows() -> list[_InverterListRow]:
@@ -463,7 +500,19 @@ async def _list_inverter_rows() -> list[_InverterListRow]:
                     st_id_raw = st.get("id")
                     station_id = str(st_id_raw).strip() if st_id_raw is not None else None
                     station_id = station_id or None
-                    items.append(_InverterListRow(sn, label, pin_code, lat, lon, station_id))
+                    role = "pcs" if _device_type(dev) == "PCS" else "inverter"
+                    items.append(
+                        _InverterListRow(
+                            sn,
+                            label,
+                            pin_code,
+                            lat,
+                            lon,
+                            station_id,
+                            role,
+                            _station_created_at_unix(st),
+                        )
+                    )
                     page_inverter_count += 1
             logger.info(
                 "Deye: listWithDevice page=%s new_inverters_added=%s (total_so_far=%s)",
@@ -506,7 +555,14 @@ async def list_inverter_devices() -> list[dict[str, Any]]:
     """Inverters from POST /station/listWithDevice (plant list + device list, same data as cloud plant UI)."""
     rows = await _list_inverter_rows()
     return [
-        {"deviceSn": r.device_sn, "label": r.label, "pinRequired": r.pin is not None} for r in rows
+        {
+            "deviceSn": r.device_sn,
+            "label": r.label,
+            "pinRequired": r.pin is not None,
+            "deviceRole": r.device_role,
+            "createdAt": r.created_at,
+        }
+        for r in rows
     ]
 
 
