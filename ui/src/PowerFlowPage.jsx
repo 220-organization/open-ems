@@ -23,6 +23,7 @@ import {
   formatInverterUpdatedAgo,
   formatPower,
   formatPowerKwInteger,
+  aggregateDeyeClusterPower,
   pickClusterLiveStatus,
   pickClusterSocPercent,
 } from "./powerFlowEngine";
@@ -45,8 +46,10 @@ import {
   usesDeyeFlowBalance,
 } from "./deyeFlowBalanceSites";
 import {
-  inverterSelectShortLabel,
+  compareInvertersByAddedAtDesc,
   evPortStationNumbersForInverter,
+  inverterSelectShortLabel,
+  sourceMenuTextMatches,
 } from "./deyeInverterDisplay";
 import {
   clearInverterPinCache,
@@ -90,6 +93,11 @@ function formatGenPortDeyeFeedback(data) {
   }
 }
 
+/** Deye control reads that the account is not allowed to perform. Not a user-facing fault. */
+function isDeyeOperationPermissionError(detail) {
+  return /operation permission/i.test(String(detail ?? ""));
+}
+
 function ubetterChargeCtrlLabel(ctrl) {
   if (ctrl === 1) return "charge";
   if (ctrl === 2) return "discharge";
@@ -123,7 +131,8 @@ function ubetterStrategyView(strategy) {
   const block = ubetterStrategyBlock(strategy);
   return {
     strategy: strategy.strategy,
-    chargeCtrl: block.chargeCtrl != null ? block.chargeCtrl : strategy.chargeCtrl,
+    chargeCtrl:
+      block.chargeCtrl != null ? block.chargeCtrl : strategy.chargeCtrl,
     chargeSoc: block.chargeSoc != null ? block.chargeSoc : strategy.chargeSoc,
     dischargeSoc:
       block.dischargeSoc != null ? block.dischargeSoc : strategy.dischargeSoc,
@@ -2193,7 +2202,8 @@ function ubetterStrategyChoices(currentCode) {
 }
 
 function ubetterKwText(value, fallback) {
-  if (value != null && Number.isFinite(Number(value))) return String(Number(value));
+  if (value != null && Number.isFinite(Number(value)))
+    return String(Number(value));
   return fallback;
 }
 
@@ -2867,6 +2877,10 @@ export default function PowerFlowPage({
           shortLabel: key,
           representativeSn: sn,
           clusterSns: [sn],
+          sumDistinctClusterPower: row?.deviceRole === "pcs",
+          createdAt: Number.isFinite(Number(row?.createdAt))
+            ? Number(row.createdAt)
+            : null,
           capexUsd: row?.capexUsd ?? null,
           capacityKwh:
             row?.capacityKwh != null &&
@@ -2879,6 +2893,12 @@ export default function PowerFlowPage({
         continue;
       }
       prev.clusterSns.push(sn);
+      if (row?.deviceRole === "pcs") prev.sumDistinctClusterPower = true;
+      const addedAt = Number(row?.createdAt);
+      if (Number.isFinite(addedAt) && addedAt > 0) {
+        prev.createdAt =
+          prev.createdAt == null ? addedAt : Math.max(prev.createdAt, addedAt);
+      }
       // Keep representative stable: smallest serial.
       if (sn < prev.representativeSn) prev.representativeSn = sn;
       if (prev.capexUsd == null && row?.capexUsd != null)
@@ -2892,9 +2912,7 @@ export default function PowerFlowPage({
       }
       prev.pinRequired = prev.pinRequired || !!row?.pinRequired;
     }
-    return Array.from(byKey.values()).sort((a, b) =>
-      a.shortLabel.localeCompare(b.shortLabel),
-    );
+    return Array.from(byKey.values()).sort(compareInvertersByAddedAtDesc);
   }, [inverterRows.items]);
   const deyeSnToRepresentative = useMemo(() => {
     const m = new Map();
@@ -2977,6 +2995,23 @@ export default function PowerFlowPage({
         gridlabRows.items.some((r) => String(r.deviceId) === String(parsed.id))
       ) {
         setInverterValue(want);
+      }
+    } else if (
+      parsed.provider === "dc-ev" &&
+      String(parsed.id || "").toLowerCase() === "bb"
+    ) {
+      setInverterValue("");
+      try {
+        localStorage.removeItem(ESS_SELECTION_STORAGE_KEY);
+      } catch {
+        /* ignore */
+      }
+      try {
+        const u = new URL(window.location.href);
+        u.searchParams.delete("inverter");
+        window.history.replaceState({}, "", u);
+      } catch {
+        /* ignore */
       }
     } else if (parsed.provider === "dc-ev" || parsed.provider === "ac-ev") {
       setInverterValue(
@@ -3077,11 +3112,24 @@ export default function PowerFlowPage({
     [inverterRows.items],
   );
 
-  /** One poll per merged Deye dropdown row — avoids summing duplicate plant telemetry for every raw serial. */
-  const fleetDeyeRepresentativeSnsKey = useMemo(
+  /**
+   * One poll target per merged row. PCS clusters (commercial BESS) poll every serial
+   * and sum converter watts. Other plants keep a single representative so duplicated
+   * plant telemetry is not multiplied.
+   */
+  const fleetDeyePollKey = useMemo(
     () =>
       deyeCombinedItems
-        .map((r) => String(r.representativeSn || "").trim())
+        .map((r) => {
+          const sns = r.sumDistinctClusterPower
+            ? r.clusterSns
+            : [r.representativeSn];
+          return sns
+            .map((sn) => String(sn || "").trim())
+            .filter(Boolean)
+            .sort()
+            .join("+");
+        })
         .filter(Boolean)
         .sort()
         .join(","),
@@ -3100,10 +3148,13 @@ export default function PowerFlowPage({
       });
       return undefined;
     }
-    const sns = deyeCombinedItems
-      .map((r) => String(r.representativeSn || "").trim())
-      .filter(Boolean);
-    if (sns.length === 0) {
+    const plants = deyeCombinedItems.filter((r) => {
+      const sns = r.sumDistinctClusterPower
+        ? r.clusterSns
+        : [r.representativeSn];
+      return sns.some((sn) => String(sn || "").trim());
+    });
+    if (plants.length === 0) {
       setFleetDeyeAggregate({
         loading: false,
         okResponses: 0,
@@ -3123,29 +3174,37 @@ export default function PowerFlowPage({
       let bat = 0;
       let load = 0;
       await Promise.all(
-        sns.map(async (sn) => {
+        plants.map(async (item) => {
+          const sns = (
+            item.sumDistinctClusterPower
+              ? item.clusterSns
+              : [item.representativeSn]
+          )
+            .map((sn) => String(sn || "").trim())
+            .filter(Boolean);
           try {
-            const q = new URLSearchParams({ deviceSn: sn });
-            const r = await fetch(`${apiUrl("/api/deye/ess-power")}?${q}`, {
-              cache: "no-store",
+            const fetched = await Promise.all(
+              sns.map(async (sn) => {
+                const q = new URLSearchParams({ deviceSn: sn });
+                const r = await fetch(`${apiUrl("/api/deye/ess-power")}?${q}`, {
+                  cache: "no-store",
+                });
+                const data = await r.json().catch(() => ({}));
+                if (!r.ok || !data.ok || data.configured === false) return null;
+                return data;
+              }),
+            );
+            const agg = aggregateDeyeClusterPower(fetched.filter(Boolean), {
+              keepDistinctPower: !!item.sumDistinctClusterPower,
             });
-            const data = await r.json().catch(() => ({}));
-            if (!r.ok || !data.ok || data.configured === false) return;
+            if (!agg) return;
             ok += 1;
-            const batv = data.batteryPowerW;
-            const loadW = data.loadPowerW;
-            const pvW = data.pvPowerW;
-            const gridW = data.gridPowerW;
-            if (batv != null && Number.isFinite(Number(batv)))
-              bat += Number(batv);
-            if (loadW != null && Number.isFinite(Number(loadW)))
-              load += Math.max(0, Number(loadW));
-            if (pvW != null && Number.isFinite(Number(pvW)))
-              pv += Math.max(0, Number(pvW));
-            if (gridW != null && Number.isFinite(Number(gridW)))
-              grid += Number(gridW);
+            if (agg.batteryPowerW != null) bat += agg.batteryPowerW;
+            if (agg.loadPowerW != null) load += agg.loadPowerW;
+            if (agg.pvPowerW != null) pv += agg.pvPowerW;
+            if (agg.gridPowerW != null) grid += agg.gridPowerW;
           } catch {
-            /* ignore per device */
+            /* ignore per plant */
           }
         }),
       );
@@ -3170,7 +3229,7 @@ export default function PowerFlowPage({
     essAnySelected,
     inverterRows.configured,
     inverterRows.error,
-    fleetDeyeRepresentativeSnsKey,
+    fleetDeyePollKey,
     deyeCombinedItems,
   ]);
 
@@ -3295,8 +3354,12 @@ export default function PowerFlowPage({
     const row = inverterRows.items.find(
       (r) => String(r.deviceSn || "").trim() === sn,
     );
-    return evPortStationNumbersForInverter(sn, row?.label || "");
-  }, [selInverterSn, inverterRows.items]);
+    return evPortStationNumbersForInverter(
+      sn,
+      row?.label || "",
+      selDeyeClusterSns,
+    );
+  }, [selInverterSn, inverterRows.items, selDeyeClusterSns]);
 
   const selInverterEvportBound = useMemo(
     () => boundEvPortNumbers.length > 0,
@@ -3322,6 +3385,7 @@ export default function PowerFlowPage({
   const [onlineBySn, setOnlineBySn] = useState({});
   const [collectionBySn, setCollectionBySn] = useState({});
   const [inverterMenuOpen, setInverterMenuOpen] = useState(false);
+  const [inverterMenuQuery, setInverterMenuQuery] = useState("");
   const [inverterMenuBox, setInverterMenuBox] = useState(null);
 
   const onGridlabPasswordChange = useCallback(
@@ -3370,6 +3434,7 @@ export default function PowerFlowPage({
   );
   const inverterPickerRef = useRef(null);
   const inverterMenuRef = useRef(null);
+  const inverterMenuSearchRef = useRef(null);
   const [socListLoading, setSocListLoading] = useState(false);
   /** Deye live metrics when an inverter is selected: battery, load, PV, grid. */
   const [deyeLive, setDeyeLive] = useState(null);
@@ -4059,14 +4124,42 @@ export default function PowerFlowPage({
     inverterRows.loading,
   ]);
 
+  const selInverterPcs = useMemo(() => {
+    const sn = (selInverterSn || "").trim();
+    if (!sn) return false;
+    const grouped = deyeCombinedItems.find(
+      (row) =>
+        row.representativeSn === sn || (row.clusterSns || []).includes(sn),
+    );
+    return Boolean(grouped?.sumDistinctClusterPower);
+  }, [selInverterSn, deyeCombinedItems]);
+
   useEffect(() => {
     const sn = (selInverterSn || "").trim();
-    if (!sn || !inverterRows.configured) {
+    // PCS plants (BESS 500) have telemetry but no control permission. Skip the
+    // limits read so the page does not open an error dialog on every visit.
+    if (
+      !sn ||
+      !inverterRows.configured ||
+      inverterRows.loading ||
+      selInverterPcs
+    ) {
       setPowerLimitsLoading(false);
-      setPowerLimitSolarKw("");
-      setPowerLimitChargeKw("");
-      setPowerLimitDischargeKw("");
-      setPowerLimitLoaded(null);
+      if (!inverterRows.loading) {
+        setPowerLimitSolarKw("");
+        setPowerLimitChargeKw("");
+        setPowerLimitDischargeKw("");
+        setPowerLimitLoaded(null);
+      }
+      if (selInverterPcs) {
+        setDischarge2Feedback((prev) => {
+          if (String(prev).startsWith(t("powerLimitLoadError"))) {
+            setToolbarFeedbackError(false);
+            return "";
+          }
+          return prev;
+        });
+      }
       return undefined;
     }
     let cancelled = false;
@@ -4097,8 +4190,10 @@ export default function PowerFlowPage({
           if (cancelled) return;
         }
         if (!r.ok || !data.ok) {
+          if (cancelled) return;
           const detail =
             data.detail != null ? String(data.detail) : String(r.status);
+          if (isDeyeOperationPermissionError(detail)) return;
           setDischarge2Feedback(`${t("powerLimitLoadError")}: ${detail}`);
           setToolbarFeedbackError(true);
           return;
@@ -4154,7 +4249,13 @@ export default function PowerFlowPage({
     return () => {
       cancelled = true;
     };
-  }, [selInverterSn, inverterRows.configured, t]);
+  }, [
+    selInverterSn,
+    inverterRows.configured,
+    inverterRows.loading,
+    selInverterPcs,
+    t,
+  ]);
 
   const savePeakAutoPref = useCallback(
     async (nextEnabled, nextPct, pin) => {
@@ -4632,64 +4733,22 @@ export default function PowerFlowPage({
         if (cancelled) return;
         const okRows = rows.filter((x) => x.ok).map((x) => x.data);
         if (okRows.length > 0) {
-          /*
-           * Two cluster modes for multi-inverter Deye stations:
-           *   1) Per-inverter mode — each /device/latest returns distinct watts → SUM across cluster.
-           *   2) /station/latest fallback — every serial in the plant returns the same plant total.
-           *      Backend marks these rows with stationFallback=true and stationId; we dedupe by
-           *      stationId (one row per plant) so a 1 MWh station with N serials shows the plant
-           *      total once instead of N × plant total. Falling back to exact-tuple dedup keeps
-           *      the previous behaviour for older API versions that omit the new fields.
-           */
-          const uniqRows = [];
-          const seenStationFallback = new Set();
-          const seenTuple = new Set();
-          for (const row of okRows) {
-            const stId =
-              row?.stationId == null ? "" : String(row.stationId).trim();
-            if (row?.stationFallback === true && stId) {
-              if (seenStationFallback.has(stId)) continue;
-              seenStationFallback.add(stId);
-              uniqRows.push(row);
-              continue;
-            }
-            const tupleKey = [
-              row?.batteryPowerW ?? "n",
-              row?.loadPowerW ?? "n",
-              row?.pvPowerW ?? "n",
-              row?.gridPowerW ?? "n",
-              row?.gridFrequencyHz ?? "n",
-            ].join("|");
-            if (seenTuple.has(tupleKey)) continue;
-            seenTuple.add(tupleKey);
-            uniqRows.push(row);
-          }
-          const sumField = (key, floorZero = false) => {
-            let has = false;
-            let sum = 0;
-            for (const row of uniqRows) {
-              const v = row?.[key];
-              if (v != null && Number.isFinite(Number(v))) {
-                has = true;
-                sum += Number(v);
-              }
-            }
-            if (!has) return null;
-            return floorZero ? Math.max(0, sum) : sum;
-          };
-          const bat = sumField("batteryPowerW", false);
-          const loadW = sumField("loadPowerW", true);
-          const pvW = sumField("pvPowerW", true);
-          const gridW = sumField("gridPowerW", false);
+          const grouped = deyeCombinedItems.find(
+            (r) => r.representativeSn === selInverterSn.trim(),
+          );
+          const agg = aggregateDeyeClusterPower(okRows, {
+            keepDistinctPower: Boolean(grouped?.sumDistinctClusterPower),
+          });
+          const uniqRows = agg?.rows || [];
           const liveStatus = pickClusterLiveStatus(uniqRows);
           const offGrid =
             uniqRows.length > 0 &&
             uniqRows.every((row) => row?.offGrid === true);
           setDeyeLive({
-            batteryPowerW: bat,
-            loadPowerW: loadW,
-            pvPowerW: pvW,
-            gridPowerW: gridW,
+            batteryPowerW: agg?.batteryPowerW ?? null,
+            loadPowerW: agg?.loadPowerW ?? null,
+            pvPowerW: agg?.pvPowerW ?? null,
+            gridPowerW: agg?.gridPowerW ?? null,
             socPercent: pickClusterSocPercent(uniqRows),
             collectionTime: liveStatus.collectionTime,
             online: liveStatus.online,
@@ -4713,6 +4772,7 @@ export default function PowerFlowPage({
   }, [
     selInverterSn,
     selDeyeClusterSns,
+    deyeCombinedItems,
     inverterRows.configured,
     inverterRows.error,
   ]);
@@ -6193,10 +6253,7 @@ export default function PowerFlowPage({
           dischargeSocPercent: targetSoc,
           chargeSocPercent: 95,
           password: UBETTER_COMMAND_PASSWORD,
-          ...ubetterPowerPayload(
-            ubetterChargePowerKw,
-            ubetterDischargePowerKw,
-          ),
+          ...ubetterPowerPayload(ubetterChargePowerKw, ubetterDischargePowerKw),
         }),
         cache: "no-store",
       });
@@ -6270,10 +6327,7 @@ export default function PowerFlowPage({
           chargeSocPercent: chargeTarget,
           dischargeSocPercent: 10,
           password: UBETTER_COMMAND_PASSWORD,
-          ...ubetterPowerPayload(
-            ubetterChargePowerKw,
-            ubetterDischargePowerKw,
-          ),
+          ...ubetterPowerPayload(ubetterChargePowerKw, ubetterDischargePowerKw),
         }),
         cache: "no-store",
       });
@@ -7173,7 +7227,10 @@ export default function PowerFlowPage({
           view.strategy != null
             ? String(Math.round(Number(view.strategy)))
             : String(strategy);
-        const nextCharge = ubetterKwText(view.chargePower, String(charge ?? ""));
+        const nextCharge = ubetterKwText(
+          view.chargePower,
+          String(charge ?? ""),
+        );
         const nextDischarge = ubetterKwText(
           view.dischargePower,
           String(discharge ?? ""),
@@ -7458,7 +7515,15 @@ export default function PowerFlowPage({
           : deyeLiveLoading;
 
   useEffect(() => {
-    if (!inverterMenuOpen) setGridlabPasswordPrompt(false);
+    if (!inverterMenuOpen) {
+      setGridlabPasswordPrompt(false);
+      setInverterMenuQuery("");
+      return undefined;
+    }
+    const id = window.requestAnimationFrame(() => {
+      inverterMenuSearchRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(id);
   }, [inverterMenuOpen]);
 
   useEffect(() => {
@@ -7625,7 +7690,6 @@ export default function PowerFlowPage({
       label: t("essEvPorts"),
       items: [
         menuItem(`${ESS_PREFIX_DC_EV}all`, t("essEvPortsDc")),
-        menuItem(`${ESS_PREFIX_DC_EV}bb`, t("essEvPortsBlockbaster")),
         menuItem(`${ESS_PREFIX_AC_EV}all`, t("essEvPortsAc")),
       ],
     });
@@ -7670,6 +7734,20 @@ export default function PowerFlowPage({
       });
     }
   }
+  const inverterMenuGroupsVisible = inverterMenuQuery.trim()
+    ? inverterMenuGroups
+        .map((group) => ({
+          ...group,
+          items: group.items.filter((item) => {
+            if (!item.value) return false;
+            return (
+              sourceMenuTextMatches(item.label, inverterMenuQuery) ||
+              sourceMenuTextMatches(group.label, inverterMenuQuery)
+            );
+          }),
+        }))
+        .filter((group) => group.items.length > 0)
+    : inverterMenuGroups;
   const selectedInverterItem = inverterMenuGroups
     .flatMap((group) => group.items)
     .find(
@@ -7746,7 +7824,35 @@ export default function PowerFlowPage({
                               width: inverterMenuBox.width,
                             }}
                           >
-                            {inverterMenuGroups.map((group) => (
+                            <div className="pf-inverter-menu__search">
+                              <input
+                                ref={inverterMenuSearchRef}
+                                type="search"
+                                className="pf-inverter-menu__search-input"
+                                value={inverterMenuQuery}
+                                placeholder={t("inverterMenuSearch")}
+                                aria-label={t("inverterMenuSearch")}
+                                autoComplete="off"
+                                autoCorrect="off"
+                                spellCheck={false}
+                                onChange={(event) =>
+                                  setInverterMenuQuery(event.target.value)
+                                }
+                                onKeyDown={(event) => {
+                                  if (event.key !== "Escape") return;
+                                  if (!inverterMenuQuery) return;
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  setInverterMenuQuery("");
+                                }}
+                              />
+                            </div>
+                            {inverterMenuGroupsVisible.length === 0 ? (
+                              <div className="pf-inverter-menu__empty">
+                                {t("inverterMenuSearchEmpty")}
+                              </div>
+                            ) : null}
+                            {inverterMenuGroupsVisible.map((group) => (
                               <div
                                 key={group.key || group.label || "sources"}
                                 className="pf-inverter-menu__group"

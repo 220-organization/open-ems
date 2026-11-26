@@ -1472,12 +1472,46 @@ select.pf-ubetter-strategy-select {
   max-height: min(70vh, 520px);
   overflow: auto;
   margin: 0;
-  padding: 6px 0;
+  padding: 0 0 6px;
   background: var(--km220-card, #fff);
   color: var(--km220-text, #14161c);
   border: 1px solid var(--km220-input-border, var(--pf-border));
   border-radius: 10px;
   box-shadow: 0 10px 28px rgba(20, 22, 28, 0.14);
+}
+
+.pf-inverter-menu__search {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 10px;
+  background: var(--km220-card, #fff);
+  border-bottom: 1px solid var(--km220-input-border, var(--pf-border));
+}
+
+.pf-inverter-menu__search-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--km220-input-border, var(--pf-border));
+  border-radius: 8px;
+  background: var(--pf-surface, #fff);
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+}
+
+.pf-inverter-menu__search-input:focus {
+  outline: 2px solid rgba(0, 122, 255, 0.45);
+  outline-offset: 1px;
+}
+
+.pf-inverter-menu__empty {
+  padding: 10px 14px;
+  font-size: 14px;
+  color: var(--pf-text-muted);
 }
 
 .pf-inverter-menu__label {

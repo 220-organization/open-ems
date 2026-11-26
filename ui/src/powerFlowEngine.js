@@ -157,6 +157,61 @@ export function pickClusterLiveStatus(rows) {
   };
 }
 
+function _sumEssPowerField(rows, key, floorZero) {
+  let has = false;
+  let sum = 0;
+  for (const row of rows) {
+    const v = row?.[key];
+    if (v != null && Number.isFinite(Number(v))) {
+      has = true;
+      sum += Number(v);
+    }
+  }
+  if (!has) return null;
+  return floorZero ? Math.max(0, sum) : sum;
+}
+
+/**
+ * Combine /api/deye/ess-power rows for one plant.
+ * Station-fallback rows (same plant total on every serial) count once.
+ * Identical power tuples count once, unless ``keepDistinctPower`` (PCS cluster:
+ * each converter is its own watts, even when two readings match).
+ */
+export function aggregateDeyeClusterPower(rows, { keepDistinctPower = false } = {}) {
+  const uniqRows = [];
+  const seenStationFallback = new Set();
+  const seenTuple = new Set();
+  for (const row of rows || []) {
+    const stId = row?.stationId == null ? '' : String(row.stationId).trim();
+    if (row?.stationFallback === true && stId) {
+      if (seenStationFallback.has(stId)) continue;
+      seenStationFallback.add(stId);
+      uniqRows.push(row);
+      continue;
+    }
+    if (!keepDistinctPower) {
+      const tupleKey = [
+        row?.batteryPowerW ?? 'n',
+        row?.loadPowerW ?? 'n',
+        row?.pvPowerW ?? 'n',
+        row?.gridPowerW ?? 'n',
+        row?.gridFrequencyHz ?? 'n',
+      ].join('|');
+      if (seenTuple.has(tupleKey)) continue;
+      seenTuple.add(tupleKey);
+    }
+    uniqRows.push(row);
+  }
+  if (uniqRows.length === 0) return null;
+  return {
+    rows: uniqRows,
+    batteryPowerW: _sumEssPowerField(uniqRows, 'batteryPowerW', false),
+    loadPowerW: _sumEssPowerField(uniqRows, 'loadPowerW', true),
+    pvPowerW: _sumEssPowerField(uniqRows, 'pvPowerW', true),
+    gridPowerW: _sumEssPowerField(uniqRows, 'gridPowerW', false),
+  };
+}
+
 /** Same scaling as formatPower but digits only (no MW/kW suffix) — compact header / EV hints. */
 export function formatPowerValueOnly(watts, bcp47) {
   if (watts == null || !Number.isFinite(watts)) return '—';

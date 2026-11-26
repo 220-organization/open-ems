@@ -34,6 +34,12 @@ const EVPORTS_CSV_RE = /evports\s*([\d,\s]+)/i;
 /** Deye device SN → EV port numbers when the cloud label has no ``evport`` token yet. */
 const DEVICE_EV_PORTS = Object.freeze({
   '2503291038': ['634', '635'],
+  // BESS 500 Solar City (representative + the other PCS on station 61942715).
+  // https://220-km.com/startMany?ports=683,684
+  '2509280309': ['683', '684'],
+  '2510100262': ['683', '684'],
+  '2512011265': ['683', '684'],
+  '2604071809': ['683', '684'],
 });
 
 /** Station number from label, e.g. ``"738"``, or null if no ``evport`` token. */
@@ -64,12 +70,33 @@ export function parseEvPortStationNumbers(text) {
 }
 
 /** Label ``evport`` / ``evports`` tokens, else per-device map (e.g. Ярмаркова 11-З). */
-export function evPortStationNumbersForInverter(deviceSn, label) {
+export function evPortStationNumbersForInverter(deviceSn, label, clusterSns) {
   const fromLabel = parseEvPortStationNumbers(label);
   if (fromLabel.length > 0) return fromLabel;
-  const sn = String(deviceSn ?? '').trim();
-  const mapped = DEVICE_EV_PORTS[sn];
-  return mapped ? [...mapped] : [];
+  const candidates = [deviceSn, ...(Array.isArray(clusterSns) ? clusterSns : [])];
+  for (const raw of candidates) {
+    const mapped = DEVICE_EV_PORTS[String(raw ?? '').trim()];
+    if (mapped) return [...mapped];
+  }
+  return [];
+}
+
+/** Newest Deye plant first. Missing add time stays after dated rows, then by name. */
+export function compareInvertersByAddedAtDesc(a, b) {
+  const ta = Number(a?.createdAt);
+  const tb = Number(b?.createdAt);
+  const aOk = Number.isFinite(ta) && ta > 0;
+  const bOk = Number.isFinite(tb) && tb > 0;
+  if (aOk && bOk && ta !== tb) return tb - ta;
+  if (aOk !== bOk) return aOk ? -1 : 1;
+  return String(a?.shortLabel || '').localeCompare(String(b?.shortLabel || ''));
+}
+
+/** Case-insensitive substring match for the source menu search box. */
+export function sourceMenuTextMatches(text, query) {
+  const q = String(query || '').trim().toLowerCase();
+  if (!q) return true;
+  return String(text || '').toLowerCase().includes(q);
 }
 
 /** Short label for inverter <select>: first segment of "Plant — Device", PIN-free. */
