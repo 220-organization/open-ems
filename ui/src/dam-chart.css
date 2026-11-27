@@ -1345,7 +1345,7 @@
   color: rgba(250, 204, 21, 0.95);
 }
 
-/* OREE official DAM embed — same layout idea as b2b OreePriceIndicesWidget (full-width under Open EMS chart). */
+/* OREE official DAM embed — same layout idea as b2b OreePriceIndicesWidget (full-width under 220 EMS chart). */
 .dam-indexes-wrap {
   margin-top: 18px;
   padding-top: 14px;

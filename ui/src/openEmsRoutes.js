@@ -1,4 +1,4 @@
-/** SPA route ids for Open EMS UI (pathname-based, no react-router). */
+/** SPA route ids for 220 EMS UI (pathname-based, no react-router). */
 export const OPEN_EMS_ROUTES = {
   power: "/",
   landing: "/about",

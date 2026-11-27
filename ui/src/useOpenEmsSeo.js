@@ -70,7 +70,7 @@ function removeJsonLd(ids) {
 }
 
 /**
- * Syncs document title, html lang, and SEO meta tags for Open EMS SPA routes.
+ * Syncs document title, html lang, and SEO meta tags for 220 EMS SPA routes.
  * @param {string} pageTitle — document.title
  * @param {string} locale — uk | en | …
  * @param {Function} t — i18n translate

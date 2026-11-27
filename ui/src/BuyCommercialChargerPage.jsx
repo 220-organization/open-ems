@@ -347,7 +347,7 @@ function buildCommercialJsonLd(t, locale, products) {
         "@type": "Organization",
         "@id": orgId,
         name: "220-km.com",
-        alternateName: ["Open EMS", "Вирій EMS"],
+        alternateName: ["220 EMS", "Вирій EMS"],
         url: "https://220-km.com",
         email: "sales@220-km.com",
         logo: `${origin}/static/220-km-logo.svg`,
@@ -363,7 +363,7 @@ function buildCommercialJsonLd(t, locale, products) {
           {
             "@type": "ListItem",
             position: 1,
-            name: "Open EMS",
+            name: "220 EMS",
             item: origin,
           },
           {

@@ -1,7 +1,7 @@
 {
   "name": "app-open-ems",
   "version": "1.0.0",
-  "description": "Open EMS — native app wrapper for the Open EMS web dashboard",
+  "description": "220 EMS — native app wrapper for the 220 EMS web dashboard",
   "scripts": {
     "build": "echo 'No build step - using remote URL'",
     "cap:sync": "npm run cap:sync:ios && npm run cap:sync:android",

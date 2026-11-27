@@ -11,7 +11,7 @@ import "./landing.css";
 const SITE_220KM = "https://220-km.com/";
 const HEADER_LANG_LABELS = { en: "EN", uk: "UA", es: "ES" };
 
-/** Hold on Open EMS opens 220-km.com. Hold on 220-km.com opens the EMS on :9220. */
+/** Hold on 220 EMS opens 220-km.com. Hold on 220-km.com opens the EMS on :9220. */
 function otherBrandUrl() {
   try {
     const { hostname, port } = window.location;
