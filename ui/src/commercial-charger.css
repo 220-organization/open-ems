@@ -101,11 +101,19 @@
 
 .cc-price-client__line {
   font-size: 0.95rem;
-  line-height: 1.3;
+  line-height: 1.25;
 }
 
 .cc-price-client__line strong {
+  display: block;
   font-size: 1.15rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.cc-price-client__vat {
+  display: block;
+  font-size: 0.78rem;
   font-weight: 700;
 }
 

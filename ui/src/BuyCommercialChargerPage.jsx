@@ -79,7 +79,7 @@ function writeStoredCurrency(currency) {
 }
 
 function hasClientQuote(p) {
-  return p?.price_cash != null || p?.price_vat != null;
+  return p?.price_vat != null;
 }
 
 function fmtClientUsd(amount) {
@@ -91,32 +91,20 @@ function fmtClientUsd(amount) {
 
 function clientQuoteText(p, t) {
   if (!hasClientQuote(p)) return "";
-  const bits = [];
-  if (p.price_cash != null) {
-    bits.push(`${fmtClientUsd(p.price_cash)} ${t("commercialChargerPriceCash")}`);
-  }
-  if (p.price_vat != null) {
-    bits.push(`${fmtClientUsd(p.price_vat)} ${t("commercialChargerPriceVat")}`);
-  }
-  return `${t("commercialChargerClientPrice")}: ${bits.join(", ")}`;
+  return `${t("commercialChargerInStock")}: ${fmtClientUsd(p.price_vat)} ${t("commercialChargerPriceVat")}`;
 }
 
 function ClientQuote({ p, t }) {
+  if (!hasClientQuote(p)) return null;
   return (
     <div className="cc-price-client">
-      <p className="cc-price-client__label">{t("commercialChargerClientPrice")}</p>
-      {p.price_cash != null ? (
-        <p className="cc-price-client__line">
-          <strong>{fmtClientUsd(p.price_cash)}</strong>{" "}
-          {t("commercialChargerPriceCash")}
-        </p>
-      ) : null}
-      {p.price_vat != null ? (
-        <p className="cc-price-client__line">
-          <strong>{fmtClientUsd(p.price_vat)}</strong>{" "}
+      <p className="cc-price-client__label">{t("commercialChargerInStock")}</p>
+      <p className="cc-price-client__line">
+        <strong>{fmtClientUsd(p.price_vat)}</strong>
+        <span className="cc-price-client__vat">
           {t("commercialChargerPriceVat")}
-        </p>
-      ) : null}
+        </span>
+      </p>
     </div>
   );
 }
@@ -836,14 +824,14 @@ export default function BuyCommercialChargerPage({ t, locale }) {
         if (b.sku === sku && a.sku !== sku) return 1;
       }
       const pa = toDisplayAmount(
-        a.price,
+        a.price_vat != null ? a.price_vat : a.price,
         a.currency,
         displayCurrency,
         eurUah,
         usdUah,
       );
       const pb = toDisplayAmount(
-        b.price,
+        b.price_vat != null ? b.price_vat : b.price,
         b.currency,
         displayCurrency,
         eurUah,
