@@ -6,7 +6,7 @@ import {
   CommercialMarketingSections,
   commercialLandingFaqJsonLd,
 } from "./CommercialChargerLanding";
-import { notifyOpenEmsSearchChange } from "./sharePageQr";
+import { copySharePageUrl, notifyOpenEmsSearchChange } from "./sharePageQr";
 import { OPEN_EMS_SITE_URL } from "./seoContent";
 import { useOpenEmsSeo } from "./useOpenEmsSeo";
 import ChargerCatalogSegmentBar from "./ChargerCatalogSegmentBar";
@@ -20,6 +20,7 @@ const DEFAULT_SORT = "price-asc";
 /** Random default when the URL has no brand= (Eltis, UGV, EDS, or Infi). */
 const DEFAULT_BRAND_POOL = ["eltis", "ugv", "eds", "infi"];
 const CATALOG_PATH = "/buy-commercial-charger";
+const COMPARE_LIMIT = 4;
 
 function pickDefaultBrand() {
   const i = Math.floor(Math.random() * DEFAULT_BRAND_POOL.length);
@@ -173,6 +174,35 @@ function toDisplayAmount(price, srcCurrency, displayCurrency, eurUah, usdUah) {
     return (amount * usdUah) / eurUah;
   }
   return amount;
+}
+
+function CatalogPrice({
+  p,
+  t,
+  locale,
+  displayCurrency,
+  eurUah,
+  usdUah,
+  className,
+}) {
+  if (hasClientQuote(p)) return <ClientQuote p={p} t={t} />;
+  return (
+    <p className={className}>
+      {p.price == null
+        ? t("commercialChargerPriceOnRequest")
+        : fmtMoney(
+            toDisplayAmount(
+              p.price,
+              p.currency,
+              displayCurrency,
+              eurUah,
+              usdUah,
+            ),
+            displayCurrency,
+            locale,
+          )}
+    </p>
+  );
 }
 
 function powerFilterLabel(id, t) {
@@ -379,6 +409,12 @@ function readCatalogFromUrl() {
     const out = {};
     const sku = (u.get("sku") || "").trim();
     if (sku) out.sku = sku;
+    const compare = u
+      .getAll("compare")
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .slice(0, COMPARE_LIMIT);
+    if (compare.length) out.compare = compare;
     const brand = (u.get("brand") || "").trim().toLowerCase();
     if (BRAND_IDS.includes(brand)) out.brand = brand;
     const power = (u.get("power") || "").trim();
@@ -411,6 +447,10 @@ function writeCatalogToUrl(state) {
       else u.searchParams.delete(key);
     };
     setOrDel("sku", state.sku);
+    u.searchParams.delete("compare");
+    (state.compare || []).forEach((item) => {
+      if (item) u.searchParams.append("compare", item);
+    });
     setOrDel("brand", state.brand);
     setOrDel("layout", state.layout);
     u.searchParams.delete("series");
@@ -572,6 +612,11 @@ export default function BuyCommercialChargerPage({ t, locale }) {
 
   const initialUrl = useMemo(() => readCatalogFromUrl(), []);
   const [sku, setSku] = useState(initialUrl.sku || "");
+  const [compareSkus, setCompareSkus] = useState(
+    () => initialUrl.compare || [],
+  );
+  const [compareCopied, setCompareCopied] = useState(false);
+  const [compareVisible, setCompareVisible] = useState(false);
   const [brand, setBrand] = useState(
     () => initialUrl.brand || (initialUrl.sku ? "" : pickDefaultBrand()),
   );
@@ -678,6 +723,7 @@ export default function BuyCommercialChargerPage({ t, locale }) {
   useEffect(() => {
     writeCatalogToUrl({
       sku,
+      compare: compareSkus,
       brand,
       layout,
       power,
@@ -687,7 +733,18 @@ export default function BuyCommercialChargerPage({ t, locale }) {
       manager,
       sort,
     });
-  }, [sku, brand, layout, power, cooling, warranty, downtime, manager, sort]);
+  }, [
+    sku,
+    compareSkus,
+    brand,
+    layout,
+    power,
+    cooling,
+    warranty,
+    downtime,
+    manager,
+    sort,
+  ]);
 
   useEffect(() => {
     if (layout === "station_dcdc" && brand && brand !== "infi") setBrand("");
@@ -797,11 +854,11 @@ export default function BuyCommercialChargerPage({ t, locale }) {
   ]);
 
   useEffect(() => {
-    if (!sku || loading) return;
+    if (!sku || loading || compareSkus.length) return;
     const el = document.getElementById("selected-charger") || findSkuCard(sku);
     if (!el) return;
     el.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [sku, loading, filtered.length]);
+  }, [sku, loading, filtered.length, compareSkus.length]);
 
   const clearFilters = () => {
     setSku("");
@@ -835,6 +892,44 @@ export default function BuyCommercialChargerPage({ t, locale }) {
     setSku((current) => (current === p.sku ? "" : p.sku));
   };
 
+  const toggleCompare = (p) => {
+    setCompareCopied(false);
+    setCompareSkus((current) => {
+      if (current.includes(p.sku)) return current.filter((item) => item !== p.sku);
+      if (current.length >= COMPARE_LIMIT) return current;
+      return [...current, p.sku];
+    });
+  };
+
+  const compared = compareSkus
+    .map((id) => products.find((item) => item.sku === id))
+    .filter(Boolean);
+  const compareShareUrl =
+    compareSkus.length && typeof window !== "undefined"
+      ? `${window.location.origin}${CATALOG_PATH}?${compareSkus
+          .map((item) => `compare=${encodeURIComponent(item)}`)
+          .join("&")}`
+      : "";
+
+  useEffect(() => {
+    const el = document.getElementById("charger-compare");
+    if (!el) {
+      setCompareVisible(false);
+      return undefined;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => setCompareVisible(entry.isIntersecting),
+      { threshold: 0.25 },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [compared.length]);
+
+  const copyComparisonLink = async () => {
+    if (!compareShareUrl) return;
+    setCompareCopied(await copySharePageUrl(compareShareUrl));
+  };
+
   const openBuyRequest = (p) => {
     setSku(p.sku);
     setBuyRequest({
@@ -863,6 +958,11 @@ export default function BuyCommercialChargerPage({ t, locale }) {
       pageUrl,
       productUrl: null,
     });
+  };
+
+  const goToComparison = () => {
+    const el = document.getElementById("charger-compare");
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const browseCatalog = () => {
@@ -1121,25 +1221,15 @@ export default function BuyCommercialChargerPage({ t, locale }) {
                 t={t}
                 className="cc-selected__meta"
               />
-              {hasClientQuote(selected) ? (
-                <ClientQuote p={selected} t={t} />
-              ) : (
-                <p className="cc-selected__price">
-                  {selected.price == null
-                    ? t("commercialChargerPriceOnRequest")
-                    : fmtMoney(
-                        toDisplayAmount(
-                          selected.price,
-                          selected.currency,
-                          displayCurrency,
-                          eurUah,
-                          usdUah,
-                        ),
-                        displayCurrency,
-                        locale,
-                      )}
-                </p>
-              )}
+              <CatalogPrice
+                p={selected}
+                t={t}
+                locale={locale}
+                displayCurrency={displayCurrency}
+                eurUah={eurUah}
+                usdUah={usdUah}
+                className="cc-selected__price"
+              />
               <p className="cc-selected__url">{shareUrl}</p>
               <div className="cc-selected__actions">
                 <button
@@ -1159,7 +1249,7 @@ export default function BuyCommercialChargerPage({ t, locale }) {
             <article
               key={p.id}
               data-charger-sku={p.sku}
-              className={`home-charger-card${p.sku === sku ? " home-charger-card--selected" : ""}`}
+              className={`home-charger-card${p.sku === sku ? " home-charger-card--selected" : ""}${compareSkus.includes(p.sku) ? " home-charger-card--compare" : ""}`}
               onClick={(event) => {
                 if (event.target.closest("button, a")) return;
                 selectCharger(p);
@@ -1186,25 +1276,122 @@ export default function BuyCommercialChargerPage({ t, locale }) {
                   className="home-charger-card__meta"
                 />
                 <div className="home-charger-card__footer">
-                  {hasClientQuote(p) ? (
-                    <ClientQuote p={p} t={t} />
-                  ) : (
-                    <p className="home-charger-card__price">
-                      {p.price == null
-                        ? t("commercialChargerPriceOnRequest")
-                        : fmtMoney(
-                            toDisplayAmount(
-                              p.price,
-                              p.currency,
-                              displayCurrency,
-                              eurUah,
-                              usdUah,
-                            ),
-                            displayCurrency,
-                            locale,
-                          )}
-                    </p>
-                  )}
+                  <CatalogPrice
+                    p={p}
+                    t={t}
+                    locale={locale}
+                    displayCurrency={displayCurrency}
+                    eurUah={eurUah}
+                    usdUah={usdUah}
+                    className="home-charger-card__price"
+                  />
+                  <div className="home-charger-card__actions">
+                    <button
+                      type="button"
+                      className={`home-charger-card__compare${
+                        compareSkus.includes(p.sku)
+                          ? " home-charger-card__compare--on"
+                          : ""
+                      }`}
+                      aria-pressed={compareSkus.includes(p.sku)}
+                      onClick={() => toggleCompare(p)}
+                    >
+                      {compareSkus.includes(p.sku)
+                        ? t("commercialChargerComparing")
+                        : t("commercialChargerCompare")}
+                    </button>
+                    <button
+                      type="button"
+                      className="home-charger-card__buy"
+                      onClick={() => openBuyRequest(p)}
+                    >
+                      {t("commercialChargerBuy")}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+
+        {compared.length && !compareVisible ? (
+          <button
+            type="button"
+            className="cc-compare-go"
+            onClick={goToComparison}
+          >
+            {t("commercialChargerCompareGo")}
+          </button>
+        ) : null}
+
+        {compared.length ? (
+          <section
+            id="charger-compare"
+            className="cc-compare"
+            aria-label={t("commercialChargerCompareAria")}
+          >
+            <div className="cc-compare__bar">
+              <h2 className="cc-compare__title">
+                {t("commercialChargerCompareTitle")}
+              </h2>
+              <div className="cc-compare__tools">
+                <button
+                  type="button"
+                  className="cc-compare__clear"
+                  onClick={() => {
+                    setCompareCopied(false);
+                    setCompareSkus([]);
+                  }}
+                >
+                  {t("commercialChargerCompareClear")}
+                </button>
+                <button
+                  type="button"
+                  className="cc-compare__share cc-compare__share--primary"
+                  onClick={() => void copyComparisonLink()}
+                >
+                  {compareCopied
+                    ? t("sharePageCopied")
+                    : t("commercialChargerCompareShare")}
+                </button>
+              </div>
+            </div>
+            <div
+              className="cc-compare__row"
+              style={{
+                gridTemplateColumns: `repeat(${compared.length}, minmax(0, 1fr))`,
+              }}
+            >
+              {compared.map((p) => (
+                <article key={p.sku} className="cc-compare__item">
+                  <button
+                    type="button"
+                    className="cc-compare__remove"
+                    onClick={() => toggleCompare(p)}
+                  >
+                    {t("commercialChargerCompareRemove")}
+                  </button>
+                  <div className="cc-compare__photo">
+                    {p.image ? (
+                      <img src={p.image} alt={p.title} />
+                    ) : (
+                      <div
+                        className="home-charger-card__placeholder"
+                        aria-hidden
+                      />
+                    )}
+                  </div>
+                  <h3 className="cc-compare__name">{p.title}</h3>
+                  <ChargerMeta p={p} t={t} className="cc-compare__meta" />
+                  <CatalogPrice
+                    p={p}
+                    t={t}
+                    locale={locale}
+                    displayCurrency={displayCurrency}
+                    eurUah={eurUah}
+                    usdUah={usdUah}
+                    className="cc-compare__price"
+                  />
                   <button
                     type="button"
                     className="home-charger-card__buy"
@@ -1212,11 +1399,11 @@ export default function BuyCommercialChargerPage({ t, locale }) {
                   >
                     {t("commercialChargerBuy")}
                   </button>
-                </div>
-              </div>
-            </article>
-          ))}
-        </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         {displayCurrency !== "EUR" ? (
           <p className="home-charger-fx">
