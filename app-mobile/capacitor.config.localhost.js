@@ -1,7 +1,7 @@
 /** @type {import('@capacitor/cli').CapacitorConfig} */
 const config = {
   appId: 'com.km220.openems.localhost',
-  appName: 'Open EMS (localhost)',
+  appName: '220 EMS (localhost)',
   webDir: 'www',
   server: {
     url: 'http://localhost:9220',

@@ -5,7 +5,7 @@ import KwhDisplay from './KwhDisplay';
  * Displays Day / Month / Year energy totals from Huawei FusionSolar.
  *
  * Two origins from `GET /api/huawei/station-energy`:
- * Open EMS integrates `huawei_power_sample`; Huawei Cloud is FusionSolar KPI
+ * 220 EMS integrates `huawei_power_sample`; Huawei Cloud is FusionSolar KPI
  * (cached, refreshed from the API when stale). Cloud starts expanded.
  *
  * Props:

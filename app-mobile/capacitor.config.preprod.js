@@ -1,7 +1,7 @@
 /** @type {import('@capacitor/cli').CapacitorConfig} */
 const config = {
   appId: 'com.km220.openems.preprod',
-  appName: 'Open EMS (preprod)',
+  appName: '220 EMS (preprod)',
   webDir: 'www',
   server: {
     url: 'https://220-km-preprod.com:9220',

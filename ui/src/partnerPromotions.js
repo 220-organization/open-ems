@@ -3,11 +3,11 @@ import { notifyOpenEmsSearchChange } from './sharePageQr';
 
 const staticBase = `${process.env.PUBLIC_URL || ''}/static/partners`;
 
-/** Hub carousel: simple Open EMS logo by default; partners rotate after click (3 s per slide). */
+/** Hub carousel: simple 220 EMS logo by default; partners rotate after click (3 s per slide). */
 export const HUB_PARTNER_PROMOTIONS = [
   {
     id: 'vyrii',
-    name: 'Open EMS',
+    name: '220 EMS',
     url: 'https://220-km.com',
     logoSrc: EMS_WORDMARK_SRC,
     hubLabelText: '220 EMS',

@@ -1,4 +1,4 @@
-/** Monobank redirectUrl target after marketplace payment (Open EMS /marketplace). */
+/** Monobank redirectUrl target after marketplace payment (220 EMS /marketplace). */
 export const MARKETPLACE_PAY_REDIRECT_BASE = (
   process.env.REACT_APP_MARKETPLACE_PAY_REDIRECT_URL || 'https://220-km.com:9220/marketplace'
 )

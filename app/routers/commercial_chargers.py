@@ -1,4 +1,4 @@
-"""Commercial DC EV chargers catalog — EDS, UGV, E-port, Infi Power, and Eltis."""
+"""Commercial DC EV chargers catalog — EDS, UGV, E-port, Infi Power, Eltis, and Grasen."""
 
 from __future__ import annotations
 
@@ -32,6 +32,8 @@ _UGV_CSV = Path(__file__).resolve().parents[1] / "data" / "ugv_commercial_charge
 _EPORT_CSV = Path(__file__).resolve().parents[1] / "data" / "eport_commercial_chargers.csv"
 _INFI_CSV = Path(__file__).resolve().parents[1] / "data" / "infi_commercial_chargers.csv"
 _ELTIS_CSV = Path(__file__).resolve().parents[1] / "data" / "eltis_commercial_chargers.csv"
+_GRASEN_CSV = Path(__file__).resolve().parents[1] / "data" / "grasen_commercial_chargers.csv"
+_GRASEN_STATION_URL = "https://220-km.com/startMany?ports=629%2C636"
 _CATALOG_URL = "https://eds-chargers.com/en/products/"
 _UGV_CATALOG_URL = "https://ugv.ua"
 _UGV_IMAGE = "/static/commercial-chargers/ugv-front.png"
@@ -138,6 +140,7 @@ _BRAND_ORDER = {
     "UGV Chargers": 2,
     "E-port": 3,
     "Infi Power": 4,
+    "Grasen": 5,
 }
 
 # Infi Power IDS via Grid Energy: 36-month warranty, shipment in 35 days.
@@ -860,10 +863,78 @@ def _load_infi_csv() -> str:
     return _INFI_CSV.read_text(encoding="utf-8-sig")
 
 
+def parse_grasen_csv(csv_text: str) -> dict[str, Any]:
+    """Parse the Grasen snapshot.
+
+    Client prices are USD: cash and a separate amount that includes VAT.
+    A blank pair means the SKU is quoted on request. ``price`` is the cash
+    amount so catalog sort uses the client cash quote.
+    """
+    reader = csv.DictReader(io.StringIO(csv_text or ""))
+    products: list[dict[str, Any]] = []
+    for row in reader:
+        sku = (row.get("sku") or "").strip()
+        if not sku:
+            continue
+        power_kw = _parse_number(row.get("power_kw"))
+        price_cash = _parse_number(row.get("price_usd_cash"))
+        price_vat = _parse_number(row.get("price_usd_vat"))
+        connectors = _eport_connectors(row.get("connectors") or "")
+        title = (row.get("title") or "").strip() or sku
+        link = (row.get("link") or "").strip() or _GRASEN_STATION_URL
+        series = (row.get("series") or "").strip() or "GSCS"
+        form = (row.get("form") or "single").strip() or "single"
+        ports_raw = (row.get("ports") or "").strip()
+        ports = ports_raw if ports_raw in _PORT_ORDER else None
+        image = (row.get("image") or "").strip()
+        family = f"GSCS{int(power_kw)}" if power_kw is not None else "GSCS"
+        products.append(
+            {
+                "id": sku,
+                "sku": sku,
+                "title": title,
+                "brand": "Grasen",
+                "series": series,
+                "family": family,
+                "form": form,
+                "config": (row.get("config") or "").strip(),
+                "power_kw": power_kw,
+                "power_bucket": _power_bucket(power_kw, series),
+                "connectors": connectors,
+                "ports": ports,
+                "cooling": None,
+                "warranty_years": None,
+                "warranty_downtime": None,
+                "dedicated_manager": None,
+                "lead_time": None,
+                "price": price_cash,
+                "price_cash": price_cash,
+                "price_vat": price_vat,
+                "currency": "USD",
+                "image": image,
+                "link": link,
+            }
+        )
+    products.sort(key=lambda p: (p["price"] is None, p["price"] or 0.0, p["title"]))
+    return {
+        "source": "grasen",
+        "count": len(products),
+        "products": products,
+        "notes": [],
+        "facets": _build_facets(products),
+    }
+
+
 def _load_eltis_csv() -> str:
     if not _ELTIS_CSV.is_file():
         raise FileNotFoundError(str(_ELTIS_CSV))
     return _ELTIS_CSV.read_text(encoding="utf-8-sig")
+
+
+def _load_grasen_csv() -> str:
+    if not _GRASEN_CSV.is_file():
+        raise FileNotFoundError(str(_GRASEN_CSV))
+    return _GRASEN_CSV.read_text(encoding="utf-8-sig")
 
 
 def _merge_catalog(*parts: dict[str, Any]) -> dict[str, Any]:
@@ -917,7 +988,7 @@ def eport_prices_to_usd(
 
 @router.get("")
 async def list_commercial_chargers(refresh: bool = False) -> dict[str, Any]:
-    """Return EDS, UGV, E-port, Infi Power, and Eltis commercial DC chargers."""
+    """Return EDS, UGV, E-port, Infi Power, Eltis, and Grasen commercial DC chargers."""
     ttl = max(60, int(settings.COMMERCIAL_CHARGERS_CACHE_TTL_SEC))
     now = time.time()
     if (
@@ -1011,8 +1082,25 @@ async def list_commercial_chargers(refresh: bool = False) -> dict[str, Any]:
             "facets": {},
         }
 
+    try:
+        grasen_payload = parse_grasen_csv(_load_grasen_csv())
+    except (OSError, csv.Error, ValueError) as exc:
+        logger.warning("Grasen commercial chargers snapshot missing/invalid: %s", exc)
+        grasen_payload = {
+            "source": "grasen",
+            "count": 0,
+            "products": [],
+            "notes": [],
+            "facets": {},
+        }
+
     payload = _merge_catalog(
-        eltis_payload, eds_payload, ugv_payload, eport_payload, infi_payload
+        eltis_payload,
+        eds_payload,
+        ugv_payload,
+        eport_payload,
+        infi_payload,
+        grasen_payload,
     )
     payload["cached"] = False
     payload["cache_ttl_sec"] = ttl

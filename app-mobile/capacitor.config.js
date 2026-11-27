@@ -4,7 +4,7 @@ const isIos = process.env.CAPACITOR_PLATFORM === 'ios';
 
 const config = {
   appId: 'com.km220.openems',
-  appName: 'Open EMS',
+  appName: '220 EMS',
   webDir: 'www',
   server: {
     url: 'https://220-km.com:9220',
