@@ -1,0 +1,3 @@
+sku,title,series,form,power_kw,ports,config,connectors,image,link,price_usd_cash,price_usd_vat
+GSCS240RY2-EG,Grasen GSCS240RY2-EG · 240 kW · CCS2 375 A + GB/T 300 A,GSCS,single,240,2dc,CCS2 375A + GB/T 300A,CCS2+GB/T,/static/commercial-chargers/grasen-gscs240.jpg,https://220-km.com/startMany?ports=629%2C636,21000,23000
+GSCS120-3041,Grasen 120 kW · CCS2 + GB/T,GSCS,single,120,2dc,2 DC,CCS2+GB/T,/static/commercial-chargers/grasen-120-3041.jpg,https://220-km.com/startMany?ports=3041%2C3042,13500,15400

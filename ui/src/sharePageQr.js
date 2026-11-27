@@ -36,6 +36,22 @@ export function pageShareUrlFromWindow(options = {}) {
   }
 }
 
+function copyWithSelection(url) {
+  const el = document.createElement('textarea');
+  el.value = url;
+  el.setAttribute('readonly', '');
+  el.style.position = 'fixed';
+  el.style.top = '0';
+  el.style.left = '0';
+  el.style.opacity = '0';
+  document.body.appendChild(el);
+  el.focus();
+  el.select();
+  const ok = document.execCommand('copy');
+  document.body.removeChild(el);
+  return ok;
+}
+
 /** Copy share URL to clipboard when available. */
 export async function copySharePageUrl(url) {
   try {
@@ -44,9 +60,13 @@ export async function copySharePageUrl(url) {
       return true;
     }
   } catch {
-    /* ignore */
+    /* fall through to a selection copy */
   }
-  return false;
+  try {
+    return copyWithSelection(url);
+  } catch {
+    return false;
+  }
 }
 
 /** URL + clipboard status for SharePageModal (header share btn and graph QR). */

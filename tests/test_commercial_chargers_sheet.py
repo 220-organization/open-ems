@@ -13,6 +13,7 @@ from app.routers.commercial_chargers import (
     parse_eds_price_csv,
     parse_eltis_csv,
     parse_eport_dc_csv,
+    parse_grasen_csv,
     parse_infi_csv,
     parse_ugv_csv,
 )
@@ -161,22 +162,55 @@ def test_build_facets_mixed_brands():
     infi = parse_infi_csv(infi_path.read_text(encoding="utf-8-sig"))
     eltis_path = Path(__file__).resolve().parents[1] / "app" / "data" / "eltis_commercial_chargers.csv"
     eltis = parse_eltis_csv(eltis_path.read_text(encoding="utf-8-sig"))
-    merged = _merge_catalog(eds, ugv, eport, infi, eltis)
+    grasen_path = Path(__file__).resolve().parents[1] / "app" / "data" / "grasen_commercial_chargers.csv"
+    grasen = parse_grasen_csv(grasen_path.read_text(encoding="utf-8-sig"))
+    merged = _merge_catalog(eds, ugv, eport, infi, eltis, grasen)
     facets = _build_facets(merged["products"])
-    assert facets["brands"] == ["EDS Chargers", "UGV Chargers", "E-port", "Infi Power", "Eltis"]
+    assert facets["brands"] == [
+        "Eltis",
+        "EDS Chargers",
+        "UGV Chargers",
+        "E-port",
+        "Infi Power",
+        "Grasen",
+    ]
     assert facets["layouts"] == ["station", "station_dcdc", "split", "split_dcdc"]
     assert facets["warranty_years"] == [1, 2, 3]
     assert "2dc" in facets["ports"]
     assert (
         merged["count"]
-        == eds["count"] + ugv["count"] + eport["count"] + infi["count"] + eltis["count"]
+        == eds["count"]
+        + ugv["count"]
+        + eport["count"]
+        + infi["count"]
+        + eltis["count"]
+        + grasen["count"]
     )
     assert any(p["brand"] == "UGV Chargers" for p in merged["products"])
     assert any(p["brand"] == "EDS Chargers" for p in merged["products"])
     assert any(p["brand"] == "E-port" for p in merged["products"])
     assert any(p["brand"] == "Infi Power" for p in merged["products"])
     assert any(p["brand"] == "Eltis" for p in merged["products"])
+    assert any(p["brand"] == "Grasen" for p in merged["products"])
     by_sku = {p["sku"]: p for p in merged["products"]}
+    assert by_sku["GSCS240RY2-EG"]["link"] == "https://220-km.com/startMany?ports=629%2C636"
+    assert by_sku["GSCS240RY2-EG"]["layout"] == "station"
+    assert by_sku["GSCS240RY2-EG"]["power_kw"] == 240.0
+    assert by_sku["GSCS240RY2-EG"]["ports"] == "2dc"
+    assert by_sku["GSCS240RY2-EG"]["connectors"] == ["CCS2", "GB/T"]
+    assert by_sku["GSCS240RY2-EG"]["price"] == 21000.0
+    assert by_sku["GSCS240RY2-EG"]["price_cash"] == 21000.0
+    assert by_sku["GSCS240RY2-EG"]["price_vat"] == 23000.0
+    assert by_sku["GSCS240RY2-EG"]["currency"] == "USD"
+    assert by_sku["GSCS120-3041"]["link"] == "https://220-km.com/startMany?ports=3041%2C3042"
+    assert by_sku["GSCS120-3041"]["layout"] == "station"
+    assert by_sku["GSCS120-3041"]["power_kw"] == 120.0
+    assert by_sku["GSCS120-3041"]["ports"] == "2dc"
+    assert by_sku["GSCS120-3041"]["connectors"] == ["CCS2", "GB/T"]
+    assert by_sku["GSCS120-3041"]["price"] == 13500.0
+    assert by_sku["GSCS120-3041"]["price_cash"] == 13500.0
+    assert by_sku["GSCS120-3041"]["price_vat"] == 15400.0
+    assert by_sku["GSCS120-3041"]["currency"] == "USD"
     assert by_sku["GRiD03205"]["layout"] == "station_dcdc"
     assert by_sku["ELT-DS-720-CG"]["layout"] == "split_dcdc"
     assert by_sku["ELT-SS-960-CG"]["layout"] == "station"

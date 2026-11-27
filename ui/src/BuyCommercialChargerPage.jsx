@@ -36,13 +36,14 @@ const LAYOUT_IDS = ["station", "station_dcdc", "split", "split_dcdc"];
 const WARRANTY_YEARS = ["1", "2", "3"];
 const DOWNTIME_IDS = ["48h", "5d", "10d"];
 const MANAGER_IDS = ["yes", "no"];
-const BRAND_IDS = ["eltis", "eds", "ugv", "eport", "infi"];
+const BRAND_IDS = ["eltis", "eds", "ugv", "eport", "infi", "grasen"];
 const BRAND_LABEL = {
   eds: "EDS Chargers",
   ugv: "UGV Chargers",
   eport: "E-port",
   infi: "Infi Power",
   eltis: "Eltis",
+  grasen: "Grasen",
 };
 
 function apiUrl(path) {
@@ -74,6 +75,49 @@ function writeStoredCurrency(currency) {
   } catch {
     /* ignore */
   }
+}
+
+function hasClientQuote(p) {
+  return p?.price_cash != null || p?.price_vat != null;
+}
+
+function fmtClientUsd(amount) {
+  const n = new Intl.NumberFormat("uk-UA", {
+    maximumFractionDigits: 0,
+  }).format(Number(amount));
+  return `${n} $`;
+}
+
+function clientQuoteText(p, t) {
+  if (!hasClientQuote(p)) return "";
+  const bits = [];
+  if (p.price_cash != null) {
+    bits.push(`${fmtClientUsd(p.price_cash)} ${t("commercialChargerPriceCash")}`);
+  }
+  if (p.price_vat != null) {
+    bits.push(`${fmtClientUsd(p.price_vat)} ${t("commercialChargerPriceVat")}`);
+  }
+  return `${t("commercialChargerClientPrice")}: ${bits.join(", ")}`;
+}
+
+function ClientQuote({ p, t }) {
+  return (
+    <div className="cc-price-client">
+      <p className="cc-price-client__label">{t("commercialChargerClientPrice")}</p>
+      {p.price_cash != null ? (
+        <p className="cc-price-client__line">
+          <strong>{fmtClientUsd(p.price_cash)}</strong>{" "}
+          {t("commercialChargerPriceCash")}
+        </p>
+      ) : null}
+      {p.price_vat != null ? (
+        <p className="cc-price-client__line">
+          <strong>{fmtClientUsd(p.price_vat)}</strong>{" "}
+          {t("commercialChargerPriceVat")}
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 function fmtMoney(amount, currency, locale) {
@@ -211,6 +255,7 @@ function brandFilterValue(item) {
   if (b.includes("eltis")) return "eltis";
   if (b.includes("ugv")) return "ugv";
   if (b.includes("e-port") || b.includes("eport")) return "eport";
+  if (b.includes("grasen")) return "grasen";
   if (b.includes("eds")) return "eds";
   return "";
 }
@@ -235,6 +280,88 @@ function productLayout(item) {
     return "split";
   }
   return "station";
+}
+
+function ChargerMeta({ p, t, className }) {
+  return (
+    <ul className={className}>
+      {p.brand ? (
+        <li>
+          {t("commercialChargerMetaBrand")}: <strong>{p.brand}</strong>
+        </li>
+      ) : null}
+      {p.power_kw != null ? (
+        <li>
+          {t("commercialChargerMetaPower")}: <strong>{p.power_kw} kW</strong>
+        </li>
+      ) : null}
+      {p.series && p.series !== "UGV" ? (
+        <li>
+          {t("commercialChargerMetaSeries")}:{" "}
+          <strong>{seriesLabel(p.series, t)}</strong>
+        </li>
+      ) : null}
+      {p.ports ? (
+        <li>
+          {t("commercialChargerMetaPorts")}:{" "}
+          <strong>{portsLabel(p.ports, t)}</strong>
+        </li>
+      ) : p.config ? (
+        <li>
+          {t("commercialChargerMetaConfig")}: <strong>{p.config}</strong>
+        </li>
+      ) : null}
+      {p.connectors?.length ? (
+        <li>
+          {t("commercialChargerMetaConnector")}:{" "}
+          <strong>{p.connectors.join(" / ")}</strong>
+        </li>
+      ) : null}
+      {String(p.link || "").includes("/start?station=") ||
+      String(p.link || "").includes("/startMany?ports=") ? (
+        <li>
+          <a
+            className="home-charger-card__live"
+            href={p.link}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {t("commercialChargerLiveStation")}
+          </a>
+        </li>
+      ) : null}
+      {p.cooling ? (
+        <li>
+          {t("commercialChargerMetaCooling")}:{" "}
+          <strong>{coolingLabel(p.cooling, t)}</strong>
+        </li>
+      ) : null}
+      {p.warranty_years ? (
+        <li>
+          {t("commercialChargerMetaWarranty")}:{" "}
+          <strong>{warrantyYearsLabel(p.warranty_years, t)}</strong>
+        </li>
+      ) : null}
+      {p.warranty_downtime ? (
+        <li title={t("commercialChargerDowntimeHint")}>
+          {t("commercialChargerMetaDowntime")}:{" "}
+          <strong>{downtimeLabel(p.warranty_downtime, t)}</strong>
+        </li>
+      ) : null}
+      {p.dedicated_manager != null ? (
+        <li>
+          {t("commercialChargerMetaManager")}:{" "}
+          <strong>{managerLabel(managerFilterValue(p), t)}</strong>
+        </li>
+      ) : null}
+      {p.lead_time ? (
+        <li>
+          {t("commercialChargerMetaLeadTime")}:{" "}
+          <strong>{leadTimeLabel(p.lead_time, t)}</strong>
+        </li>
+      ) : null}
+    </ul>
+  );
 }
 
 function layoutLabel(id, t) {
@@ -446,7 +573,7 @@ export default function BuyCommercialChargerPage({ t, locale }) {
   const initialUrl = useMemo(() => readCatalogFromUrl(), []);
   const [sku, setSku] = useState(initialUrl.sku || "");
   const [brand, setBrand] = useState(
-    () => initialUrl.brand || pickDefaultBrand(),
+    () => initialUrl.brand || (initialUrl.sku ? "" : pickDefaultBrand()),
   );
   const [layout, setLayout] = useState(initialUrl.layout || "");
   const [power, setPower] = useState(initialUrl.power || "");
@@ -456,6 +583,7 @@ export default function BuyCommercialChargerPage({ t, locale }) {
   const [manager, setManager] = useState(initialUrl.manager || "");
   const [sort, setSort] = useState(initialUrl.sort || DEFAULT_SORT);
   const skuHydrated = useRef(false);
+  const skuFromUrl = useRef(initialUrl.sku || "");
   const [displayCurrency, setDisplayCurrency] = useState(readStoredCurrency);
   const [eurUah, setEurUah] = useState(EUR_UAH_FALLBACK);
   const [usdUah, setUsdUah] = useState(USD_UAH_FALLBACK);
@@ -566,8 +694,8 @@ export default function BuyCommercialChargerPage({ t, locale }) {
   }, [layout, brand]);
 
   useEffect(() => {
-    if (skuHydrated.current || !sku || !products.length) return;
-    const p = products.find((x) => x.sku === sku);
+    if (skuHydrated.current || !skuFromUrl.current || !products.length) return;
+    const p = products.find((x) => x.sku === skuFromUrl.current);
     if (!p) return;
     skuHydrated.current = true;
     if (!brand && brandFilterValue(p)) setBrand(brandFilterValue(p));
@@ -670,7 +798,7 @@ export default function BuyCommercialChargerPage({ t, locale }) {
 
   useEffect(() => {
     if (!sku || loading) return;
-    const el = findSkuCard(sku);
+    const el = document.getElementById("selected-charger") || findSkuCard(sku);
     if (!el) return;
     el.scrollIntoView({ block: "center", behavior: "smooth" });
   }, [sku, loading, filtered.length]);
@@ -697,14 +825,25 @@ export default function BuyCommercialChargerPage({ t, locale }) {
     manager,
   );
 
+  const selected = products.find((p) => p.sku === sku) || null;
+  const shareUrl =
+    selected && typeof window !== "undefined"
+      ? `${window.location.origin}${CATALOG_PATH}?sku=${encodeURIComponent(selected.sku)}`
+      : "";
+
+  const selectCharger = (p) => {
+    setSku((current) => (current === p.sku ? "" : p.sku));
+  };
+
   const openBuyRequest = (p) => {
     setSku(p.sku);
     setBuyRequest({
       catalog: "commercial",
       title: p.title,
       sku: p.sku,
-      price:
-        p.price == null
+      price: hasClientQuote(p)
+        ? clientQuoteText(p, t)
+        : p.price == null
           ? t("commercialChargerPriceOnRequest")
           : fmtMoney(p.price, p.currency || "EUR", locale),
       pageUrl: catalogPageUrlFromLocation({ sku: p.sku }),
@@ -962,12 +1101,69 @@ export default function BuyCommercialChargerPage({ t, locale }) {
           <p className="home-charger-muted">{t("commercialChargerEmpty")}</p>
         ) : null}
 
+        {selected ? (
+          <section
+            id="selected-charger"
+            className="cc-selected"
+            aria-label={t("commercialChargerSelectedAria")}
+          >
+            <div className="cc-selected__photo">
+              {selected.image ? (
+                <img src={selected.image} alt={selected.title} />
+              ) : (
+                <div className="home-charger-card__placeholder" aria-hidden />
+              )}
+            </div>
+            <div className="cc-selected__body">
+              <h2 className="cc-selected__title">{selected.title}</h2>
+              <ChargerMeta
+                p={selected}
+                t={t}
+                className="cc-selected__meta"
+              />
+              {hasClientQuote(selected) ? (
+                <ClientQuote p={selected} t={t} />
+              ) : (
+                <p className="cc-selected__price">
+                  {selected.price == null
+                    ? t("commercialChargerPriceOnRequest")
+                    : fmtMoney(
+                        toDisplayAmount(
+                          selected.price,
+                          selected.currency,
+                          displayCurrency,
+                          eurUah,
+                          usdUah,
+                        ),
+                        displayCurrency,
+                        locale,
+                      )}
+                </p>
+              )}
+              <p className="cc-selected__url">{shareUrl}</p>
+              <div className="cc-selected__actions">
+                <button
+                  type="button"
+                  className="home-charger-card__buy"
+                  onClick={() => openBuyRequest(selected)}
+                >
+                  {t("commercialChargerBuy")}
+                </button>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
         <div className="home-charger-grid">
           {filtered.map((p) => (
             <article
               key={p.id}
               data-charger-sku={p.sku}
               className={`home-charger-card${p.sku === sku ? " home-charger-card--selected" : ""}`}
+              onClick={(event) => {
+                if (event.target.closest("button, a")) return;
+                selectCharger(p);
+              }}
             >
               <div
                 className={`home-charger-card__media${
@@ -984,89 +1180,31 @@ export default function BuyCommercialChargerPage({ t, locale }) {
               </div>
               <div className="home-charger-card__body">
                 <h2 className="home-charger-card__title">{p.title}</h2>
-                <ul className="home-charger-card__meta">
-                  {p.brand ? (
-                    <li>
-                      {t("commercialChargerMetaBrand")}:{" "}
-                      <strong>{p.brand}</strong>
-                    </li>
-                  ) : null}
-                  {p.power_kw != null ? (
-                    <li>
-                      {t("commercialChargerMetaPower")}:{" "}
-                      <strong>{p.power_kw} kW</strong>
-                    </li>
-                  ) : null}
-                  {p.series && p.series !== "UGV" ? (
-                    <li>
-                      {t("commercialChargerMetaSeries")}:{" "}
-                      <strong>{seriesLabel(p.series, t)}</strong>
-                    </li>
-                  ) : null}
-                  {p.ports ? (
-                    <li>
-                      {t("commercialChargerMetaPorts")}:{" "}
-                      <strong>{portsLabel(p.ports, t)}</strong>
-                    </li>
-                  ) : p.config ? (
-                    <li>
-                      {t("commercialChargerMetaConfig")}:{" "}
-                      <strong>{p.config}</strong>
-                    </li>
-                  ) : null}
-                  {p.connectors?.length ? (
-                    <li>
-                      {t("commercialChargerMetaConnector")}:{" "}
-                      <strong>{p.connectors.join(" / ")}</strong>
-                    </li>
-                  ) : null}
-                  {p.cooling ? (
-                    <li>
-                      {t("commercialChargerMetaCooling")}:{" "}
-                      <strong>{coolingLabel(p.cooling, t)}</strong>
-                    </li>
-                  ) : null}
-                  {p.warranty_years ? (
-                    <li>
-                      {t("commercialChargerMetaWarranty")}:{" "}
-                      <strong>{warrantyYearsLabel(p.warranty_years, t)}</strong>
-                    </li>
-                  ) : null}
-                  {p.warranty_downtime ? (
-                    <li title={t("commercialChargerDowntimeHint")}>
-                      {t("commercialChargerMetaDowntime")}:{" "}
-                      <strong>{downtimeLabel(p.warranty_downtime, t)}</strong>
-                    </li>
-                  ) : null}
-                  {p.dedicated_manager != null ? (
-                    <li>
-                      {t("commercialChargerMetaManager")}:{" "}
-                      <strong>{managerLabel(managerFilterValue(p), t)}</strong>
-                    </li>
-                  ) : null}
-                  {p.lead_time ? (
-                    <li>
-                      {t("commercialChargerMetaLeadTime")}:{" "}
-                      <strong>{leadTimeLabel(p.lead_time, t)}</strong>
-                    </li>
-                  ) : null}
-                </ul>
+                <ChargerMeta
+                  p={p}
+                  t={t}
+                  className="home-charger-card__meta"
+                />
                 <div className="home-charger-card__footer">
-                  <p className="home-charger-card__price">
-                    {p.price == null
-                      ? t("commercialChargerPriceOnRequest")
-                      : fmtMoney(
-                          toDisplayAmount(
-                            p.price,
-                            p.currency,
+                  {hasClientQuote(p) ? (
+                    <ClientQuote p={p} t={t} />
+                  ) : (
+                    <p className="home-charger-card__price">
+                      {p.price == null
+                        ? t("commercialChargerPriceOnRequest")
+                        : fmtMoney(
+                            toDisplayAmount(
+                              p.price,
+                              p.currency,
+                              displayCurrency,
+                              eurUah,
+                              usdUah,
+                            ),
                             displayCurrency,
-                            eurUah,
-                            usdUah,
-                          ),
-                          displayCurrency,
-                          locale,
-                        )}
-                  </p>
+                            locale,
+                          )}
+                    </p>
+                  )}
                   <button
                     type="button"
                     className="home-charger-card__buy"

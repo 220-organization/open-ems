@@ -1,5 +1,148 @@
 /* Commercial charger landing — 220-km.com pink palette on buy-home-charger tokens */
 
+.home-charger-card__live {
+  color: var(--pf-pink, #fc019b);
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.home-charger-card__live:hover {
+  text-decoration: underline;
+}
+
+.home-charger-card {
+  cursor: pointer;
+}
+
+.cc-selected {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(220px, 0.8fr);
+  gap: 16px;
+  margin: 0 0 16px;
+  padding: 12px;
+  border: 1px solid #fc019b;
+  border-radius: 16px;
+  background: #fff;
+  color: #1a1a1a;
+}
+
+.cc-selected__photo {
+  min-height: 280px;
+  max-height: 70vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.cc-selected__photo img {
+  width: 100%;
+  height: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+}
+
+.cc-selected__body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  justify-content: center;
+  min-width: 0;
+}
+
+.cc-selected__title {
+  margin: 0;
+  font-size: 1.25rem;
+  line-height: 1.3;
+}
+
+.cc-selected__meta {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.95rem;
+  color: #5c5c5c;
+}
+
+.cc-selected__meta strong {
+  color: #1a1a1a;
+  font-weight: 600;
+}
+
+.cc-selected__price {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #1a1a1a;
+}
+
+.cc-price-client {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cc-price-client__label,
+.cc-price-client__line {
+  margin: 0;
+  color: inherit;
+}
+
+.cc-price-client__label {
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.cc-price-client__line {
+  font-size: 0.95rem;
+  line-height: 1.3;
+}
+
+.cc-price-client__line strong {
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.cc-selected .cc-price-client__label {
+  color: #5c5c5c;
+}
+
+.cc-selected .cc-price-client__line {
+  color: #1a1a1a;
+}
+
+.cc-selected__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.cc-selected__url {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #111;
+  color: #f4f4f4;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  word-break: break-all;
+}
+
+
+@media (max-width: 720px) {
+  .cc-selected {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Business segment: pink brand (catalog chips already use #fc019b) */
 .home-charger-page .home-charger-seg__btn--active {
   border-color: var(--pf-pink, #fc019b);
