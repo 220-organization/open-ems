@@ -1255,6 +1255,8 @@
   "adminWeekPrev": "Previous week",
   "adminWeekNext": "Next week",
   "adminThisWeek": "This week",
+  "adminGoogleCalendar": "Google Calendar",
+  "adminGoogleCalendarHint": "Subscribe Google Calendar to admin bookings",
   "adminWeekAria": "Consultation week",
   "adminWeekEmpty": "No consultations this week",
   "adminNoSlot": "No time slot",

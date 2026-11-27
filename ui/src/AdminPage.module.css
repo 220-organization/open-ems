@@ -72,6 +72,12 @@
   border: 1px solid #b7c4bc;
 }
 
+a.logout {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
 .submit {
   background: #1f6b4a;
   color: #fff;

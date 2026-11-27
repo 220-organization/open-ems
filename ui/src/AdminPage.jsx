@@ -48,6 +48,7 @@ export default function AdminPage({ t, locale }) {
   const [requestedBuyCount, setRequestedBuyCount] = useState(0);
   const [consultationItems, setConsultationItems] = useState([]);
   const [buyItems, setBuyItems] = useState([]);
+  const [googleHref, setGoogleHref] = useState("");
   const [section, setSection] = useState("rdn");
   const [calendarTick, setCalendarTick] = useState(0);
 
@@ -98,6 +99,7 @@ export default function AdminPage({ t, locale }) {
       setRequestedBuyCount(0);
       setConsultationItems([]);
       setBuyItems([]);
+      setGoogleHref("");
       return undefined;
     }
     let cancelled = false;
@@ -107,7 +109,7 @@ export default function AdminPage({ t, locale }) {
       ).length;
     const loadPending = async () => {
       try {
-        const [marketRes, rdnRes, buyRes] = await Promise.all([
+        const [marketRes, rdnRes, buyRes, googleRes] = await Promise.all([
           fetch(`${apiBase()}/api/marketplace/locations/admin/pending-count`, {
             headers: { token },
           }),
@@ -116,6 +118,10 @@ export default function AdminPage({ t, locale }) {
             cache: "no-store",
           }),
           fetch(`${apiBase()}/api/sales-buy-request/admin`, {
+            headers: { token },
+            cache: "no-store",
+          }),
+          fetch(`${apiBase()}/api/admin/calendar/google`, {
             headers: { token },
             cache: "no-store",
           }),
@@ -143,6 +149,10 @@ export default function AdminPage({ t, locale }) {
             setBuyItems(items);
             setRequestedBuyCount(countRequested(items));
           }
+        }
+        if (googleRes.ok) {
+          const data = await googleRes.json();
+          if (!cancelled) setGoogleHref(data.google_url || "");
         }
       } catch {
         /* ignore */
@@ -267,6 +277,7 @@ export default function AdminPage({ t, locale }) {
                 items={calendarItems}
                 onSelect={onCalendarSelect}
                 metaLabel={calendarMetaLabel}
+                googleHref={googleHref}
               />
             </section>
             {section === "marketplace" ? (
