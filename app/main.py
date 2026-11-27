@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.models import Note
 from app.routers import (
+    admin_calendar,
     b2b_proxy,
     bess_order,
     home_chargers,
@@ -464,6 +465,7 @@ app.include_router(entsoe_dam.router)
 app.include_router(nbu_fx.router)
 app.include_router(server_metrics.router)
 app.include_router(power_flow_totals.router)
+app.include_router(admin_calendar.router)
 app.include_router(rdn_consultation.router)
 app.include_router(bess_order.router)
 app.include_router(home_chargers.router)

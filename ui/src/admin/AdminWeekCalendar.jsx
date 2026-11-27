@@ -24,6 +24,7 @@ export default function AdminWeekCalendar({
   items,
   onSelect,
   metaLabel,
+  googleHref,
 }) {
   const [weekStart, setWeekStart] = useState(() => mondayOnOrBefore(kyivTodayIso()));
   const todayIso = kyivTodayIso();
@@ -61,6 +62,17 @@ export default function AdminWeekCalendar({
             <button type="button" className={styles.logout} onClick={() => setWeekStart(thisWeekStart)}>
               {t("adminThisWeek")}
             </button>
+          ) : null}
+          {googleHref ? (
+            <a
+              className={styles.logout}
+              href={googleHref}
+              target="_blank"
+              rel="noreferrer"
+              title={t("adminGoogleCalendarHint")}
+            >
+              {t("adminGoogleCalendar")}
+            </a>
           ) : null}
         </div>
         <ul className={styles.calLegend} aria-label={t("adminCalLegendAria")}>

@@ -1256,6 +1256,8 @@
   "adminWeekPrev": "Попередній тиждень",
   "adminWeekNext": "Наступний тиждень",
   "adminThisWeek": "Цей тиждень",
+  "adminGoogleCalendar": "Google Calendar",
+  "adminGoogleCalendarHint": "Підписати Google Calendar на заявки адмінки",
   "adminWeekAria": "Календар заявок на тиждень",
   "adminWeekEmpty": "Цього тижня записів немає",
   "adminNoSlot": "Без слота",
