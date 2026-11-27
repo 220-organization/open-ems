@@ -415,8 +415,14 @@ function readCatalogFromUrl() {
       .filter(Boolean)
       .slice(0, COMPARE_LIMIT);
     if (compare.length) out.compare = compare;
-    const brand = (u.get("brand") || "").trim().toLowerCase();
-    if (BRAND_IDS.includes(brand)) out.brand = brand;
+    const brands = [];
+    u.getAll("brand").forEach((item) => {
+      item.split(",").forEach((part) => {
+        const id = part.trim().toLowerCase();
+        if (BRAND_IDS.includes(id) && !brands.includes(id)) brands.push(id);
+      });
+    });
+    if (brands.length) out.brands = brands;
     const power = (u.get("power") || "").trim();
     if (POWER_IDS.includes(power)) out.power = power;
     const layout = (u.get("layout") || "").trim();
@@ -451,7 +457,12 @@ function writeCatalogToUrl(state) {
     (state.compare || []).forEach((item) => {
       if (item) u.searchParams.append("compare", item);
     });
-    setOrDel("brand", state.brand);
+    u.searchParams.delete("brand");
+    BRAND_IDS.filter((id) => (state.brands || []).includes(id)).forEach(
+      (id) => {
+        u.searchParams.append("brand", id);
+      },
+    );
     setOrDel("layout", state.layout);
     u.searchParams.delete("series");
     setOrDel("power", state.power);
@@ -617,9 +628,11 @@ export default function BuyCommercialChargerPage({ t, locale }) {
   );
   const [compareCopied, setCompareCopied] = useState(false);
   const [compareVisible, setCompareVisible] = useState(false);
-  const [brand, setBrand] = useState(
-    () => initialUrl.brand || (initialUrl.sku ? "" : pickDefaultBrand()),
-  );
+  const [brands, setBrands] = useState(() => {
+    if (initialUrl.brands?.length) return initialUrl.brands;
+    if (initialUrl.sku) return [];
+    return [pickDefaultBrand()];
+  });
   const [layout, setLayout] = useState(initialUrl.layout || "");
   const [power, setPower] = useState(initialUrl.power || "");
   const [cooling, setCooling] = useState(initialUrl.cooling || "");
@@ -724,7 +737,7 @@ export default function BuyCommercialChargerPage({ t, locale }) {
     writeCatalogToUrl({
       sku,
       compare: compareSkus,
-      brand,
+      brands,
       layout,
       power,
       cooling,
@@ -736,7 +749,7 @@ export default function BuyCommercialChargerPage({ t, locale }) {
   }, [
     sku,
     compareSkus,
-    brand,
+    brands,
     layout,
     power,
     cooling,
@@ -747,15 +760,20 @@ export default function BuyCommercialChargerPage({ t, locale }) {
   ]);
 
   useEffect(() => {
-    if (layout === "station_dcdc" && brand && brand !== "infi") setBrand("");
-  }, [layout, brand]);
+    if (layout !== "station_dcdc") return;
+    setBrands((current) => {
+      const next = current.filter((id) => id === "infi");
+      return next.length === current.length ? current : next;
+    });
+  }, [layout]);
 
   useEffect(() => {
     if (skuHydrated.current || !skuFromUrl.current || !products.length) return;
     const p = products.find((x) => x.sku === skuFromUrl.current);
     if (!p) return;
     skuHydrated.current = true;
-    if (!brand && brandFilterValue(p)) setBrand(brandFilterValue(p));
+    if (!brands.length && brandFilterValue(p))
+      setBrands([brandFilterValue(p)]);
     if (!layout) setLayout(productLayout(p));
     if (!power && p.power_bucket) setPower(p.power_bucket);
     if (!cooling && p.cooling) setCooling(p.cooling);
@@ -765,7 +783,7 @@ export default function BuyCommercialChargerPage({ t, locale }) {
   }, [
     products,
     sku,
-    brand,
+    brands,
     layout,
     power,
     cooling,
@@ -781,7 +799,7 @@ export default function BuyCommercialChargerPage({ t, locale }) {
       setSku("");
       return;
     }
-    if (brand && brandFilterValue(p) !== brand) setSku("");
+    if (brands.length && !brands.includes(brandFilterValue(p))) setSku("");
     else if (layout && productLayout(p) !== layout) setSku("");
     else if (power && !meetsPowerFilter(p, power)) setSku("");
     else if (cooling && p.cooling !== cooling) setSku("");
@@ -790,7 +808,7 @@ export default function BuyCommercialChargerPage({ t, locale }) {
     else if (manager && managerFilterValue(p) !== manager) setSku("");
   }, [
     sku,
-    brand,
+    brands,
     layout,
     power,
     cooling,
@@ -802,7 +820,8 @@ export default function BuyCommercialChargerPage({ t, locale }) {
 
   const filtered = useMemo(() => {
     let list = products.slice();
-    if (brand) list = list.filter((p) => brandFilterValue(p) === brand);
+    if (brands.length)
+      list = list.filter((p) => brands.includes(brandFilterValue(p)));
     if (layout) list = list.filter((p) => productLayout(p) === layout);
     if (power) list = list.filter((p) => meetsPowerFilter(p, power));
     if (cooling) list = list.filter((p) => p.cooling === cooling);
@@ -839,7 +858,7 @@ export default function BuyCommercialChargerPage({ t, locale }) {
     return list;
   }, [
     products,
-    brand,
+    brands,
     layout,
     power,
     cooling,
@@ -862,7 +881,7 @@ export default function BuyCommercialChargerPage({ t, locale }) {
 
   const clearFilters = () => {
     setSku("");
-    setBrand("");
+    setBrands([]);
     setLayout("");
     setPower("");
     setCooling("");
@@ -873,7 +892,7 @@ export default function BuyCommercialChargerPage({ t, locale }) {
 
   const hasFilters = Boolean(
     sku ||
-    brand ||
+    brands.length ||
     layout ||
     power ||
     cooling ||
@@ -1000,7 +1019,7 @@ export default function BuyCommercialChargerPage({ t, locale }) {
               {t("commercialChargerFilterBrand")}
             </span>
             <div className="home-charger-chips">
-              <Chip active={!brand} onClick={() => setBrand("")}>
+              <Chip active={!brands.length} onClick={() => setBrands([])}>
                 {t("commercialChargerFilterAny")}
               </Chip>
               {Array.from(
@@ -1014,9 +1033,15 @@ export default function BuyCommercialChargerPage({ t, locale }) {
               ).map((id) => (
                 <Chip
                   key={id}
-                  active={brand === id}
+                  active={brands.includes(id)}
                   disabled={layout === "station_dcdc" && id !== "infi"}
-                  onClick={() => setBrand(brand === id ? "" : id)}
+                  onClick={() =>
+                    setBrands((current) =>
+                      current.includes(id)
+                        ? current.filter((item) => item !== id)
+                        : [...current, id],
+                    )
+                  }
                 >
                   {brandLabel(id)}
                 </Chip>
