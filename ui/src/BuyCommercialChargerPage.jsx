@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import ChargerBuyRequestModal from "./ChargerBuyRequestModal";
 import { catalogPageUrlFromLocation } from "./catalogPageUrl";
 import {
@@ -630,6 +630,8 @@ export default function BuyCommercialChargerPage({ t, locale }) {
   const [sort, setSort] = useState(initialUrl.sort || DEFAULT_SORT);
   const skuHydrated = useRef(false);
   const skuFromUrl = useRef(initialUrl.sku || "");
+  const belowCompareRef = useRef(null);
+  const belowCompareTop = useRef(null);
   const [displayCurrency, setDisplayCurrency] = useState(readStoredCurrency);
   const [eurUah, setEurUah] = useState(EUR_UAH_FALLBACK);
   const [usdUah, setUsdUah] = useState(USD_UAH_FALLBACK);
@@ -918,6 +920,19 @@ export default function BuyCommercialChargerPage({ t, locale }) {
           .join("&")}`
       : "";
 
+  useLayoutEffect(() => {
+    const marker = belowCompareRef.current;
+    if (!marker) return;
+    const top = marker.getBoundingClientRect().top + window.scrollY;
+    const previous = belowCompareTop.current;
+    if (previous != null && window.scrollY > 80) {
+      const delta = top - previous;
+      if (Math.abs(delta) > 1) window.scrollBy(0, delta);
+    }
+    belowCompareTop.current =
+      marker.getBoundingClientRect().top + window.scrollY;
+  }, [compared.length]);
+
   useEffect(() => {
     const el = document.getElementById("charger-compare");
     if (!el) {
@@ -981,6 +996,87 @@ export default function BuyCommercialChargerPage({ t, locale }) {
     <div className="home-charger-page">
       <div className="home-charger-page__inner">
         <ChargerCatalogSegmentBar t={t} active="business" />
+        {compared.length ? (
+          <section
+            id="charger-compare"
+            className="cc-compare"
+            aria-label={t("commercialChargerCompareAria")}
+          >
+            <div className="cc-compare__bar">
+              <h2 className="cc-compare__title">
+                {t("commercialChargerCompareTitle")}
+              </h2>
+              <div className="cc-compare__tools">
+                <button
+                  type="button"
+                  className="cc-compare__clear"
+                  onClick={() => {
+                    setCompareCopied(false);
+                    setCompareSkus([]);
+                  }}
+                >
+                  {t("commercialChargerCompareClear")}
+                </button>
+                <button
+                  type="button"
+                  className="cc-compare__share cc-compare__share--primary"
+                  onClick={() => void copyComparisonLink()}
+                >
+                  {compareCopied
+                    ? t("sharePageCopied")
+                    : t("commercialChargerCompareShare")}
+                </button>
+              </div>
+            </div>
+            <div
+              className="cc-compare__row"
+              style={{
+                gridTemplateColumns: `repeat(${compared.length}, minmax(0, 1fr))`,
+              }}
+            >
+              {compared.map((p) => (
+                <article key={p.sku} className="cc-compare__item">
+                  <button
+                    type="button"
+                    className="cc-compare__remove"
+                    onClick={() => toggleCompare(p)}
+                  >
+                    {t("commercialChargerCompareRemove")}
+                  </button>
+                  <div className="cc-compare__photo">
+                    {p.image ? (
+                      <img src={p.image} alt={p.title} />
+                    ) : (
+                      <div
+                        className="home-charger-card__placeholder"
+                        aria-hidden
+                      />
+                    )}
+                  </div>
+                  <h3 className="cc-compare__name">{p.title}</h3>
+                  <ChargerMeta p={p} t={t} className="cc-compare__meta" />
+                  <CatalogPrice
+                    p={p}
+                    t={t}
+                    locale={locale}
+                    displayCurrency={displayCurrency}
+                    eurUah={eurUah}
+                    usdUah={usdUah}
+                    className="cc-compare__price"
+                  />
+                  <button
+                    type="button"
+                    className="home-charger-card__buy"
+                    onClick={() => openBuyRequest(p)}
+                  >
+                    {t("commercialChargerBuy")}
+                  </button>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
+        <div ref={belowCompareRef} />
         <CommercialHero
           t={t}
           onBrowseCatalog={browseCatalog}
@@ -1335,87 +1431,6 @@ export default function BuyCommercialChargerPage({ t, locale }) {
           >
             {t("commercialChargerCompareGo")}
           </button>
-        ) : null}
-
-        {compared.length ? (
-          <section
-            id="charger-compare"
-            className="cc-compare"
-            aria-label={t("commercialChargerCompareAria")}
-          >
-            <div className="cc-compare__bar">
-              <h2 className="cc-compare__title">
-                {t("commercialChargerCompareTitle")}
-              </h2>
-              <div className="cc-compare__tools">
-                <button
-                  type="button"
-                  className="cc-compare__clear"
-                  onClick={() => {
-                    setCompareCopied(false);
-                    setCompareSkus([]);
-                  }}
-                >
-                  {t("commercialChargerCompareClear")}
-                </button>
-                <button
-                  type="button"
-                  className="cc-compare__share cc-compare__share--primary"
-                  onClick={() => void copyComparisonLink()}
-                >
-                  {compareCopied
-                    ? t("sharePageCopied")
-                    : t("commercialChargerCompareShare")}
-                </button>
-              </div>
-            </div>
-            <div
-              className="cc-compare__row"
-              style={{
-                gridTemplateColumns: `repeat(${compared.length}, minmax(0, 1fr))`,
-              }}
-            >
-              {compared.map((p) => (
-                <article key={p.sku} className="cc-compare__item">
-                  <button
-                    type="button"
-                    className="cc-compare__remove"
-                    onClick={() => toggleCompare(p)}
-                  >
-                    {t("commercialChargerCompareRemove")}
-                  </button>
-                  <div className="cc-compare__photo">
-                    {p.image ? (
-                      <img src={p.image} alt={p.title} />
-                    ) : (
-                      <div
-                        className="home-charger-card__placeholder"
-                        aria-hidden
-                      />
-                    )}
-                  </div>
-                  <h3 className="cc-compare__name">{p.title}</h3>
-                  <ChargerMeta p={p} t={t} className="cc-compare__meta" />
-                  <CatalogPrice
-                    p={p}
-                    t={t}
-                    locale={locale}
-                    displayCurrency={displayCurrency}
-                    eurUah={eurUah}
-                    usdUah={usdUah}
-                    className="cc-compare__price"
-                  />
-                  <button
-                    type="button"
-                    className="home-charger-card__buy"
-                    onClick={() => openBuyRequest(p)}
-                  >
-                    {t("commercialChargerBuy")}
-                  </button>
-                </article>
-              ))}
-            </div>
-          </section>
         ) : null}
 
         {displayCurrency !== "EUR" ? (
